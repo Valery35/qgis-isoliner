@@ -319,7 +319,9 @@ def _read_points(source, zfield, feedback=None):
         except (TypeError, ValueError):
             continue
         p = g.asPoint()
-        xs.append(p.x()); ys.append(p.y()); vs.append(v)
+        xs.append(p.x())
+        ys.append(p.y())
+        vs.append(v)
     if len(xs) < 2:
         raise QgsProcessingException(
             "Недостаточно валидных точек с числовым значением.")
@@ -338,7 +340,8 @@ def _read_points(source, zfield, feedback=None):
     key = np.round(np.column_stack([xs, ys]) / tol) * tol
     uniq, inv = np.unique(key, axis=0, return_inverse=True)
     if len(uniq) < len(xs):
-        sums = np.zeros(len(uniq)); cnts = np.zeros(len(uniq))
+        sums = np.zeros(len(uniq))
+        cnts = np.zeros(len(uniq))
         np.add.at(sums, inv, vs)
         np.add.at(cnts, inv, 1.0)
         vs = sums / cnts

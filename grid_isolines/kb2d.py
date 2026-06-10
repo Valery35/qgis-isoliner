@@ -115,7 +115,8 @@ def krige_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
         return float(vra[0])                 # ordinary, single sample
 
     # допустимый разброс оценки (защита от «разлёта» весов)
-    vmin = float(vra.min()); vmax = float(vra.max())
+    vmin = float(vra.min())
+    vmax = float(vra.max())
     span = (vmax - vmin) or (abs(vmax) + 1.0)
     lo, hi = vmin - 3.0 * span, vmax + 3.0 * span
     jitter = cbb * 1e-9                       # микро-регуляризация диагонали

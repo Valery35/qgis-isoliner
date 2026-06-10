@@ -20,7 +20,7 @@ import kb2d  # noqa: E402
 
 def _grid(xs, ys, vs, cell=10.0, ktype=1, nugget=0.0, rad=1e18):
     vg = kb2d.Variogram(nugget, [{"it": 1, "cc": 1.0, "aa": 15.0,
-                                   "ang": 0.0, "anis": 1.0}])
+                                  "ang": 0.0, "anis": 1.0}])
     xmin, ymin = float(xs.min()), float(ys.min())
     w, h = float(xs.max()) - xmin, float(ys.max()) - ymin
     nx = max(int(math.ceil(w / cell)), 1) + 1
@@ -31,7 +31,8 @@ def _grid(xs, ys, vs, cell=10.0, ktype=1, nugget=0.0, rad=1e18):
 
 def test_exact_reproduction_at_nodes():
     """Ординарный кригинг (наггет 0) точно воспроизводит значения в узлах."""
-    xs = np.array([0., 10., 0., 10.]); ys = np.array([0., 0., 10., 10.])
+    xs = np.array([0., 10., 0., 10.])
+    ys = np.array([0., 0., 10., 10.])
     vs = np.array([1., 2., 3., 4.])
     g = _grid(xs, ys, vs, cell=10.0)
     assert np.allclose(g, [[3., 4.], [1., 2.]], atol=1e-6), g
@@ -40,7 +41,8 @@ def test_exact_reproduction_at_nodes():
 def test_no_overshoot_on_smooth_field():
     """Оценка не выходит за диапазон данных на гладком наборе."""
     rng = np.random.default_rng(0)
-    xs = rng.uniform(0, 100, 60); ys = rng.uniform(0, 100, 60)
+    xs = rng.uniform(0, 100, 60)
+    ys = rng.uniform(0, 100, 60)
     vs = 0.05 * xs + 0.03 * ys
     g = _grid(xs, ys, vs, cell=5.0)
     v = g[g != -9999.0]
@@ -50,7 +52,9 @@ def test_no_overshoot_on_smooth_field():
 
 def test_nodata_when_too_far():
     """Если в радиусе поиска нет ни одной точки — узел остаётся nodata."""
-    xs = np.array([0., 1.]); ys = np.array([0., 1.]); vs = np.array([5., 6.])
+    xs = np.array([0., 1.])
+    ys = np.array([0., 1.])
+    vs = np.array([5., 6.])
     vg = kb2d.Variogram(0.0, [{"it": 1, "cc": 1.0, "aa": 5.0,
                                "ang": 0.0, "anis": 1.0}])
     # узел в (1000,1000), радиус поиска маленький -> нет соседей -> nodata
@@ -62,9 +66,12 @@ def test_nodata_when_too_far():
 def test_duplicate_points_are_handled():
     """Совпадающие точки усредняются заранее (в algorithms); движок не должен
     падать на близких точках и давать конечный результат."""
-    xs = np.array([0., 0., 20.]); ys = np.array([0., 0., 0.])
+    xs = np.array([0., 0., 20.])
+    ys = np.array([0., 0., 0.])
     vs = np.array([10., 20., 30.])  # дубль (0,0) усреднён до 15 вызывающим кодом
-    xs2 = np.array([0., 20.]); ys2 = np.array([0., 0.]); vs2 = np.array([15., 30.])
+    xs2 = np.array([0., 20.])
+    ys2 = np.array([0., 0.])
+    vs2 = np.array([15., 30.])
     g = _grid(xs2, ys2, vs2, cell=10.0)
     assert np.isfinite(g[g != -9999.0]).all()
 
