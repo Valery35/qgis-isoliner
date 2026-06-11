@@ -1,20 +1,36 @@
 [general]
-name=Isoliner — грид и изолинии
+name=Isoliner - грид и изолинии
 qgisMinimumVersion=3.16
-about=A group of Processing algorithms: 2D Kriging (points to raster) and Isolines from raster (lines and contour polygons whose boundaries coincide with the isolines). Suitable for stratum elevations, thicknesses, petrophysical properties, geochemistry, and any numeric attribute. A port of the Isoliner tool (ArcGIS) to QGIS. Developed with the support of Informpp LLC (https://www.informpp.ru).
-version=0.6.5
+description=Кригинг 2D (GSLIB KB2D) и построение изолиний/контурных полигонов в QGIS.
+about=Группа команд Processing: 2D Kriging (точки в растр) и Изолинии из растра (линии и контурные полигоны, границы которых совпадают с изолиниями). Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Порт инструмента Isoliner (ArcGIS) в QGIS. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
+version=1.0.0
 author=ООО «Информ++»
-email=xbbster@gmail.com
+email=info@informpp.ru
 homepage=https://github.com/Valery35/qgis-isoliner
 tracker=https://github.com/Valery35/qgis-isoliner/issues
 repository=https://github.com/Valery35/qgis-isoliner
 tags=kriging,interpolation,contour,isolines,contours,geology,gslib,raster,interpolation
 category=Analysis
 icon=icon.svg
-experimental=True
+experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=0.6.5
+changelog=1.0.0
+    - Первый стабильный релиз (снят флаг experimental).
+    - Сводно с 0.6.x-0.7.x: стандартная ошибка кригинга; отсев/срезка
+      ураганных проб; журнал пропусков; руководство (PDF) и кнопка «Справка»;
+      слой изолиний над полигонами; исправлена степенная модель; smoke-тесты.
+    0.7.2
+    - Отсев/срезка ураганных проб в 2D Kriging: границы значения Z по
+      абсолюту (мин/макс) или перцентилю; режимы «удалить» и «срезать»
+      (capping). В «Дополнительно».
+    0.7.1
+    - В журнал выводится число точек, пропущенных без значения поля
+      (точки с пустым/нечисловым Z в кригинг не попадают - это уже так).
+    0.7.0
+    - 2D Kriging: необязательный выход «Стандартная ошибка кригинга»
+      (sqrt дисперсии ошибки) - карта неопределённости оценки.
+    0.6.5
     - Метаданные для публикации в репозитории QGIS (ссылки на GitHub).
     0.6.4
     - Обновлено руководство; оглавление в PDF пересчитывается автоматически.
@@ -22,14 +38,14 @@ changelog=0.6.5
     - Исправлена степенная модель вариограммы: «радиус a» трактуется как
       показатель ω (0<ω<2), авто=max/3 к ней больше не применяется.
     - Предупреждения (pushWarning) для сомнительных параметров вариограммы.
-    - Слияние совпадающих точек — относительно охвата (корректно для любых CRS).
+    - Слияние совпадающих точек - относительно охвата (корректно для любых CRS).
     - Добавлен smoke-тест движка kb2d (tests/).
     0.6.2
     - Обновлён текст руководства пользователя (PDF).
     0.6.1
     - ИСПРАВЛЕНО: слой изолиний мог не появляться из-за переупорядочивания
       слоёв. Теперь переставляется только слой полигонов (под линии),
-      отложенно и безопасно — узел линий не трогается.
+      отложенно и безопасно - узел линий не трогается.
     0.6.0
     - Руководство пользователя (PDF) в комплекте; кнопка «Справка» в обоих
       инструментах открывает его. Слой изолиний теперь над полигонами.
@@ -37,7 +53,7 @@ changelog=0.6.5
     - Документация: заметка про обновление и перезагрузку без перезапуска
       QGIS (в т.ч. через Plugin Reloader).
     0.5.2
-    - Вернул лёгкое скругление линий (Chaikin) поверх сглаженного поля —
+    - Вернул лёгкое скругление линий (Chaikin) поверх сглаженного поля -
       убирает «октагоны» от грубого грида, пересечений не создаёт.
       Отдельный параметр «Скругление линий, итераций».
     0.5.1
@@ -50,10 +66,10 @@ changelog=0.6.5
     - Иконка плагина; чистка кода; расширенный README.
     0.4.4
     - Обрезка по контуру скважин без native:minimumboundinggeometry
-      (dissolve + convexhull) — работает в QGIS 3.40.
+      (dissolve + convexhull) - работает в QGIS 3.40.
     0.4.3
     - Линии и пояса из одного набора линий; границы совпадают и по краям;
       нодирование через splitwithlines.
     0.4.2
     - Переименование в Isoliner; полигоны = пояса между изолиниями (без дыр,
-      без «ступенек»), диапазон пояса — выборкой растра.
+      без «ступенек»), диапазон пояса - выборкой растра.

@@ -1,27 +1,27 @@
 # -*- coding: utf-8 -*-
 #
-# Isoliner — грид и изолинии (QGIS).
+# Isoliner - грид и изолинии (QGIS).
 # © 2026 ООО «Информ++» (www.informpp.ru).
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
 # Это свободная программа: вы можете распространять её и/или изменять на
 # условиях Стандартной общественной лицензии GNU (GNU GPL), опубликованной
-# Фондом свободного ПО (FSF), — либо версии 2 Лицензии, либо (на ваше
+# Фондом свободного ПО (FSF), - либо версии 2 Лицензии, либо (на ваше
 # усмотрение) любой более поздней версии.
 #
 # Программа распространяется в надежде на полезность, но БЕЗ КАКИХ-ЛИБО
 # ГАРАНТИЙ, в том числе без подразумеваемой гарантии ТОВАРНОГО СОСТОЯНИЯ или
 # ПРИГОДНОСТИ ДЛЯ ОПРЕДЕЛЁННОЙ ЦЕЛИ. Подробнее см. GNU GPL.
 #
-# Полный текст лицензии — в файле LICENSE (на английском, юридически значим).
+# Полный текст лицензии - в файле LICENSE (на английском, юридически значим).
 """
 Группа команд «Грид и изолинии» (порт инструмента Isoliner в QGIS).
 
 Алгоритмы:
-  Kriging2DAlgorithm        — точки → растр (ординарный/простой кригинг, KB2D)
-  RasterToIsolinesAlgorithm — растр → изолинии (линии) и опционально полигоны
+  Kriging2DAlgorithm        - точки → растр (ординарный/простой кригинг, KB2D)
+  RasterToIsolinesAlgorithm - растр → изолинии (линии) и опционально полигоны
 
-Вариограмма — нуггет + до NSTRUCT вложенных структур (как в исходном Isoliner, AddPar).
+Вариограмма - нуггет + до NSTRUCT вложенных структур (как в исходном Isoliner, AddPar).
 Структура с вкладом (порогом) <= 0 не учитывается (кроме первой).
 """
 import math
@@ -56,7 +56,7 @@ from qgis.core import (
     QgsProcessingParameterDefinition,
 )
 
-from .kb2d import Variogram, build_grid, EPS
+from .kb2d import Variogram, build_grid, clip_outliers, EPS
 from .isolines import (
     isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD)
 
@@ -68,7 +68,7 @@ KTYPE_LABELS = ["Ординарный (OK)", "Простой (SK)"]
 
 NSTRUCT = 3  # макс. число вложенных структур вариограммы
 
-CREDIT = ("\n\n— — —\nРазработано при поддержке ООО «Информ++» "
+CREDIT = ("\n\n- - -\nРазработано при поддержке ООО «Информ++» "
           "(www.informpp.ru).")
 
 
@@ -106,7 +106,7 @@ _KEEP_ALIVE = []
 
 class _OrderState:
     """Помещает слой полигонов прямо ПОД слоем линий, когда оба загружены.
-    Двигается только слой полигонов — узел линий не трогаем никогда, поэтому
+    Двигается только слой полигонов - узел линий не трогаем никогда, поэтому
     слой изолиний не может пропасть. Идемпотентно."""
     def __init__(self):
         self.lines_id = None
@@ -147,7 +147,7 @@ class _RolePostProcessor(QgsProcessingLayerPostProcessorInterface):
 
     def postProcessLayer(self, layer, context, feedback):
         # только запоминаем id и откладываем перестановку на после загрузки
-        # всех слоёв (через очередь событий) — так дерево стабильно
+        # всех слоёв (через очередь событий) - так дерево стабильно
         try:
             if self.role == "lines":
                 self.state.lines_id = layer.id()
@@ -181,7 +181,7 @@ def _help_url():
 
 
 # --- запоминание введённых значений (в сессии и между запусками) ----------
-# не запоминаем источники данных и выходы; ZFIELD (поле Z) запоминаем — удобно
+# не запоминаем источники данных и выходы; ZFIELD (поле Z) запоминаем - удобно
 # при повторных запусках по тому же слою (если поля нет в новом слое, QGIS его
 # просто не подставит)
 _PERSIST_DENY = {"INPUT", "OUTPUT", "OUTPUT_POLYGONS", "EXTENT", "MASK"}
@@ -219,14 +219,14 @@ def _sk(i, suffix):
 
 
 # ---------------------------------------------------------------------------
-#  Параметры вариограммы/поиска — общий набор для кригинга
+#  Параметры вариограммы/поиска - общий набор для кригинга
 # ---------------------------------------------------------------------------
 def _add_kriging_params(alg):
     alg.addParameter(QgsProcessingParameterEnum(
         alg.KTYPE, _tr("Тип кригинга"), options=KTYPE_LABELS,
         defaultValue=_dv(alg, alg.KTYPE, 0)))
 
-    # поиск и сетка — основные параметры
+    # поиск и сетка - основные параметры
     alg.addParameter(QgsProcessingParameterNumber(
         alg.RADIUS, _tr("Радиус поиска (0 = вся выборка)"),
         QgsProcessingParameterNumber.Double,
@@ -244,7 +244,7 @@ def _add_kriging_params(alg):
         alg.CELL_SIZE, _tr("Размер ячейки (0 = авто, min(охват)/50)"),
         QgsProcessingParameterNumber.Double,
         defaultValue=_dv(alg, alg.CELL_SIZE, 0.0), minValue=0.0)
-    try:  # живой показ размера грида; на QGIS 4 (без старого API) — обычное поле
+    try:  # живой показ размера грида; на QGIS 4 (без старого API) - обычное поле
         from .widgets import CellSizeWrapper, WRAPPER_AVAILABLE
         if WRAPPER_AVAILABLE:
             cs.setMetadata({"widget_wrapper": {"class": CellSizeWrapper}})
@@ -253,10 +253,10 @@ def _add_kriging_params(alg):
     alg.addParameter(cs)
 
     alg.addParameter(QgsProcessingParameterExtent(
-        alg.EXTENT, _tr("Охват растра (по умолчанию — по слою)"),
+        alg.EXTENT, _tr("Охват растра (по умолчанию - по слою)"),
         optional=True))
 
-    # обрезка экстраполяции — опция
+    # обрезка экстраполяции - опция
     alg.addParameter(QgsProcessingParameterBoolean(
         alg.CLIP_HULL, _tr("Обрезать по контуру скважин (выпуклая оболочка)"),
         defaultValue=_dv(alg, alg.CLIP_HULL, False)))
@@ -265,10 +265,25 @@ def _add_kriging_params(alg):
         QgsProcessingParameterNumber.Double,
         defaultValue=_dv(alg, alg.HULL_BUFFER, 0.0), minValue=0.0))
     alg.addParameter(QgsProcessingParameterVectorLayer(
-        alg.MASK, _tr("Маска обрезки (полигон из проекта) — приоритетнее оболочки"),
+        alg.MASK, _tr("Маска обрезки (полигон из проекта) - приоритетнее оболочки"),
         types=[QgsProcessing.TypeVectorPolygon], optional=True))
 
-    # вариограмма — дополнительные параметры
+    # отсев/срезка ураганных проб (по значению Z) - дополнительные
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.VAL_PCT, _tr("Ураганные пробы: перцентиль обрезки, % (0 = выкл.)"),
+        QgsProcessingParameterNumber.Double,
+        defaultValue=_dv(alg, alg.VAL_PCT, 0.0), minValue=0.0, maxValue=49.0)))
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.VAL_MIN, _tr("Нижняя граница значения (пусто = нет)"),
+        QgsProcessingParameterNumber.Double, optional=True)))
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.VAL_MAX, _tr("Верхняя граница значения (пусто = нет)"),
+        QgsProcessingParameterNumber.Double, optional=True)))
+    alg.addParameter(_advanced(QgsProcessingParameterBoolean(
+        alg.VAL_CAP, _tr("Срезать к границе (capping) вместо удаления"),
+        defaultValue=_dv(alg, alg.VAL_CAP, False))))
+
+    # вариограмма - дополнительные параметры
     alg.addParameter(_advanced(QgsProcessingParameterNumber(
         alg.SKMEAN, _tr("Среднее для простого кригинга"),
         QgsProcessingParameterNumber.Double,
@@ -278,7 +293,7 @@ def _add_kriging_params(alg):
         QgsProcessingParameterNumber.Double,
         defaultValue=_dv(alg, alg.NUGGET, 0.0), minValue=0.0)))
 
-    # структуры вариограммы (все — дополнительные)
+    # структуры вариограммы (все - дополнительные)
     for i in range(1, NSTRUCT + 1):
         tag = _tr("Структура %d") % i
         default_sill = 1.0 if i == 1 else 0.0
@@ -304,24 +319,34 @@ def _add_kriging_params(alg):
             defaultValue=_dv(alg, _sk(i, "ANIS"), 1.0), minValue=EPS)))
 
 
-def _read_points(source, zfield, feedback=None):
+def _read_points(source, zfield, feedback=None,
+                 vmin=None, vmax=None, pct=0.0, cap=False):
     idx = source.fields().lookupField(zfield)
     xs, ys, vs = [], [], []
+    skipped_geom = 0
+    skipped_value = 0
     for f in source.getFeatures():
         g = f.geometry()
         if g is None or g.isEmpty():
+            skipped_geom += 1
             continue
         v = f[idx]
         if v is None:
+            skipped_value += 1
             continue
         try:
             v = float(v)
         except (TypeError, ValueError):
+            skipped_value += 1
             continue
         p = g.asPoint()
-        xs.append(p.x())
-        ys.append(p.y())
-        vs.append(v)
+        xs.append(p.x()); ys.append(p.y()); vs.append(v)
+    if feedback is not None and (skipped_value or skipped_geom):
+        feedback.pushInfo(
+            "Пропущено точек: %d без значения «%s»%s. Прочитано: %d." %
+            (skipped_value, zfield,
+             (" и %d без геометрии" % skipped_geom) if skipped_geom else "",
+             len(xs)))
     if len(xs) < 2:
         raise QgsProcessingException(
             "Недостаточно валидных точек с числовым значением.")
@@ -330,9 +355,30 @@ def _read_points(source, zfield, feedback=None):
     ys = np.asarray(ys, float)
     vs = np.asarray(vs, float)
 
+    # отсев/срезка ураганных проб (до усреднения совпадающих точек)
+    out, keep, lo, hi = clip_outliers(vs, vmin, vmax, pct, cap)
+    if not (lo == float("-inf") and hi == float("inf")):
+        if cap:
+            nch = int(np.count_nonzero(out != vs))
+            xs, ys, vs = xs, ys, out
+            if feedback is not None:
+                feedback.pushInfo(
+                    "Ураганные пробы: срезано %d значений к [%.4g; %.4g]." %
+                    (nch, lo, hi))
+        else:
+            ncut = int(np.count_nonzero(~keep))
+            xs, ys, vs = xs[keep], ys[keep], vs[keep]
+            if feedback is not None:
+                feedback.pushInfo(
+                    "Ураганные пробы: удалено %d точек вне [%.4g; %.4g]; "
+                    "осталось %d." % (ncut, lo, hi, len(xs)))
+        if len(xs) < 2:
+            raise QgsProcessingException(
+                "После отсева ураганных проб осталось < 2 точек.")
+
     # схлопывание совпадающих точек (один XY = несколько проб) -> среднее Z.
     # без этого матрица кригинга вырождается: дыры NoData и «разлёт» ±1e15.
-    # допуск задаём относительно охвата (а не фиксированными мм/градусами) —
+    # допуск задаём относительно охвата (а не фиксированными мм/градусами) -
     # так сливаются только практически совпадающие точки в любой системе
     # координат (метры/градусы/футы), без риска «склеить» разные скважины
     span = max(float(xs.max() - xs.min()), float(ys.max() - ys.min()), 1e-9)
@@ -340,8 +386,7 @@ def _read_points(source, zfield, feedback=None):
     key = np.round(np.column_stack([xs, ys]) / tol) * tol
     uniq, inv = np.unique(key, axis=0, return_inverse=True)
     if len(uniq) < len(xs):
-        sums = np.zeros(len(uniq))
-        cnts = np.zeros(len(uniq))
+        sums = np.zeros(len(uniq)); cnts = np.zeros(len(uniq))
         np.add.at(sums, inv, vs)
         np.add.at(cnts, inv, 1.0)
         vs = sums / cnts
@@ -369,19 +414,19 @@ def _build_variogram(alg, parameters, context, nugget, auto_range, feedback=None
         model = alg.parameterAsEnum(parameters, _sk(i, "MODEL"), context) + 1
         rng = alg.parameterAsDouble(parameters, _sk(i, "RANGE"), context)
         if model == POWER:
-            # для степенной модели «радиус a» — это показатель степени ω
+            # для степенной модели «радиус a» - это показатель степени ω
             # (0<ω<2), а НЕ радиус: авто = max(охват)/3 здесь даст переполнение
             if rng <= 0:
                 rng = 1.0
                 if feedback:
                     feedback.pushWarning(
-                        "Структура %d: степенная модель — поле «радиус a» это "
+                        "Структура %d: степенная модель - поле «радиус a» это "
                         "показатель ω (0<ω<2), а не радиус; задан 0, взят ω=1." % i)
             elif not (0.0 < rng < 2.0):
                 if feedback:
                     feedback.pushWarning(
                         "Структура %d: показатель степенной модели ω=%.3g вне "
-                        "(0; 2) — приведён к диапазону." % (i, rng))
+                        "(0; 2) - приведён к диапазону." % (i, rng))
                 rng = min(max(rng, 0.05), 1.999)
         elif rng <= 0:
             rng = auto_range
@@ -390,7 +435,7 @@ def _build_variogram(alg, parameters, context, nugget, auto_range, feedback=None
         sill_total += max(sill, 0.0)
         structures.append({"it": model, "cc": max(sill, 0.0),
                            "aa": rng, "ang": az, "anis": anis})
-    if not structures:  # первая структура с нулевым порогом — оставим как чистый эффект
+    if not structures:  # первая структура с нулевым порогом - оставим как чистый эффект
         structures.append({"it": 1, "cc": 0.0, "aa": auto_range,
                            "ang": 0.0, "anis": 1.0})
     if feedback and nugget > 0 and sill_total <= 0:
@@ -401,10 +446,13 @@ def _build_variogram(alg, parameters, context, nugget, auto_range, feedback=None
 
 
 def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
-                         out_path, mask_layer=None):
-    """Считывает параметры кригинга, строит грид, пишет GeoTIFF. -> (path, nodata).
+                         out_path, mask_layer=None, stderr_path=None):
+    """Считывает параметры кригинга, строит грид, пишет GeoTIFF.
+    -> (path, nodata, stderr_path|None).
 
-    mask_layer (опц.) — полигональный слой/путь для обрезки экстраполяции.
+    mask_layer (опц.) - полигональный слой/путь для обрезки экстраполяции.
+    stderr_path (опц.) - если задан, дополнительно пишется растр стандартной
+    ошибки кригинга (sqrt дисперсии) с той же обрезкой.
     """
     ktype = 1 if alg.parameterAsEnum(parameters, alg.KTYPE, context) == 0 else 0
     skmean = alg.parameterAsDouble(parameters, alg.SKMEAN, context)
@@ -414,7 +462,18 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
     ndmax = alg.parameterAsInt(parameters, alg.MAX_POINTS, context)
     cell = alg.parameterAsDouble(parameters, alg.CELL_SIZE, context)
 
-    xd, yd, vrd = _read_points(source, zfield, feedback)
+    def _opt(name):
+        v = parameters.get(name, None)
+        if v is None or v == "":
+            return None
+        return alg.parameterAsDouble(parameters, name, context)
+    pct = alg.parameterAsDouble(parameters, alg.VAL_PCT, context)
+    vmin = _opt(alg.VAL_MIN)
+    vmax = _opt(alg.VAL_MAX)
+    cap = alg.parameterAsBool(parameters, alg.VAL_CAP, context)
+
+    xd, yd, vrd = _read_points(source, zfield, feedback,
+                               vmin=vmin, vmax=vmax, pct=pct, cap=cap)
 
     ext = alg.parameterAsExtent(parameters, alg.EXTENT, context)
     if ext is None or ext.isEmpty():
@@ -436,6 +495,7 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
 
     vg = _build_variogram(alg, parameters, context, nugget, auto_range, feedback)
     nodata = -9999.0
+    want_se = stderr_path is not None
     feedback.pushInfo("Сетка %d x %d, ячейка %.4g, точек %d, структур %d" %
                       (nx, ny, cell, len(xd), vg.nst))
 
@@ -444,44 +504,49 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
             raise QgsProcessingException("Прервано пользователем.")
         feedback.setProgress(int(80.0 * done / total))
 
-    grid = build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
-                      rad2, nodata, xmn, ymn, cell, nx, ny, progress=prog)
+    res = build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
+                     rad2, nodata, xmn, ymn, cell, nx, ny, progress=prog,
+                     with_variance=want_se)
+    grid, segrid = res if want_se else (res, None)
 
-    # путь записи: при обрезке пишем во временный, затем клипуем в out_path
-    write_path = out_path
-    if mask_layer is not None:
-        write_path = os.path.join(QgsProcessingUtils.tempFolder(),
-                                  "krig_%s.tif" % uuid.uuid4().hex)
-
-    driver = gdal.GetDriverByName("GTiff")
-    ds = driver.Create(write_path, nx, ny, 1, gdal.GDT_Float32,
-                       options=["COMPRESS=LZW", "TILED=YES"])
-    ds.SetGeoTransform((xmin, cell, 0.0, ymin + ny * cell, 0.0, -cell))
     crs = source.sourceCrs()
-    if crs is not None and crs.isValid():
-        srs = osr.SpatialReference()
-        srs.ImportFromWkt(crs.toWkt())
-        ds.SetProjection(srs.ExportToWkt())
-    band = ds.GetRasterBand(1)
-    band.SetNoDataValue(nodata)
-    band.WriteArray(grid)
-    band.FlushCache()
-    ds = None
-    feedback.setProgress(83)
+    geotr = (xmin, cell, 0.0, ymin + ny * cell, 0.0, -cell)
+
+    def _write(dest, array):
+        """Пишет один растр; при наличии маски - во временный и клипует в dest."""
+        write_path = dest
+        if mask_layer is not None:
+            write_path = os.path.join(QgsProcessingUtils.tempFolder(),
+                                      "krig_%s.tif" % uuid.uuid4().hex)
+        driver = gdal.GetDriverByName("GTiff")
+        ds = driver.Create(write_path, nx, ny, 1, gdal.GDT_Float32,
+                           options=["COMPRESS=LZW", "TILED=YES"])
+        ds.SetGeoTransform(geotr)
+        if crs is not None and crs.isValid():
+            srs = osr.SpatialReference()
+            srs.ImportFromWkt(crs.toWkt())
+            ds.SetProjection(srs.ExportToWkt())
+        band = ds.GetRasterBand(1)
+        band.SetNoDataValue(nodata)
+        band.WriteArray(array)
+        band.FlushCache()
+        ds = None
+        if mask_layer is not None:
+            from qgis import processing
+            processing.run("gdal:cliprasterbymasklayer", {
+                "INPUT": write_path, "MASK": mask_layer, "NODATA": nodata,
+                "CROP_TO_CUTLINE": False, "KEEP_RESOLUTION": True,
+                "OUTPUT": dest,
+            }, context=context, feedback=feedback, is_child_algorithm=True)
 
     if mask_layer is not None:
-        from qgis import processing
         feedback.pushInfo("Обрезка по маске…")
-        processing.run("gdal:cliprasterbymasklayer", {
-            "INPUT": write_path,
-            "MASK": mask_layer,
-            "NODATA": nodata,
-            "CROP_TO_CUTLINE": False,
-            "KEEP_RESOLUTION": True,
-            "OUTPUT": out_path,
-        }, context=context, feedback=feedback, is_child_algorithm=True)
+    _write(out_path, grid)
     feedback.setProgress(85)
-    return out_path, nodata
+    if want_se:
+        _write(stderr_path, segrid)
+        feedback.setProgress(88)
+    return out_path, nodata, (stderr_path if want_se else None)
 
 
 def _build_mask(alg, parameters, context, feedback, layer):
@@ -516,7 +581,7 @@ def _build_mask(alg, parameters, context, feedback, layer):
 
 
 # ---------------------------------------------------------------------------
-#  Параметры построения изолиний — общий набор
+#  Параметры построения изолиний - общий набор
 # ---------------------------------------------------------------------------
 def _add_isoline_params(alg):
     alg.addParameter(QgsProcessingParameterNumber(
@@ -528,7 +593,7 @@ def _add_isoline_params(alg):
         QgsProcessingParameterNumber.Double,
         defaultValue=_dv(alg, alg.BASE, 0.0)))
     alg.addParameter(QgsProcessingParameterString(
-        alg.LEVELS, _tr("Явные уровни (через пробел) — приоритетнее шага"),
+        alg.LEVELS, _tr("Явные уровни (через пробел) - приоритетнее шага"),
         defaultValue=_dv(alg, alg.LEVELS, ""), optional=True))
     alg.addParameter(QgsProcessingParameterNumber(
         alg.INDEX_EVERY, _tr("Главная изолиния каждая N-я (0 = выкл.)"),
@@ -563,6 +628,8 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
     CELL_SIZE, EXTENT, OUTPUT = "CELL_SIZE", "EXTENT", "OUTPUT"
     CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
+    OUTPUT_STDERR = "OUTPUT_STDERR"
+    VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return Kriging2DAlgorithm()
@@ -596,21 +663,37 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
         _add_kriging_params(self)
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Растр кригинга")))
+        se = QgsProcessingParameterRasterDestination(
+            self.OUTPUT_STDERR, self.tr("Стандартная ошибка кригинга"),
+            optional=True, createByDefault=False)
+        se.setHelp(self.tr(
+            "Необязательный растр стандартной ошибки кригинга (sqrt дисперсии "
+            "ошибки): мера неопределённости оценки. Мала у скважин, растёт "
+            "вдали от данных."))
+        self.addParameter(se)
 
     def processAlgorithm(self, parameters, context, feedback):
         _save_values(self, parameters)
         source = self.parameterAsSource(parameters, self.INPUT, context)
         zfield = self.parameterAsString(parameters, self.ZFIELD, context)
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+        se_path = self.parameterAsOutputLayer(
+            parameters, self.OUTPUT_STDERR, context) or None
         layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
         src = layer.name() if layer is not None else "data"
         mask = _build_mask(self, parameters, context, feedback, layer)
-        path, _ = _run_kriging_to_tiff(self, parameters, context, feedback,
-                                       source, zfield, out_path, mask)
+        path, _, se = _run_kriging_to_tiff(self, parameters, context, feedback,
+                                           source, zfield, out_path, mask,
+                                           stderr_path=se_path)
         _set_output_name(context, path,
                          "Кригинг %s · %s" % (zfield, _short(src)))
+        results = {self.OUTPUT: path}
+        if se:
+            _set_output_name(context, se,
+                             "Стд. ошибка · %s · %s" % (zfield, _short(src)))
+            results[self.OUTPUT_STDERR] = se
         feedback.setProgress(100)
-        return {self.OUTPUT: path}
+        return results
 
 
 # ===========================================================================
@@ -642,11 +725,11 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
             "скругляются (Chaikin). Изолинии плавны и не пересекаются даже в "
             "густых местах; скругление убирает «октагоны» от грубого грида.\n\n"
             "По умолчанию строит и "
-            "контурные полигоны (пояса между изолиниями) во временный слой — их "
+            "контурные полигоны (пояса между изолиниями) во временный слой - их "
             "границы СОВПАДАЮТ с изолиниями, покрытие сплошное. Чтобы их не "
-            "строить — очистите поле «Контурные полигоны».\n\nПоля: линии — "
+            "строить - очистите поле «Контурные полигоны».\n\nПоля: линии - "
             "значение уровня (по умолчанию ELEV) и is_index (1 у главных); "
-            "полигоны — ELEV_MIN/ELEV_MAX (диапазон пояса)." + CREDIT)
+            "полигоны - ELEV_MIN/ELEV_MAX (диапазон пояса)." + CREDIT)
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)

@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 #
-# Isoliner — грид и изолинии (QGIS).
+# Isoliner - грид и изолинии (QGIS).
 # © 2026 ООО «Информ++» (www.informpp.ru).
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
 # Это свободная программа: вы можете распространять её и/или изменять на
 # условиях Стандартной общественной лицензии GNU (GNU GPL), опубликованной
-# Фондом свободного ПО (FSF), — либо версии 2 Лицензии, либо (на ваше
+# Фондом свободного ПО (FSF), - либо версии 2 Лицензии, либо (на ваше
 # усмотрение) любой более поздней версии.
 #
 # Программа распространяется в надежде на полезность, но БЕЗ КАКИХ-ЛИБО
 # ГАРАНТИЙ, в том числе без подразумеваемой гарантии ТОВАРНОГО СОСТОЯНИЯ или
 # ПРИГОДНОСТИ ДЛЯ ОПРЕДЕЛЁННОЙ ЦЕЛИ. Подробнее см. GNU GPL.
 #
-# Полный текст лицензии — в файле LICENSE (на английском, юридически значим).
+# Полный текст лицензии - в файле LICENSE (на английском, юридически значим).
 """
 Конвейер построения изолиний и контурных полигонов из растра.
 
@@ -28,12 +28,12 @@
 самих СГЛАЖЕННЫХ изолиний + контура валидной области:
 
     1) берём те же сглаженные изолинии, что и в линейном выходе;
-    2) строим контур валидной области растра (footprint) — внешнюю и
+    2) строим контур валидной области растра (footprint) - внешнюю и
        внутренние (вокруг дыр данных) границы;
     3) притягиваем концы изолиний к контуру (snap), объединяем и нодируем всю
        сеть (union), полигонизуем;
     4) каждый получившийся пояс относим к диапазону уровней ВЫБОРКОЙ растра в
-       репрезентативной точке полигона (point-on-surface) — ELEV_MIN/ELEV_MAX.
+       репрезентативной точке полигона (point-on-surface) - ELEV_MIN/ELEV_MAX.
 
 Так границы полигонов совпадают с изолиниями, покрытие сплошное (без дыр),
 а «ступеньки» исчезают.
@@ -47,7 +47,7 @@ INDEX_FIELD = "is_index"
 
 
 def _parse_levels(text):
-    """Уровни через пробел; десятичный разделитель — запятая или точка."""
+    """Уровни через пробел; десятичный разделитель - запятая или точка."""
     out = []
     for tok in str(text).replace(";", " ").split():
         tok = tok.strip().replace(",", ".")   # «-400,5» -> -400.5
@@ -91,7 +91,7 @@ def _extra_levels(levels):
 
 def _gaussian_nodata(arr, valid, sigma):
     """Гаусово сглаживание поля с учётом nodata (значения за маской не
-    «протекают» внутрь). Сепарабельная свёртка, край — повтор крайних ячеек.
+    «протекают» внутрь). Сепарабельная свёртка, край - повтор крайних ячеек.
     Чистый NumPy (без SciPy)."""
     import numpy as np
     r = max(1, int(math.ceil(3.0 * sigma)))
@@ -120,7 +120,7 @@ def _gaussian_nodata(arr, valid, sigma):
 def _smooth_raster(raster, band, sigma, nodata, feedback):
     """Возвращает путь к временному растру со сглаженным полем (та же маска
     валидных ячеек, та же геопривязка). Контуры сглаженного поля не
-    пересекаются и плавны — это надёжнее, чем сглаживать каждую линию отдельно
+    пересекаются и плавны - это надёжнее, чем сглаживать каждую линию отдельно
     (последнее давало пересечения в густых местах и угловатость)."""
     from qgis.core import QgsProcessingUtils
     from osgeo import gdal
@@ -168,7 +168,7 @@ def _smooth_raster(raster, band, sigma, nodata, feedback):
 def _prep_raster(raster, band, smooth, smooth_radius, nodata, feedback):
     """Готовит растр под контуринг: сглаженная копия (band 1) или оригинал.
     Один и тот же растр используется и для контура, и для контура области,
-    и для выборки поясов — поэтому линии, полигоны и диапазоны согласованы."""
+    и для выборки поясов - поэтому линии, полигоны и диапазоны согласованы."""
     if smooth and smooth_radius and smooth_radius > 0:
         return _smooth_raster(raster, band, float(smooth_radius), nodata,
                               feedback), 1
@@ -188,7 +188,7 @@ def _contour_lines(processing, raster, band, interval, base, levels,
                    min_length, line_iter, field_name, ignore_nodata, nodata,
                    context, feedback):
     """Изолинии-линии (без флага is_index). Сглаживание поля (растра) делается
-    до контуринга (см. _prep_raster) — это убирает пересечения. Дополнительно
+    до контуринга (см. _prep_raster) - это убирает пересечения. Дополнительно
     линии можно слегка СКРУГЛИТЬ (Chaikin, line_iter итераций): поле уже
     гладкое, контуры разнесены, поэтому скругление не создаёт пересечений, но
     убирает «октагоны» от грубого грида. Общее ядро для линий и для границ
@@ -252,7 +252,7 @@ def isolines_from_raster(raster, band, interval, base, levels_text,
                          line_iter, field_name, ignore_nodata, nodata,
                          final_output, context, feedback):
     """Изолинии-линии. levels_text (если задан) имеет приоритет над шагом.
-    Сглаживание — на уровне поля; line_iter — лёгкое скругление линий."""
+    Сглаживание - на уровне поля; line_iter - лёгкое скругление линий."""
     from qgis import processing
     field_name = field_name or DEFAULT_FIELD
     levels = _parse_levels(levels_text) if levels_text else []
@@ -365,7 +365,7 @@ def _polygonize_belts(processing, lines_layer, area_lines, crs, context,
     """Строит замкнутые пояса из набора линий + контура области.
 
     Узлует всю сеть через native:splitwithlines (надёжно режет и T-стыки, где
-    конец изолинии упирается в контур — этого native:union на линиях не делал),
+    конец изолинии упирается в контур - этого native:union на линиях не делал),
     затем полигонизует.
     """
     merged = processing.run("native:mergevectorlayers", {
@@ -432,7 +432,7 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
         p = rep.asPoint()
         val = _sample_value(arr, valid, gt, p.x(), p.y())
         if val is None:
-            continue                       # точка вне валидной области — пропуск
+            continue                       # точка вне валидной области - пропуск
         idx = int(np.digitize([val], lv)[0])     # 0..len(levels)
         nf = QgsFeature(mem.fields())
         gg = QgsGeometry(g)
@@ -457,11 +457,11 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
 
     Сглаживание выполняется один раз на уровне поля (растра); этот же
     сглаженный растр используется для контура, контура области и выборки
-    поясов — поэтому линии, границы полигонов и диапазоны согласованы.
+    поясов - поэтому линии, границы полигонов и диапазоны согласованы.
 
     Против «расхождения по краям»: и линейный выход, и границы поясов строятся
     из одного набора линий, у которого концы заранее притянуты к контуру
-    области (snap, ТОЛЬКО концевые точки — форма изолиний не меняется).
+    области (snap, ТОЛЬКО концевые точки - форма изолиний не меняется).
     """
     from qgis import processing
     from qgis.core import QgsCoordinateReferenceSystem
@@ -498,11 +498,11 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
         "OUTPUT": "TEMPORARY_OUTPUT",
     }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
 
-    # 3) линейный выход — из ЭТИХ же согласованных линий
+    # 3) линейный выход - из ЭТИХ же согласованных линий
     lines_out = _finalize_lines(processing, iso, interval, base, index_every,
                                 field_name, lines_output, context, feedback)
 
-    # 4) пояса — из тех же линий + контур; границы совпадают с линиями
+    # 4) пояса - из тех же линий + контур; границы совпадают с линиями
     polys_src = _polygonize_belts(processing, iso, area_lines, crs, context,
                                   feedback)
     polys_out = _belts_to_layer(processing, polys_src, arr, valid, gt, levels,

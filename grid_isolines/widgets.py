@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 #
-# Isoliner — грид и изолинии (QGIS).
+# Isoliner - грид и изолинии (QGIS).
 # © 2026 ООО «Информ++» (www.informpp.ru).
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
 # Это свободная программа: вы можете распространять её и/или изменять на
 # условиях Стандартной общественной лицензии GNU (GNU GPL), опубликованной
-# Фондом свободного ПО (FSF), — либо версии 2 Лицензии, либо (на ваше
+# Фондом свободного ПО (FSF), - либо версии 2 Лицензии, либо (на ваше
 # усмотрение) любой более поздней версии.
 #
 # Программа распространяется в надежде на полезность, но БЕЗ КАКИХ-ЛИБО
 # ГАРАНТИЙ, в том числе без подразумеваемой гарантии ТОВАРНОГО СОСТОЯНИЯ или
 # ПРИГОДНОСТИ ДЛЯ ОПРЕДЕЛЁННОЙ ЦЕЛИ. Подробнее см. GNU GPL.
 #
-# Полный текст лицензии — в файле LICENSE (на английском, юридически значим).
+# Полный текст лицензии - в файле LICENSE (на английском, юридически значим).
 """
 Кастомный виджет для «Размер ячейки»: рядом показывает рассчитанный
 размер грида (nx × ny) по охвату слоя/заданному охвату и текущему шагу.
@@ -55,7 +55,7 @@ class CellSizeWrapper(_BASE):
             except Exception:
                 pass
             self._spin.setToolTip("0 = авто: min(охват)/50")
-            self._label = QLabel("грид: —")
+            self._label = QLabel("грид: -")
             self._label.setStyleSheet("color:#888;")
             lay.addWidget(self._spin, 1)
             lay.addWidget(self._label, 0)
@@ -179,7 +179,7 @@ class CellSizeWrapper(_BASE):
             cell = self._spin.value()
             ext = self._get_extent()
             if ext is None or ext.isEmpty():
-                self._label.setText("грид: —")
+                self._label.setText("грид: -")
                 return
             w, h = ext.width(), ext.height()
             c = cell if cell > 0 else (round((min(w, h) or 1.0) / 50.0, 5) or 1.0)
@@ -189,6 +189,6 @@ class CellSizeWrapper(_BASE):
             self._label.setText("грид: %d × %d%s" % (nx, ny, suffix))
         except Exception:
             try:
-                self._label.setText("грид: —")
+                self._label.setText("грид: -")
             except Exception:
                 pass
