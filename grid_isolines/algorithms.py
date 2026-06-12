@@ -33,7 +33,7 @@ import uuid
 import numpy as np
 from osgeo import gdal, osr
 
-from qgis.PyQt.QtCore import QCoreApplication, QUrl
+from qgis.PyQt.QtCore import QCoreApplication, QUrl, QVariant
 from qgis.core import (
     QgsProcessing,
     QgsProcessingAlgorithm,
@@ -53,10 +53,17 @@ from qgis.core import (
     QgsProcessingParameterRasterLayer,
     QgsProcessingParameterRasterDestination,
     QgsProcessingParameterVectorDestination,
+    QgsProcessingParameterFeatureSink,
     QgsProcessingParameterDefinition,
+    QgsFields,
+    QgsField,
+    QgsFeature,
+    QgsGeometry,
+    QgsPointXY,
+    QgsWkbTypes,
 )
 
-from .kb2d import Variogram, build_grid, clip_outliers, EPS
+from .kb2d import Variogram, build_grid, clip_outliers, cross_validate, EPS
 from .isolines import (
     isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD)
 
@@ -803,7 +810,212 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
         return results
 
 
+def _add_cv_params(alg):
+    """Параметры для кросс-валидации: вариограмма и поиск, без сетки/растра."""
+    alg.addParameter(QgsProcessingParameterEnum(
+        alg.KTYPE, _tr("Тип кригинга"), options=KTYPE_LABELS,
+        defaultValue=_dv(alg, alg.KTYPE, 0)))
+    alg.addParameter(QgsProcessingParameterNumber(
+        alg.RADIUS, _tr("Радиус поиска (0 = вся выборка)"),
+        QgsProcessingParameterNumber.Double,
+        defaultValue=_dv(alg, alg.RADIUS, 0.0), minValue=0.0))
+    alg.addParameter(QgsProcessingParameterNumber(
+        alg.MIN_POINTS, _tr("Мин. число точек"),
+        QgsProcessingParameterNumber.Integer,
+        defaultValue=_dv(alg, alg.MIN_POINTS, 1), minValue=1))
+    alg.addParameter(QgsProcessingParameterNumber(
+        alg.MAX_POINTS, _tr("Макс. число точек"),
+        QgsProcessingParameterNumber.Integer,
+        defaultValue=_dv(alg, alg.MAX_POINTS, 24), minValue=1, maxValue=120))
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.VAL_PCT, _tr("Ураганные пробы: перцентиль обрезки, % (0 = выкл.)"),
+        QgsProcessingParameterNumber.Double,
+        defaultValue=_dv(alg, alg.VAL_PCT, 0.0), minValue=0.0, maxValue=49.0)))
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.VAL_MIN, _tr("Нижняя граница значения (пусто = нет)"),
+        QgsProcessingParameterNumber.Double, optional=True)))
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.VAL_MAX, _tr("Верхняя граница значения (пусто = нет)"),
+        QgsProcessingParameterNumber.Double, optional=True)))
+    alg.addParameter(_advanced(QgsProcessingParameterBoolean(
+        alg.VAL_CAP, _tr("Срезать к границе (capping) вместо удаления"),
+        defaultValue=_dv(alg, alg.VAL_CAP, False))))
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.SKMEAN, _tr("Среднее для простого кригинга"),
+        QgsProcessingParameterNumber.Double,
+        defaultValue=_dv(alg, alg.SKMEAN, 0.0))))
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.NUGGET, _tr("Наггет C0"),
+        QgsProcessingParameterNumber.Double,
+        defaultValue=_dv(alg, alg.NUGGET, 0.0), minValue=0.0)))
+    for i in range(1, NSTRUCT + 1):
+        tag = _tr("Структура %d") % i
+        default_sill = 1.0 if i == 1 else 0.0
+        off = _tr("порог/вклад C") if i == 1 else _tr("порог/вклад C (0 = выкл.)")
+        alg.addParameter(_advanced(QgsProcessingParameterEnum(
+            _sk(i, "MODEL"), "%s · %s" % (tag, _tr("модель")),
+            options=MODEL_LABELS, defaultValue=_dv(alg, _sk(i, "MODEL"), 0))))
+        alg.addParameter(_advanced(QgsProcessingParameterNumber(
+            _sk(i, "SILL"), "%s · %s" % (tag, off),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(alg, _sk(i, "SILL"), default_sill), minValue=0.0)))
+        alg.addParameter(_advanced(QgsProcessingParameterNumber(
+            _sk(i, "RANGE"), "%s · %s" % (tag, _tr("радиус корреляции a (0=авто)")),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(alg, _sk(i, "RANGE"), 0.0), minValue=0.0)))
+        alg.addParameter(_advanced(QgsProcessingParameterNumber(
+            _sk(i, "AZIMUTH"), "%s · %s" % (tag, _tr("азимут, °")),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(alg, _sk(i, "AZIMUTH"), 0.0))))
+        alg.addParameter(_advanced(QgsProcessingParameterNumber(
+            _sk(i, "ANIS"), "%s · %s" % (tag, _tr("анизотропия (малая/главная)")),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(alg, _sk(i, "ANIS"), 1.0), minValue=EPS)))
+
+
+# ===========================================================================
+#  3. Кросс-валидация вариограммы (leave-one-out)
+# ===========================================================================
+class CrossValidationAlgorithm(QgsProcessingAlgorithm):
+    INPUT, ZFIELD = "INPUT", "ZFIELD"
+    KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
+    RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
+    VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+
+    def name(self):
+        return "crossvalidation"
+
+    def displayName(self):
+        return self.tr("Кросс-валидация вариограммы")
+
+    def group(self):
+        return self.tr("Грид и изолинии")
+
+    def groupId(self):
+        return "grid_isolines"
+
+    def shortHelpString(self):
+        return self.tr(
+            "Скользящий контроль (leave-one-out): каждая скважина по очереди "
+            "исключается, её значение предсказывается кригингом по остальным, "
+            "и сравнивается с фактическим. Помогает подобрать вариограмму "
+            "(наггет, радиус, модель) по ошибке, а не на глаз.\n\n"
+            "В Журнал выводятся метрики: ME (смещение, к 0), RMSE (меньше - "
+            "лучше), MSDR (к 1 - вариограмма адекватна по масштабу), R. "
+            "Перебирайте параметры и сравнивайте RMSE и MSDR.\n\n"
+            "Слой остатков (опц.): точки с полями z, z_est, error, std_error - "
+            "видно, где модель промахивается.")
+
+    def createInstance(self):
+        return CrossValidationAlgorithm()
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Точки со значениями"),
+            types=[QgsProcessing.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            self.ZFIELD, self.tr("Поле значения Z"), parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric))
+        _add_cv_params(self)
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Слой остатков (точки)"),
+            type=QgsProcessing.TypeVectorPoint, optional=True, createByDefault=True))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        source = self.parameterAsSource(parameters, self.INPUT, context)
+        zfield = self.parameterAsString(parameters, self.ZFIELD, context)
+
+        def _opt(name):
+            v = parameters.get(name, None)
+            if v is None or v == "":
+                return None
+            return self.parameterAsDouble(parameters, name, context)
+        pct = self.parameterAsDouble(parameters, self.VAL_PCT, context)
+        cap = self.parameterAsBool(parameters, self.VAL_CAP, context)
+        xd, yd, vrd = _read_points(source, zfield, feedback,
+                                   vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
+                                   pct=pct, cap=cap)
+
+        ktype = 1 if self.parameterAsEnum(parameters, self.KTYPE, context) == 0 else 0
+        skmean = self.parameterAsDouble(parameters, self.SKMEAN, context)
+        nugget = self.parameterAsDouble(parameters, self.NUGGET, context)
+        radius = self.parameterAsDouble(parameters, self.RADIUS, context)
+        ndmin = self.parameterAsInt(parameters, self.MIN_POINTS, context)
+        ndmax = self.parameterAsInt(parameters, self.MAX_POINTS, context)
+        width = float(xd.max() - xd.min()); height = float(yd.max() - yd.min())
+        auto_range = max(width, height) / 3.0 or 1.0
+        if radius <= 0:
+            radius = math.hypot(width, height) or 1e12
+        rad2 = radius * radius
+        vg = _build_variogram(self, parameters, context, nugget, auto_range, feedback)
+        nodata = -9999.0
+
+        feedback.pushInfo("Кросс-валидация по %d точкам…" % len(xd))
+
+        def prog(done, total):
+            if feedback.isCanceled():
+                raise QgsProcessingException("Прервано пользователем.")
+            feedback.setProgress(int(95.0 * done / total))
+        est, var = cross_validate(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
+                                  rad2, nodata, progress=prog)
+
+        ok = est != nodata
+        nvalid = int(ok.sum())
+        if nvalid < 2:
+            raise QgsProcessingException("Слишком мало оценённых точек.")
+        err = est[ok] - vrd[ok]
+        me = float(np.mean(err))
+        mae = float(np.mean(np.abs(err)))
+        rmse = float(np.sqrt(np.mean(err ** 2)))
+        sd = np.sqrt(np.maximum(var[ok], 0.0))
+        good = sd > 0
+        msdr = float(np.mean((err[good] / sd[good]) ** 2)) if good.any() else float("nan")
+        try:
+            r = float(np.corrcoef(est[ok], vrd[ok])[0, 1])
+        except Exception:
+            r = float("nan")
+
+        feedback.pushInfo("== Кросс-валидация (leave-one-out) ==")
+        feedback.pushInfo("Точек оценено: %d из %d" % (nvalid, len(xd)))
+        feedback.pushInfo("ME (смещение):   %+.4g   (ближе к 0 - лучше)" % me)
+        feedback.pushInfo("MAE:             %.4g" % mae)
+        feedback.pushInfo("RMSE:            %.4g   (меньше - лучше)" % rmse)
+        feedback.pushInfo("MSDR:            %.3f   (ближе к 1 - лучше)" % msdr)
+        feedback.pushInfo("R (оценка/факт): %.3f" % r)
+        if msdr == msdr:  # не NaN
+            if msdr > 1.3:
+                feedback.pushInfo("MSDR > 1: дисперсия недооценена - возможно, "
+                                  "стоит увеличить наггет/силл.")
+            elif msdr < 0.7:
+                feedback.pushInfo("MSDR < 1: дисперсия переоценена - возможно, "
+                                  "стоит уменьшить наггет/силл.")
+
+        # слой остатков
+        fields = QgsFields()
+        for nm in ("z", "z_est", "error", "abs_error", "std_error"):
+            fields.append(QgsField(nm, QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Point, source.sourceCrs())
+        if sink is not None:
+            idx = np.where(ok)[0]
+            for i in idx:
+                f = QgsFeature(fields)
+                f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(float(xd[i]), float(yd[i]))))
+                e = float(est[i] - vrd[i])
+                s = float(np.sqrt(max(var[i], 0.0)))
+                f.setAttributes([float(vrd[i]), float(est[i]), e, abs(e),
+                                 (e / s) if s > 0 else None])
+                sink.addFeature(f)
+        feedback.setProgress(100)
+        return {self.OUTPUT: dest}
+
+
 ALGORITHMS = [
     Kriging2DAlgorithm,
     RasterToIsolinesAlgorithm,
+    CrossValidationAlgorithm,
 ]

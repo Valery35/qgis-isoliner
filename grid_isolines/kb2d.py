@@ -207,6 +207,28 @@ def krige_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
     return (est, var) if return_var else est
 
 
+def cross_validate(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
+                   rad2, nodata, progress=None):
+    """Скользящий контроль (leave-one-out). Для каждой точки оценка строится
+    по всем ОСТАЛЬНЫМ точкам, затем сравнивается с фактическим значением.
+    Возвращает (est, var) той же длины, что и входные данные (nodata там, где
+    оценка не получена). Это основа подбора вариограммы по ошибке."""
+    n = len(xd)
+    est = np.full(n, nodata, float)
+    var = np.full(n, nodata, float)
+    keep = np.ones(n, bool)
+    for i in range(n):
+        keep[i] = False                      # исключаем саму точку
+        e, v = _solve_point(xd[i], yd[i], xd[keep], yd[keep], vrd[keep],
+                            vg, ktype, skmean, ndmin, ndmax, rad2, nodata)
+        keep[i] = True
+        est[i] = e
+        var[i] = v
+        if progress is not None and (i & 255) == 0:
+            progress(i, n)
+    return est, var
+
+
 def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                rad2, nodata, xmn, ymn, cell, nx, ny, progress=None,
                with_variance=False):

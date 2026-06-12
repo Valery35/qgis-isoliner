@@ -137,6 +137,24 @@ def test_clip_outliers_percentile():
     assert keep.sum() == 81                 # 10..90 включительно
 
 
+def test_cross_validation_loo():
+    """LOO на гладком поле: ошибки малы, дисперсии положительны, длины верны."""
+    rng = np.random.default_rng(3)
+    xs = rng.uniform(0, 100, 50); ys = rng.uniform(0, 100, 50)
+    vs = 0.05 * xs + 0.02 * ys
+    vg = kb2d.Variogram(0.0, [{"it": 1, "cc": 1.0, "aa": 40.0,
+                               "ang": 0.0, "anis": 1.0}])
+    est, var = kb2d.cross_validate(xs, ys, vs, vg, 1, 0.0, 1, 16,
+                                   1e18, -9999.0)
+    assert len(est) == 50 and len(var) == 50
+    ok = est != -9999.0
+    assert ok.sum() >= 40
+    err = est[ok] - vs[ok]
+    rmse = float(np.sqrt(np.mean(err ** 2)))
+    assert rmse < 5.0                        # на гладком тренде ошибка мала
+    assert (var[ok] >= 0).all()
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
