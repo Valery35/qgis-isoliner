@@ -3,9 +3,9 @@ name=Isoliner - грид и изолинии
 qgisMinimumVersion=3.16
 description=Кригинг 2D (GSLIB KB2D) и построение изолиний/контурных полигонов в QGIS.
 about=Группа команд Processing: 2D Kriging (точки в растр) и Изолинии из растра (линии и контурные полигоны, границы которых совпадают с изолиниями). Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Порт инструмента Isoliner (ArcGIS) в QGIS. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=1.4.0
+version=1.4.1
 author=ООО «Информ++»
-email=info@informpp.ru
+email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
 tracker=https://github.com/Valery35/qgis-isoliner/issues
 repository=https://github.com/Valery35/qgis-isoliner
@@ -15,7 +15,9 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=1.4.0
+changelog=1.4.1
+    - Обновлён контактный email сопровождающего.
+    1.4.0
     - Новый инструмент «Создать пример скважин (демо)»: генерация учебного
       точечного слоя с полями кровли (абс. отметка), мощности и содержания
       абстрактного компонента, имеющими пространственную структуру (диапазоны
