@@ -181,6 +181,36 @@ def _order_lines_above(context, lines_path, polys_path):
         pass
 
 
+class _AliasPostProcessor(QgsProcessingLayerPostProcessorInterface):
+    """Ставит псевдонимы полей на загруженный слой. В отличие от alias/comment
+    на уровне провайдера, это работает и для временных (memory) слоёв и не
+    сыплет предупреждениями «не совместимы с временными слоями»."""
+    def __init__(self, aliases):
+        super().__init__()
+        self.aliases = aliases
+
+    def postProcessLayer(self, layer, context, feedback):
+        try:
+            flds = layer.fields()
+            for name, alias in self.aliases.items():
+                i = flds.indexOf(name)
+                if i >= 0:
+                    layer.setFieldAlias(i, alias)
+        except Exception:
+            pass
+
+
+def _set_field_aliases(context, path, aliases):
+    """Назначить псевдонимы полей выходному слою после загрузки."""
+    try:
+        if path and context.willLoadLayerOnCompletion(path):
+            pp = _AliasPostProcessor(aliases)
+            _KEEP_ALIVE.append(pp)
+            context.layerToLoadOnCompletionDetails(path).setPostProcessor(pp)
+    except Exception:
+        pass
+
+
 def _help_url():
     """file:// ссылка на руководство в комплекте плагина (для кнопки «Справка»)."""
     p = os.path.join(os.path.dirname(__file__), "doc", "Isoliner.pdf")
@@ -223,6 +253,14 @@ def _dv(alg, key, fallback):
 # ключи параметров структуры вариограммы
 def _sk(i, suffix):
     return "S%d_%s" % (i, suffix)
+
+
+def _san(name):
+    """Имя поля из произвольного текста: буквы (вкл. кириллицу), цифры и
+    подчёркивание; до 40 символов."""
+    import re
+    s = re.sub(r"\W+", "_", (name or "").strip(), flags=re.UNICODE).strip("_")
+    return s[:40]
 
 
 # ---------------------------------------------------------------------------
@@ -327,9 +365,12 @@ def _add_kriging_params(alg):
 
 
 def _read_points(source, zfield, feedback=None,
-                 vmin=None, vmax=None, pct=0.0, cap=False):
+                 vmin=None, vmax=None, pct=0.0, cap=False,
+                 id_field=None, return_ids=False):
     idx = source.fields().lookupField(zfield)
+    id_idx = source.fields().lookupField(id_field) if id_field else -1
     xs, ys, vs = [], [], []
+    ids = [] if return_ids else None
     skipped_geom = 0
     skipped_value = 0
     for f in source.getFeatures():
@@ -348,6 +389,8 @@ def _read_points(source, zfield, feedback=None,
             continue
         p = g.asPoint()
         xs.append(p.x()); ys.append(p.y()); vs.append(v)
+        if return_ids:
+            ids.append(f[id_idx] if id_idx >= 0 else f.id())
     if feedback is not None and (skipped_value or skipped_geom):
         feedback.pushInfo(
             "Пропущено точек: %d без значения «%s»%s. Прочитано: %d." %
@@ -361,6 +404,8 @@ def _read_points(source, zfield, feedback=None,
     xs = np.asarray(xs, float)
     ys = np.asarray(ys, float)
     vs = np.asarray(vs, float)
+    if return_ids:
+        ids = np.asarray(ids, dtype=object)
 
     # отсев/срезка ураганных проб (до усреднения совпадающих точек)
     out, keep, lo, hi = clip_outliers(vs, vmin, vmax, pct, cap)
@@ -375,6 +420,8 @@ def _read_points(source, zfield, feedback=None,
         else:
             ncut = int(np.count_nonzero(~keep))
             xs, ys, vs = xs[keep], ys[keep], vs[keep]
+            if return_ids:
+                ids = ids[keep]
             if feedback is not None:
                 feedback.pushInfo(
                     "Ураганные пробы: удалено %d точек вне [%.4g; %.4g]; "
@@ -391,7 +438,8 @@ def _read_points(source, zfield, feedback=None,
     span = max(float(xs.max() - xs.min()), float(ys.max() - ys.min()), 1e-9)
     tol = span * 1e-7
     key = np.round(np.column_stack([xs, ys]) / tol) * tol
-    uniq, inv = np.unique(key, axis=0, return_inverse=True)
+    uniq, first, inv = np.unique(key, axis=0, return_index=True,
+                                 return_inverse=True)
     if len(uniq) < len(xs):
         sums = np.zeros(len(uniq)); cnts = np.zeros(len(uniq))
         np.add.at(sums, inv, vs)
@@ -399,6 +447,8 @@ def _read_points(source, zfield, feedback=None,
         vs = sums / cnts
         xs = uniq[:, 0]
         ys = uniq[:, 1]
+        if return_ids:
+            ids = ids[first]      # за совпавшими точками - id первой
         if feedback is not None:
             feedback.pushInfo(
                 "Совпадающих точек усреднено: %d (осталось %d)" %
@@ -406,6 +456,8 @@ def _read_points(source, zfield, feedback=None,
     if len(xs) < 2:
         raise QgsProcessingException(
             "После усреднения совпадающих точек осталось < 2 узлов.")
+    if return_ids:
+        return xs, ys, vs, ids
     return xs, ys, vs
 
 
@@ -881,9 +933,12 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
+    IDFIELD = "IDFIELD"
     OUTPUT = "OUTPUT"
 
     def tr(self, s): return _tr(s)
+
+    def helpUrl(self): return _help_url()
 
     def name(self):
         return "crossvalidation"
@@ -906,8 +961,15 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             "В Журнал выводятся метрики: ME (смещение, к 0), RMSE (меньше - "
             "лучше), MSDR (к 1 - вариограмма адекватна по масштабу), R. "
             "Перебирайте параметры и сравнивайте RMSE и MSDR.\n\n"
-            "Слой остатков (опц.): точки с полями z, z_est, error, std_error - "
-            "видно, где модель промахивается.")
+            "Слой остатков (опц.) - точки со следующими полями:\n"
+            "  • <номер скважины> - если задано «Поле номера скважины»;\n"
+            "  • <имя проверяемого поля> - фактическое значение (факт);\n"
+            "  • z_est - оценка кригинга по остальным точкам (LOO);\n"
+            "  • error - оценка минус факт (минус: занижено, плюс: завышено);\n"
+            "  • abs_error - модуль ошибки;\n"
+            "  • std_resid - стандартизованный остаток: error / стандартную "
+            "ошибку кригинга, со знаком (это не дисперсия).\n"
+            "По нему видно, где модель промахивается.")
 
     def createInstance(self):
         return CrossValidationAlgorithm()
@@ -919,6 +981,9 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterField(
             self.ZFIELD, self.tr("Поле значения Z"), parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.Numeric))
+        self.addParameter(QgsProcessingParameterField(
+            self.IDFIELD, self.tr("Поле номера скважины (необязательно)"),
+            parentLayerParameterName=self.INPUT, optional=True))
         _add_cv_params(self)
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Слой остатков (точки)"),
@@ -926,7 +991,10 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
 
     def processAlgorithm(self, parameters, context, feedback):
         source = self.parameterAsSource(parameters, self.INPUT, context)
+        layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
+        src = layer.name() if layer is not None else "data"
         zfield = self.parameterAsString(parameters, self.ZFIELD, context)
+        idfield = self.parameterAsString(parameters, self.IDFIELD, context) or None
 
         def _opt(name):
             v = parameters.get(name, None)
@@ -935,9 +1003,10 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             return self.parameterAsDouble(parameters, name, context)
         pct = self.parameterAsDouble(parameters, self.VAL_PCT, context)
         cap = self.parameterAsBool(parameters, self.VAL_CAP, context)
-        xd, yd, vrd = _read_points(source, zfield, feedback,
-                                   vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
-                                   pct=pct, cap=cap)
+        xd, yd, vrd, ids = _read_points(
+            source, zfield, feedback,
+            vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
+            pct=pct, cap=cap, id_field=idfield, return_ids=True)
 
         ktype = 1 if self.parameterAsEnum(parameters, self.KTYPE, context) == 0 else 0
         skmean = self.parameterAsDouble(parameters, self.SKMEAN, context)
@@ -993,23 +1062,47 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
                 feedback.pushInfo("MSDR < 1: дисперсия переоценена - возможно, "
                                   "стоит уменьшить наггет/силл.")
 
-        # слой остатков
+        # слой остатков: колонка факта названа по проверяемому полю,
+        # std_resid - стандартизованный остаток (оценка-факт)/ст.ошибка, со знаком.
+        # псевдонимы полей ставим после загрузки (см. _set_field_aliases) -
+        # alias/comment на уровне провайдера несовместимы с memory-слоями
+        valname = _san(zfield) or "z"
+        idname = (_san(idfield) or "well_id") if idfield else None
         fields = QgsFields()
-        for nm in ("z", "z_est", "error", "abs_error", "std_error"):
-            fields.append(QgsField(nm, QVariant.Double))
+        aliases = {}
+        if idname:
+            fields.append(QgsField(idname, QVariant.String))
+            aliases[idname] = "Номер скважины"
+        fields.append(QgsField(valname, QVariant.Double))
+        aliases[valname] = "Факт (%s)" % zfield
+        fields.append(QgsField("z_est", QVariant.Double))
+        aliases["z_est"] = "Оценка кригинга (LOO)"
+        fields.append(QgsField("error", QVariant.Double))
+        aliases["error"] = "Ошибка (оценка − факт)"
+        fields.append(QgsField("abs_error", QVariant.Double))
+        aliases["abs_error"] = "|Ошибка|"
+        fields.append(QgsField("std_resid", QVariant.Double))
+        aliases["std_resid"] = "Станд. остаток (со знаком)"
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Point, source.sourceCrs())
         if sink is not None:
-            idx = np.where(ok)[0]
-            for i in idx:
+            for i in np.where(ok)[0]:
                 f = QgsFeature(fields)
-                f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(float(xd[i]), float(yd[i]))))
+                f.setGeometry(QgsGeometry.fromPointXY(
+                    QgsPointXY(float(xd[i]), float(yd[i]))))
                 e = float(est[i] - vrd[i])
                 s = float(np.sqrt(max(var[i], 0.0)))
-                f.setAttributes([float(vrd[i]), float(est[i]), e, abs(e),
-                                 (e / s) if s > 0 else None])
+                attrs = []
+                if idname:
+                    attrs.append(None if ids[i] is None else str(ids[i]))
+                attrs += [float(vrd[i]), float(est[i]), e, abs(e),
+                          (e / s) if s > 0 else None]
+                f.setAttributes(attrs)
                 sink.addFeature(f)
+        _set_output_name(context, dest,
+                         "Остатки CV %s · %s" % (zfield, _short(src)))
+        _set_field_aliases(context, dest, aliases)
         feedback.setProgress(100)
         return {self.OUTPUT: dest}
 
