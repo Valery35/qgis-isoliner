@@ -563,9 +563,9 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
     feedback.pushInfo("Сетка %d x %d, ячейка %.4g, точек %d, структур %d" %
                       (nx, ny, cell, len(xd), vg.nst))
     feedback.pushInfo(
-        "Дисперсия данных: %.4g (ориентир для суммарного силла C0+C; "
-        "наггет/силл - в абсолютных единицах дисперсии, не 0-1)."
-        % float(np.var(vrd)))
+        "Дисперсия данных: %.4g. Ориентир: суммарный силл (C0 + вклады C) "
+        "задавайте близким к ней. Наггет и силл - в абсолютных единицах "
+        "дисперсии, не 0-1." % float(np.var(vrd)))
 
     def prog(done, total):
         if feedback.isCanceled():
@@ -915,16 +915,99 @@ def _cv_advice(me, mae, rmse, msdr, r):
     return tips
 
 
-def _write_cv_report(path, title, metrics, advice, fact, est, err, feedback=None):
+def _cv_used_params(alg, parameters, context):
+    """Список (метка, значение) для параметров кригинга, отличных от
+    стандартных. Нужен, чтобы отчёт был самодокументируемым."""
+    P = parameters
+    def pd(name): return alg.parameterAsDouble(P, name, context)
+    def pi(name): return alg.parameterAsInt(P, name, context)
+    def pe(name): return alg.parameterAsEnum(P, name, context)
+    def pb(name): return alg.parameterAsBool(P, name, context)
+    def popt(name):
+        v = P.get(name, None)
+        return None if (v is None or v == "") else pd(name)
+    items = []
+    if pe(alg.KTYPE) != 0:
+        items.append(("Тип кригинга", "простой (SK)"))
+        items.append(("Среднее (SK)", "%.4g" % pd(alg.SKMEAN)))
+    nug = pd(alg.NUGGET)
+    if nug != 0:
+        items.append(("Наггет C0", "%.4g" % nug))
+    for i in range(1, NSTRUCT + 1):
+        sill = pd(_sk(i, "SILL"))
+        defsill = 1.0 if i == 1 else 0.0
+        if sill <= 0 and i != 1:
+            continue
+        parts = []
+        model = pe(_sk(i, "MODEL"))
+        if model != 0:
+            parts.append(MODEL_LABELS[model].lower())
+        if sill != defsill:
+            parts.append("C=%.4g" % sill)
+        rng = pd(_sk(i, "RANGE"))
+        if rng != 0:
+            parts.append("a=%g" % rng)
+        az = pd(_sk(i, "AZIMUTH"))
+        if az != 0:
+            parts.append("азимут=%g°" % az)
+        anis = pd(_sk(i, "ANIS"))
+        if anis != 1:
+            parts.append("анис=%g" % anis)
+        if parts:
+            items.append(("Структура %d" % i, ", ".join(parts)))
+    if pd(alg.RADIUS) != 0:
+        items.append(("Радиус поиска", "%g" % pd(alg.RADIUS)))
+    if pi(alg.MIN_POINTS) != 1:
+        items.append(("Мин. точек", "%d" % pi(alg.MIN_POINTS)))
+    if pi(alg.MAX_POINTS) != 24:
+        items.append(("Макс. точек", "%d" % pi(alg.MAX_POINTS)))
+    if pd(alg.VAL_PCT) != 0:
+        items.append(("Отсев: перцентиль, %", "%.4g" % pd(alg.VAL_PCT)))
+    vmin = popt(alg.VAL_MIN)
+    if vmin is not None:
+        items.append(("Нижняя граница", "%.4g" % vmin))
+    vmax = popt(alg.VAL_MAX)
+    if vmax is not None:
+        items.append(("Верхняя граница", "%.4g" % vmax))
+    if pb(alg.VAL_CAP):
+        items.append(("Срезка (capping)", "да"))
+    return items
+
+
+def _write_cv_report(path, title, metrics, advice, fact, est, err,
+                     ids=None, used_params=None, feedback=None):
     """Записать HTML-отчёт кросс-валидации: интерактивный график plotly
-    (оценка vs факт + гистограмма ошибок) и таблица метрик. Если plotly
-    недоступен - текстовый отчёт только с метриками (graceful fallback)."""
+    (оценка vs факт с подписями скважин, гистограмма ошибок, QQ-график
+    ошибок по форме) и таблица метрик. QQ строится по ошибкам, нормированным
+    на их собственную дисперсию (z-оценка), поэтому показывает форму
+    распределения (хвосты, скос, вторая популяция) независимо от калибровки
+    масштаба - за масштаб отвечает MSDR. Если plotly недоступен - текстовый
+    отчёт только с метриками (graceful fallback)."""
     rows = "".join(
         "<tr><td>%s</td><td style='text-align:right'>%s</td>"
         "<td style='color:#777'>%s</td></tr>" % m for m in metrics)
     table = ("<table style='border-collapse:collapse' cellpadding='6'>"
              "<tr><th align='left'>Метрика</th><th>Значение</th>"
              "<th align='left'>Смысл</th></tr>%s</table>" % rows)
+    if used_params:
+        prows = "".join(
+            "<tr><td style='color:#555'>%s</td>"
+            "<td style='text-align:right'><b>%s</b></td></tr>" % kv
+            for kv in used_params)
+        params_inner = ("<table style='border-collapse:collapse' "
+                        "cellpadding='4'>%s</table>" % prows)
+    else:
+        params_inner = ("<span style='color:#777'>все параметры - "
+                        "стандартные</span>")
+    params_box = (
+        "<div style='background:#f5f5f7;border:1px solid #ddd;"
+        "padding:8px 14px;border-radius:6px'>"
+        "<b>Параметры кригинга</b> "
+        "<span style='color:#888;font-size:88%%'>(отличные от стандартных)</span>"
+        "<div style='margin-top:6px'>%s</div></div>" % params_inner)
+    table = ("<div style='display:flex;gap:24px;flex-wrap:wrap;"
+             "align-items:flex-start'><div>%s</div><div>%s</div></div>"
+             % (table, params_box))
     advice_html = ""
     if advice:
         items = "".join("<li>%s</li>" % a for a in advice)
@@ -937,33 +1020,88 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err, feedback=None
         import numpy as _np
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
-        # для отзывчивости ограничиваем число точек на диаграмме рассеяния
+        from statistics import NormalDist
         n = len(fact)
+        # подписи скважин (номер либо порядковый #)
+        if ids is not None and len(ids) == n:
+            labels = [(("" if v is None else str(v)) or ("#%d" % (i + 1)))
+                      for i, v in enumerate(ids)]
+        else:
+            labels = ["#%d" % (i + 1) for i in range(n)]
+        ae = _np.abs(err)
+        nworst = min(8, n)
+        worst = _np.argsort(ae)[-nworst:] if nworst > 0 else _np.array([], int)
+        # подвыборка для отзывчивости, но худшие остатки всегда включены
         if n > 30000:
             sel = _np.random.default_rng(0).choice(n, 30000, replace=False)
-            fx, ey = fact[sel], est[sel]
-            note = " (показаны 30000 случайных точек)"
+            sel = _np.unique(_np.concatenate([sel, worst]))
+            note = " (показаны ~30000 точек)"
         else:
-            fx, ey, note = fact, est, ""
+            sel = _np.arange(n); note = ""
+        fx = fact[sel]; ey = est[sel]
+        lab_sel = [labels[i] for i in sel]
         lo = float(min(fx.min(), ey.min())); hi = float(max(fx.max(), ey.max()))
-        fig = make_subplots(rows=1, cols=2, column_widths=[0.62, 0.38],
-                            subplot_titles=("Оценка vs факт" + note,
-                                            "Гистограмма ошибок"))
+        fig = make_subplots(
+            rows=2, cols=2, row_heights=[0.58, 0.42],
+            specs=[[{"colspan": 2}, None], [{}, {}]],
+            subplot_titles=("Оценка vs факт" + note,
+                            "Гистограмма ошибок", "QQ-график остатков"),
+            vertical_spacing=0.12)
         fig.add_trace(go.Scattergl(
             x=fx, y=ey, mode="markers",
             marker=dict(size=4, color="#1f6f54", opacity=0.35),
-            name="точки", hovertemplate="факт %{x:.3g}<br>оценка %{y:.3g}"),
+            customdata=lab_sel,
+            hovertemplate="скв. %{customdata}<br>факт %{x:.3g}"
+                          "<br>оценка %{y:.3g}<extra></extra>"),
             row=1, col=1)
         fig.add_trace(go.Scatter(
             x=[lo, hi], y=[lo, hi], mode="lines",
-            line=dict(color="#cc3333", width=2), name="оценка = факт"),
+            line=dict(color="#cc3333", width=2), hoverinfo="skip"),
             row=1, col=1)
-        fig.add_trace(go.Histogram(x=err, marker_color="#1f6f54",
-                                   name="ошибка"), row=1, col=2)
+        # подписи худших по модулю остатков прямо на графике
+        if worst.size:
+            fig.add_trace(go.Scatter(
+                x=fact[worst], y=est[worst], mode="markers+text",
+                marker=dict(size=8, color="#cc3333", symbol="circle-open",
+                            line=dict(width=1.5)),
+                text=[labels[i] for i in worst], textposition="top center",
+                textfont=dict(size=9, color="#cc3333"),
+                hovertemplate="скв. %{text}<br>факт %{x:.3g}"
+                              "<br>оценка %{y:.3g}<extra>худшие</extra>"),
+                row=1, col=1)
+        fig.add_trace(go.Histogram(x=err, marker_color="#1f6f54"),
+                      row=2, col=1)
+        # QQ-график по форме: ошибки нормируем на их собственную дисперсию
+        # (z-оценка) и сравниваем с нормальным распределением. Так график
+        # показывает форму (хвосты/скос/вторая популяция) при любом MSDR.
+        e_arr = _np.asarray(err, float)
+        e_arr = e_arr[_np.isfinite(e_arr)]
+        sde = float(e_arr.std()) or 1.0
+        sr = (e_arr - e_arr.mean()) / sde
+        if sr.size >= 5:
+            srs = _np.sort(sr); m = srs.size
+            nd = NormalDist()
+            theo = _np.array([nd.inv_cdf((i + 0.5) / m) for i in range(m)])
+            ql = float(min(theo.min(), srs.min()))
+            qh = float(max(theo.max(), srs.max()))
+            fig.add_trace(go.Scattergl(
+                x=theo, y=srs, mode="markers",
+                marker=dict(size=4, color="#1f6f54", opacity=0.5),
+                hovertemplate="теор. %{x:.2f}<br>ошибка (z) %{y:.2f}<extra></extra>"),
+                row=2, col=2)
+            fig.add_trace(go.Scatter(
+                x=[ql, qh], y=[ql, qh], mode="lines",
+                line=dict(color="#cc3333", width=2), hoverinfo="skip"),
+                row=2, col=2)
+            fig.update_xaxes(title_text="теор. квантили (норм.)", row=2, col=2)
+            fig.update_yaxes(title_text="ошибка (z-оценка)", row=2, col=2)
+        else:
+            fig.add_annotation(text="недостаточно точек для QQ",
+                               showarrow=False, row=2, col=2)
         fig.update_xaxes(title_text="факт", row=1, col=1)
         fig.update_yaxes(title_text="оценка (LOO)", row=1, col=1)
-        fig.update_xaxes(title_text="оценка − факт", row=1, col=2)
-        fig.update_layout(showlegend=False, height=460,
+        fig.update_xaxes(title_text="оценка − факт", row=2, col=1)
+        fig.update_layout(showlegend=False, height=720,
                           margin=dict(l=50, r=20, t=50, b=50))
         chart = fig.to_html(full_html=False, include_plotlyjs=True)
     except Exception as e:
@@ -1148,9 +1286,9 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
 
         dvar = float(np.var(vrd))
         feedback.pushInfo(
-            "Дисперсия данных: %.4g (ориентир: суммарный силл C0+C задавайте "
-            "близким к ней; наггет/силл - в этих же абсолютных единицах, не 0-1)."
-            % dvar)
+            "Дисперсия данных: %.4g. Ориентир: суммарный силл (C0 + вклады C) "
+            "задавайте близким к ней. Наггет и силл - в абсолютных единицах "
+            "дисперсии, не 0-1." % dvar)
         feedback.pushInfo("Кросс-валидация по %d точкам…" % len(xd))
 
         def prog(done, total):
@@ -1240,12 +1378,19 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
                 ("RMSE", "%.4g" % rmse, "меньше - лучше"),
                 ("MSDR", "%.3f" % msdr, "ближе к 1 - лучше"),
                 ("R (оценка/факт)", "%.3f" % r, "корреляция"),
+                ("Дисперсия данных", "%.4g" % dvar,
+                 "суммарный силл (C0 + вклады C) ≈ дисперсии данных"),
                 ("Точек оценено", "%d" % nvalid, "из %d" % len(xd)),
             ]
             title = "Кросс-валидация %s · %s" % (zfield, _short(src))
+            ok_idx = np.where(ok)[0]
+            ids_ok = ([ids[i] for i in ok_idx]
+                      if (idfield and ids is not None) else None)
+            used_params = _cv_used_params(self, parameters, context)
             try:
                 _write_cv_report(html_path, title, metrics, advice,
-                                 vrd[ok], est[ok], err, feedback)
+                                 vrd[ok], est[ok], err, ids_ok,
+                                 used_params, feedback)
                 results[self.OUTPUT_HTML] = html_path
             except Exception as e:
                 feedback.pushInfo("Не удалось записать HTML-отчёт: %s" % e)
