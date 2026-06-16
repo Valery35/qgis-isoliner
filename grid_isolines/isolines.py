@@ -257,7 +257,7 @@ def isolines_from_raster(raster, band, interval, base, levels_text,
     field_name = field_name or DEFAULT_FIELD
     levels = _parse_levels(levels_text) if levels_text else []
     rp, rb = _prep_raster(raster, band, smooth, smooth_radius, nodata, feedback)
-    li = int(line_iter) if smooth else 0
+    li = int(line_iter)
     cur = _contour_lines(processing, rp, rb, interval, base, levels,
                          min_length, li, field_name, ignore_nodata, nodata,
                          context, feedback)
@@ -487,7 +487,7 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
         crs.createFromWkt(proj)
 
     # 2) изолинии (ядро) -> притягиваем ТОЛЬКО концы к контуру
-    li = int(line_iter) if smooth else 0
+    li = int(line_iter)
     iso = _contour_lines(processing, rp, rb, interval, base, levels,
                          min_length, li, field_name, ignore_nodata, nodata,
                          context, feedback)

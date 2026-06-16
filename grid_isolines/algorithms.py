@@ -15,7 +15,7 @@
 #
 # Полный текст лицензии - в файле LICENSE (на английском, юридически значим).
 """
-Группа команд «Грид и изолинии» (порт инструмента Isoliner в QGIS).
+Группа команд «Грид и изолинии».
 
 Алгоритмы:
   Kriging2DAlgorithm        - точки → растр (ординарный/простой кригинг, KB2D)
@@ -66,7 +66,8 @@ from qgis.core import (
 
 from .kb2d import Variogram, build_grid, clip_outliers, cross_validate, EPS
 from .isolines import (
-    isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD)
+    isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD,
+    _gaussian_nodata)
 
 GROUP = "Грид и изолинии"
 GROUP_ID = "grid_isolines"
@@ -607,6 +608,13 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
                 "OUTPUT": dest,
             }, context=context, feedback=feedback, is_child_algorithm=True)
 
+    smooth = alg.parameterAsBool(parameters, alg.SMOOTH, context)
+    sm_rad = alg.parameterAsDouble(parameters, alg.SMOOTH_RADIUS, context)
+    if smooth and sm_rad and sm_rad > 0:
+        feedback.pushInfo("Сглаживание грида (σ=%g яч.)…" % sm_rad)
+        gvalid = np.isfinite(grid) & (grid != nodata)
+        gsm = _gaussian_nodata(grid, gvalid, float(sm_rad))
+        grid = np.where(gvalid, gsm, nodata).astype(grid.dtype)
     if mask_layer is not None:
         feedback.pushInfo("Обрезка по маске…")
     _write(out_path, grid)
@@ -671,13 +679,6 @@ def _add_isoline_params(alg):
         alg.MIN_LENGTH, _tr("Мин. длина линии, ед. карты (0 = без фильтра)"),
         QgsProcessingParameterNumber.Double,
         defaultValue=_dv(alg, alg.MIN_LENGTH, 0.0), minValue=0.0))
-    alg.addParameter(QgsProcessingParameterBoolean(
-        alg.SMOOTH, _tr("Сглаживать"), defaultValue=_dv(alg, alg.SMOOTH, True)))
-    alg.addParameter(QgsProcessingParameterNumber(
-        alg.SMOOTH_RADIUS, _tr("Радиус сглаживания поля, ячеек (0 = без него)"),
-        QgsProcessingParameterNumber.Double,
-        defaultValue=_dv(alg, alg.SMOOTH_RADIUS, 1.0),
-        minValue=0.0, maxValue=10.0))
     alg.addParameter(QgsProcessingParameterNumber(
         alg.SMOOTH_LINE_ITER, _tr("Скругление линий, итераций (0 = выкл.)"),
         QgsProcessingParameterNumber.Integer,
@@ -699,6 +700,8 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     OUTPUT_STDERR = "OUTPUT_STDERR"
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
 
+    SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return Kriging2DAlgorithm()
     def name(self): return "kriging2d"
@@ -710,8 +713,8 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
 
     def shortHelpString(self):
         return self.tr(
-            "Ординарный/простой кригинг 2D по точечному слою (порт инструмента "
-            "Isoliner, GSLIB KB2D). Вариограмма: наггет + до %d вложенных структур. "
+            "Ординарный/простой кригинг 2D по точечному слою (ядро GSLIB KB2D). "
+            "Вариограмма: наггет + до %d вложенных структур. "
             "Подходит для отметок пласта, мощностей, ФМС, химии и любых "
             "числовых атрибутов.\n\nРадиус поиска 0 = по всей выборке; "
             "размер ячейки 0 = min(охват)/50; радиус корреляции 0 = "
@@ -729,6 +732,14 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessingParameterField.Numeric,
             defaultValue=_dv(self, self.ZFIELD, None)))
         _add_kriging_params(self)
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.SMOOTH, self.tr("Сгладить грид (Гаусс)"),
+            defaultValue=_dv(self, self.SMOOTH, False)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.SMOOTH_RADIUS, self.tr("Радиус сглаживания, ячеек"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.SMOOTH_RADIUS, 1.0),
+            minValue=0.0, maxValue=10.0))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Растр кригинга")))
         se = QgsProcessingParameterRasterDestination(
@@ -788,10 +799,9 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
         return self.tr(
             "Строит изолинии из растра: равномерный шаг или явные уровни "
             "(через пробел), главные (утолщённые) изолинии флагом is_index, "
-            "фильтр коротких линий.\n\nСглаживание: поле (растр) сглаживается "
-            "гауссовым фильтром (радиус в ячейках), затем линии слегка "
-            "скругляются (Chaikin). Изолинии плавны и не пересекаются даже в "
-            "густых местах; скругление убирает «октагоны» от грубого грида.\n\n"
+            "фильтр коротких линий.\n\nСкругление линий (Chaikin) слегка "
+            "сглаживает контуры и убирает «октагоны» от грубого грида. "
+            "Сглаживание самого поля выполняется в инструменте 2D Kriging.\n\n"
             "По умолчанию строит и "
             "контурные полигоны (пояса между изолиниями) во временный слой - их "
             "границы СОВПАДАЮТ с изолиниями, покрытие сплошное. Чтобы их не "
@@ -831,8 +841,6 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
         levels = self.parameterAsString(parameters, self.LEVELS, context)
         index_every = self.parameterAsInt(parameters, self.INDEX_EVERY, context)
         min_len = self.parameterAsDouble(parameters, self.MIN_LENGTH, context)
-        smooth = self.parameterAsBool(parameters, self.SMOOTH, context)
-        sm_rad = self.parameterAsDouble(parameters, self.SMOOTH_RADIUS, context)
         sm_line = self.parameterAsInt(parameters, self.SMOOTH_LINE_ITER, context)
         field_name = self.parameterAsString(parameters, self.FIELD_NAME, context)
 
@@ -852,7 +860,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
             # линии и пояса строятся из ОДНОГО набора линий -> границы совпадают
             res = isolines_and_polygons(
                 rl.source(), band, interval, base, levels, index_every,
-                min_len, smooth, sm_rad, sm_line, field_name, True, nodata,
+                min_len, False, 0.0, sm_line, field_name, True, nodata,
                 out_dest, poly_dest, context, feedback)
             out, poly = res["lines"], res["polygons"]
             _set_output_name(context, out, "Изолинии · %s" % name)
@@ -862,7 +870,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
         else:
             out = isolines_from_raster(
                 rl.source(), band, interval, base, levels, index_every,
-                min_len, smooth, sm_rad, sm_line, field_name, True, nodata,
+                min_len, False, 0.0, sm_line, field_name, True, nodata,
                 out_dest, context, feedback)
             _set_output_name(context, out, "Изолинии · %s" % name)
             results = {self.OUTPUT: out}
