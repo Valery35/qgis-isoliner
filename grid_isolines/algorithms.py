@@ -42,6 +42,8 @@ from qgis.core import (
     QgsProcessingLayerPostProcessorInterface,
     QgsProject,
     QgsSettings,
+    QgsFeatureRequest,
+    QgsExpression,
     QgsProcessingParameterFeatureSource,
     QgsProcessingParameterField,
     QgsProcessingParameterEnum,
@@ -64,7 +66,10 @@ from qgis.core import (
     QgsWkbTypes,
 )
 
-from .kb2d import Variogram, build_grid, clip_outliers, cross_validate, EPS
+from .kb2d import (
+    Variogram, build_grid, clip_outliers, cross_validate, EPS,
+    experimental_variogram, fit_variogram, model_curve,
+    MODEL_SPHERICAL, MODEL_EXPONENTIAL, MODEL_GAUSSIAN)
 from .isolines import (
     isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD,
     _gaussian_nodata)
@@ -256,6 +261,30 @@ def _dv(alg, key, fallback):
     return getattr(alg, "_defaults", {}).get(key, fallback)
 
 
+# общий слот рекомендованной модели: вариограмма и кросс-валидация пишут сюда
+# подобранную/проверенную модель, «2D Kriging» по желанию её подставляет.
+# Хранится отдельно от per-algorithm настроек (это черновик, а не дефолты).
+def _recommended_key():
+    return "isoliner/recommended_model"
+
+
+def _save_recommended(nugget, model_code, sill, rng):
+    try:
+        QgsSettings().setValue(_recommended_key(), json.dumps({
+            "nugget": float(nugget), "model": int(model_code),
+            "sill": float(sill), "range": float(rng)}))
+    except Exception:
+        pass
+
+
+def _load_recommended():
+    try:
+        raw = QgsSettings().value(_recommended_key(), "")
+        return json.loads(raw) if raw else None
+    except Exception:
+        return None
+
+
 # ключи параметров структуры вариограммы
 def _sk(i, suffix):
     return "S%d_%s" % (i, suffix)
@@ -372,14 +401,16 @@ def _add_kriging_params(alg):
 
 def _read_points(source, zfield, feedback=None,
                  vmin=None, vmax=None, pct=0.0, cap=False,
-                 id_field=None, return_ids=False):
+                 id_field=None, return_ids=False, request=None):
     idx = source.fields().lookupField(zfield)
     id_idx = source.fields().lookupField(id_field) if id_field else -1
     xs, ys, vs = [], [], []
     ids = [] if return_ids else None
     skipped_geom = 0
     skipped_value = 0
-    for f in source.getFeatures():
+    feats = source.getFeatures(request) if request is not None \
+        else source.getFeatures()
+    for f in feats:
         g = f.geometry()
         if g is None or g.isEmpty():
             skipped_geom += 1
@@ -698,6 +729,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     CELL_SIZE, EXTENT, OUTPUT = "CELL_SIZE", "EXTENT", "OUTPUT"
     CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
     OUTPUT_STDERR = "OUTPUT_STDERR"
+    USE_RECOMMENDED = "USE_RECOMMENDED"
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
 
     SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
@@ -705,7 +737,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return Kriging2DAlgorithm()
     def name(self): return "kriging2d"
-    def displayName(self): return self.tr("2D Kriging (точки → растр)")
+    def displayName(self): return self.tr("1. 2D Kriging (точки → растр)")
 
     def helpUrl(self): return _help_url()
     def group(self): return GROUP
@@ -732,6 +764,10 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessingParameterField.Numeric,
             defaultValue=_dv(self, self.ZFIELD, None)))
         _add_kriging_params(self)
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.USE_RECOMMENDED,
+            self.tr("Подставить последнюю рекомендованную модель"),
+            defaultValue=False)))
         self.addParameter(QgsProcessingParameterBoolean(
             self.SMOOTH, self.tr("Сгладить грид (Гаусс)"),
             defaultValue=_dv(self, self.SMOOTH, False)))
@@ -753,6 +789,27 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
 
     def processAlgorithm(self, parameters, context, feedback):
         _save_values(self, parameters)
+        if self.parameterAsBool(parameters, self.USE_RECOMMENDED, context):
+            rec = _load_recommended()
+            if rec:
+                parameters = dict(parameters)
+                parameters[self.NUGGET] = rec["nugget"]
+                parameters[_sk(1, "MODEL")] = int(rec["model"])
+                parameters[_sk(1, "SILL")] = rec["sill"]
+                parameters[_sk(1, "RANGE")] = rec["range"]
+                for i in (2, 3):
+                    parameters[_sk(i, "SILL")] = 0.0
+                feedback.pushInfo(
+                    "Подставлена рекомендованная модель: наггет C0=%.4g, "
+                    "Структура 1 - %s, порог C=%.4g, радиус a=%.4g. "
+                    "Структуры 2 и 3 обнулены." % (
+                        rec["nugget"], MODEL_LABELS[int(rec["model"])],
+                        rec["sill"], rec["range"]))
+            else:
+                feedback.pushWarning(
+                    "Рекомендованной модели в памяти нет - сначала запустите "
+                    "«Вариограмму» или «Кросс-валидацию». Использую значения из "
+                    "диалога.")
         source = self.parameterAsSource(parameters, self.INPUT, context)
         zfield = self.parameterAsString(parameters, self.ZFIELD, context)
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
@@ -789,7 +846,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return RasterToIsolinesAlgorithm()
     def name(self): return "raster_to_isolines"
-    def displayName(self): return self.tr("Изолинии из растра")
+    def displayName(self): return self.tr("2. Изолинии из растра")
 
     def helpUrl(self): return _help_url()
     def group(self): return GROUP
@@ -887,13 +944,15 @@ def _cv_advice(me, mae, rmse, msdr, r):
     good = True
     if msdr == msdr:
         if msdr > 1.3:
-            tips.append("MSDR заметно больше 1: кригинг недооценивает "
-                        "неопределённость (карта стандартной ошибки занижена) - "
-                        "увеличьте наггет C0 или силл и пересчитайте.")
+            tips.append("MSDR заметно больше 1 (%.3g): карта стандартной ошибки "
+                        "занижена. Умножьте наггет C0 и вклады C на MSDR (радиус "
+                        "и модель не трогайте) и пересчитайте - сами оценки не "
+                        "изменятся, поправится только дисперсия кригинга." % msdr)
             good = False
         elif msdr < 0.7:
-            tips.append("MSDR меньше 1: неопределённость завышена - "
-                        "уменьшите наггет или силл.")
+            tips.append("MSDR меньше 1 (%.3g): неопределённость завышена. "
+                        "Разделите наггет C0 и вклады C на MSDR (радиус и модель "
+                        "не трогайте) и пересчитайте - оценки не изменятся." % msdr)
             good = False
         else:
             tips.append("MSDR близок к 1: масштаб вариограммы подобран адекватно.")
@@ -1208,7 +1267,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
         return "crossvalidation"
 
     def displayName(self):
-        return self.tr("Кросс-валидация вариограммы")
+        return self.tr("4. Кросс-валидация вариограммы")
 
     def group(self):
         return self.tr("Грид и изолинии")
@@ -1290,6 +1349,14 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             radius = math.hypot(width, height) or 1e12
         rad2 = radius * radius
         vg = _build_variogram(self, parameters, context, nugget, auto_range, feedback)
+        # запоминаем проверяемую модель в черновик - «2D Kriging» при желании
+        # подставит именно её (Структура 1)
+        _s1_range = self.parameterAsDouble(parameters, _sk(1, "RANGE"), context)
+        if _s1_range <= 0:
+            _s1_range = auto_range
+        _save_recommended(
+            nugget, self.parameterAsEnum(parameters, _sk(1, "MODEL"), context),
+            self.parameterAsDouble(parameters, _sk(1, "SILL"), context), _s1_range)
         nodata = -9999.0
 
         dvar = float(np.var(vrd))
@@ -1470,7 +1537,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         return "examplewells"
 
     def displayName(self):
-        return self.tr("Создать пример скважин (демо)")
+        return self.tr("5. Создать пример скважин (демо)")
 
     def group(self):
         return self.tr("Грид и изолинии")
@@ -1609,9 +1676,509 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: dest}
 
 
+def _add_model_params(alg):
+    """Параметры заданной модели вариограммы (наггет + структуры) для
+    наложения на экспериментальную. Имена ключей те же, что у кригинга и
+    кросс-валидации (S1_MODEL и т.д.), но настройки хранятся по каждому
+    алгоритму отдельно и между инструментами автоматически не переносятся.
+    Перенос подобранной модели в «2D Kriging» делается осознанно - галкой
+    «Подставить последнюю рекомендованную модель» через общий слот-черновик."""
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.NUGGET, _tr("Модель: наггет C0"),
+        QgsProcessingParameterNumber.Double,
+        defaultValue=_dv(alg, alg.NUGGET, 0.0), minValue=0.0)))
+    for i in range(1, NSTRUCT + 1):
+        tag = _tr("Структура %d") % i
+        default_sill = 1.0 if i == 1 else 0.0
+        off = _tr("порог/вклад C") if i == 1 else _tr("порог/вклад C (0 = выкл.)")
+        alg.addParameter(_advanced(QgsProcessingParameterEnum(
+            _sk(i, "MODEL"), "%s · %s" % (tag, _tr("модель")),
+            options=MODEL_LABELS, defaultValue=_dv(alg, _sk(i, "MODEL"), 0))))
+        alg.addParameter(_advanced(QgsProcessingParameterNumber(
+            _sk(i, "SILL"), "%s · %s" % (tag, off),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(alg, _sk(i, "SILL"), default_sill), minValue=0.0)))
+        alg.addParameter(_advanced(QgsProcessingParameterNumber(
+            _sk(i, "RANGE"), "%s · %s" % (tag, _tr("радиус корреляции a (0=авто)")),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(alg, _sk(i, "RANGE"), 0.0), minValue=0.0)))
+        alg.addParameter(_advanced(QgsProcessingParameterNumber(
+            _sk(i, "AZIMUTH"), "%s · %s" % (tag, _tr("азимут, °")),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(alg, _sk(i, "AZIMUTH"), 0.0))))
+        alg.addParameter(_advanced(QgsProcessingParameterNumber(
+            _sk(i, "ANIS"), "%s · %s" % (tag, _tr("анизотропия (малая/главная)")),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(alg, _sk(i, "ANIS"), 1.0), minValue=EPS)))
+
+
+# палитра для серий (группы): зелёный как основной цвет плагина + контрастные
+_VG_COLORS = ["#1f6f54", "#c0552b", "#345b9c", "#9c7a1f", "#7d4a8c",
+              "#2f8f8f", "#a23b5e", "#5c6b2f"]
+
+
+def _fit_advice(fit, data_var, maxlag=None):
+    """Короткие рекомендации по подобранной модели."""
+    tips = []
+    if not fit:
+        return ["Точек экспериментальной вариограммы мало для подбора. "
+                "Увеличьте число лагов или максимальное расстояние."]
+    name = MODEL_LABELS[fit["model"]].lower()
+    total = fit["nugget"] + fit["sill"]
+    tips.append("Рекомендация: модель %s, наггет C0=%.4g, вклад C=%.4g "
+                "(сумма %.4g), радиус a=%.4g. Качество подгонки R²=%.3f."
+                % (name, fit["nugget"], fit["sill"], total,
+                   fit["range"], fit["r2"]))
+    # радиус у края окна: модель не вышла на плато, порог экстраполирован
+    edge = bool(maxlag and maxlag > 0 and fit["range"] >= 0.9 * maxlag)
+    if data_var and data_var > 0:
+        rel = total / data_var
+        if rel < 0.6:
+            msg = ("Суммарный порог заметно ниже дисперсии данных (%.4g): "
+                   "вариограмма не вышла на плато - увеличьте максимальное "
+                   "расстояние, возможен тренд или вторая структура." % data_var)
+            if edge:
+                msg += (" Радиус подбора (%.4g) достигает края окна (%.4g), "
+                        "это подтверждает: кривая ещё растёт."
+                        % (fit["range"], maxlag))
+            tips.append(msg)
+        elif rel > 1.6:
+            tips.append("Суммарный порог заметно выше дисперсии данных (%.4g) - "
+                        "окно, вероятно, перешагивает тренд или безрудную зону. "
+                        "Уменьшите максимальное расстояние до локального "
+                        "масштаба и проверьте выбросы." % data_var)
+        else:
+            msg = ("Суммарный порог близок к дисперсии данных (%.4g) - "
+                   "масштаб правдоподобен." % data_var)
+            if edge:
+                msg += (" Радиус подбора (%.4g) у края окна (%.4g) - считайте "
+                        "его нижней оценкой, при сомнении увеличьте окно и "
+                        "проверьте, стабилизируется ли радиус."
+                        % (fit["range"], maxlag))
+            tips.append(msg)
+    elif edge:
+        tips.append("Радиус подбора (%.4g) достигает края окна (%.4g) - "
+                    "вариограмма не вышла на плато, радиус считайте нижней "
+                    "оценкой." % (fit["range"], maxlag))
+    if fit["model"] == MODEL_GAUSSIAN and fit["nugget"] < 0.05 * (total or 1.0):
+        tips.append("Гауссова модель с почти нулевым наггетом численно "
+                    "неустойчива (кригинг даёт «бычьи глаза», MSDR "
+                    "разваливается). Задайте небольшой наггет C0.")
+    tips.append("Перенесите эти числа в «2D Kriging» (наггет C0 и Структура 1: "
+                "модель, порог C, радиус a) и проверьте «Кросс-валидацией».")
+    return tips
+
+
+def _write_variogram_report(path, title, series, data_var, fit, model_curves,
+                            advice, meta, cloud=None, feedback=None):
+    """HTML-отчёт по экспериментальной вариограмме: точки по лагам (по группам,
+    если задано поле), наложенная модель и подобранная кривая, линия дисперсии
+    данных, облако пар (опц.). Без plotly - таблица значений и рекомендация."""
+    def _meta_table(rows):
+        tr = "".join("<tr><td style='color:#555'>%s</td>"
+                     "<td style='text-align:right'><b>%s</b></td></tr>" % kv
+                     for kv in rows)
+        return ("<table style='border-collapse:collapse' cellpadding='4'>%s"
+                "</table>" % tr)
+
+    meta_box = (
+        "<div style='background:#f5f5f7;border:1px solid #ddd;"
+        "padding:8px 14px;border-radius:6px;display:inline-block'>"
+        "<b>Сводка</b><div style='margin-top:6px'>%s</div></div>"
+        % _meta_table(meta))
+    advice_html = ""
+    if advice:
+        items = "".join("<li>%s</li>" % a for a in advice)
+        advice_html = (
+            "<div style='background:#f3f7f4;border:1px solid #cde0d6;"
+            "padding:8px 14px;border-radius:6px;max-width:900px;margin:12px 0'>"
+            "<b>Рекомендации</b><ul style='margin:6px 0'>%s</ul></div>" % items)
+
+    chart = ""
+    try:
+        import plotly.graph_objects as go
+        fig = go.Figure()
+        if cloud is not None and len(cloud[0]):
+            fig.add_trace(go.Scattergl(
+                x=cloud[0], y=cloud[1], mode="markers",
+                marker=dict(size=3, color="#bbbbbb", opacity=0.25),
+                name="облако пар", hoverinfo="skip"))
+        for k, s in enumerate(series):
+            col = s.get("color") or _VG_COLORS[k % len(_VG_COLORS)]
+            npairs = s.get("npairs")
+            sizes = None
+            if npairs is not None and len(npairs):
+                mx = float(max(npairs)) or 1.0
+                sizes = [6.0 + 8.0 * (p / mx) ** 0.5 for p in npairs]
+            fig.add_trace(go.Scatter(
+                x=s["lag"], y=s["gamma"], mode="markers+lines",
+                marker=dict(size=sizes or 8, color=col),
+                line=dict(color=col, width=1, dash="dot"),
+                name=s["label"],
+                customdata=(npairs if npairs is not None else None),
+                hovertemplate=("h %{x:.4g}<br>γ %{y:.4g}" +
+                               ("<br>пар %{customdata}" if npairs is not None
+                                else "") + "<extra>" + s["label"] + "</extra>")))
+        if model_curves:
+            for mc in model_curves:
+                fig.add_trace(go.Scatter(
+                    x=mc["h"], y=mc["gamma"], mode="lines",
+                    line=dict(color=mc.get("color", "#cc3333"), width=2,
+                              dash=mc.get("dash", "solid")),
+                    name=mc["label"]))
+        if data_var and data_var > 0:
+            fig.add_hline(y=data_var, line=dict(color="#999999", width=1,
+                          dash="dash"),
+                          annotation_text="дисперсия данных",
+                          annotation_position="right")
+        fig.update_xaxes(title_text="расстояние h", rangemode="tozero")
+        fig.update_yaxes(title_text="полудисперсия γ(h)", rangemode="tozero")
+        fig.update_layout(height=560, legend=dict(orientation="h"),
+                          margin=dict(l=60, r=20, t=30, b=50))
+        chart = fig.to_html(full_html=False, include_plotlyjs=True)
+    except Exception as e:
+        if feedback is not None:
+            feedback.pushInfo("plotly недоступен (%s) - отчёт без графика." % e)
+        head = ("<tr><th align='left'>серия</th><th>h</th><th>γ(h)</th>"
+                "<th>пар</th></tr>")
+        body = ""
+        for s in series:
+            np_ = s.get("npairs")
+            for i in range(len(s["lag"])):
+                body += ("<tr><td>%s</td><td style='text-align:right'>%.4g</td>"
+                         "<td style='text-align:right'>%.4g</td>"
+                         "<td style='text-align:right'>%s</td></tr>" % (
+                             s["label"], s["lag"][i], s["gamma"][i],
+                             (np_[i] if np_ is not None else "")))
+        chart = ("<p><i>Интерактивный график недоступен (нет plotly). "
+                 "Значения экспериментальной вариограммы:</i></p>"
+                 "<table border='1' cellpadding='4' "
+                 "style='border-collapse:collapse'>%s%s</table>" % (head, body))
+
+    html = (
+        "<html><head><meta charset='utf-8'><title>%s</title></head><body>"
+        "<h2>%s</h2>%s%s<br>%s</body></html>" % (
+            title, title, meta_box, advice_html, chart))
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(html)
+
+
+# ===========================================================================
+#  4. Экспериментальная вариограмма (всенаправленная) + подбор модели
+# ===========================================================================
+class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
+    INPUT, ZFIELD, GROUP_FIELD = "INPUT", "ZFIELD", "GROUP_FIELD"
+    MIN_GROUP_PCT = "MIN_GROUP_PCT"
+    N_LAGS, MAXLAG, ROBUST, SHOW_CLOUD = "N_LAGS", "MAXLAG", "ROBUST", "SHOW_CLOUD"
+    FIT, FIT_MODEL = "FIT", "FIT_MODEL"
+    SHOW_MODEL = "SHOW_MODEL"
+    NUGGET = "NUGGET"
+    VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
+    OUTPUT, OUTPUT_HTML = "OUTPUT", "OUTPUT_HTML"
+
+    FIT_LABELS = ["Авто (лучшая по R²)", "Сферическая",
+                  "Экспоненциальная", "Гауссова"]
+
+    def tr(self, s): return _tr(s)
+
+    def helpUrl(self): return _help_url()
+
+    def name(self): return "experimental_variogram"
+
+    def displayName(self):
+        return self.tr("3. Вариограмма (экспериментальная)")
+
+    def group(self): return self.tr(GROUP)
+
+    def groupId(self): return GROUP_ID
+
+    def shortHelpString(self):
+        return self.tr(
+            "Строит всенаправленную экспериментальную полувариограмму по "
+            "точкам: облако пар усредняется по интервалам расстояния (лагам). "
+            "Помогает увидеть структуру данных и подобрать вариограмму глазом, "
+            "а не угадывать наггет/радиус.\n\n"
+            "Поле группировки (необязательно): для каждого значения поля "
+            "строится своя кривая - удобно сравнить совокупности разной "
+            "плотности (поверхностная и подземная разведка) и проверить, общая "
+            "ли у них структура.\n\n"
+            "Подбор модели (по умолчанию) даёт рекомендованные наггет C0, вклад "
+            "C, радиус a и модель - перенесите их в «2D Kriging» и проверьте "
+            "«Кросс-валидацией». Можно наложить уже заданную модель, чтобы "
+            "сравнить её с облаком.\n\n"
+            "HTML-отчёт открывается в просмотрщике результатов: точки по лагам, "
+            "модель и подобранная кривая, линия дисперсии данных. Слой-таблица "
+            "(опц.) содержит лаг, γ(h) и число пар для построения в QGIS.")
+
+    def createInstance(self):
+        return ExperimentalVariogramAlgorithm()
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Точки со значениями"),
+            types=[QgsProcessing.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            self.ZFIELD, self.tr("Поле значения Z"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric))
+        self.addParameter(QgsProcessingParameterField(
+            self.GROUP_FIELD,
+            self.tr("Поле группировки (необязательно, напр. вид разведки)"),
+            parentLayerParameterName=self.INPUT, optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MIN_GROUP_PCT,
+            self.tr("Минимум точек в группе, % от выборки (пол 30 точек)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.MIN_GROUP_PCT, 2.0),
+            minValue=0.0, maxValue=100.0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.N_LAGS, self.tr("Число лагов"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.N_LAGS, 15), minValue=3, maxValue=100))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.MAXLAG, self.tr("Максимальное расстояние, в единицах слоя (0 = пол-диагонали)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.MAXLAG, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.FIT, self.tr("Подобрать модель (рекомендация)"),
+            defaultValue=_dv(self, self.FIT, True)))
+        self.addParameter(_advanced(QgsProcessingParameterEnum(
+            self.FIT_MODEL, self.tr("Модель для подбора"),
+            options=self.FIT_LABELS, defaultValue=_dv(self, self.FIT_MODEL, 0))))
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.ROBUST, self.tr("Устойчивая оценка (Кресси-Хокинса)"),
+            defaultValue=_dv(self, self.ROBUST, False))))
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.SHOW_CLOUD, self.tr("Показать облако пар"),
+            defaultValue=_dv(self, self.SHOW_CLOUD, False))))
+        # отсев/срезка ураганных проб - как в кригинге/кросс-валидации
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.VAL_PCT, self.tr("Ураганные пробы: перцентиль обрезки, % (0 = выкл.)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.VAL_PCT, 0.0), minValue=0.0, maxValue=49.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.VAL_MIN, self.tr("Нижняя граница значения (пусто = нет)"),
+            QgsProcessingParameterNumber.Double, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.VAL_MAX, self.tr("Верхняя граница значения (пусто = нет)"),
+            QgsProcessingParameterNumber.Double, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.VAL_CAP, self.tr("Срезать к границе (capping) вместо удаления"),
+            defaultValue=_dv(self, self.VAL_CAP, False))))
+        # наложение заданной модели вариограммы (наггет + структуры)
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.SHOW_MODEL, self.tr("Наложить заданную модель вариограммы"),
+            defaultValue=_dv(self, self.SHOW_MODEL, False))))
+        _add_model_params(self)
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Таблица вариограммы (лаг, γ, число пар)"),
+            type=QgsProcessing.TypeVector, optional=True, createByDefault=True))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            self.OUTPUT_HTML, self.tr("Отчёт (HTML)"),
+            self.tr("HTML files (*.html)"), optional=True, createByDefault=True))
+
+    def _opt(self, parameters, name, context):
+        v = parameters.get(name, None)
+        if v is None or v == "":
+            return None
+        return self.parameterAsDouble(parameters, name, context)
+
+    def processAlgorithm(self, parameters, context, feedback):
+        source = self.parameterAsSource(parameters, self.INPUT, context)
+        layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
+        src = layer.name() if layer is not None else "data"
+        zfield = self.parameterAsString(parameters, self.ZFIELD, context)
+        gfield = self.parameterAsString(parameters, self.GROUP_FIELD, context) or None
+        min_group_pct = self.parameterAsDouble(parameters, self.MIN_GROUP_PCT, context)
+        n_lags = self.parameterAsInt(parameters, self.N_LAGS, context)
+        maxlag = self.parameterAsDouble(parameters, self.MAXLAG, context)
+        robust = self.parameterAsBool(parameters, self.ROBUST, context)
+        show_cloud = self.parameterAsBool(parameters, self.SHOW_CLOUD, context)
+        do_fit = self.parameterAsBool(parameters, self.FIT, context)
+        fit_choice = self.parameterAsEnum(parameters, self.FIT_MODEL, context)
+        show_model = self.parameterAsBool(parameters, self.SHOW_MODEL, context)
+        pct = self.parameterAsDouble(parameters, self.VAL_PCT, context)
+        cap = self.parameterAsBool(parameters, self.VAL_CAP, context)
+        vmin = self._opt(parameters, self.VAL_MIN, context)
+        vmax = self._opt(parameters, self.VAL_MAX, context)
+
+        # читаем все точки (для общей кривой, дисперсии и облака)
+        xs, ys, vs = _read_points(source, zfield, feedback,
+                                  vmin=vmin, vmax=vmax, pct=pct, cap=cap)
+        data_var = float(np.var(vs))
+        feedback.pushInfo("Точек: %d. Дисперсия данных: %.4g (ориентир для "
+                          "суммарного порога)." % (len(xs), data_var))
+        # порог размера группы: % от выборки, но не меньше 30 точек
+        group_min = max(int(round(min_group_pct / 100.0 * len(xs))), 30)
+
+        ev = experimental_variogram(xs, ys, vs, n_lags=n_lags, maxlag=maxlag,
+                                     robust=robust,
+                                     cloud_max=(20000 if show_cloud else 0))
+        if ev["subsampled"]:
+            feedback.pushInfo("Точек много - для расчёта пар использована "
+                              "случайная подвыборка %d точек." % ev["n_used"])
+        if maxlag and maxlag > 0:
+            W = float(xs.max() - xs.min()); H = float(ys.max() - ys.min())
+            spacing = (W * H / max(len(xs), 1)) ** 0.5 if W > 0 and H > 0 else 0.0
+            if spacing > 0 and maxlag < spacing:
+                feedback.pushWarning(
+                    "Максимальное расстояние (%.4g) меньше типичного шага между "
+                    "точками (~%.4g) - пар почти нет. Значение задаётся в "
+                    "единицах слоя (обычно метры)." % (maxlag, spacing))
+        series = [{"label": "все точки", "lag": ev["lag"], "gamma": ev["gamma"],
+                   "npairs": ev["npairs"], "color": _VG_COLORS[0]}]
+
+        # группировка: отдельная кривая на каждое значение поля
+        if gfield is not None:
+            gidx = source.fields().lookupField(gfield)
+            vals = []
+            try:
+                req = QgsFeatureRequest().setSubsetOfAttributes([gidx])
+                req.setFlags(QgsFeatureRequest.NoGeometry)
+                seen = set()
+                for f in source.getFeatures(req):
+                    g = f[gidx]
+                    key = "" if g is None else str(g)
+                    if key not in seen:
+                        seen.add(key); vals.append(g)
+                    if len(seen) > 12:
+                        break
+            except Exception as e:
+                feedback.pushInfo("Не удалось перечислить группы: %s" % e)
+                vals = []
+            if len(vals) > 12:
+                feedback.pushWarning("Групп больше 12 - группировка пропущена.")
+            elif len(vals) >= 2:
+                gname = QgsExpression.quotedColumnRef(gfield)
+                skipped = []
+                for k, g in enumerate(vals):
+                    expr = ("%s IS NULL" % gname if g is None
+                            else "%s = %s" % (gname, QgsExpression.quotedString(str(g))))
+                    try:
+                        req = QgsFeatureRequest().setFilterExpression(expr)
+                        gx, gy, gv = _read_points(source, zfield, None,
+                                                  vmin=vmin, vmax=vmax, pct=pct,
+                                                  cap=cap, request=req)
+                    except Exception:
+                        continue
+                    if len(gx) < group_min:
+                        skipped.append((g, len(gx)))
+                        continue
+                    gev = experimental_variogram(gx, gy, gv, n_lags=n_lags,
+                                                 maxlag=ev["maxlag"], robust=robust,
+                                                 cloud_max=0)
+                    label = "%s = %s" % (gfield, "—" if g is None else g)
+                    col = _VG_COLORS[(k + 1) % len(_VG_COLORS)]
+                    series.append({"label": label, "lag": gev["lag"],
+                                   "gamma": gev["gamma"], "npairs": gev["npairs"],
+                                   "color": col})
+                if skipped:
+                    txt = ", ".join("%s (%d)" % (("—" if g is None else g), n)
+                                    for g, n in skipped)
+                    feedback.pushInfo("Группы меньше %d точек пропущены: %s."
+                                      % (group_min, txt))
+            else:
+                feedback.pushInfo("В поле группировки меньше 2 значений - "
+                                  "строю только общую кривую.")
+
+        # подбор модели по общей кривой (рекомендация)
+        fit = None
+        if do_fit:
+            model_arg = "auto" if fit_choice == 0 else (fit_choice - 1)
+            fit = fit_variogram(ev["lag"], ev["gamma"], ev["npairs"],
+                                model=model_arg)
+            if fit:
+                feedback.pushInfo(
+                    "Подбор: модель %s, C0=%.4g, C=%.4g, a=%.4g, R²=%.3f" % (
+                        MODEL_LABELS[fit["model"]], fit["nugget"], fit["sill"],
+                        fit["range"], fit["r2"]))
+                _save_recommended(fit["nugget"], fit["model"], fit["sill"],
+                                  fit["range"])
+
+        # наложение заданной модели
+        model_curves = None
+        if show_model:
+            w = float(xs.max() - xs.min()); h = float(ys.max() - ys.min())
+            auto_range = max(w, h) / 3.0 or 1.0
+            nugget = self.parameterAsDouble(parameters, self.NUGGET, context)
+            vg = _build_variogram(self, parameters, context, nugget, auto_range,
+                                  feedback)
+            mc = model_curve(vg, ev["maxlag"])
+            model_curves = [{"label": "заданная модель", "h": mc[0],
+                             "gamma": mc[1], "color": "#cc3333"}]
+            if len(mc) == 3:
+                model_curves.append({"label": "модель (малая ось)", "h": mc[0],
+                                     "gamma": mc[2], "color": "#cc3333",
+                                     "dash": "dot"})
+        # кривая подобранной модели
+        if fit:
+            vgf = Variogram(fit["nugget"], [{
+                "it": fit["model"] + 1, "cc": fit["sill"], "aa": fit["range"],
+                "ang": 0.0, "anis": 1.0}])
+            hf, gf = model_curve(vgf, ev["maxlag"])
+            mc = {"label": "подобранная модель", "h": hf, "gamma": gf,
+                  "color": "#1f6f54", "dash": "solid"}
+            model_curves = (model_curves or []) + [mc]
+
+        advice = _fit_advice(fit, data_var, ev["maxlag"]) if do_fit else []
+
+        # таблица-слой (без геометрии): лаг, γ, число пар, группа
+        results = {}
+        fields = QgsFields()
+        fields.append(QgsField("series", QVariant.String))
+        fields.append(QgsField("lag", QVariant.Double))
+        fields.append(QgsField("gamma", QVariant.Double))
+        fields.append(QgsField("npairs", QVariant.Int))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields, QgsWkbTypes.NoGeometry)
+        if sink is not None:
+            def _emit(label, lag, gamma, npairs):
+                for i in range(len(lag)):
+                    f = QgsFeature(fields)
+                    f.setAttributes([label, float(lag[i]), float(gamma[i]),
+                                     int(npairs[i])])
+                    sink.addFeature(f)
+            _emit("все точки", ev["lag"], ev["gamma"], ev["npairs"])
+            for s in series[1:]:
+                _emit(s["label"], s["lag"], s["gamma"], s["npairs"])
+            _set_output_name(context, dest,
+                             "Вариограмма %s · %s" % (zfield, _short(src)))
+            results[self.OUTPUT] = dest
+
+        # HTML-отчёт
+        html_path = self.parameterAsFileOutput(parameters, self.OUTPUT_HTML,
+                                               context)
+        if html_path:
+            meta = [("Поле Z", zfield), ("Точек", "%d" % len(xs)),
+                    ("Дисперсия данных", "%.4g" % data_var),
+                    ("Число лагов", "%d" % n_lags),
+                    ("Максимальное расстояние", "%.4g" % ev["maxlag"]),
+                    ("Оценка", "Кресси-Хокинса" if robust else "Матерона")]
+            if ev["subsampled"]:
+                meta.append(("Подвыборка точек", "%d" % ev["n_used"]))
+            title = "Вариограмма %s · %s" % (zfield, _short(src))
+            cloud = ((ev["cloud_h"], ev["cloud_g"]) if show_cloud and
+                     ev["cloud_h"].size else None)
+            try:
+                _write_variogram_report(html_path, title, series, data_var, fit,
+                                        model_curves, advice, meta, cloud, feedback)
+                results[self.OUTPUT_HTML] = html_path
+            except Exception as e:
+                feedback.pushInfo("Не удалось записать HTML-отчёт: %s" % e)
+
+        _save_values(self, parameters)
+        feedback.setProgress(100)
+        return results
+
+
+# Порядок в этом списке на панель Processing не влияет: тулбокс сортирует
+# алгоритмы внутри группы по алфавиту отображаемого имени. Список оставлен в
+# логическом порядке только для чтения кода.
 ALGORITHMS = [
     Kriging2DAlgorithm,
     RasterToIsolinesAlgorithm,
+    ExperimentalVariogramAlgorithm,
     CrossValidationAlgorithm,
     ExampleWellsAlgorithm,
 ]

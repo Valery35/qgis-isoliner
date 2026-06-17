@@ -256,3 +256,252 @@ def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
         if progress is not None:
             progress(done, total)
     return (grid, sgrid) if with_variance else grid
+
+
+# ===========================================================================
+#  Экспериментальная вариограмма и подбор модели (чистый NumPy, без QGIS).
+#  Параметризация моделей совпадает с cova2 выше: радиус a здесь - это тот же
+#  параметр aa структуры, поэтому подобранный a подставляется в кригинг 1:1.
+# ===========================================================================
+def variogram_shape(model, h, a):
+    """Форма вариограммы γ/C (от 0 до 1) для одной структуры, без наггета.
+
+    model: 0 сферическая, 1 экспоненциальная, 2 гауссова (как MODEL_*).
+    Совпадает с cova2: для сферической при h>=a даёт 1; для экспоненциальной
+    1-exp(-h/a); для гауссовой 1-exp(-(h/a)^2). Параметр a = aa структуры.
+    """
+    h = np.asarray(h, float)
+    a = max(float(a), EPS)
+    hr = h / a
+    if model == MODEL_SPHERICAL:
+        s = 1.5 * hr - 0.5 * hr ** 3
+        return np.where(hr < 1.0, s, 1.0)
+    if model == MODEL_EXPONENTIAL:
+        return 1.0 - np.exp(-hr)
+    if model == MODEL_GAUSSIAN:
+        return 1.0 - np.exp(-(hr * hr))
+    raise ValueError("fit поддерживает только модели 0/1/2 (sph/exp/gauss)")
+
+
+def experimental_variogram(xs, ys, vs, n_lags=15, maxlag=None, robust=False,
+                           max_pairs=6_000_000, cloud_max=20000, seed=0):
+    """Омнинаправленная экспериментальная полувариограмма (оценка Матерона).
+
+    Делит расстояния между всеми парами на n_lags интервалов до maxlag и
+    усредняет полудисперсию 0.5*(z_i - z_j)^2 по каждому интервалу.
+      maxlag=None/<=0 -> половина диагонали охвата (классический ориентир);
+      robust=True     -> устойчивая оценка Кресси-Хокинса (гасит выбросы);
+      max_pairs       -> при превышении точки прореживаются (пар ~ n^2/2),
+                         чтобы расчёт оставался быстрым;
+      cloud_max       -> сколько пар вернуть для облака рассеяния (предпросмотр).
+    Возвращает dict: lag, gamma, npairs (по непустым лагам), maxlag, width,
+    n_used, subsampled, cloud_h, cloud_g (полудисперсия пары).
+    """
+    xs = np.asarray(xs, float)
+    ys = np.asarray(ys, float)
+    vs = np.asarray(vs, float)
+    n = len(xs)
+    rng = np.random.default_rng(seed)
+    subsampled = False
+    if n > 2 and n * (n - 1) // 2 > max_pairs:
+        m = int((1.0 + math.sqrt(1.0 + 8.0 * max_pairs)) / 2.0)
+        m = max(2, min(n, m))
+        idx = rng.choice(n, m, replace=False)
+        xs, ys, vs = xs[idx], ys[idx], vs[idx]
+        n = m
+        subsampled = True
+
+    if maxlag is None or maxlag <= 0:
+        dx = float(xs.max() - xs.min())
+        dy = float(ys.max() - ys.min())
+        maxlag = 0.5 * math.hypot(dx, dy)
+    if maxlag <= 0:
+        maxlag = 1.0
+    n_lags = max(int(n_lags), 1)
+    width = maxlag / n_lags
+
+    cnt = np.zeros(n_lags)
+    s_h = np.zeros(n_lags)
+    s_d2 = np.zeros(n_lags)
+    s_sqrt = np.zeros(n_lags)
+    cloud_h, cloud_g = [], []
+    budget = int(cloud_max)
+
+    for i in range(n - 1):
+        hx = xs[i + 1:] - xs[i]
+        hy = ys[i + 1:] - ys[i]
+        h = np.sqrt(hx * hx + hy * hy)
+        d = vs[i + 1:] - vs[i]
+        sel = (h > 0.0) & (h <= maxlag)
+        if not sel.any():
+            continue
+        h = h[sel]
+        d = d[sel]
+        b = np.minimum((h / width).astype(np.intp), n_lags - 1)
+        np.add.at(cnt, b, 1.0)
+        np.add.at(s_h, b, h)
+        np.add.at(s_d2, b, d * d)
+        if robust:
+            np.add.at(s_sqrt, b, np.sqrt(np.abs(d)))
+        if budget > 0:
+            k = len(h)
+            take = min(k, budget)
+            if take < k:
+                pick = rng.choice(k, take, replace=False)
+                cloud_h.append(h[pick]); cloud_g.append(0.5 * d[pick] * d[pick])
+            else:
+                cloud_h.append(h); cloud_g.append(0.5 * d * d)
+            budget -= take
+
+    safe = np.maximum(cnt, 1.0)
+    lag = np.where(cnt > 0, s_h / safe, (np.arange(n_lags) + 0.5) * width)
+    if robust:
+        mean_sqrt = np.where(cnt > 0, s_sqrt / safe, 0.0)
+        denom = 0.457 + 0.494 / safe + 0.045 / (safe * safe)
+        gamma = 0.5 * (mean_sqrt ** 4) / denom
+    else:
+        gamma = 0.5 * np.where(cnt > 0, s_d2 / safe, np.nan)
+
+    valid = cnt > 0
+    return {
+        "lag": lag[valid],
+        "gamma": gamma[valid],
+        "npairs": cnt[valid].astype(int),
+        "maxlag": float(maxlag),
+        "width": float(width),
+        "n_used": int(n),
+        "subsampled": bool(subsampled),
+        "cloud_h": (np.concatenate(cloud_h) if cloud_h else np.array([])),
+        "cloud_g": (np.concatenate(cloud_g) if cloud_g else np.array([])),
+    }
+
+
+def _wls_c0_c(s, y, w):
+    """Взвешенный МНК для γ = c0 + C*s при фикс. форме s, c0>=0, C>=0.
+    Возвращает (c0, C, sse)."""
+    sw = float(np.sum(w))
+    ss = float(np.sum(w * s))
+    sss = float(np.sum(w * s * s))
+    sy = float(np.sum(w * y))
+    ssy = float(np.sum(w * s * y))
+    det = sw * sss - ss * ss
+    c0 = c = 0.0
+    if abs(det) > 1e-30:
+        c0 = (sy * sss - ss * ssy) / det
+        c = (sw * ssy - ss * sy) / det
+    if c0 < 0.0 or c < 0.0 or abs(det) <= 1e-30:
+        # граница допустимой области: перебираем варианты с занулением
+        cands = []
+        # c0=0 -> C по МНК
+        cc = ssy / sss if sss > 1e-30 else 0.0
+        cands.append((0.0, max(cc, 0.0)))
+        # C=0 -> c0 = взвешенное среднее
+        cands.append((sy / sw if sw > 0 else 0.0, 0.0))
+        # оба >=0 (если вышло)
+        if c0 >= 0.0 and c >= 0.0:
+            cands.append((c0, c))
+        best = None
+        for a0, a1 in cands:
+            r = y - a0 - a1 * s
+            e = float(np.sum(w * r * r))
+            if best is None or e < best[2]:
+                best = (a0, a1, e)
+        return best
+    r = y - c0 - c * s
+    return c0, c, float(np.sum(w * r * r))
+
+
+def fit_variogram(lag, gamma, npairs, model="auto", n_a=80, sill_cap=None):
+    """Подбор модели вариограммы по экспериментальным точкам (рекомендация).
+
+    γ(h) = c0 + C*shape(h; a). При фиксированном a задача линейна по (c0, C),
+    поэтому a сканируется по сетке (лог-шаг) с локальным уточнением, а (c0, C)
+    на каждом шаге решаются взвешенным МНК (веса = число пар в лаге; так точнее
+    оценённые лаги весомее). Без scipy/skgstat.
+
+    Плато модели c0+C ограничивается сверху (sill_cap), чтобы модель не
+    «убегала» в несуществующий силл за счёт длинного радиуса и экстраполяции
+    выше наблюдённой вариограммы. По умолчанию cap = 1.15*max(γ). Благодаря
+    этому auto не выбирает гауссову там, где она выигрывает лишь экстраполяцией.
+
+    model: 'auto' (выбрать sph/exp/gauss по лучшему R^2) либо 0/1/2.
+    Возвращает dict: model, nugget, sill, range, r2, npts. None при нехватке точек.
+    """
+    lag = np.asarray(lag, float)
+    gamma = np.asarray(gamma, float)
+    w = np.asarray(npairs, float)
+    ok = np.isfinite(lag) & np.isfinite(gamma) & (lag > 0)
+    lag, gamma, w = lag[ok], gamma[ok], np.maximum(w[ok], 1.0)
+    if len(lag) < 3:
+        return None
+    if sill_cap is None:
+        sill_cap = 1.15 * float(np.max(gamma))
+
+    L = float(lag.max())
+    a_lo = max(0.05 * L, float(lag.min()) * 0.5, EPS)
+    a_hi = 1.5 * L
+    grid = np.geomspace(a_lo, a_hi, max(int(n_a), 8))
+    models = [MODEL_SPHERICAL, MODEL_EXPONENTIAL, MODEL_GAUSSIAN] \
+        if model == "auto" else [int(model)]
+
+    sw = float(np.sum(w))
+    ybar = float(np.sum(w * gamma) / sw)
+    sst = float(np.sum(w * (gamma - ybar) ** 2)) or 1.0
+
+    def _eval(m, a):
+        s = variogram_shape(m, lag, a)
+        c0, c, sse = _wls_c0_c(s, gamma, w)
+        total = c0 + c
+        if sill_cap and total > sill_cap and total > 0:
+            f = sill_cap / total                 # прижать плато к cap
+            c0, c = c0 * f, c * f
+            r = gamma - c0 - c * s
+            sse = float(np.sum(w * r * r))
+        return c0, c, sse
+
+    best = None
+    for m in models:
+        coarse = [(a, _eval(m, a)) for a in grid]
+        a_star, (c0, c, sse) = min(coarse, key=lambda t: t[1][2])
+        j = [i for i, (a, _) in enumerate(coarse) if a == a_star][0]
+        alo = coarse[max(j - 1, 0)][0]
+        ahi = coarse[min(j + 1, len(coarse) - 1)][0]
+        for _ in range(40):
+            a1 = alo * (ahi / alo) ** (1.0 / 3.0)
+            a2 = alo * (ahi / alo) ** (2.0 / 3.0)
+            if _eval(m, a1)[2] < _eval(m, a2)[2]:
+                ahi = a2
+            else:
+                alo = a1
+            if ahi / alo < 1.0001:
+                break
+        a_ref = math.sqrt(alo * ahi)
+        c0, c, sse = _eval(m, a_ref)
+        r2 = 1.0 - sse / sst
+        cand = {"model": m, "nugget": float(max(c0, 0.0)),
+                "sill": float(max(c, 0.0)), "range": float(a_ref),
+                "r2": float(r2), "npts": int(len(lag))}
+        if best is None or cand["r2"] > best["r2"]:
+            best = cand
+    return best
+
+
+def model_curve(vg, hmax, ndir=None, npts=120):
+    """Кривая γ(h) заданной модели для наложения на экспериментальную.
+
+    Возвращает (h, gamma_major[, gamma_minor]). По умолчанию вдоль главной оси
+    первой структуры (азимут структуры 1); если анизотропия != 1, второй
+    кривой добавляется малая ось - так видно обе ветви. Изотропная модель даёт
+    одну кривую (ветви совпадают, малая не возвращается).
+    """
+    h = np.linspace(0.0, float(hmax), int(npts))
+    az = vg.ang[0] if vg.nst else 0.0
+    ar = az * DTOR
+    ux, uy = math.sin(ar), math.cos(ar)          # главная ось (азимут от севера)
+    g_major = np.array([vg.maxcov - vg.cova2(hi * ux, hi * uy) for hi in h])
+    anis_min = min(vg.anis) if vg.nst else 1.0
+    if anis_min < 0.999:
+        vx, vy = math.cos(ar), -math.sin(ar)     # перпендикуляр (малая ось)
+        g_minor = np.array([vg.maxcov - vg.cova2(hi * vx, hi * vy) for hi in h])
+        return h, g_major, g_minor
+    return h, g_major

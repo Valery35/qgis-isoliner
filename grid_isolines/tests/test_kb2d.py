@@ -155,6 +155,76 @@ def test_cross_validation_loo():
     assert (var[ok] >= 0).all()
 
 
+def test_experimental_variogram_basic():
+    """Экспериментальная вариограмма растёт от малых лагов и даёт число пар."""
+    rng = np.random.default_rng(5)
+    n = 400
+    xs = rng.uniform(0, 500, n); ys = rng.uniform(0, 500, n)
+    vs = 8.0 * np.sin(xs / 90.0) + 6.0 * np.cos(ys / 80.0)
+    ev = kb2d.experimental_variogram(xs, ys, vs, n_lags=12, maxlag=250)
+    assert len(ev["lag"]) == len(ev["gamma"]) == len(ev["npairs"])
+    assert (ev["npairs"] > 0).all()
+    assert np.all(np.isfinite(ev["gamma"]))
+    # на структурированном поле ближний лаг меньше дальнего
+    assert ev["gamma"][0] < ev["gamma"][-1]
+
+
+def test_experimental_variogram_subsample():
+    """При большом числе точек включается подвыборка по лимиту пар."""
+    rng = np.random.default_rng(1)
+    n = 3000
+    xs = rng.uniform(0, 1000, n); ys = rng.uniform(0, 1000, n)
+    vs = rng.normal(0, 1, n)
+    ev = kb2d.experimental_variogram(xs, ys, vs, n_lags=10, maxlag=500,
+                                     max_pairs=1_000_000)
+    assert ev["subsampled"] and ev["n_used"] < n
+
+
+def test_fit_variogram_recovers_structure():
+    """Подбор на поле с реальным плато: силл ~ дисперсии, радиус положителен."""
+    rng = np.random.default_rng(5)
+    G, w = 140, 12
+    white = rng.normal(0, 1, (G, G))
+    ker = np.ones((w, w)) / (w * w)
+    fld = np.fft.ifft2(np.fft.fft2(white) *
+                       np.fft.fft2(ker, s=white.shape)).real
+    fld = (fld - fld.mean()) / fld.std() * 5.0
+    n = 600
+    ix = rng.integers(0, G, n); iy = rng.integers(0, G, n)
+    xs = ix * 10.0; ys = iy * 10.0
+    vs = fld[iy, ix] + rng.normal(0, 0.8, n)
+    ev = kb2d.experimental_variogram(xs, ys, vs, n_lags=18, maxlag=700)
+    f = kb2d.fit_variogram(ev["lag"], ev["gamma"], ev["npairs"], model="auto")
+    assert f is not None
+    assert f["nugget"] >= 0 and f["sill"] > 0 and f["range"] > 0
+    assert f["r2"] > 0.5
+    # плато не превышает наблюдённую вариограмму (защита от «убегания» силла)
+    assert f["nugget"] + f["sill"] <= 1.16 * float(ev["gamma"].max())
+
+
+def test_fit_sill_cap_holds():
+    """Силл-плато не превышает заданный cap даже на «убегающем» гладком поле."""
+    rng = np.random.default_rng(11)
+    n = 400
+    xs = rng.uniform(0, 1000, n); ys = rng.uniform(0, 1000, n)
+    vs = 12.0 * np.sin(xs / 200.0) + 9.0 * np.cos(ys / 160.0)
+    ev = kb2d.experimental_variogram(xs, ys, vs, n_lags=16, maxlag=600)
+    cap = 1.15 * float(ev["gamma"].max())
+    f = kb2d.fit_variogram(ev["lag"], ev["gamma"], ev["npairs"], model="auto")
+    assert f["nugget"] + f["sill"] <= cap + 1e-6
+
+
+def test_model_curve_zero_at_origin():
+    """Кривая γ(h) модели начинается с нуля; анизотропия даёт вторую ветвь."""
+    vg = kb2d.Variogram(1.5, [{"it": 1, "cc": 10.0, "aa": 100.0,
+                               "ang": 0.0, "anis": 1.0}])
+    out = kb2d.model_curve(vg, 300)
+    assert len(out) == 2 and abs(out[1][0]) < 1e-6
+    vg2 = kb2d.Variogram(1.5, [{"it": 1, "cc": 10.0, "aa": 100.0,
+                                "ang": 30.0, "anis": 0.4}])
+    assert len(kb2d.model_curve(vg2, 300)) == 3
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
