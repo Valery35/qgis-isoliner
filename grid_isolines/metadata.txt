@@ -1,21 +1,29 @@
 [general]
 name=Isoliner - грид и изолинии
 qgisMinimumVersion=3.16
-description=Кригинг 2D (GSLIB KB2D) и построение изолиний/контурных полигонов в QGIS.
-about=Группа команд Processing: 2D Kriging (точки в растр) и Изолинии из растра (линии и контурные полигоны, границы которых совпадают с изолиниями). Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=1.8.0
+description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in QGIS. Кригинг 2D (GSLIB KB2D) и построение изолиний/контурных полигонов в QGIS.
+about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for seam tops, thicknesses, physical-mechanical properties, chemistry and any numeric attribute. Russian user manual (PDF) is bundled. Developed with the support of Inform++ LLC (www.informpp.ru).
+    .
+    Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Руководство пользователя (PDF) на русском в комплекте. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
+version=1.8.2
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
 tracker=https://github.com/Valery35/qgis-isoliner/issues
 repository=https://github.com/Valery35/qgis-isoliner
-tags=kriging,interpolation,contour,isolines,contours,geology,gslib,raster,interpolation
+tags=kriging,geostatistics,variogram,interpolation,contour,contours,isolines,cross-validation,geology,gslib,raster
 category=Analysis
 icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=1.8.0
+changelog=1.8.2
+    - Двуязычное описание плагина (английский и русский) в каталоге QGIS
+      и английский README для международной аудитории.
+    1.8.1
+    - В справку каждого инструмента добавлена ссылка на страницу плагина
+      на сайте www.informpp.ru.
+    1.8.0
     - Профили обработки: именованные наборы «вариограмма (наггет, тип, порог,
       радиус, азимут, оси) + отсев ураганных проб», хранятся глобально, между
       проектами. «Вариограмма» и «Кросс-валидация» получили поле «Сохранить

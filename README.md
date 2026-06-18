@@ -1,5 +1,7 @@
 # Isoliner - грид и изолинии (QGIS)
 
+[English](README.en.md) · **Русский**
+
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/)
 
 Плагин-провайдер Processing для интерполяции точечных данных и построения
@@ -224,6 +226,8 @@ for cls in ALGORITHMS:
 
 Полный список - в `metadata.txt` (поле `changelog`). Кратко:
 
+- **1.8.2** - двуязычное описание плагина (английский и русский) в каталоге
+  QGIS и английский README для международной аудитории.
 - **1.8.1** - в справку каждого инструмента добавлена ссылка на страницу
   плагина на сайте www.informpp.ru.
 - **1.8.0** - профили обработки: именованные наборы «вариограмма (Структура 1) +
