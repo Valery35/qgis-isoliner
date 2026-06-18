@@ -1,0 +1,505 @@
+<!-- ============================================================= -->
+<!-- Isoliner — лендинг для informpp.ru                            -->
+<!-- Самодостаточная страница: можно открыть как есть, разместить  -->
+<!-- на хостинге (GitHub Pages) или встроить на Google Sites через -->
+<!-- «Вставка → Встроить → Код».                                   -->
+<!--                                                               -->
+<!-- КАК ПОДКЛЮЧИТЬ СВОИ КАРТИНКИ: найдите блок «gallery» ниже.     -->
+<!-- В каждом <figure> есть <img ... > с пустым src и SVG-заглушка. -->
+<!-- Впишите URL своего скриншота в src (загрузите картинку в      -->
+<!-- репозиторий/на диск и дайте прямую ссылку) — заглушка скроется.-->
+<!-- ============================================================= -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Isoliner — грид и изолинии для QGIS · Информ++</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bitter:wght@500;600;700&family=Golos+Text:wght@400;500;600&display=swap');
+
+:root{
+  --paper:#F1F3EE;
+  --paper-2:#E7EBE3;
+  --ink:#16221F;
+  --ink-soft:#4C5A55;
+  --teal:#0E7C66;
+  --teal-deep:#0A5446;
+  --amber:#C2622C;
+  --amber-soft:#DB9A52;
+  --line:rgba(22,34,31,.14);
+  --r:14px;
+  --maxw:1080px;
+  --display:'Bitter',Georgia,serif;
+  --body:'Golos Text','Segoe UI',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--body);font-size:17px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+a{color:inherit}
+h1,h2,h3{font-family:var(--display);font-weight:700;line-height:1.08;margin:0;letter-spacing:-.01em}
+p{margin:0}
+
+/* eyebrow / labels */
+.eyebrow{
+  font-size:13px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--teal-deep);margin-bottom:18px;display:inline-flex;gap:10px;align-items:center;
+}
+.eyebrow::before{content:"";width:26px;height:2px;background:var(--amber);display:inline-block}
+
+/* ---------- header ---------- */
+.hdr{
+  position:sticky;top:0;z-index:20;background:rgba(241,243,238,.86);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+}
+.hdr .wrap{display:flex;align-items:center;justify-content:space-between;height:62px}
+.brand{display:flex;align-items:baseline;gap:10px;font-family:var(--display);font-weight:700;text-decoration:none}
+.brand b{color:var(--teal-deep)}
+.brand span{font-weight:600;color:var(--ink-soft);font-size:15px;font-family:var(--body)}
+.hdr nav{display:flex;gap:8px;align-items:center}
+.hdr nav a{font-size:14px;font-weight:500;text-decoration:none;color:var(--ink-soft);padding:8px 12px;border-radius:9px}
+.hdr nav a:hover{color:var(--ink);background:var(--paper-2)}
+.hdr .btn-sm{background:var(--teal);color:#fff;border-radius:9px}
+.hdr .btn-sm:hover{background:var(--teal-deep);color:#fff}
+@media(max-width:680px){.hdr nav a.hide{display:none}}
+
+/* ---------- buttons ---------- */
+.btn{
+  display:inline-flex;align-items:center;gap:9px;font-weight:600;font-size:16px;
+  text-decoration:none;padding:13px 22px;border-radius:11px;border:1px solid transparent;
+  transition:transform .15s ease,background .15s ease,box-shadow .15s ease;
+}
+.btn-primary{background:var(--teal);color:#fff;box-shadow:0 8px 22px -12px var(--teal-deep)}
+.btn-primary:hover{background:var(--teal-deep);transform:translateY(-2px)}
+.btn-ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn-ghost:hover{border-color:var(--ink);transform:translateY(-2px)}
+.btn svg{width:18px;height:18px}
+
+/* ---------- hero ---------- */
+.hero{padding:74px 0 64px}
+.hero .wrap{display:grid;grid-template-columns:1.05fr .95fr;gap:54px;align-items:center}
+.hero h1{font-size:clamp(38px,5.4vw,62px)}
+.hero h1 em{font-style:normal;color:var(--teal)}
+.hero .lede{margin-top:22px;font-size:19px;color:var(--ink-soft);max-width:30em}
+.hero .cta{margin-top:32px;display:flex;gap:14px;flex-wrap:wrap}
+.hero .meta{margin-top:26px;font-size:14px;color:var(--ink-soft);display:flex;gap:18px;flex-wrap:wrap}
+.hero .meta b{color:var(--ink);font-weight:600}
+.heroart{border-radius:var(--r);overflow:hidden;border:1px solid var(--line);box-shadow:0 30px 60px -34px rgba(22,34,31,.5);background:#fff}
+.heroart svg{display:block;width:100%;height:auto}
+@media(max-width:860px){
+  .hero .wrap{grid-template-columns:1fr;gap:34px}
+  .hero{padding:48px 0 44px}
+}
+
+/* ---------- thesis (dark band) ---------- */
+.thesis{background:var(--ink);color:var(--paper);padding:78px 0;margin-top:8px}
+.thesis .eyebrow{color:var(--amber-soft)}
+.thesis .eyebrow::before{background:var(--amber-soft)}
+.thesis h2{font-size:clamp(28px,3.6vw,40px);color:#fff;max-width:16em}
+.thesis .sub{margin-top:18px;color:#C3CFCB;max-width:42em}
+.triptych{margin-top:44px;display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.panel{background:#1E2D29;border:1px solid rgba(255,255,255,.09);border-radius:var(--r);padding:16px;display:flex;flex-direction:column}
+.panel svg{display:block;width:100%;height:auto;border-radius:8px}
+.panel .tag{margin-top:14px;font-family:var(--display);font-weight:600;font-size:17px;color:#fff}
+.panel .desc{margin-top:5px;font-size:14px;color:#A9B7B2;line-height:1.5}
+.panel.win .tag{color:var(--amber-soft)}
+@media(max-width:760px){.triptych{grid-template-columns:1fr;gap:14px}}
+
+/* ---------- section base ---------- */
+.section{padding:78px 0}
+.section h2{font-size:clamp(27px,3.4vw,38px);max-width:15em}
+.section .intro{margin-top:18px;color:var(--ink-soft);max-width:44em}
+
+/* ---------- tools ---------- */
+.tools{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:42px}
+.card{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:24px;transition:transform .16s ease,box-shadow .16s ease}
+.card:hover{transform:translateY(-3px);box-shadow:0 18px 40px -26px rgba(22,34,31,.45)}
+.card .ic{width:42px;height:42px;border-radius:10px;background:var(--paper-2);display:flex;align-items:center;justify-content:center;margin-bottom:16px}
+.card .ic svg{width:23px;height:23px;stroke:var(--teal-deep);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.card h3{font-size:18px}
+.card p{margin-top:8px;font-size:15px;color:var(--ink-soft);line-height:1.5}
+@media(max-width:820px){.tools{grid-template-columns:1fr 1fr}}
+@media(max-width:540px){.tools{grid-template-columns:1fr}}
+
+/* ---------- gallery ---------- */
+.gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:42px}
+figure{margin:0;background:#fff;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+figure .ph{position:relative;aspect-ratio:4/3;background:var(--paper-2)}
+figure .ph svg,figure .ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+figure .ph img{z-index:2}
+figure .ph img[src=""],figure .ph img:not([src]){display:none}
+figcaption{padding:13px 16px;font-size:14px;color:var(--ink-soft)}
+figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
+@media(max-width:760px){.gallery{grid-template-columns:1fr}}
+
+/* ---------- applications ---------- */
+.apps{background:var(--paper-2)}
+.chips{margin-top:34px;display:flex;flex-wrap:wrap;gap:11px}
+.chip{background:#fff;border:1px solid var(--line);border-radius:999px;padding:9px 17px;font-size:15px}
+.chip b{color:var(--teal-deep)}
+
+/* ---------- docs band ---------- */
+.docs{background:var(--teal);color:#fff}
+.docs .wrap{display:grid;grid-template-columns:1.2fr .8fr;gap:40px;align-items:center}
+.docs h2{color:#fff;font-size:clamp(26px,3.2vw,36px)}
+.docs p{margin-top:16px;color:#D6ECE5;max-width:34em}
+.docs .links{display:flex;flex-direction:column;gap:12px}
+.docs .dlink{display:flex;align-items:center;gap:13px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);border-radius:12px;padding:15px 18px;text-decoration:none;color:#fff;font-weight:600;transition:background .15s ease,transform .15s ease}
+.docs .dlink:hover{background:rgba(255,255,255,.18);transform:translateX(3px)}
+.docs .dlink span{font-weight:400;color:#CFE7DF;font-size:13px;display:block;margin-top:2px}
+.docs .dlink svg{width:22px;height:22px;flex:none;stroke:#fff;fill:none;stroke-width:1.7}
+@media(max-width:760px){.docs .wrap{grid-template-columns:1fr;gap:26px}}
+
+/* ---------- footer ---------- */
+.foot{background:var(--ink);color:#AEBCB7;padding:52px 0 40px}
+.foot .wrap{display:flex;justify-content:space-between;gap:30px;flex-wrap:wrap;align-items:flex-start}
+.foot .brand{color:#fff}
+.foot .brand b{color:var(--amber-soft)}
+.foot p{font-size:14px;margin-top:14px;max-width:34em;line-height:1.6}
+.foot a.gc{color:#fff;text-decoration:underline;text-underline-offset:3px}
+.foot .copy{font-size:13px;color:#7E8E89;margin-top:26px;width:100%;border-top:1px solid rgba(255,255,255,.1);padding-top:20px}
+
+/* reveal */
+.reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
+.reveal.in{opacity:1;transform:none}
+:focus-visible{outline:3px solid var(--amber);outline-offset:2px;border-radius:4px}
+@media(prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important}
+  .reveal{opacity:1;transform:none}
+  html{scroll-behavior:auto}
+}
+</style>
+
+<!-- ===================== HEADER ===================== -->
+<header class="hdr">
+  <div class="wrap">
+    <a class="brand" href="#top"><b>Информ++</b> <span>Isoliner</span></a>
+    <nav>
+      <a class="hide" href="#thesis">Зачем кригинг</a>
+      <a class="hide" href="#tools">Инструменты</a>
+      <a class="hide" href="#docs">Документация</a>
+      <a class="btn-sm" href="https://plugins.qgis.org/plugins/grid_isolines/" target="_blank" rel="noopener">Установить</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ===================== HERO ===================== -->
+<section class="hero">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow">Плагин QGIS · кригинг и изолинии</span>
+      <h1>Поверхности по скважинам, которым&nbsp;<em>можно доверять</em></h1>
+      <p class="lede">Isoliner строит грид, изолинии и контурные полигоны методом кригинга, а вместе с результатом даёт карту стандартной ошибки — видно, где данных мало и оценке верить не стоит.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/grid_isolines/" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+          Установить в QGIS
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/Valery35/qgis-isoliner/raw/main/grid_isolines/doc/Isoliner.pdf" target="_blank" rel="noopener">Руководство (PDF)</a>
+      </div>
+      <div class="meta">
+        <span><b>Ядро</b> GSLIB KB2D</span>
+        <span><b>6</b> инструментов</span>
+        <span><b>Открытый</b> код · бесплатно</span>
+      </div>
+    </div>
+
+    <!-- HERO ART: кригованная контурная карта (SVG) -->
+    <div class="heroart reveal" aria-label="Контурная карта, построенная кригингом">
+      <svg viewBox="0 0 600 470" xmlns="http://www.w3.org/2000/svg" role="img">
+        <defs>
+          <clipPath id="frame"><rect x="0" y="0" width="600" height="470" rx="0"/></clipPath>
+        </defs>
+        <g clip-path="url(#frame)">
+          <rect width="600" height="470" fill="#0A5446"/>
+          <!-- contour bands (low -> high anomaly) -->
+          <path d="M-20,300 C120,250 200,360 330,330 C460,300 540,360 620,310 L620,490 L-20,490 Z" fill="#0E7C66"/>
+          <path d="M-20,250 C120,210 230,300 360,270 C470,245 560,290 620,250 L620,490 L-20,490 Z" fill="#2F8E73"/>
+          <path d="M60,250 C170,180 270,250 360,210 C440,176 520,210 600,196 L600,420 L60,420 Z" fill="#5AA98A"/>
+          <path d="M150,235 C230,180 320,215 380,190 C440,166 500,188 560,182 L560,360 L150,360 Z" fill="#94C2A4"/>
+          <path d="M210,220 C270,182 340,196 390,180 C430,168 470,176 510,176 L510,300 L210,300 Z" fill="#C9CB8F"/>
+          <path d="M250,210 C300,184 350,190 390,182 C420,176 450,180 470,182 L470,250 L250,250 Z" fill="#DB9A52"/>
+          <path d="M290,202 C320,188 350,190 380,188 L400,200 L380,225 L300,222 Z" fill="#C2622C"/>
+          <!-- isolines -->
+          <g fill="none" stroke="#0A3E33" stroke-width="1.1" opacity=".55">
+            <path d="M-20,300 C120,250 200,360 330,330 C460,300 540,360 620,310"/>
+            <path d="M-20,250 C120,210 230,300 360,270 C470,245 560,290 620,250"/>
+          </g>
+          <g fill="none" stroke="#15332b" stroke-width="1.1" opacity=".5">
+            <path d="M60,250 C170,180 270,250 360,210 C440,176 520,210 600,196"/>
+            <path d="M150,235 C230,180 320,215 380,190 C440,166 500,188 560,182"/>
+            <path d="M210,220 C270,182 340,196 390,180 C430,168 470,176 510,176"/>
+          </g>
+          <!-- well points -->
+          <g fill="#0c1f1a" stroke="#EAF1ED" stroke-width="1.3">
+            <circle cx="95" cy="318" r="3.4"/><circle cx="180" cy="286" r="3.4"/>
+            <circle cx="250" cy="330" r="3.4"/><circle cx="330" cy="300" r="3.4"/>
+            <circle cx="360" cy="232" r="3.4"/><circle cx="300" cy="210" r="3.4"/>
+            <circle cx="410" cy="262" r="3.4"/><circle cx="470" cy="300" r="3.4"/>
+            <circle cx="520" cy="250" r="3.4"/><circle cx="350" cy="195" r="3.4"/>
+            <circle cx="240" cy="245" r="3.4"/><circle cx="150" cy="232" r="3.4"/>
+            <circle cx="430" cy="200" r="3.4"/><circle cx="110" cy="250" r="3.4"/>
+          </g>
+        </g>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== THESIS (dark) ===================== -->
+<section class="thesis" id="thesis">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow">Кригинг или триангуляция</span>
+      <h2>Одни и те же скважины. Разный ответ.</h2>
+      <p class="sub">Триангуляция строит поверхность по прямым между точками: быстро, но с изломами на скважинах и без единого слова о достоверности. Кригинг взвешивает скважины по пространственной структуре данных и показывает, где оценке можно верить.</p>
+    </div>
+
+    <div class="triptych reveal">
+      <!-- TIN -->
+      <div class="panel">
+        <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Триангуляция: угловатая поверхность">
+          <rect width="240" height="180" fill="#13201C"/>
+          <g stroke="#0F1B18" stroke-width="1">
+            <polygon points="20,150 90,60 120,150" fill="#3E6F5E"/>
+            <polygon points="90,60 120,150 150,70" fill="#6FA98F"/>
+            <polygon points="90,60 150,70 130,30" fill="#C9CB8F"/>
+            <polygon points="150,70 120,150 200,120" fill="#4E8A72"/>
+            <polygon points="150,70 200,120 220,55" fill="#9CC1A4"/>
+            <polygon points="130,30 150,70 220,55" fill="#DB9A52"/>
+            <polygon points="20,150 120,150 200,120" fill="#2F5A4B" opacity=".7"/>
+            <polygon points="200,120 120,150 220,160" fill="#3E6F5E"/>
+          </g>
+          <g fill="#0c1f1a" stroke="#EAF1ED" stroke-width="1.1">
+            <circle cx="20" cy="150" r="3"/><circle cx="90" cy="60" r="3"/>
+            <circle cx="120" cy="150" r="3"/><circle cx="150" cy="70" r="3"/>
+            <circle cx="130" cy="30" r="3"/><circle cx="200" cy="120" r="3"/>
+            <circle cx="220" cy="55" r="3"/><circle cx="220" cy="160" r="3"/>
+          </g>
+        </svg>
+        <div class="tag">Триангуляция</div>
+        <div class="desc">Кусочно-линейно, гребни на скважинах, нет оценки достоверности.</div>
+      </div>
+      <!-- Kriging -->
+      <div class="panel win">
+        <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Кригинг: гладкая поверхность">
+          <rect width="240" height="180" fill="#0A5446"/>
+          <path d="M-10,120 C60,100 110,140 170,120 C210,107 230,124 250,116 L250,200 L-10,200Z" fill="#0E7C66"/>
+          <path d="M-10,98 C60,78 120,112 180,92 C214,81 240,96 250,90 L250,200 L-10,200Z" fill="#2F8E73"/>
+          <path d="M30,96 C80,68 130,90 170,74 C200,62 230,74 250,72 L250,170 L30,170Z" fill="#6FA98F"/>
+          <path d="M70,88 C110,66 150,78 180,68 C205,60 228,66 250,66 L250,150 L70,150Z" fill="#A9C9A6"/>
+          <path d="M110,80 C140,64 168,70 190,64 C210,59 230,62 250,62 L250,130 L110,130Z" fill="#CFCB86"/>
+          <path d="M150,74 C172,64 192,66 210,63 L228,72 L210,92 L160,90Z" fill="#DB9A52"/>
+          <g fill="none" stroke="#0A3E33" stroke-width="1" opacity=".5">
+            <path d="M-10,120 C60,100 110,140 170,120 C210,107 230,124 250,116"/>
+            <path d="M30,96 C80,68 130,90 170,74 C200,62 230,74 250,72"/>
+          </g>
+          <g fill="#0c1f1a" stroke="#EAF1ED" stroke-width="1.1">
+            <circle cx="20" cy="118" r="3"/><circle cx="90" cy="92" r="3"/>
+            <circle cx="120" cy="128" r="3"/><circle cx="170" cy="92" r="3"/>
+            <circle cx="150" cy="70" r="3"/><circle cx="200" cy="100" r="3"/>
+            <circle cx="220" cy="70" r="3"/>
+          </g>
+        </svg>
+        <div class="tag">Кригинг</div>
+        <div class="desc">Гладко, веса по вариограмме данных, учёт анизотропии.</div>
+      </div>
+      <!-- Error map -->
+      <div class="panel">
+        <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Карта стандартной ошибки">
+          <defs>
+            <radialGradient id="lowerr" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#13332b"/><stop offset="100%" stop-color="#13332b" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <rect width="240" height="180" fill="#C2622C"/>
+          <rect width="240" height="180" fill="#DB9A52" opacity=".35"/>
+          <g>
+            <ellipse cx="60" cy="70" rx="62" ry="54" fill="url(#lowerr)"/>
+            <ellipse cx="150" cy="60" rx="58" ry="50" fill="url(#lowerr)"/>
+            <ellipse cx="120" cy="120" rx="66" ry="54" fill="url(#lowerr)"/>
+            <ellipse cx="190" cy="120" rx="50" ry="46" fill="url(#lowerr)"/>
+          </g>
+          <g fill="#0c1f1a" stroke="#EAF1ED" stroke-width="1.1">
+            <circle cx="55" cy="66" r="3"/><circle cx="150" cy="58" r="3"/>
+            <circle cx="118" cy="118" r="3"/><circle cx="188" cy="120" r="3"/>
+            <circle cx="92" cy="96" r="3"/>
+          </g>
+        </svg>
+        <div class="tag">Карта ошибки</div>
+        <div class="desc">Тёмное — оценке верим (скважины рядом), светлое — догадка. У триангуляции этого нет.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== TOOLS ===================== -->
+<section class="section" id="tools">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow">Что входит</span>
+      <h2>Шесть инструментов: путь от скважин до карты</h2>
+      <p class="intro">Isoliner — это не один алгоритм, а связка инструментов QGIS Processing, проходящая весь маршрут: оценить структуру данных, подобрать и проверить модель, построить грид и изолинии, переиспользовать настройки.</p>
+    </div>
+    <div class="tools reveal">
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg></div>
+        <h3>2D Kriging</h3>
+        <p>Ординарный и простой кригинг по точечному слою на ядре GSLIB KB2D.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24"><path d="M3 16c4-1 5-9 9-9s5 8 9 7"/><path d="M3 20c4-1 6-6 9-6s6 5 9 4"/><path d="M4 11c3-1 5-6 8-6"/></svg></div>
+        <h3>Изолинии из растра</h3>
+        <p>Линии и контурные полигоны (пояса) с точным совпадением границ.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24"><path d="M3 20h18"/><path d="M3 20C7 8 11 6 21 5"/><circle cx="7" cy="13" r="1.3"/><circle cx="11" cy="9.5" r="1.3"/><circle cx="16" cy="6.8" r="1.3"/></svg></div>
+        <h3>Вариограмма</h3>
+        <p>Экспериментальная вариограмма с подбором модели и HTML-отчётом.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 4v16h16"/><circle cx="9" cy="14" r="1.3"/><circle cx="13" cy="9" r="1.3"/><circle cx="17" cy="11" r="1.3"/><circle cx="11" cy="17" r="1.3"/></svg></div>
+        <h3>Кросс-валидация</h3>
+        <p>Скользящий контроль leave-one-out с метриками: проверка по ошибке.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24"><circle cx="7" cy="8" r="1.4"/><circle cx="16" cy="7" r="1.4"/><circle cx="12" cy="14" r="1.4"/><circle cx="18" cy="16" r="1.4"/><circle cx="6" cy="16" r="1.4"/></svg></div>
+        <h3>Пример скважин</h3>
+        <p>Генератор учебного точечного слоя для обучения и проверки.</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v6h7"/><path d="M8 15h8M8 18h5"/></svg></div>
+        <h3>Профили обработки</h3>
+        <p>Именованные наборы «вариограмма + отсев» для разных пластов и зон.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== GALLERY (вставьте свои скриншоты) ===================== -->
+<section class="section" style="padding-top:0">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow">Как это выглядит</span>
+      <h2>Результат и контроль качества</h2>
+      <p class="intro">Ниже — место для ваших скриншотов. Впишите URL картинки в атрибут <code>src</code> у соответствующего тега <code>&lt;img&gt;</code> в коде — заглушка скроется автоматически.</p>
+    </div>
+    <div class="gallery reveal">
+      <figure>
+        <div class="ph">
+          <!-- src пуст -> показывается SVG-заглушка. Вставьте свой скрин: src="https://.../grid.png" -->
+          <img src="" alt="Грид и изолинии">
+          <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <rect width="240" height="180" fill="#0E7C66"/>
+            <path d="M-10,110 C60,90 110,130 250,108 L250,200 L-10,200Z" fill="#2F8E73"/>
+            <path d="M-10,86 C70,66 150,100 250,80 L250,200 L-10,200Z" fill="#6FA98F"/>
+            <path d="M40,80 C110,58 180,76 250,70 L250,170 L40,170Z" fill="#C9CB8F"/>
+            <path d="M120,72 C160,60 210,64 250,62 L250,140 L120,140Z" fill="#DB9A52"/>
+            <g fill="none" stroke="#0A3E33" stroke-width="1" opacity=".5"><path d="M-10,110 C60,90 110,130 250,108"/><path d="M40,80 C110,58 180,76 250,70"/></g>
+          </svg>
+        </div>
+        <figcaption><b>Грид и изолинии.</b> Гладкая поверхность и контурные пояса.</figcaption>
+      </figure>
+      <figure>
+        <div class="ph">
+          <img src="" alt="HTML-отчёт вариограммы">
+          <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <rect width="240" height="180" fill="#EFF2EC"/>
+            <line x1="28" y1="150" x2="220" y2="150" stroke="#9AA7A2" stroke-width="1.4"/>
+            <line x1="28" y1="20" x2="28" y2="150" stroke="#9AA7A2" stroke-width="1.4"/>
+            <path d="M28,150 C70,150 90,70 130,58 C170,48 200,46 220,46" fill="none" stroke="#0E7C66" stroke-width="2.4"/>
+            <line x1="28" y1="46" x2="220" y2="46" stroke="#C2622C" stroke-width="1.2" stroke-dasharray="5 4"/>
+            <g fill="#16221F"><circle cx="46" cy="138" r="2.6"/><circle cx="66" cy="120" r="2.6"/><circle cx="86" cy="92" r="2.6"/><circle cx="110" cy="70" r="2.6"/><circle cx="140" cy="60" r="2.6"/><circle cx="172" cy="54" r="2.6"/><circle cx="206" cy="50" r="2.6"/></g>
+          </svg>
+        </div>
+        <figcaption><b>Вариограмма.</b> Облако, подобранная модель, дисперсия данных.</figcaption>
+      </figure>
+      <figure>
+        <div class="ph">
+          <img src="" alt="Карта стандартной ошибки">
+          <svg viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <defs><radialGradient id="le2" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#13332b"/><stop offset="100%" stop-color="#13332b" stop-opacity="0"/></radialGradient></defs>
+            <rect width="240" height="180" fill="#C2622C"/>
+            <ellipse cx="70" cy="70" rx="64" ry="56" fill="url(#le2)"/>
+            <ellipse cx="160" cy="80" rx="62" ry="54" fill="url(#le2)"/>
+            <ellipse cx="120" cy="130" rx="64" ry="50" fill="url(#le2)"/>
+            <g fill="#0c1f1a" stroke="#EAF1ED" stroke-width="1.1"><circle cx="68" cy="66" r="3"/><circle cx="158" cy="78" r="3"/><circle cx="118" cy="126" r="3"/><circle cx="100" cy="92" r="3"/></g>
+          </svg>
+        </div>
+        <figcaption><b>Стандартная ошибка.</b> Где оценке можно доверять.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== APPLICATIONS ===================== -->
+<section class="section apps">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow">Где применяется</span>
+      <h2>Любой числовой параметр, заданный точками</h2>
+      <div class="chips">
+        <div class="chip">Отметки <b>кровли и подошвы</b> пластов</div>
+        <div class="chip">Карты <b>мощностей</b></div>
+        <div class="chip"><b>ФМС</b> и химия</div>
+        <div class="chip">Уровни <b>подземных вод</b></div>
+        <div class="chip"><b>Гидроизогипсы</b> и гидроизопьезы</div>
+        <div class="chip">Данные <b>геофизики</b></div>
+        <div class="chip">Мониторинг и <b>опробование</b></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== DOCS ===================== -->
+<section class="section docs" id="docs">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow" style="color:#CFE7DF">Документация</span>
+      <h2>Руководство объясняет каждый шаг</h2>
+      <p>Подбор вариограммы, выбор максимального расстояния, чтение кросс-валидации, профили обработки и типичные ситуации с решениями. На русском, в PDF. Краткая справка открывается прямо из каждого инструмента кнопкой «Справка».</p>
+    </div>
+    <div class="links reveal">
+      <a class="dlink" href="https://github.com/Valery35/qgis-isoliner/raw/main/grid_isolines/doc/Isoliner.pdf" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>
+        <div>Скачать руководство<span>PDF · русский</span></div>
+      </a>
+      <a class="dlink" href="https://plugins.qgis.org/plugins/grid_isolines/" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        <div>Установить из репозитория QGIS<span>plugins.qgis.org</span></div>
+      </a>
+      <a class="dlink" href="https://github.com/Valery35/qgis-isoliner" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4 1.5-4-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.3 4.3 0 0 0-.1-3.2s-1-.3-3.4 1.3a11.7 11.7 0 0 0-6 0C6.3 2.3 5.3 2.6 5.3 2.6a4.3 4.3 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>
+        <div>Исходный код<span>GitHub</span></div>
+      </a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ===================== FOOTER ===================== -->
+<footer class="foot">
+  <div class="wrap">
+    <div>
+      <a class="brand" href="#top"><b>Информ++</b></a>
+      <p>Isoliner разработан в ООО «Информ++» — мы делаем промышленное ПО для геологии, горного дела, гидрогеологии и геомеханики. Плагин открытый и бесплатный: работает сам по себе или движком интерполяции в связке с <a class="gc" href="https://www.informpp.ru/главная-страница/геоконструктор">Геоконструктором</a>.</p>
+    </div>
+    <div class="copy">© ООО «Информ++» (Inform++) · informpp.ru</div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var els=document.querySelectorAll('.reveal');
+  if(!('IntersectionObserver' in window)){els.forEach(function(e){e.classList.add('in')});return;}
+  var io=new IntersectionObserver(function(es){
+    es.forEach(function(en){if(en.isIntersecting){en.target.classList.add('in');io.unobserve(en.target);}});
+  },{threshold:.12});
+  els.forEach(function(e){io.observe(e);});
+})();
+</script>
