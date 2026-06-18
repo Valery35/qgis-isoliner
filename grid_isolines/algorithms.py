@@ -28,6 +28,7 @@ import math
 
 import os
 import json
+import configparser
 import uuid
 
 import numpy as np
@@ -266,6 +267,45 @@ def _dv(alg, key, fallback):
 # Хранится отдельно от per-algorithm настроек (это черновик, а не дефолты).
 def _recommended_key():
     return "isoliner/recommended_model"
+
+
+_VERSION_CACHE = None
+
+
+def _plugin_version():
+    """Версия модуля из metadata.txt рядом с этим файлом (кэшируется)."""
+    global _VERSION_CACHE
+    if _VERSION_CACHE is None:
+        ver = ""
+        try:
+            cp = configparser.ConfigParser(interpolation=None)
+            cp.read(os.path.join(os.path.dirname(__file__), "metadata.txt"),
+                    encoding="utf-8")
+            ver = cp.get("general", "version", fallback="").strip()
+        except Exception:
+            ver = ""
+        _VERSION_CACHE = ver
+    return _VERSION_CACHE
+
+
+def _version_line():
+    """Строка для Журнала."""
+    v = _plugin_version()
+    return ("Isoliner " + v) if v else "Isoliner"
+
+
+def _version_footer():
+    """Подвал HTML-отчёта."""
+    v = _plugin_version()
+    name = ("Isoliner v" + v) if v else "Isoliner"
+    return "<hr><p style='color:#888;font-size:smaller'>" + name + "</p>"
+
+
+def _help_version(text):
+    """Дописать версию в конец справки инструмента."""
+    v = _plugin_version()
+    text = "" if text is None else str(text)
+    return (text + "\n\nIsoliner v" + v) if v else text
 
 
 def _save_recommended(nugget, model_code, sill, rng):
@@ -744,14 +784,14 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     def groupId(self): return GROUP_ID
 
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Ординарный/простой кригинг 2D по точечному слою (ядро GSLIB KB2D). "
             "Вариограмма: наггет + до %d вложенных структур. "
             "Подходит для отметок пласта, мощностей, ФМС, химии и любых "
             "числовых атрибутов.\n\nРадиус поиска 0 = по всей выборке; "
             "размер ячейки 0 = min(охват)/50; радиус корреляции 0 = "
             "max(охват)/3. Опция обрезки убирает экстраполяцию вне контура "
-            "скважин." % NSTRUCT + CREDIT)
+            "скважин." % NSTRUCT + CREDIT))
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -788,6 +828,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(se)
 
     def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
         _save_values(self, parameters)
         if self.parameterAsBool(parameters, self.USE_RECOMMENDED, context):
             rec = _load_recommended()
@@ -853,7 +894,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
     def groupId(self): return GROUP_ID
 
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Строит изолинии из растра: равномерный шаг или явные уровни "
             "(через пробел), главные (утолщённые) изолинии флагом is_index, "
             "фильтр коротких линий.\n\nСкругление линий (Chaikin) слегка "
@@ -864,7 +905,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
             "границы СОВПАДАЮТ с изолиниями, покрытие сплошное. Чтобы их не "
             "строить - очистите поле «Контурные полигоны».\n\nПоля: линии - "
             "значение уровня (по умолчанию ELEV) и is_index (1 у главных); "
-            "полигоны - ELEV_MIN/ELEV_MAX (диапазон пояса)." + CREDIT)
+            "полигоны - ELEV_MIN/ELEV_MAX (диапазон пояса)." + CREDIT))
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -883,6 +924,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
             optional=True, createByDefault=True))
 
     def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
         _save_values(self, parameters)
         rl = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         if rl is None:
@@ -1178,8 +1220,8 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
         chart += "Диаграмму можно построить по слою остатков.</i></p>"
     html = (
         "<html><head><meta charset='utf-8'><title>%s</title></head><body>"
-        "<h2>%s</h2>%s%s<br>%s</body></html>" % (
-            title, title, table, advice_html, chart))
+        "<h2>%s</h2>%s%s<br>%s%s</body></html>" % (
+            title, title, table, advice_html, chart, _version_footer()))
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(html)
 
@@ -1276,7 +1318,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
         return "grid_isolines"
 
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Скользящий контроль (leave-one-out): каждая скважина по очереди "
             "исключается, её значение предсказывается кригингом по остальным, "
             "и сравнивается с фактическим. Помогает подобрать вариограмму "
@@ -1295,7 +1337,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             "По нему видно, где модель промахивается.\n\n"
             "HTML-отчёт (по умолчанию) открывается в просмотрщике результатов: "
             "интерактивный график «оценка vs факт», гистограмма ошибок и "
-            "таблица метрик.")
+            "таблица метрик."))
 
     def createInstance(self):
         return CrossValidationAlgorithm()
@@ -1319,6 +1361,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             self.tr("HTML files (*.html)"), optional=True, createByDefault=True))
 
     def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
         source = self.parameterAsSource(parameters, self.INPUT, context)
         layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
         src = layer.name() if layer is not None else "data"
@@ -1546,7 +1589,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         return "grid_isolines"
 
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Создаёт точечный слой «скважин» со случайными координатами в "
             "пределах области и значением абстрактного компонента (X, %), "
             "имеющим пространственную структуру. Предназначен для обучения и "
@@ -1560,7 +1603,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             "Поля результата: номер скважины, абсолютная отметка кровли (roof), "
             "мощность (thick) и содержание X. Диапазоны кровли и мощности по "
             "умолчанию близки к реальным калийным данным; их можно изменить в "
-            "разделе «Дополнительно».")
+            "разделе «Дополнительно»."))
 
     def createInstance(self):
         return ExampleWellsAlgorithm()
@@ -1605,6 +1648,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessing.TypeVectorPoint))
 
     def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
         crs = self.parameterAsExtentCrs(parameters, self.EXTENT, context)
         rect = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
         if rect.isEmpty() or rect.width() <= 0 or rect.height() <= 0:
@@ -1857,8 +1901,8 @@ def _write_variogram_report(path, title, series, data_var, fit, model_curves,
 
     html = (
         "<html><head><meta charset='utf-8'><title>%s</title></head><body>"
-        "<h2>%s</h2>%s%s<br>%s</body></html>" % (
-            title, title, meta_box, advice_html, chart))
+        "<h2>%s</h2>%s%s<br>%s%s</body></html>" % (
+            title, title, meta_box, advice_html, chart, _version_footer()))
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(html)
 
@@ -1893,7 +1937,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
     def groupId(self): return GROUP_ID
 
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Строит всенаправленную экспериментальную полувариограмму по "
             "точкам: облако пар усредняется по интервалам расстояния (лагам). "
             "Помогает увидеть структуру данных и подобрать вариограмму глазом, "
@@ -1908,7 +1952,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
             "сравнить её с облаком.\n\n"
             "HTML-отчёт открывается в просмотрщике результатов: точки по лагам, "
             "модель и подобранная кривая, линия дисперсии данных. Слой-таблица "
-            "(опц.) содержит лаг, γ(h) и число пар для построения в QGIS.")
+            "(опц.) содержит лаг, γ(h) и число пар для построения в QGIS."))
 
     def createInstance(self):
         return ExperimentalVariogramAlgorithm()
@@ -1985,6 +2029,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
         return self.parameterAsDouble(parameters, name, context)
 
     def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
         source = self.parameterAsSource(parameters, self.INPUT, context)
         layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
         src = layer.name() if layer is not None else "data"
