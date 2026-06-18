@@ -21,7 +21,7 @@
   Kriging2DAlgorithm        - точки → растр (ординарный/простой кригинг, KB2D)
   RasterToIsolinesAlgorithm - растр → изолинии (линии) и опционально полигоны
 
-Вариограмма - нуггет + до NSTRUCT вложенных структур (как в исходном Isoliner, AddPar).
+Вариограмма - нуггет + одна структура (модель, порог, радиус, азимут, анизотропия).
 Структура с вкладом (порогом) <= 0 не учитывается (кроме первой).
 """
 import math
@@ -81,7 +81,7 @@ GROUP_ID = "grid_isolines"
 MODEL_LABELS = ["Сферическая", "Экспоненциальная", "Гауссова", "Степенная"]
 KTYPE_LABELS = ["Ординарный (OK)", "Простой (SK)"]
 
-NSTRUCT = 3  # макс. число вложенных структур вариограммы
+NSTRUCT = 1  # число структур вариограммы (S2/S3 убраны как неиспользуемые)
 
 CREDIT = ("\n\n- - -\nРазработано при поддержке ООО «Информ++» "
           "(www.informpp.ru).")
@@ -262,11 +262,15 @@ def _dv(alg, key, fallback):
     return getattr(alg, "_defaults", {}).get(key, fallback)
 
 
-# общий слот рекомендованной модели: вариограмма и кросс-валидация пишут сюда
-# подобранную/проверенную модель, «2D Kriging» по желанию её подставляет.
-# Хранится отдельно от per-algorithm настроек (это черновик, а не дефолты).
-def _recommended_key():
-    return "isoliner/recommended_model"
+# Профили обработки: именованные наборы «вариограмма (Структура 1) + наггет +
+# отсев ураганных проб». Хранятся глобально в QgsSettings (кросс-проектно),
+# отдельно от per-algorithm настроек. «Вариограмма» и «Кросс-валидация» их
+# сохраняют, «2D Kriging» подставляет, отдельный инструмент «Профили» правит.
+PROFILE_NONE = "(не выбран)"
+
+
+def _profiles_key():
+    return "isoliner/profiles"
 
 
 _VERSION_CACHE = None
@@ -308,21 +312,82 @@ def _help_version(text):
     return (text + "\n\nIsoliner v" + v) if v else text
 
 
-def _save_recommended(nugget, model_code, sill, rng):
+def _load_profiles():
+    """Все профили: dict {имя: {...}}."""
     try:
-        QgsSettings().setValue(_recommended_key(), json.dumps({
-            "nugget": float(nugget), "model": int(model_code),
-            "sill": float(sill), "range": float(rng)}))
+        raw = QgsSettings().value(_profiles_key(), "")
+        d = json.loads(raw) if raw else {}
+        return d if isinstance(d, dict) else {}
     except Exception:
-        pass
+        return {}
 
 
-def _load_recommended():
+def _save_profiles(d):
     try:
-        raw = QgsSettings().value(_recommended_key(), "")
-        return json.loads(raw) if raw else None
+        QgsSettings().setValue(_profiles_key(), json.dumps(d))
+        return True
     except Exception:
-        return None
+        return False
+
+
+def _profile_names():
+    """Имена профилей по алфавиту."""
+    return sorted(_load_profiles().keys())
+
+
+def _make_profile(nugget, model_code, sill, rng, azimuth=0.0, anis=1.0,
+                  val_pct=0.0, val_min=None, val_max=None, val_cap=False):
+    """Единый формат хранения профиля."""
+    return {
+        "nugget": float(nugget), "model": int(model_code),
+        "sill": float(sill), "range": float(rng),
+        "azimuth": float(azimuth), "anis": float(anis),
+        "val_pct": float(val_pct),
+        "val_min": (None if val_min is None else float(val_min)),
+        "val_max": (None if val_max is None else float(val_max)),
+        "val_cap": bool(val_cap)}
+
+
+def _save_profile(name, profile):
+    """Сохранить/перезаписать профиль под именем."""
+    name = (name or "").strip()
+    if not name:
+        return False
+    d = _load_profiles()
+    d[name] = profile
+    return _save_profiles(d)
+
+
+def _get_profile(name):
+    return _load_profiles().get((name or "").strip())
+
+
+def _delete_profile(name):
+    d = _load_profiles()
+    name = (name or "").strip()
+    if name in d:
+        del d[name]
+        return _save_profiles(d)
+    return False
+
+
+def _clear_profiles():
+    return _save_profiles({})
+
+
+def _profile_summary(p):
+    """Короткое текстовое описание профиля для Журнала."""
+    try:
+        s = ("наггет C0=%.4g, %s, порог C=%.4g, радиус a=%.4g" % (
+            p["nugget"], MODEL_LABELS[int(p["model"])], p["sill"], p["range"]))
+        if float(p.get("anis", 1.0)) != 1.0 or float(p.get("azimuth", 0.0)) != 0.0:
+            s += (", анизотропия %.3g по азимуту %.4g°" % (
+                p.get("anis", 1.0), p.get("azimuth", 0.0)))
+        if float(p.get("val_pct", 0.0)) != 0.0:
+            s += (", отсев %.4g%%" % p["val_pct"])
+        return s
+    except Exception:
+        return "профиль"
 
 
 # ключи параметров структуры вариограммы
@@ -341,6 +406,56 @@ def _san(name):
 # ---------------------------------------------------------------------------
 #  Параметры вариограммы/поиска - общий набор для кригинга
 # ---------------------------------------------------------------------------
+def _apply_profile(alg, parameters, context, feedback):
+    """Если в параметре PROFILE выбран профиль - подставить его поверх полей
+    диалога (наггет, Структура 1, отсев) и обнулить лишние структуры.
+    Возвращает (возможно копию) parameters."""
+    idx = alg.parameterAsEnum(parameters, alg.PROFILE, context)
+    if idx <= 0:
+        return parameters
+    opts = [PROFILE_NONE] + _profile_names()
+    name = opts[idx] if idx < len(opts) else None
+    prof = _get_profile(name) if name else None
+    if not prof:
+        feedback.pushWarning(
+            "Профиль не найден - использую значения из диалога. "
+            "Список профилей обновляется при открытии окна инструмента.")
+        return parameters
+    parameters = dict(parameters)
+    parameters[alg.NUGGET] = prof["nugget"]
+    parameters[_sk(1, "MODEL")] = int(prof["model"])
+    parameters[_sk(1, "SILL")] = prof["sill"]
+    parameters[_sk(1, "RANGE")] = prof["range"]
+    parameters[_sk(1, "AZIMUTH")] = prof.get("azimuth", 0.0)
+    parameters[_sk(1, "ANIS")] = prof.get("anis", 1.0)
+    parameters[alg.VAL_PCT] = prof.get("val_pct", 0.0)
+    parameters[alg.VAL_MIN] = prof.get("val_min")
+    parameters[alg.VAL_MAX] = prof.get("val_max")
+    parameters[alg.VAL_CAP] = bool(prof.get("val_cap", False))
+    for i in range(2, NSTRUCT + 1):
+        parameters[_sk(i, "SILL")] = 0.0
+    feedback.pushInfo(
+        "Подставлен профиль «%s»: %s." % (name, _profile_summary(prof)))
+    return parameters
+
+
+def _profile_enum(key, label, pick=False):
+    """Выпадающий список профилей с подписью-обёрткой (значения профиля
+    строкой ниже). На QGIS без старого API виджетов - обычный список."""
+    p = QgsProcessingParameterEnum(
+        key, _tr(label), options=[PROFILE_NONE] + _profile_names(),
+        defaultValue=0)
+    try:
+        from .widgets import (ProfileWrapper, ProfilePickWrapper,
+                              WRAPPER_AVAILABLE)
+        if WRAPPER_AVAILABLE:
+            cls = ProfilePickWrapper if pick else ProfileWrapper
+            p.setMetadata({"widget_wrapper": {"class": cls}})
+    except Exception:
+        pass
+    return p
+
+
 def _add_kriging_params(alg):
     alg.addParameter(QgsProcessingParameterEnum(
         alg.KTYPE, _tr("Тип кригинга"), options=KTYPE_LABELS,
@@ -388,21 +503,6 @@ def _add_kriging_params(alg):
         alg.MASK, _tr("Маска обрезки (полигон из проекта) - приоритетнее оболочки"),
         types=[QgsProcessing.TypeVectorPolygon], optional=True))
 
-    # отсев/срезка ураганных проб (по значению Z) - дополнительные
-    alg.addParameter(_advanced(QgsProcessingParameterNumber(
-        alg.VAL_PCT, _tr("Ураганные пробы: перцентиль обрезки, % (0 = выкл.)"),
-        QgsProcessingParameterNumber.Double,
-        defaultValue=_dv(alg, alg.VAL_PCT, 0.0), minValue=0.0, maxValue=49.0)))
-    alg.addParameter(_advanced(QgsProcessingParameterNumber(
-        alg.VAL_MIN, _tr("Нижняя граница значения (пусто = нет)"),
-        QgsProcessingParameterNumber.Double, optional=True)))
-    alg.addParameter(_advanced(QgsProcessingParameterNumber(
-        alg.VAL_MAX, _tr("Верхняя граница значения (пусто = нет)"),
-        QgsProcessingParameterNumber.Double, optional=True)))
-    alg.addParameter(_advanced(QgsProcessingParameterBoolean(
-        alg.VAL_CAP, _tr("Срезать к границе (capping) вместо удаления"),
-        defaultValue=_dv(alg, alg.VAL_CAP, False))))
-
     # вариограмма - дополнительные параметры
     alg.addParameter(_advanced(QgsProcessingParameterNumber(
         alg.SKMEAN, _tr("Среднее для простого кригинга"),
@@ -437,6 +537,21 @@ def _add_kriging_params(alg):
             _sk(i, "ANIS"), "%s · %s" % (tag, _tr("анизотропия (малая/главная)")),
             QgsProcessingParameterNumber.Double,
             defaultValue=_dv(alg, _sk(i, "ANIS"), 1.0), minValue=EPS)))
+
+    # отсев/срезка ураганных проб (по значению Z) - в самом конце
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.VAL_PCT, _tr("Ураганные пробы: перцентиль обрезки, % (0 = выкл.)"),
+        QgsProcessingParameterNumber.Double,
+        defaultValue=_dv(alg, alg.VAL_PCT, 0.0), minValue=0.0, maxValue=49.0)))
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.VAL_MIN, _tr("Нижняя граница значения (пусто = нет)"),
+        QgsProcessingParameterNumber.Double, optional=True)))
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.VAL_MAX, _tr("Верхняя граница значения (пусто = нет)"),
+        QgsProcessingParameterNumber.Double, optional=True)))
+    alg.addParameter(_advanced(QgsProcessingParameterBoolean(
+        alg.VAL_CAP, _tr("Срезать к границе (capping) вместо удаления"),
+        defaultValue=_dv(alg, alg.VAL_CAP, False))))
 
 
 def _read_points(source, zfield, feedback=None,
@@ -769,7 +884,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     CELL_SIZE, EXTENT, OUTPUT = "CELL_SIZE", "EXTENT", "OUTPUT"
     CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
     OUTPUT_STDERR = "OUTPUT_STDERR"
-    USE_RECOMMENDED = "USE_RECOMMENDED"
+    PROFILE = "PROFILE"
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
 
     SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
@@ -786,12 +901,13 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     def shortHelpString(self):
         return _help_version(self.tr(
             "Ординарный/простой кригинг 2D по точечному слою (ядро GSLIB KB2D). "
-            "Вариограмма: наггет + до %d вложенных структур. "
+            "Вариограмма: наггет + структура (сферическая, экспоненциальная, "
+            "гауссова или степенная) с азимутом и анизотропией. "
             "Подходит для отметок пласта, мощностей, ФМС, химии и любых "
             "числовых атрибутов.\n\nРадиус поиска 0 = по всей выборке; "
             "размер ячейки 0 = min(охват)/50; радиус корреляции 0 = "
             "max(охват)/3. Опция обрезки убирает экстраполяцию вне контура "
-            "скважин." % NSTRUCT + CREDIT))
+            "скважин." + CREDIT))
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -804,10 +920,8 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessingParameterField.Numeric,
             defaultValue=_dv(self, self.ZFIELD, None)))
         _add_kriging_params(self)
-        self.addParameter(_advanced(QgsProcessingParameterBoolean(
-            self.USE_RECOMMENDED,
-            self.tr("Подставить последнюю рекомендованную модель"),
-            defaultValue=False)))
+        self.addParameter(_profile_enum(
+            self.PROFILE, "Загрузить профиль обработки"))
         self.addParameter(QgsProcessingParameterBoolean(
             self.SMOOTH, self.tr("Сгладить грид (Гаусс)"),
             defaultValue=_dv(self, self.SMOOTH, False)))
@@ -830,27 +944,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     def processAlgorithm(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _save_values(self, parameters)
-        if self.parameterAsBool(parameters, self.USE_RECOMMENDED, context):
-            rec = _load_recommended()
-            if rec:
-                parameters = dict(parameters)
-                parameters[self.NUGGET] = rec["nugget"]
-                parameters[_sk(1, "MODEL")] = int(rec["model"])
-                parameters[_sk(1, "SILL")] = rec["sill"]
-                parameters[_sk(1, "RANGE")] = rec["range"]
-                for i in (2, 3):
-                    parameters[_sk(i, "SILL")] = 0.0
-                feedback.pushInfo(
-                    "Подставлена рекомендованная модель: наггет C0=%.4g, "
-                    "Структура 1 - %s, порог C=%.4g, радиус a=%.4g. "
-                    "Структуры 2 и 3 обнулены." % (
-                        rec["nugget"], MODEL_LABELS[int(rec["model"])],
-                        rec["sill"], rec["range"]))
-            else:
-                feedback.pushWarning(
-                    "Рекомендованной модели в памяти нет - сначала запустите "
-                    "«Вариограмму» или «Кросс-валидацию». Использую значения из "
-                    "диалога.")
+        parameters = _apply_profile(self, parameters, context, feedback)
         source = self.parameterAsSource(parameters, self.INPUT, context)
         zfield = self.parameterAsString(parameters, self.ZFIELD, context)
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
@@ -1244,19 +1338,6 @@ def _add_cv_params(alg):
         QgsProcessingParameterNumber.Integer,
         defaultValue=_dv(alg, alg.MAX_POINTS, 24), minValue=1, maxValue=120))
     alg.addParameter(_advanced(QgsProcessingParameterNumber(
-        alg.VAL_PCT, _tr("Ураганные пробы: перцентиль обрезки, % (0 = выкл.)"),
-        QgsProcessingParameterNumber.Double,
-        defaultValue=_dv(alg, alg.VAL_PCT, 0.0), minValue=0.0, maxValue=49.0)))
-    alg.addParameter(_advanced(QgsProcessingParameterNumber(
-        alg.VAL_MIN, _tr("Нижняя граница значения (пусто = нет)"),
-        QgsProcessingParameterNumber.Double, optional=True)))
-    alg.addParameter(_advanced(QgsProcessingParameterNumber(
-        alg.VAL_MAX, _tr("Верхняя граница значения (пусто = нет)"),
-        QgsProcessingParameterNumber.Double, optional=True)))
-    alg.addParameter(_advanced(QgsProcessingParameterBoolean(
-        alg.VAL_CAP, _tr("Срезать к границе (capping) вместо удаления"),
-        defaultValue=_dv(alg, alg.VAL_CAP, False))))
-    alg.addParameter(_advanced(QgsProcessingParameterNumber(
         alg.SKMEAN, _tr("Среднее для простого кригинга"),
         QgsProcessingParameterNumber.Double,
         defaultValue=_dv(alg, alg.SKMEAN, 0.0))))
@@ -1288,6 +1369,21 @@ def _add_cv_params(alg):
             QgsProcessingParameterNumber.Double,
             defaultValue=_dv(alg, _sk(i, "ANIS"), 1.0), minValue=EPS)))
 
+    # отсев/срезка ураганных проб (по значению Z) - в самом конце
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.VAL_PCT, _tr("Ураганные пробы: перцентиль обрезки, % (0 = выкл.)"),
+        QgsProcessingParameterNumber.Double,
+        defaultValue=_dv(alg, alg.VAL_PCT, 0.0), minValue=0.0, maxValue=49.0)))
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.VAL_MIN, _tr("Нижняя граница значения (пусто = нет)"),
+        QgsProcessingParameterNumber.Double, optional=True)))
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.VAL_MAX, _tr("Верхняя граница значения (пусто = нет)"),
+        QgsProcessingParameterNumber.Double, optional=True)))
+    alg.addParameter(_advanced(QgsProcessingParameterBoolean(
+        alg.VAL_CAP, _tr("Срезать к границе (capping) вместо удаления"),
+        defaultValue=_dv(alg, alg.VAL_CAP, False))))
+
 
 # ===========================================================================
 #  3. Кросс-валидация вариограммы (leave-one-out)
@@ -1298,8 +1394,10 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
     IDFIELD = "IDFIELD"
+    PROFILE = "PROFILE"
     OUTPUT = "OUTPUT"
     OUTPUT_HTML = "OUTPUT_HTML"
+    SAVE_PROFILE = "SAVE_PROFILE"
 
     def tr(self, s): return _tr(s)
 
@@ -1353,6 +1451,12 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             self.IDFIELD, self.tr("Поле номера скважины (необязательно)"),
             parentLayerParameterName=self.INPUT, optional=True))
         _add_cv_params(self)
+        self.addParameter(_profile_enum(
+            self.PROFILE, "Загрузить профиль обработки"))
+        self.addParameter(QgsProcessingParameterString(
+            self.SAVE_PROFILE,
+            self.tr("Сохранить профиль под именем (пусто = не сохранять)"),
+            optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Слой остатков (точки)"),
             type=QgsProcessing.TypeVectorPoint, optional=True, createByDefault=True))
@@ -1362,6 +1466,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
 
     def processAlgorithm(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
+        parameters = _apply_profile(self, parameters, context, feedback)
         source = self.parameterAsSource(parameters, self.INPUT, context)
         layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
         src = layer.name() if layer is not None else "data"
@@ -1392,14 +1497,26 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             radius = math.hypot(width, height) or 1e12
         rad2 = radius * radius
         vg = _build_variogram(self, parameters, context, nugget, auto_range, feedback)
-        # запоминаем проверяемую модель в черновик - «2D Kriging» при желании
-        # подставит именно её (Структура 1)
-        _s1_range = self.parameterAsDouble(parameters, _sk(1, "RANGE"), context)
-        if _s1_range <= 0:
-            _s1_range = auto_range
-        _save_recommended(
-            nugget, self.parameterAsEnum(parameters, _sk(1, "MODEL"), context),
-            self.parameterAsDouble(parameters, _sk(1, "SILL"), context), _s1_range)
+        # при заданном имени сохраняем проверенную модель как профиль
+        pname = self.parameterAsString(parameters, self.SAVE_PROFILE, context)
+        if pname and pname.strip():
+            _s1_range = self.parameterAsDouble(parameters, _sk(1, "RANGE"), context)
+            if _s1_range <= 0:
+                _s1_range = auto_range
+            _anis = self.parameterAsDouble(parameters, _sk(1, "ANIS"), context)
+            prof = _make_profile(
+                nugget,
+                self.parameterAsEnum(parameters, _sk(1, "MODEL"), context),
+                self.parameterAsDouble(parameters, _sk(1, "SILL"), context),
+                _s1_range,
+                azimuth=self.parameterAsDouble(parameters, _sk(1, "AZIMUTH"), context),
+                anis=(_anis if _anis > 0 else 1.0),
+                val_pct=pct, val_min=_opt(self.VAL_MIN),
+                val_max=_opt(self.VAL_MAX), val_cap=cap)
+            if _save_profile(pname, prof):
+                feedback.pushInfo(
+                    "Профиль «%s» сохранён: проверенная модель Структуры 1 "
+                    "(с анизотропией, если задана) + отсев." % pname.strip())
         nodata = -9999.0
 
         dvar = float(np.var(vrd))
@@ -1725,8 +1842,8 @@ def _add_model_params(alg):
     наложения на экспериментальную. Имена ключей те же, что у кригинга и
     кросс-валидации (S1_MODEL и т.д.), но настройки хранятся по каждому
     алгоритму отдельно и между инструментами автоматически не переносятся.
-    Перенос подобранной модели в «2D Kriging» делается осознанно - галкой
-    «Подставить последнюю рекомендованную модель» через общий слот-черновик."""
+    Перенос подобранной модели в «2D Kriging» делается осознанно - через
+    именованный профиль обработки."""
     alg.addParameter(_advanced(QgsProcessingParameterNumber(
         alg.NUGGET, _tr("Модель: наггет C0"),
         QgsProcessingParameterNumber.Double,
@@ -1808,8 +1925,9 @@ def _fit_advice(fit, data_var, maxlag=None):
         tips.append("Гауссова модель с почти нулевым наггетом численно "
                     "неустойчива (кригинг даёт «бычьи глаза», MSDR "
                     "разваливается). Задайте небольшой наггет C0.")
-    tips.append("Перенесите эти числа в «2D Kriging» (наггет C0 и Структура 1: "
-                "модель, порог C, радиус a) и проверьте «Кросс-валидацией».")
+    tips.append("Сохраните модель в профиль (поле «Сохранить профиль под "
+                "именем»), проверьте «Кросс-валидацией» и подставьте профиль "
+                "в «2D Kriging».")
     return tips
 
 
@@ -1908,7 +2026,7 @@ def _write_variogram_report(path, title, series, data_var, fit, model_curves,
 
 
 # ===========================================================================
-#  4. Экспериментальная вариограмма (всенаправленная) + подбор модели
+#  4. Экспериментальная вариограмма (изотропная) + подбор модели
 # ===========================================================================
 class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
     INPUT, ZFIELD, GROUP_FIELD = "INPUT", "ZFIELD", "GROUP_FIELD"
@@ -1919,6 +2037,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
     NUGGET = "NUGGET"
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
     OUTPUT, OUTPUT_HTML = "OUTPUT", "OUTPUT_HTML"
+    SAVE_PROFILE = "SAVE_PROFILE"
 
     FIT_LABELS = ["Авто (лучшая по R²)", "Сферическая",
                   "Экспоненциальная", "Гауссова"]
@@ -1938,7 +2057,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
 
     def shortHelpString(self):
         return _help_version(self.tr(
-            "Строит всенаправленную экспериментальную полувариограмму по "
+            "Строит изотропную экспериментальную полувариограмму по "
             "точкам: облако пар усредняется по интервалам расстояния (лагам). "
             "Помогает увидеть структуру данных и подобрать вариограмму глазом, "
             "а не угадывать наггет/радиус.\n\n"
@@ -1946,10 +2065,10 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
             "строится своя кривая - удобно сравнить совокупности разной "
             "плотности (поверхностная и подземная разведка) и проверить, общая "
             "ли у них структура.\n\n"
-            "Подбор модели (по умолчанию) даёт рекомендованные наггет C0, вклад "
-            "C, радиус a и модель - перенесите их в «2D Kriging» и проверьте "
-            "«Кросс-валидацией». Можно наложить уже заданную модель, чтобы "
-            "сравнить её с облаком.\n\n"
+            "Подбор модели (по умолчанию) даёт наггет C0, вклад C, радиус a и "
+            "модель. Сохраните их в профиль (поле «Сохранить профиль под "
+            "именем») и подставьте в «2D Kriging». Можно наложить уже заданную "
+            "модель, чтобы сравнить её с облаком.\n\n"
             "HTML-отчёт открывается в просмотрщике результатов: точки по лагам, "
             "модель и подобранная кривая, линия дисперсии данных. Слой-таблица "
             "(опц.) содержит лаг, γ(h) и число пар для построения в QGIS."))
@@ -1996,7 +2115,12 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(_advanced(QgsProcessingParameterBoolean(
             self.SHOW_CLOUD, self.tr("Показать облако пар"),
             defaultValue=_dv(self, self.SHOW_CLOUD, False))))
-        # отсев/срезка ураганных проб - как в кригинге/кросс-валидации
+        # наложение заданной модели вариограммы (наггет + структуры)
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.SHOW_MODEL, self.tr("Наложить заданную модель вариограммы"),
+            defaultValue=_dv(self, self.SHOW_MODEL, False))))
+        _add_model_params(self)
+        # отсев/срезка ураганных проб - в самом конце
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.VAL_PCT, self.tr("Ураганные пробы: перцентиль обрезки, % (0 = выкл.)"),
             QgsProcessingParameterNumber.Double,
@@ -2010,11 +2134,10 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(_advanced(QgsProcessingParameterBoolean(
             self.VAL_CAP, self.tr("Срезать к границе (capping) вместо удаления"),
             defaultValue=_dv(self, self.VAL_CAP, False))))
-        # наложение заданной модели вариограммы (наггет + структуры)
-        self.addParameter(_advanced(QgsProcessingParameterBoolean(
-            self.SHOW_MODEL, self.tr("Наложить заданную модель вариограммы"),
-            defaultValue=_dv(self, self.SHOW_MODEL, False))))
-        _add_model_params(self)
+        self.addParameter(QgsProcessingParameterString(
+            self.SAVE_PROFILE,
+            self.tr("Сохранить профиль под именем (пусто = не сохранять)"),
+            optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Таблица вариограммы (лаг, γ, число пар)"),
             type=QgsProcessing.TypeVector, optional=True, createByDefault=True))
@@ -2138,8 +2261,24 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
                     "Подбор: модель %s, C0=%.4g, C=%.4g, a=%.4g, R²=%.3f" % (
                         MODEL_LABELS[fit["model"]], fit["nugget"], fit["sill"],
                         fit["range"], fit["r2"]))
-                _save_recommended(fit["nugget"], fit["model"], fit["sill"],
-                                  fit["range"])
+                pname = self.parameterAsString(
+                    parameters, self.SAVE_PROFILE, context)
+                if pname and pname.strip():
+                    prof = _make_profile(
+                        fit["nugget"], fit["model"], fit["sill"], fit["range"],
+                        azimuth=0.0, anis=1.0,
+                        val_pct=self.parameterAsDouble(
+                            parameters, self.VAL_PCT, context),
+                        val_min=self._opt(parameters, self.VAL_MIN, context),
+                        val_max=self._opt(parameters, self.VAL_MAX, context),
+                        val_cap=self.parameterAsBool(
+                            parameters, self.VAL_CAP, context))
+                    if _save_profile(pname, prof):
+                        feedback.pushInfo(
+                            "Профиль «%s» сохранён: изотропная модель из "
+                            "автоподбора + текущий отсев. Анизотропию можно "
+                            "задать в кросс-валидации или инструменте "
+                            "«Профили»." % pname.strip())
 
         # наложение заданной модели
         model_curves = None
@@ -2220,10 +2359,148 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
 # Порядок в этом списке на панель Processing не влияет: тулбокс сортирует
 # алгоритмы внутри группы по алфавиту отображаемого имени. Список оставлен в
 # логическом порядке только для чтения кода.
+class ProfilesAlgorithm(QgsProcessingAlgorithm):
+    """Управление профилями обработки: показать / сохранить вручную /
+    удалить / очистить. Профиль = вариограмма (Структура 1) + наггет + отсев."""
+    ACTION = "ACTION"
+    PROFILE = "PROFILE"
+    NAME = "NAME"
+    NUGGET = "NUGGET"
+    MODEL = "MODEL"
+    SILL = "SILL"
+    RANGE = "RANGE"
+    AZIMUTH = "AZIMUTH"
+    ANIS = "ANIS"
+    VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
+    ACTION_LABELS = ["Показать список", "Сохранить вручную (по полям ниже)",
+                     "Удалить выбранный", "Очистить все"]
+
+    def tr(self, s): return _tr(s)
+
+    def helpUrl(self): return _help_url()
+
+    def createInstance(self): return ProfilesAlgorithm()
+
+    def name(self): return "profiles"
+
+    def displayName(self): return self.tr("6. Профили обработки")
+
+    def group(self): return GROUP
+
+    def groupId(self): return GROUP_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Управление профилями обработки. Профиль - это именованный набор "
+            "«вариограмма (Структура 1: наггет, тип, порог, радиус, азимут, "
+            "оси) + отсев ураганных проб». Профили сохраняют «Вариограмма» и "
+            "«Кросс-валидация», а подставляет «2D Kriging».\n\n"
+            "Действие: Показать список (в Журнал), Сохранить вручную (по полям "
+            "в «Дополнительно»), Удалить выбранный, Очистить все.\n\n"
+            "Списки профилей в выпадающих полях обновляются при открытии окна: "
+            "сохранили профиль - переоткройте инструмент, чтобы он появился."))
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterEnum(
+            self.ACTION, self.tr("Действие"),
+            options=self.ACTION_LABELS, defaultValue=0))
+        self.addParameter(_profile_enum(
+            self.PROFILE, "Профиль (для удаления / просмотра)", pick=True))
+        self.addParameter(QgsProcessingParameterString(
+            self.NAME, self.tr("Имя профиля (для «Сохранить вручную»)"),
+            optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.NUGGET, self.tr("Модель: наггет C0"),
+            QgsProcessingParameterNumber.Double, defaultValue=0.0, minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterEnum(
+            self.MODEL, self.tr("Модель: тип"),
+            options=MODEL_LABELS, defaultValue=0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SILL, self.tr("Модель: порог/вклад C"),
+            QgsProcessingParameterNumber.Double, defaultValue=1.0, minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.RANGE, self.tr("Модель: радиус корреляции a"),
+            QgsProcessingParameterNumber.Double, defaultValue=0.0, minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.AZIMUTH, self.tr("Модель: азимут, °"),
+            QgsProcessingParameterNumber.Double, defaultValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.ANIS, self.tr("Модель: анизотропия (малая/главная)"),
+            QgsProcessingParameterNumber.Double, defaultValue=1.0, minValue=EPS)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.VAL_PCT, self.tr("Отсев: перцентиль обрезки, % (0 = выкл.)"),
+            QgsProcessingParameterNumber.Double, defaultValue=0.0,
+            minValue=0.0, maxValue=49.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.VAL_MIN, self.tr("Отсев: нижняя граница (пусто = нет)"),
+            QgsProcessingParameterNumber.Double, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.VAL_MAX, self.tr("Отсев: верхняя граница (пусто = нет)"),
+            QgsProcessingParameterNumber.Double, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.VAL_CAP, self.tr("Отсев: срезать к границе вместо удаления"),
+            defaultValue=False)))
+
+    def _opt(self, parameters, name, context):
+        v = parameters.get(name, None)
+        if v is None or v == "":
+            return None
+        return self.parameterAsDouble(parameters, name, context)
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        action = self.parameterAsEnum(parameters, self.ACTION, context)
+        if action == 0:
+            profs = _load_profiles()
+            if not profs:
+                feedback.pushInfo("Сохранённых профилей нет.")
+            else:
+                feedback.pushInfo("Сохранённые профили (%d):" % len(profs))
+                for nm in sorted(profs):
+                    feedback.pushInfo("  - %s: %s" % (nm, _profile_summary(profs[nm])))
+        elif action == 1:
+            nm = (self.parameterAsString(parameters, self.NAME, context) or "").strip()
+            if not nm:
+                raise QgsProcessingException(
+                    "Для сохранения укажите «Имя профиля».")
+            anis = self.parameterAsDouble(parameters, self.ANIS, context)
+            prof = _make_profile(
+                self.parameterAsDouble(parameters, self.NUGGET, context),
+                self.parameterAsEnum(parameters, self.MODEL, context),
+                self.parameterAsDouble(parameters, self.SILL, context),
+                self.parameterAsDouble(parameters, self.RANGE, context),
+                azimuth=self.parameterAsDouble(parameters, self.AZIMUTH, context),
+                anis=(anis if anis > 0 else 1.0),
+                val_pct=self.parameterAsDouble(parameters, self.VAL_PCT, context),
+                val_min=self._opt(parameters, self.VAL_MIN, context),
+                val_max=self._opt(parameters, self.VAL_MAX, context),
+                val_cap=self.parameterAsBool(parameters, self.VAL_CAP, context))
+            _save_profile(nm, prof)
+            feedback.pushInfo("Профиль «%s» сохранён: %s" % (nm, _profile_summary(prof)))
+        elif action == 2:
+            idx = self.parameterAsEnum(parameters, self.PROFILE, context)
+            opts = [PROFILE_NONE] + _profile_names()
+            if idx <= 0 or idx >= len(opts):
+                raise QgsProcessingException(
+                    "Выберите профиль для удаления в поле «Профиль».")
+            nm = opts[idx]
+            _delete_profile(nm)
+            feedback.pushInfo("Профиль «%s» удалён." % nm)
+            rest = _profile_names()
+            feedback.pushInfo("Осталось профилей: %d%s" % (
+                len(rest), (" - " + ", ".join(rest)) if rest else ""))
+        elif action == 3:
+            n = len(_load_profiles())
+            _clear_profiles()
+            feedback.pushInfo("Удалены все профили (%d)." % n)
+        return {}
+
+
 ALGORITHMS = [
     Kriging2DAlgorithm,
     RasterToIsolinesAlgorithm,
     ExperimentalVariogramAlgorithm,
     CrossValidationAlgorithm,
     ExampleWellsAlgorithm,
+    ProfilesAlgorithm,
 ]

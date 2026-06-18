@@ -192,3 +192,96 @@ class CellSizeWrapper(_BASE):
                 self._label.setText("грид: -")
             except Exception:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# Обёртка для выбора профиля обработки: выпадающий список + строка ниже с
+# параметрами выбранного профиля. Та же механика, что у CellSizeWrapper:
+# на QGIS 4 (без старого API) мягко откатывается к обычному списку.
+# ---------------------------------------------------------------------------
+from qgis.PyQt.QtWidgets import QComboBox, QVBoxLayout
+
+
+class ProfileWrapper(_BASE):
+    """Список профилей + подпись со значениями выбранного. WARN=True добавляет
+    предупреждение, что расчёт идёт по профилю, а не по полям диалога."""
+    WARN = True
+
+    def _options(self):
+        try:
+            return list(self.parameterDefinition().options())
+        except Exception:
+            try:
+                return list(self.param.options())
+            except Exception:
+                return []
+
+    def createWidget(self):
+        try:
+            self._container = QWidget()
+            lay = QVBoxLayout(self._container)
+            lay.setContentsMargins(0, 0, 0, 0)
+            self._combo = QComboBox()
+            for opt in self._options():
+                self._combo.addItem(opt)
+            self._label = QLabel("")
+            self._label.setWordWrap(True)
+            self._label.setStyleSheet("color:#666;")
+            lay.addWidget(self._combo)
+            lay.addWidget(self._label)
+            try:
+                self._combo.currentIndexChanged.connect(self._recompute)
+            except Exception:
+                pass
+            return self._container
+        except Exception:
+            self._combo = QComboBox()
+            return self._combo
+
+    def setValue(self, value):
+        try:
+            self._combo.setCurrentIndex(int(value) if value not in (None, "") else 0)
+        except Exception:
+            pass
+
+    def value(self):
+        try:
+            return self._combo.currentIndex()
+        except Exception:
+            return 0
+
+    def postInitialize(self, wrappers):
+        self._recompute()
+
+    def _recompute(self, *args):
+        if not hasattr(self, "_label"):
+            return
+        try:
+            from .algorithms import _get_profile, _profile_summary, PROFILE_NONE
+            idx = self._combo.currentIndex()
+            opts = self._options()
+            name = opts[idx] if 0 <= idx < len(opts) else PROFILE_NONE
+            if idx <= 0 or name == PROFILE_NONE:
+                self._label.setText(
+                    "Профиль не выбран - расчёт по полям диалога."
+                    if self.WARN else "Профиль не выбран.")
+                return
+            prof = _get_profile(name)
+            if not prof:
+                self._label.setText("Профиль «%s» не найден." % name)
+                return
+            txt = "Профиль «%s»: %s." % (name, _profile_summary(prof))
+            if self.WARN:
+                txt += " Расчёт пойдёт по профилю - поля ниже игнорируются."
+            self._label.setText(txt)
+        except Exception:
+            try:
+                self._label.setText("")
+            except Exception:
+                pass
+
+
+class ProfilePickWrapper(ProfileWrapper):
+    """То же без предупреждения о перекрытии полей - для инструмента
+    «Профили обработки», где профиль не идёт в расчёт."""
+    WARN = False
