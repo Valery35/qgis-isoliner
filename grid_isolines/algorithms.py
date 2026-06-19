@@ -69,7 +69,7 @@ from qgis.core import (
 
 from .kb2d import (
     Variogram, build_grid, clip_outliers, cross_validate, EPS,
-    experimental_variogram, fit_variogram, model_curve,
+    experimental_variogram, fit_variogram, model_curve, variogram_map,
     MODEL_SPHERICAL, MODEL_EXPONENTIAL, MODEL_GAUSSIAN, GAUSS_MIN_NUGGET_FRAC)
 from .isolines import (
     isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD,
@@ -1414,7 +1414,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
         return "crossvalidation"
 
     def displayName(self):
-        return self.tr("4. Кросс-валидация вариограммы")
+        return self.tr("5. Кросс-валидация вариограммы")
 
     def group(self):
         return self.tr("Грид и изолинии")
@@ -1704,7 +1704,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         return "examplewells"
 
     def displayName(self):
-        return self.tr("5. Создать пример скважин (демо)")
+        return self.tr("6. Создать пример скважин (демо)")
 
     def group(self):
         return self.tr("Грид и изолинии")
@@ -2390,7 +2390,7 @@ class ProfilesAlgorithm(QgsProcessingAlgorithm):
 
     def name(self): return "profiles"
 
-    def displayName(self): return self.tr("6. Профили обработки")
+    def displayName(self): return self.tr("7. Профили обработки")
 
     def group(self): return GROUP
 
@@ -2503,10 +2503,283 @@ class ProfilesAlgorithm(QgsProcessingAlgorithm):
         return {}
 
 
+def _write_varmap_report(path, title, m, meta, advice, feedback=None):
+    """HTML-отчёт вариограммной карты: хитмап γ(h_x, h_y) (равные оси) и, если
+    анизотропия разрешена, эллипс и главная ось поверх. Без plotly - текст."""
+    import math as _m
+    meta_rows = "".join(
+        "<tr><td style='color:#555'>%s</td>"
+        "<td style='text-align:right'><b>%s</b></td></tr>" % kv for kv in meta)
+    meta_box = (
+        "<div style='background:#f5f5f7;border:1px solid #ddd;padding:8px 14px;"
+        "border-radius:6px;display:inline-block'><b>Сводка</b>"
+        "<div style='margin-top:6px'><table cellpadding='4'>%s</table></div>"
+        "</div>" % meta_rows)
+    advice_html = ""
+    if advice:
+        items = "".join("<li>%s</li>" % a for a in advice)
+        advice_html = (
+            "<div style='background:#f3f7f4;border:1px solid #cde0d6;"
+            "padding:8px 14px;border-radius:6px;max-width:900px;margin:12px 0'>"
+            "<b>Что дальше</b><ul style='margin:6px 0'>%s</ul></div>" % items)
+
+    grid = m["grid"]
+    cell = m["cell"]
+    n_bins = m["n_bins"]
+    size = grid.shape[0]
+    axis = [(j - n_bins) * cell for j in range(size)]
+
+    chart = ""
+    try:
+        import plotly.graph_objects as go
+        z = [[(None if (v != v) else float(v)) for v in row] for row in grid]
+        fig = go.Figure()
+        fig.add_trace(go.Heatmap(
+            x=axis, y=axis, z=z, colorscale="Viridis",
+            colorbar=dict(title="γ"),
+            hovertemplate="h_x %{x:.4g}<br>h_y %{y:.4g}<br>γ %{z:.4g}"
+                          "<extra></extra>"))
+        if m["resolved"]:
+            az = _m.radians(m["azimuth"])
+            dx, dy = _m.sin(az), _m.cos(az)          # главная ось (E=x,N=y)
+            mx, my = _m.cos(az), -_m.sin(az)         # перпендикуляр
+            rmaj, rmin = m["range_major"], m["range_minor"]
+            ex, ey = [], []
+            for t in [k * _m.pi / 60.0 for k in range(121)]:
+                ex.append(rmaj * _m.cos(t) * dx + rmin * _m.sin(t) * mx)
+                ey.append(rmaj * _m.cos(t) * dy + rmin * _m.sin(t) * my)
+            fig.add_trace(go.Scatter(
+                x=ex, y=ey, mode="lines",
+                line=dict(color="#ffffff", width=2), name="эллипс анизотропии"))
+            fig.add_trace(go.Scatter(
+                x=[-rmaj * dx, rmaj * dx], y=[-rmaj * dy, rmaj * dy],
+                mode="lines", line=dict(color="#ff5555", width=2, dash="dash"),
+                name="главная ось"))
+        fig.update_xaxes(title_text="лаг по востоку h_x", zeroline=True)
+        fig.update_yaxes(title_text="лаг по северу h_y", zeroline=True,
+                         scaleanchor="x", scaleratio=1)
+        fig.update_layout(height=640, legend=dict(orientation="h"),
+                          margin=dict(l=60, r=20, t=30, b=50))
+        chart = fig.to_html(full_html=False, include_plotlyjs=True)
+    except Exception as e:
+        if feedback is not None:
+            feedback.pushInfo("plotly недоступен (%s) - отчёт без графика." % e)
+        chart = ("<p><i>Интерактивный график недоступен (нет plotly). "
+                 "Числовые оценки - в сводке выше.</i></p>")
+
+    html = ("<html><head><meta charset='utf-8'><title>%s</title></head><body>"
+            "<h2>%s</h2>%s%s<br>%s%s</body></html>" % (
+                title, title, meta_box, advice_html, chart, _version_footer()))
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(html)
+
+
+class VariogramMapAlgorithm(QgsProcessingAlgorithm):
+    INPUT, ZFIELD = "INPUT", "ZFIELD"
+    N_BINS, MAXLAG, MIN_PAIRS = "N_BINS", "MAXLAG", "MIN_PAIRS"
+    OUTPUT_HTML, OUTPUT_RASTER = "OUTPUT_HTML", "OUTPUT_RASTER"
+
+    def tr(self, s): return _tr(s)
+    def helpUrl(self): return _help_url()
+    def name(self): return "variogram_map"
+    def displayName(self): return self.tr("4. Вариограммная карта (анизотропия)")
+    def group(self): return self.tr(GROUP)
+    def groupId(self): return GROUP_ID
+    def createInstance(self): return VariogramMapAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Строит вариограммную карту - поверхность γ(h_x, h_y): для всех пар "
+            "берётся вектор разноса (dx, dy) и полудисперсия 0.5·(Δz)², значения "
+            "усредняются по 2D-сетке лагов. Анизотропия видна как эллипс: "
+            "направление, вдоль которого γ растёт медленнее (длиннее радиус), - "
+            "ось максимальной непрерывности (для складчатости - простирание).\n\n"
+            "В Журнал и в HTML-отчёт выводятся оценки: азимут главной оси "
+            "(геогр., 0=С, по часовой), коэффициент анизотропии (малая/главная) "
+            "и радиус. Их можно подставить в структуру вариограммы «2D Kriging» "
+            "(азимут, анизотропия, радиус a) - это и есть учёт анизотропии в "
+            "кригинге. Оценка индикативная: уточняйте по самому хитмапу.\n\n"
+            "Если структура близка к изотропной или радиус меньше ячейки - "
+            "анизотропия не оценивается (помечается «не выражена»).\n\n"
+            "Опц. растр поверхности (в координатах лага, начало в 0,0) - для "
+            "тех, кто хочет видеть карту на холсте." + CREDIT))
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Точки со значениями"),
+            types=[QgsProcessing.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            self.ZFIELD, self.tr("Поле значения Z"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.N_BINS, self.tr("Бинов на полуось (детализация карты)"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.N_BINS, 15), minValue=5, maxValue=40))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.MAXLAG,
+            self.tr("Макс. лаг, в единицах слоя (0 = пол-диагонали)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.MAXLAG, 0.0), minValue=0.0))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MIN_PAIRS, self.tr("Мин. число пар в ячейке"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.MIN_PAIRS, 5), minValue=1)))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            self.OUTPUT_HTML, self.tr("Отчёт (HTML)"),
+            self.tr("HTML files (*.html)"), optional=True,
+            createByDefault=True))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_RASTER, self.tr("Растр поверхности (опц., в лаг-координатах)"),
+            optional=True, createByDefault=False))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        src = self.parameterAsSource(parameters, self.INPUT, context)
+        if src is None:
+            raise QgsProcessingException(self.tr("Не задан точечный слой."))
+        zfield = self.parameterAsString(parameters, self.ZFIELD, context)
+        n_bins = self.parameterAsInt(parameters, self.N_BINS, context)
+        maxlag = self.parameterAsDouble(parameters, self.MAXLAG, context)
+        min_pairs = self.parameterAsInt(parameters, self.MIN_PAIRS, context)
+
+        xs, ys, vs = _read_points(src, zfield, feedback)
+        feedback.pushInfo("Вариограммная карта: %d точек…" % len(xs))
+        m = variogram_map(xs, ys, vs, n_bins=n_bins,
+                          maxlag=(maxlag if maxlag > 0 else None),
+                          min_pairs=min_pairs)
+
+        if m["subsampled"]:
+            feedback.pushInfo("Точки прорежены до %d (для скорости)." % m["n_used"])
+        if m["resolved"]:
+            feedback.pushInfo(
+                "Анизотропия: азимут главной оси %.0f° (геогр.), "
+                "коэффициент %.2f (малая/главная), радиус главной оси %.4g."
+                % (m["azimuth"], m["anis"], m["range_major"]))
+            if m["range_capped"]:
+                feedback.pushWarning(
+                    "Радиус главной оси упёрся в макс. лаг (%.4g): вдоль "
+                    "простирания вариограмма на полку не вышла. Радиус - нижняя "
+                    "оценка, анизотропия (%.2f) занижена по выраженности. "
+                    "Увеличьте «Макс. лаг», либо это признак тренда / очень "
+                    "сильной непрерывности." % (m["maxlag"], m["anis"]))
+                feedback.pushInfo(
+                    "В «2D Kriging» подставьте азимут=%.0f и анизотропию≈%.2f "
+                    "(как ориентир); радиус a задайте больше %.4g по смыслу "
+                    "данных." % (m["azimuth"], m["anis"], m["maxlag"]))
+            else:
+                feedback.pushInfo(
+                    "Подставьте в структуру вариограммы «2D Kriging»: азимут=%.0f, "
+                    "анизотропия=%.2f, радиус a=%.4g." % (
+                        m["azimuth"], m["anis"], m["range_major"]))
+        else:
+            feedback.pushInfo(
+                "Анизотропия не выражена (структура близка к изотропной или "
+                "радиус меньше ячейки). Можно уменьшить макс. лаг или увеличить "
+                "число бинов.")
+
+        results = {}
+        src_name = _short(src.sourceName()) if hasattr(src, "sourceName") else zfield
+        html_path = self.parameterAsFileOutput(parameters, self.OUTPUT_HTML,
+                                               context)
+        if html_path:
+            meta = [("Поле Z", zfield), ("Точек", "%d" % m["n_used"]),
+                    ("Дисперсия (силл)", "%.4g" % m["sill"]),
+                    ("Макс. лаг", "%.4g" % m["maxlag"]),
+                    ("Ячейка лага", "%.4g" % m["cell"]),
+                    ("Бинов на полуось", "%d" % m["n_bins"])]
+            if m["resolved"]:
+                rad_str = ("≥ %.4g (упёрся в макс. лаг)" % m["range_major"]
+                           if m["range_capped"] else "%.4g" % m["range_major"])
+                meta += [("Азимут главной оси", "%.0f°" % m["azimuth"]),
+                         ("Анизотропия (малая/главная)", "%.2f" % m["anis"]),
+                         ("Радиус главной оси", rad_str)]
+            else:
+                meta.append(("Анизотропия", "не выражена"))
+            if m["resolved"] and not m["range_capped"]:
+                advice = [
+                    "Главная ось непрерывности ~%.0f° (геогр.). Для складчатости "
+                    "это направление простирания." % m["azimuth"],
+                    "В «2D Kriging» задайте: азимут=%.0f, анизотропия=%.2f, "
+                    "радиус a=%.4g." % (m["azimuth"], m["anis"], m["range_major"]),
+                    "Оценка индикативная - сверьте с формой хитмапа (эллипса)."]
+            elif m["resolved"] and m["range_capped"]:
+                advice = [
+                    "Главная ось непрерывности ~%.0f° (геогр.). Для складчатости "
+                    "это направление простирания." % m["azimuth"],
+                    "Радиус главной оси упёрся в макс. лаг (%.4g): вдоль "
+                    "простирания вариограмма на полку не вышла - радиус считайте "
+                    "нижней оценкой, а анизотропию (%.2f) - заниженной по "
+                    "выраженности." % (m["maxlag"], m["anis"]),
+                    "В «2D Kriging» задайте азимут=%.0f и анизотропию≈%.2f как "
+                    "ориентир, радиус a возьмите больше %.4g по смыслу данных. "
+                    "Чтобы измерить радиус - увеличьте «Макс. лаг»." % (
+                        m["azimuth"], m["anis"], m["maxlag"]),
+                    "Если γ не выходит на полку даже при широком окне - в данных "
+                    "тренд: его убирают до интерполяции либо учитывают видом "
+                    "кригинга."]
+            else:
+                advice = [
+                    "Анизотропия не разрешается на этой сетке: структура близка к "
+                    "изотропной либо радиус меньше ячейки.",
+                    "Попробуйте уменьшить «Макс. лаг» или увеличить «Бинов на "
+                    "полуось», чтобы разрешить ближнюю структуру."]
+            title = "Вариограммная карта %s · %s" % (zfield, src_name)
+            try:
+                _write_varmap_report(html_path, title, m, meta, advice, feedback)
+                results[self.OUTPUT_HTML] = html_path
+            except Exception as e:
+                feedback.pushInfo("Не удалось записать HTML-отчёт: %s" % e)
+
+        rast_path = self.parameterAsOutputLayer(parameters, self.OUTPUT_RASTER,
+                                                context)
+        if rast_path:
+            try:
+                self._write_surface_raster(rast_path, m, src, context, feedback)
+                results[self.OUTPUT_RASTER] = rast_path
+                _set_output_name(context, rast_path,
+                                 "Вариокарта · %s" % zfield)
+            except Exception as e:
+                feedback.pushInfo("Не удалось записать растр поверхности: %s" % e)
+
+        _save_values(self, parameters)
+        feedback.setProgress(100)
+        return results
+
+    def _write_surface_raster(self, path, m, src, context, feedback):
+        from osgeo import gdal
+        import numpy as np
+        grid = m["grid"]
+        cell = m["cell"]
+        size = grid.shape[0]
+        maxlag = m["maxlag"]
+        nd = -9999.0
+        arr = np.where(np.isfinite(grid), grid, nd).astype(np.float32)
+        arr = arr[::-1, :]                       # строка 0 растра = север (верх)
+        drv = gdal.GetDriverByName("GTiff")
+        ds = drv.Create(path, size, size, 1, gdal.GDT_Float32)
+        # начало в (0,0) в координатах лага: левый-верх = (-maxlag-cell/2, +maxlag+cell/2)
+        ds.SetGeoTransform([-maxlag - cell / 2.0, cell, 0.0,
+                            maxlag + cell / 2.0, 0.0, -cell])
+        try:
+            crs = src.sourceCrs()
+            if crs is not None and crs.isValid():
+                ds.SetProjection(crs.toWkt())
+        except Exception:
+            pass
+        b = ds.GetRasterBand(1)
+        b.SetNoDataValue(nd)
+        b.WriteArray(arr)
+        b.FlushCache()
+        ds = None
+
+
 ALGORITHMS = [
     Kriging2DAlgorithm,
     RasterToIsolinesAlgorithm,
     ExperimentalVariogramAlgorithm,
+    VariogramMapAlgorithm,
     CrossValidationAlgorithm,
     ExampleWellsAlgorithm,
     ProfilesAlgorithm,

@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The **"Grid and isolines"** group contains six tools:
+The **"Grid and isolines"** group contains seven tools:
 
 1. **2D Kriging (points → raster)** — ordinary/simple kriging over a point
    layer. Core: GSLIB KB2D.
@@ -14,11 +14,14 @@ The **"Grid and isolines"** group contains six tools:
 3. **Variogram (experimental)** — isotropic experimental variogram from points
    with model fitting (nugget, sill, range) and an HTML report. Lets you set the
    variogram from the shape of the cloud rather than by eye.
-4. **Variogram cross-validation** — leave-one-out check: validate and tune
+4. **Variogram map (anisotropy)** — γ(h_x, h_y) surface: anisotropy shows as an
+   ellipse; estimates the major-axis azimuth, anisotropy ratio and range to feed
+   into kriging.
+5. **Variogram cross-validation** — leave-one-out check: validate and tune
    kriging parameters by error, not by eye.
-5. **Create sample wells (demo)** — generates a training point layer with roof,
+6. **Create sample wells (demo)** — generates a training point layer with roof,
    thickness and a component grade.
-6. **Processing profiles** — named sets of "variogram (Structure 1) + outlier
+7. **Processing profiles** — named sets of "variogram (Structure 1) + outlier
    removal" saved by Variogram and Cross-validation and applied by 2D Kriging.
    Global storage, list management.
 
@@ -229,6 +232,10 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is in
 Russian.
 
+- **1.9.0** — new "Variogram map (anisotropy)" tool: γ(h_x, h_y) surface,
+  anisotropy ellipse, estimated azimuth/ratio/range to feed into kriging.
+  If the major range reaches the window edge (γ not on plateau), a warning marks
+  it as a lower bound.
 - **1.8.3** — Gaussian model: enforced minimum nugget for numerical stability;
   QGIS 4 compatibility; robust contour polygons in QGIS 4 (GEOS 3.14);
   refined manual wording.

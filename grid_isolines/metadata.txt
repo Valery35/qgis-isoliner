@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for seam tops, thicknesses, physical-mechanical properties, chemistry and any numeric attribute. Russian user manual (PDF) is bundled. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Руководство пользователя (PDF) на русском в комплекте. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=1.8.3
+version=1.9.0
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,13 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=1.8.3
+changelog=1.9.0
+    - Новый инструмент «Вариограммная карта (анизотропия)»: поверхность
+      гамма(h_x, h_y) - хитмап с эллипсом анизотропии; оценка азимута главной
+      оси, коэффициента анизотропии и радиуса для подстановки в кригинг.
+      Если радиус упирается в макс. лаг (гамма не вышла на полку) - в
+      Журнале и отчёте предупреждение, что это нижняя оценка.
+    1.8.3
     - Совместимость с QGIS 4 (qgisMaximumVersion=4.99); проверено в 4.0.
     - Гауссова модель вариограммы: принудительный минимальный наггет для
       численной устойчивости (убирает осцилляции и отрицательные веса).

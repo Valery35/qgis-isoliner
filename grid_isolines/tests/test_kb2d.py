@@ -225,6 +225,89 @@ def test_model_curve_zero_at_origin():
     assert len(kb2d.model_curve(vg2, 300)) == 3
 
 
+def test_variogram_map_symmetry_center():
+    """Вариограммная карта точечно-симметрична γ(h)=γ(−h), центр = 0."""
+    import numpy as np
+    rng = np.random.default_rng(0)
+    n = 200
+    xs = rng.uniform(0, 1000, n)
+    ys = rng.uniform(0, 1000, n)
+    m = kb2d.variogram_map(xs, ys, xs.copy(), n_bins=12, min_pairs=2)
+    g = m["grid"]
+    c = g.shape[0] // 2
+    assert abs(g[c, c]) < 1e-9                      # центр = лаг 0
+    diff = np.abs(g - g[::-1, ::-1])
+    assert np.nanmax(diff) < 1e-6                    # симметрия
+
+
+def test_variogram_map_anisotropy_axis():
+    """Тренд по x -> главная ось непрерывности С-Ю (азимут ~0/180)."""
+    import numpy as np
+    rng = np.random.default_rng(1)
+    n = 400
+    xs = rng.uniform(0, 1000, n)
+    ys = rng.uniform(0, 1000, n)
+    m = kb2d.variogram_map(xs, ys, xs.copy(), n_bins=15, min_pairs=3)
+    assert m["resolved"]
+    az = m["azimuth"] % 180.0
+    assert az < 20.0 or az > 160.0
+    assert m["anis"] < 0.9
+
+
+def test_variogram_map_noise_unresolved():
+    """Чистый шум: структура не разрешается -> resolved=False, anis=1."""
+    import numpy as np
+    rng = np.random.default_rng(2)
+    n = 400
+    xs = rng.uniform(0, 1000, n)
+    ys = rng.uniform(0, 1000, n)
+    m = kb2d.variogram_map(xs, ys, rng.normal(0, 1, n), n_bins=15, min_pairs=3)
+    assert m["resolved"] is False
+    assert abs(m["anis"] - 1.0) < 1e-9
+
+
+def test_variogram_map_range_capped():
+    """Длинный главный радиус (больше окна) -> range_capped=True, оценка нижняя.
+    Короткий радиус (структура внутри окна) -> range_capped=False."""
+    import numpy as np
+    import math
+    # Сильно анизотропное поле: непрерывность вдоль 145°, ранг больше окна.
+    rng = np.random.default_rng(3)
+    n = 300
+    xs = rng.uniform(0, 12000, n)
+    ys = rng.uniform(0, 12000, n)
+    a = math.radians(145.0)
+    ux, uy = math.sin(a), math.cos(a)
+    px, py = math.cos(a), -math.sin(a)
+    u = xs * ux + ys * uy
+    p = xs * px + ys * py
+    vs = 0.0008 * u + 0.02 * p + rng.normal(0, 2, n)
+    m = kb2d.variogram_map(xs, ys, vs, n_bins=15, min_pairs=3)
+    assert m["resolved"]
+    assert m["range_capped"] is True
+    assert abs(m["range_major"] - m["maxlag"]) < 1e-6     # упёрся в окно
+
+    # Короткая изотропная структура (FFT-сглаженный шум): ранг внутри окна,
+    # γ выходит на полку -> не capped.
+    rng2 = np.random.default_rng(5)
+    G, w = 160, 16
+    white = rng2.normal(0, 1, (G, G))
+    ker = np.ones((w, w)) / (w * w)
+    fld = np.fft.ifft2(np.fft.fft2(white) *
+                       np.fft.fft2(ker, s=white.shape)).real
+    fld = (fld - fld.mean()) / fld.std() * 5.0
+    n2 = 800
+    ix = rng2.integers(0, G, n2)
+    iy = rng2.integers(0, G, n2)
+    xs2 = ix * 10.0
+    ys2 = iy * 10.0
+    vs2 = fld[iy, ix] + rng2.normal(0, 0.5, n2)
+    m2 = kb2d.variogram_map(xs2, ys2, vs2, n_bins=15, min_pairs=3)
+    assert m2["resolved"]
+    assert m2["range_capped"] is False
+    assert m2["range_major"] < m2["maxlag"]
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

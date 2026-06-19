@@ -518,3 +518,149 @@ def model_curve(vg, hmax, ndir=None, npts=120):
         g_minor = np.array([vg.maxcov - vg.cova2(hi * vx, hi * vy) for hi in h])
         return h, g_major, g_minor
     return h, g_major
+
+
+# ===========================================================================
+#  Вариограммная карта (поверхность) и оценка анизотропии
+# ===========================================================================
+def _vmap_bilinear(grid, cell, n_bins, hx, hy):
+    """Билинейная выборка карты в точке лага (hx, hy). NaN вне диапазона.
+    Если часть углов пуста - среднее по валидным углам."""
+    size = grid.shape[0]
+    fx = hx / cell + n_bins
+    fy = hy / cell + n_bins
+    x0 = int(math.floor(fx))
+    y0 = int(math.floor(fy))
+    if x0 < 0 or x0 + 1 >= size or y0 < 0 or y0 + 1 >= size:
+        return float("nan")
+    tx, ty = fx - x0, fy - y0
+    v00, v10 = grid[y0, x0], grid[y0, x0 + 1]
+    v01, v11 = grid[y0 + 1, x0], grid[y0 + 1, x0 + 1]
+    corners = [v00, v10, v01, v11]
+    if not all(np.isfinite(c) for c in corners):
+        valid = [c for c in corners if np.isfinite(c)]
+        return float(np.mean(valid)) if valid else float("nan")
+    a = v00 * (1 - tx) + v10 * tx
+    b = v01 * (1 - tx) + v11 * tx
+    return float(a * (1 - ty) + b * ty)
+
+
+def _estimate_anisotropy(grid, cell, n_bins, sill, maxlag, n_az=36,
+                         reach=0.95):
+    """Главная ось и коэффициент анизотропии по направленным радиусам.
+    Азимут геогр. (0=С, по часовой); направление (E=x, N=y) = (sin A, cos A).
+    Радиус - лаг, где γ впервые достигает reach*sill (иначе maxlag). Радиусы
+    сглаживаются по азимуту (период 180°), главная ось = макс. сглаженного
+    радиуса, малая ось берётся ПЕРПЕНДИКУЛЯРНО главной (устойчивее минимума).
+    Возвращает ..., capped: главная ось упёрлась в окно (γ не вышла на полку)."""
+    if not (sill > 0):
+        return 0.0, 1.0, maxlag, maxlag, [], False, False
+    target = reach * sill
+    step = max(cell * 0.5, maxlag / 200.0)
+    n_az = int(n_az)
+    raw = []
+    reached = []                                 # дошла ли γ до полки в окне
+    for k in range(n_az):
+        a_deg = 180.0 * k / n_az
+        a = math.radians(a_deg)
+        ux, uy = math.sin(a), math.cos(a)
+        rng_found = maxlag
+        hit = False
+        r = step
+        while r <= maxlag:
+            g = _vmap_bilinear(grid, cell, n_bins, r * ux, r * uy)
+            if np.isfinite(g) and g >= target:
+                rng_found = r
+                hit = True
+                break
+            r += step
+        raw.append(rng_found)
+        reached.append(hit)
+    raw = np.asarray(raw, float)
+    # циклическое сглаживание (период n_az), окно ~ n_az/12
+    w = max(1, n_az // 12)
+    sm = np.array([raw[(np.arange(k - w, k + w + 1)) % n_az].mean()
+                   for k in range(n_az)])
+    k_major = int(np.argmax(sm))
+    r_major = float(sm[k_major])
+    k_minor = (k_major + n_az // 2) % n_az      # перпендикуляр
+    r_minor = float(sm[k_minor])
+    az_major = 180.0 * k_major / n_az
+    ranges = [(180.0 * k / n_az, float(raw[k])) for k in range(n_az)]
+    # структура разрешима, только если главный радиус заметно больше ячейки;
+    # иначе радиусы «на уровне сетки» и анизотропия недостоверна (шум/нет
+    # структуры) - честнее сообщить «изотропно / не определено».
+    resolved = r_major >= 3.0 * cell
+    if not resolved:
+        return 0.0, 1.0, r_major, r_major, ranges, False, False
+    # радиус упёрся в край окна, если вдоль главной оси γ до полки не дошла:
+    # порог получен экстраполяцией, радиус - нижняя оценка, анизотропия по
+    # выраженности занижена (истинный r_major может быть больше окна).
+    capped = not bool(reached[k_major])
+    anis = (r_minor / r_major) if r_major > 0 else 1.0
+    return (float(az_major), float(min(max(anis, 1e-3), 1.0)),
+            r_major, r_minor, ranges, True, capped)
+
+
+def variogram_map(xs, ys, vs, n_bins=15, maxlag=None, min_pairs=5,
+                  max_pairs=4_000_000, seed=0, n_az=36):
+    """Вариограммная карта γ(h_x, h_y) и оценка анизотропии.
+
+    Для всех пар берётся вектор разноса (dx, dy) и полудисперсия
+    0.5*(z_i - z_j)^2; усредняется по 2D-сетке лагов в [-maxlag; maxlag].
+    Карта симметрична (учитываем пару и зеркало). Возвращает dict: grid
+    (квадрат 2*n_bins+1, NaN в пустых), counts, cell, extent (=maxlag), sill,
+    azimuth (геогр.), anis (0..1), range_major/minor, range_capped (радиус
+    упёрся в окно), n_used, subsampled."""
+    xs = np.asarray(xs, float)
+    ys = np.asarray(ys, float)
+    vs = np.asarray(vs, float)
+    n = len(xs)
+    rng = np.random.default_rng(seed)
+    subsampled = False
+    if n > 2 and n * (n - 1) // 2 > max_pairs:
+        m = int((1.0 + math.sqrt(1.0 + 8.0 * max_pairs)) / 2.0)
+        m = max(2, min(n, m))
+        idx = rng.choice(n, m, replace=False)
+        xs, ys, vs = xs[idx], ys[idx], vs[idx]
+        n = m
+        subsampled = True
+
+    if maxlag is None or maxlag <= 0:
+        dx = float(xs.max() - xs.min())
+        dy = float(ys.max() - ys.min())
+        maxlag = 0.5 * math.hypot(dx, dy)
+    if maxlag <= 0:
+        maxlag = 1.0
+    n_bins = max(int(n_bins), 1)
+    cell = maxlag / n_bins
+    size = 2 * n_bins + 1
+    s_g = np.zeros((size, size))
+    s_c = np.zeros((size, size))
+
+    for i in range(n - 1):
+        dx = xs[i + 1:] - xs[i]
+        dy = ys[i + 1:] - ys[i]
+        g = 0.5 * (vs[i + 1:] - vs[i]) ** 2
+        for sx, sy in ((dx, dy), (-dx, -dy)):
+            ix = np.round(sx / cell).astype(int) + n_bins
+            iy = np.round(sy / cell).astype(int) + n_bins
+            ok = (ix >= 0) & (ix < size) & (iy >= 0) & (iy < size)
+            np.add.at(s_g, (iy[ok], ix[ok]), g[ok])
+            np.add.at(s_c, (iy[ok], ix[ok]), 1.0)
+
+    grid = np.full((size, size), np.nan)
+    mask = s_c >= float(min_pairs)
+    grid[mask] = s_g[mask] / s_c[mask]
+    grid[n_bins, n_bins] = 0.0
+
+    sill = float(np.var(vs)) if n > 1 else 0.0
+    az, anis, rmaj, rmin, dranges, resolved, capped = _estimate_anisotropy(
+        grid, cell, n_bins, sill, maxlag, n_az)
+
+    return {"grid": grid, "counts": s_c, "cell": cell, "extent": maxlag,
+            "sill": sill, "azimuth": az, "anis": anis, "resolved": resolved,
+            "range_major": rmaj, "range_minor": rmin, "dir_ranges": dranges,
+            "range_capped": capped,
+            "n_used": n, "subsampled": subsampled, "maxlag": maxlag,
+            "n_bins": n_bins}
