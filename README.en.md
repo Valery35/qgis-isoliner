@@ -229,6 +229,9 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is in
 Russian.
 
+- **1.8.3** — Gaussian model: enforced minimum nugget for numerical stability;
+  QGIS 4 compatibility; robust contour polygons in QGIS 4 (GEOS 3.14);
+  refined manual wording.
 - **1.8.2** — bilingual plugin description (EN/RU) in the QGIS catalog and an
   English README for an international audience.
 - **1.8.1** — added a link to the plugin's web page (www.informpp.ru) in each

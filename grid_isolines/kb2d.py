@@ -39,6 +39,10 @@ MODEL_EXPONENTIAL = 1
 MODEL_GAUSSIAN = 2
 MODEL_POWER = 3
 
+# Гауссова модель без наггета даёт плохо обусловленную систему (осцилляции,
+# отрицательные веса). Держим минимальный наггет как долю структурного силла.
+GAUSS_MIN_NUGGET_FRAC = 0.01
+
 
 class Variogram:
     """Nugget + one or more nested structures (cova2_2D port)."""
@@ -51,6 +55,15 @@ class Variogram:
         self.aa = [max(float(s["aa"]), EPS) for s in structures]
         self.ang = [float(s["ang"]) for s in structures]
         self.anis = [max(float(s["anis"]), EPS) for s in structures]
+        # Гауссова модель численно неустойчива при нулевом наггете -
+        # принудительно держим минимальный наггет (доля структурного силла).
+        self.nugget_raised_from = None
+        gauss_sill = sum(c for t, c in zip(self.it, self.cc) if t == 3)
+        if gauss_sill > 0.0:
+            min_c0 = GAUSS_MIN_NUGGET_FRAC * gauss_sill
+            if self.c0 < min_c0:
+                self.nugget_raised_from = self.c0
+                self.c0 = min_c0
         self.nst = len(structures)
         self.pmx = 9999.0
         self.rotmat = []

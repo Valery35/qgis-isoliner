@@ -70,7 +70,7 @@ from qgis.core import (
 from .kb2d import (
     Variogram, build_grid, clip_outliers, cross_validate, EPS,
     experimental_variogram, fit_variogram, model_curve,
-    MODEL_SPHERICAL, MODEL_EXPONENTIAL, MODEL_GAUSSIAN)
+    MODEL_SPHERICAL, MODEL_EXPONENTIAL, MODEL_GAUSSIAN, GAUSS_MIN_NUGGET_FRAC)
 from .isolines import (
     isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD,
     _gaussian_nodata)
@@ -84,7 +84,8 @@ KTYPE_LABELS = ["Ординарный (OK)", "Простой (SK)"]
 NSTRUCT = 1  # число структур вариограммы (S2/S3 убраны как неиспользуемые)
 
 CREDIT = ("\n\n- - -\nРазработано при поддержке ООО «Информ++» "
-          "(www.informpp.ru).")
+          "(www.informpp.ru).\nСтраница плагина: "
+          "www.informpp.ru/главная-страница/qgis-isoliner")
 
 
 def _tr(s):
@@ -693,7 +694,13 @@ def _build_variogram(alg, parameters, context, nugget, auto_range, feedback=None
         feedback.pushWarning(
             "Задан только наггет (структурный вклад C = 0): кригинг выродится "
             "в локальное среднее, поверхность будет почти плоской.")
-    return Variogram(nugget, structures)
+    vg = Variogram(nugget, structures)
+    if feedback and vg.nugget_raised_from is not None:
+        feedback.pushInfo(
+            "Гауссова модель: наггет повышен с %.4g до %.4g для устойчивости "
+            "(минимум %g%% структурного силла)." % (
+                vg.nugget_raised_from, vg.c0, GAUSS_MIN_NUGGET_FRAC * 100))
+    return vg
 
 
 def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,

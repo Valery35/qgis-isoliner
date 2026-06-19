@@ -256,7 +256,8 @@ def isolines_from_raster(raster, band, interval, base, levels_text,
     from qgis import processing
     field_name = field_name or DEFAULT_FIELD
     levels = _parse_levels(levels_text) if levels_text else []
-    rp, rb = _prep_raster(raster, band, smooth, smooth_radius, nodata, feedback)
+    rp, rb = _prep_raster(raster, band, smooth, smooth_radius, nodata,
+                          feedback)
     li = int(line_iter)
     cur = _contour_lines(processing, rp, rb, interval, base, levels,
                          min_length, li, field_name, ignore_nodata, nodata,
@@ -469,7 +470,8 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
     field_name = field_name or DEFAULT_FIELD
 
     # сглаживаем поле один раз; дальше всё работает по prepared-растру
-    rp, rb = _prep_raster(raster, band, smooth, smooth_radius, nodata, feedback)
+    rp, rb = _prep_raster(raster, band, smooth, smooth_radius, nodata,
+                          feedback)
 
     levels = _parse_levels(levels_text) if levels_text else []
     if not levels:
@@ -492,9 +494,10 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
                          min_length, li, field_name, ignore_nodata, nodata,
                          context, feedback)
     feedback.pushInfo("Согласование концов изолиний с контуром…")
+    snap_tol = float(3.0 * px)
     iso = processing.run("native:snapgeometries", {
         "INPUT": iso, "REFERENCE_LAYER": area_lines,
-        "TOLERANCE": float(3.0 * px), "BEHAVIOR": 5,
+        "TOLERANCE": snap_tol, "BEHAVIOR": 5,
         "OUTPUT": "TEMPORARY_OUTPUT",
     }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
 
@@ -502,9 +505,34 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
     lines_out = _finalize_lines(processing, iso, interval, base, index_every,
                                 field_name, lines_output, context, feedback)
 
-    # 4) пояса - из тех же линий + контур; границы совпадают с линиями
-    polys_src = _polygonize_belts(processing, iso, area_lines, crs, context,
-                                  feedback)
+    # Овершут ТОЛЬКО для открытых линий (упираются концами в контур): их
+    # продлеваем за контур на ~1 ячейку, чтобы пересечь его и чисто
+    # занодировать стык (в QGIS 4 / GEOS 3.14 касание T-стыков часто не
+    # нодируется, и грань не замыкается). Замкнутые петли (start==end) НЕ
+    # трогаем - овершут на точке замыкания дал бы спур внутрь поля и плодил
+    # лишние полигоны-слайверы. Хвостик-овершут полигонизация отбрасывает как
+    # dangle, поэтому границы поясов совпадают с линиями.
+    over = float(px)
+    iso_single = processing.run("native:multiparttosingleparts", {
+        "INPUT": iso, "OUTPUT": "TEMPORARY_OUTPUT",
+    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    feedback.pushInfo("Продление открытых концов за контур…")
+    split = processing.run("native:extractbyexpression", {
+        "INPUT": iso_single,
+        "EXPRESSION":
+            "distance(start_point($geometry), end_point($geometry)) > 0",
+        "OUTPUT": "TEMPORARY_OUTPUT", "FAIL_OUTPUT": "TEMPORARY_OUTPUT",
+    }, context=context, feedback=feedback, is_child_algorithm=True)
+    open_ext = processing.run("native:extendlines", {
+        "INPUT": split["OUTPUT"], "START_DISTANCE": over,
+        "END_DISTANCE": over, "OUTPUT": "TEMPORARY_OUTPUT",
+    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    iso_for_poly = processing.run("native:mergevectorlayers", {
+        "LAYERS": [open_ext, split["FAIL_OUTPUT"]],
+        "CRS": crs, "OUTPUT": "TEMPORARY_OUTPUT",
+    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    polys_src = _polygonize_belts(processing, iso_for_poly, area_lines, crs,
+                                  context, feedback)
     polys_out = _belts_to_layer(processing, polys_src, arr, valid, gt, levels,
                                 crs, polygons_output, context, feedback)
 
