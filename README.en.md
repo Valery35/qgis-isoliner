@@ -232,6 +232,10 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is in
 Russian.
 
+- **1.9.1** — bicubic isoline smoothing (grid densification ×2…×4 before
+  contouring, off by default) - smooth lines without "octagons", for both
+  lines and polygons; belt boundaries coincide with isolines. Belt
+  polygonization moved to direct GEOS calls (robust on dense networks).
 - **1.9.0** — new "Variogram map (anisotropy)" tool: γ(h_x, h_y) surface,
   anisotropy ellipse, estimated azimuth/ratio/range to feed into kriging.
   If the major range reaches the window edge (γ not on plateau), a warning marks

@@ -165,14 +165,121 @@ def _smooth_raster(raster, band, sigma, nodata, feedback):
     return tmp
 
 
-def _prep_raster(raster, band, smooth, smooth_radius, nodata, feedback):
-    """Готовит растр под контуринг: сглаженная копия (band 1) или оригинал.
-    Один и тот же растр используется и для контура, и для контура области,
-    и для выборки поясов - поэтому линии, полигоны и диапазоны согласованы."""
+def _cubic_resample_matrix(n, p):
+    """Матрица (n*p x n) кубической интерполяции (свёртка Кейса, a=-0.5), край -
+    повтор крайних ячеек. Узел выхода o -> позиция входа (o+0.5)/p - 0.5."""
+    import numpy as np
+    o = np.arange(n * p)
+    src = (o + 0.5) / p - 0.5
+    i0 = np.floor(src).astype(int)
+    frac = src - i0
+    a = -0.5
+    W = np.zeros((n * p, n), float)
+    for m in (-1, 0, 1, 2):
+        t = np.abs(frac - m)
+        w = np.where(t <= 1, (a + 2) * t**3 - (a + 3) * t**2 + 1,
+                     np.where(t < 2, a * t**3 - 5 * a * t**2 + 8 * a * t - 4 * a,
+                              0.0))
+        idx = np.clip(i0 + m, 0, n - 1)
+        W[o, idx] += w
+    return W
+
+
+def _fill_invalid(arr, valid, iters):
+    """Растит валидные значения в nodata (среднее 4-соседей, iters итераций).
+    Запас под кубику, чтобы у границы данных не было «звона» (Гиббса)."""
+    import numpy as np
+    a = np.where(valid, arr, 0.0).astype(float)
+    v = valid.copy()
+    for _ in range(int(iters)):
+        if v.all():
+            break
+        s = np.zeros_like(a)
+        c = np.zeros_like(a)
+        for sh in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            s += np.roll(np.where(v, a, 0.0), sh, axis=(0, 1))
+            c += np.roll(v.astype(float), sh, axis=(0, 1))
+        nv = (~v) & (c > 0)
+        a[nv] = s[nv] / c[nv]
+        v |= nv
+    return a
+
+
+def _densify_raster(raster, band, factor, nodata, feedback):
+    """Путь к временному растру, сгущённому в `factor` раз бикубической
+    интерполяцией. Чистый NumPy - без SciPy и без Processing-алгоритмов, чтобы
+    одинаково работать в QGIS 3 и 4 (ресемплинг через gdalwarp/native менялся
+    между версиями). Контуры по сгущённому полю гладки топологически чисто;
+    маска nodata ресемплится ближайшим соседом - футпринт данных не расползается
+    и звона у границы нет."""
+    from qgis.core import QgsProcessingUtils
+    from osgeo import gdal
+    import numpy as np
+    import os
+    import uuid
+
+    p = int(factor)
+    ds = gdal.Open(raster)
+    if ds is None:
+        raise QgsProcessingException("Не удалось открыть растр для сгущения.")
+    b = ds.GetRasterBand(int(band))
+    arr = b.ReadAsArray().astype(float)
+    nd = b.GetNoDataValue()
+    if nd is None:
+        nd = nodata
+    gt = ds.GetGeoTransform()
+    proj = ds.GetProjection()
+    ny, nx = arr.shape
+
+    valid = np.isfinite(arr)
+    if nd is not None:
+        valid &= (arr != nd)
+    if not valid.any():
+        ds = None
+        return raster
+
+    feedback.pushInfo("Сгущение грида ×%d (бикубика)…" % p)
+    filled = _fill_invalid(arr, valid, iters=3)
+    filled = np.where(np.isfinite(filled), filled, float(np.mean(arr[valid])))
+    dense = _cubic_resample_matrix(ny, p) @ filled @ _cubic_resample_matrix(nx, p).T
+
+    def nearest(n):
+        o = np.arange(n * p)
+        return np.clip(np.round((o + 0.5) / p - 0.5).astype(int), 0, n - 1)
+    vmask = valid[np.ix_(nearest(ny), nearest(nx))]
+
+    out_nd = float(nd) if nd is not None else -9999.0
+    res = np.where(vmask, dense, out_nd).astype(np.float32)
+    gt2 = (gt[0], gt[1] / p, gt[2] / p, gt[3], gt[4] / p, gt[5] / p)
+
+    tmp = os.path.join(QgsProcessingUtils.tempFolder(),
+                       "densify_%s.tif" % uuid.uuid4().hex)
+    drv = gdal.GetDriverByName("GTiff")
+    ods = drv.Create(tmp, nx * p, ny * p, 1, gdal.GDT_Float32)
+    ods.SetGeoTransform(gt2)
+    if proj:
+        ods.SetProjection(proj)
+    ob = ods.GetRasterBand(1)
+    ob.SetNoDataValue(out_nd)
+    ob.WriteArray(res)
+    ob.FlushCache()
+    ods = None
+    ds = None
+    return tmp
+
+
+def _prep_raster(raster, band, smooth, smooth_radius, densify, nodata, feedback):
+    """Готовит растр под контуринг: при необходимости сглаженная копия (Гаусс),
+    затем при необходимости сгущённая бикубикой. Один и тот же растр идёт и на
+    контур, и на контур области, и на выборку поясов - поэтому линии, полигоны и
+    диапазоны согласованы."""
+    cur, cb = raster, band
     if smooth and smooth_radius and smooth_radius > 0:
-        return _smooth_raster(raster, band, float(smooth_radius), nodata,
-                              feedback), 1
-    return raster, band
+        cur, cb = _smooth_raster(cur, cb, float(smooth_radius), nodata,
+                                 feedback), 1
+    if densify and int(densify) > 1:
+        cur, cb = _densify_raster(cur, cb, int(densify), nodata, feedback), 1
+    return cur, cb
 
 
 def _save(processing, cur, final_output, context, feedback):
@@ -249,14 +356,14 @@ def _finalize_lines(processing, cur, interval, base, index_every, field_name,
 
 def isolines_from_raster(raster, band, interval, base, levels_text,
                          index_every, min_length, smooth, smooth_radius,
-                         line_iter, field_name, ignore_nodata, nodata,
+                         densify, line_iter, field_name, ignore_nodata, nodata,
                          final_output, context, feedback):
     """Изолинии-линии. levels_text (если задан) имеет приоритет над шагом.
     Сглаживание - на уровне поля; line_iter - лёгкое скругление линий."""
     from qgis import processing
     field_name = field_name or DEFAULT_FIELD
     levels = _parse_levels(levels_text) if levels_text else []
-    rp, rb = _prep_raster(raster, band, smooth, smooth_radius, nodata,
+    rp, rb = _prep_raster(raster, band, smooth, smooth_radius, densify, nodata,
                           feedback)
     li = int(line_iter)
     cur = _contour_lines(processing, rp, rb, interval, base, levels,
@@ -365,24 +472,42 @@ def _polygonize_belts(processing, lines_layer, area_lines, crs, context,
                       feedback):
     """Строит замкнутые пояса из набора линий + контура области.
 
-    Узлует всю сеть через native:splitwithlines (надёжно режет и T-стыки, где
-    конец изолинии упирается в контур - этого native:union на линиях не делал),
-    затем полигонизует.
+    Нодирование и полигонизация - напрямую через GEOS (QgsGeometry.unaryUnion +
+    QgsGeometry.polygonize), а не через native:splitwithlines: последний на
+    густой сети (сгущённые изолинии) терял часть граней, и покрытие поясов
+    падало вдвое. unaryUnion узлует всю сеть (включая T-стыки концов изолиний с
+    контуром), polygonize собирает грани. Возвращает memory-слой полигонов.
     """
-    merged = processing.run("native:mergevectorlayers", {
-        "LAYERS": [lines_layer, area_lines],
-        "CRS": crs, "OUTPUT": "TEMPORARY_OUTPUT",
-    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    from qgis.core import (QgsProcessingUtils, QgsGeometry, QgsVectorLayer,
+                            QgsFeature)
+    geoms = []
+    for lid in (lines_layer, area_lines):
+        lay = QgsProcessingUtils.mapLayerFromString(lid, context)
+        if lay is None:
+            continue
+        for f in lay.getFeatures():
+            g = f.geometry()
+            if g is not None and not g.isEmpty():
+                geoms.append(g)
 
-    feedback.pushInfo("Нодирование сети линий…")
-    noded = processing.run("native:splitwithlines", {
-        "INPUT": merged, "LINES": merged, "OUTPUT": "TEMPORARY_OUTPUT",
-    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    feedback.pushInfo("Нодирование сети линий (GEOS)…")
+    merged = QgsGeometry.unaryUnion(geoms)
+    feedback.pushInfo("Полигонизация поясов (GEOS)…")
+    poly = QgsGeometry.polygonize([merged])
 
-    feedback.pushInfo("Полигонизация поясов…")
-    return processing.run("native:polygonize", {
-        "INPUT": noded, "KEEP_FIELDS": False, "OUTPUT": "TEMPORARY_OUTPUT",
-    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    mem = QgsVectorLayer("Polygon?crs=%s" % (crs.authid() or crs.toWkt()),
+                         "belts_src", "memory")
+    feats = []
+    if poly is not None and not poly.isEmpty():
+        for part in poly.asGeometryCollection():
+            if part is not None and not part.isEmpty():
+                nf = QgsFeature()
+                nf.setGeometry(part)
+                feats.append(nf)
+    mem.dataProvider().addFeatures(feats)
+    mem.updateExtents()
+    feedback.pushInfo("Поясов получено (GEOS): %d" % len(feats))
+    return mem
 
 
 def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
@@ -394,7 +519,8 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
     from qgis.PyQt.QtCore import QVariant
     import numpy as np
 
-    poly_layer = _layer_from_string(polys_src, context)
+    poly_layer = (polys_src if hasattr(polys_src, "getFeatures")
+                  else _layer_from_string(polys_src, context))
     if poly_layer is None:
         raise QgsProcessingException(
             "Полигонизация не дала результата (проверьте изолинии/контур).")
@@ -450,9 +576,10 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
     return _save(processing, mem, final_output, context, feedback)
 
 
+
 def isolines_and_polygons(raster, band, interval, base, levels_text,
                           index_every, min_length, smooth, smooth_radius,
-                          line_iter, field_name, ignore_nodata, nodata,
+                          densify, line_iter, field_name, ignore_nodata, nodata,
                           lines_output, polygons_output, context, feedback):
     """Изолинии И контурные пояса из ОДНОГО набора линий.
 
@@ -469,8 +596,10 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
 
     field_name = field_name or DEFAULT_FIELD
 
-    # сглаживаем поле один раз; дальше всё работает по prepared-растру
-    rp, rb = _prep_raster(raster, band, smooth, smooth_radius, nodata,
+    # Сгущение применяется и к полигонам: пояса полигонизуются по сгущённому
+    # полю напрямую через GEOS (см. _polygonize_belts), границы совпадают с
+    # изолиниями.
+    rp, rb = _prep_raster(raster, band, smooth, smooth_radius, densify, nodata,
                           feedback)
 
     levels = _parse_levels(levels_text) if levels_text else []
@@ -493,8 +622,8 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
     iso = _contour_lines(processing, rp, rb, interval, base, levels,
                          min_length, li, field_name, ignore_nodata, nodata,
                          context, feedback)
-    feedback.pushInfo("Согласование концов изолиний с контуром…")
     snap_tol = float(3.0 * px)
+    feedback.pushInfo("Согласование концов изолиний с контуром…")
     iso = processing.run("native:snapgeometries", {
         "INPUT": iso, "REFERENCE_LAYER": area_lines,
         "TOLERANCE": snap_tol, "BEHAVIOR": 5,

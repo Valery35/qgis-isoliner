@@ -872,8 +872,13 @@ def _add_isoline_params(alg):
         alg.MIN_LENGTH, _tr("Мин. длина линии, ед. карты (0 = без фильтра)"),
         QgsProcessingParameterNumber.Double,
         defaultValue=_dv(alg, alg.MIN_LENGTH, 0.0), minValue=0.0))
+    alg.addParameter(QgsProcessingParameterEnum(
+        alg.DENSIFY, _tr("Бикубическое сглаживание изолиний (сгущение грида)"),
+        options=["выкл.", "×2", "×3", "×4"],
+        defaultValue=_dv(alg, alg.DENSIFY, 0)))
     alg.addParameter(QgsProcessingParameterNumber(
-        alg.SMOOTH_LINE_ITER, _tr("Скругление линий, итераций (0 = выкл.)"),
+        alg.SMOOTH_LINE_ITER, _tr("Скругление линий (Chaikin), итераций "
+                                  "(0 = выкл.)"),
         QgsProcessingParameterNumber.Integer,
         defaultValue=_dv(alg, alg.SMOOTH_LINE_ITER, 2), minValue=0, maxValue=5))
     alg.addParameter(QgsProcessingParameterString(
@@ -983,6 +988,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
     INDEX_EVERY, MIN_LENGTH = "INDEX_EVERY", "MIN_LENGTH"
     SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
     SMOOTH_LINE_ITER = "SMOOTH_LINE_ITER"
+    DENSIFY = "DENSIFY"
     FIELD_NAME, OUTPUT, OUTPUT_POLYGONS = "FIELD_NAME", "OUTPUT", "OUTPUT_POLYGONS"
 
     def tr(self, s): return _tr(s)
@@ -1001,6 +1007,11 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
             "фильтр коротких линий.\n\nСкругление линий (Chaikin) слегка "
             "сглаживает контуры и убирает «октагоны» от грубого грида. "
             "Сглаживание самого поля выполняется в инструменте 2D Kriging.\n\n"
+            "Бикубическое сглаживание (сгущение грида ×2…×4) даёт гладкие "
+            "изолинии без «октагонов» от грубой сетки - это основной способ "
+            "сглаживания, сильнее скругления линий (Chaikin). Работает и для "
+            "линий, и для контурных полигонов: границы поясов совпадают с "
+            "изолиниями.\n\n"
             "По умолчанию строит и "
             "контурные полигоны (пояса между изолиниями) во временный слой - их "
             "границы СОВПАДАЮТ с изолиниями, покрытие сплошное. Чтобы их не "
@@ -1042,6 +1053,8 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
         index_every = self.parameterAsInt(parameters, self.INDEX_EVERY, context)
         min_len = self.parameterAsDouble(parameters, self.MIN_LENGTH, context)
         sm_line = self.parameterAsInt(parameters, self.SMOOTH_LINE_ITER, context)
+        densify = (1, 2, 3, 4)[self.parameterAsInt(
+            parameters, self.DENSIFY, context)]
         field_name = self.parameterAsString(parameters, self.FIELD_NAME, context)
 
         # единые уровни для линий и полигонов: явные от пользователя, иначе
@@ -1060,7 +1073,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
             # линии и пояса строятся из ОДНОГО набора линий -> границы совпадают
             res = isolines_and_polygons(
                 rl.source(), band, interval, base, levels, index_every,
-                min_len, False, 0.0, sm_line, field_name, True, nodata,
+                min_len, False, 0.0, densify, sm_line, field_name, True, nodata,
                 out_dest, poly_dest, context, feedback)
             out, poly = res["lines"], res["polygons"]
             _set_output_name(context, out, "Изолинии · %s" % name)
@@ -1070,7 +1083,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
         else:
             out = isolines_from_raster(
                 rl.source(), band, interval, base, levels, index_every,
-                min_len, False, 0.0, sm_line, field_name, True, nodata,
+                min_len, False, 0.0, densify, sm_line, field_name, True, nodata,
                 out_dest, context, feedback)
             _set_output_name(context, out, "Изолинии · %s" % name)
             results = {self.OUTPUT: out}
