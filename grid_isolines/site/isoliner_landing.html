@@ -508,4 +508,16 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
   },{threshold:.12});
   els.forEach(function(e){io.observe(e);});
 })();
+(function(){
+  // надёжный якорный скролл: ищем элемент по id и скроллим к нему
+  document.querySelectorAll('a[href^="#"]').forEach(function(a){
+    a.addEventListener('click', function(e){
+      var h=a.getAttribute('href');
+      if(!h||h.length<2) return;
+      var t=document.getElementById(h.slice(1));
+      if(t){ e.preventDefault(); t.scrollIntoView({behavior:'smooth',block:'start'});
+             if(history&&history.pushState) history.pushState(null,'',h); }
+    });
+  });
+})();
 </script>
