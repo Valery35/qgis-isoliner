@@ -32,6 +32,7 @@
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
+section[id],[id]{scroll-margin-top:74px}
 body{
   margin:0;background:var(--paper);color:var(--ink);
   font-family:var(--body);font-size:17px;line-height:1.6;
@@ -162,8 +163,8 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
 .foot .copy{font-size:13px;color:#7E8E89;margin-top:26px;width:100%;border-top:1px solid rgba(255,255,255,.1);padding-top:20px}
 
 /* reveal */
-.reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
-.reveal.in{opacity:1;transform:none}
+.reveal{opacity:0;transition:opacity .6s ease}
+.reveal.in{opacity:1}
 :focus-visible{outline:3px solid var(--amber);outline-offset:2px;border-radius:4px}
 @media(prefers-reduced-motion:reduce){
   *{transition:none!important;animation:none!important}
