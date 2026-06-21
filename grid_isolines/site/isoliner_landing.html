@@ -11,6 +11,7 @@
 <!-- ============================================================= -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Isoliner строит грид, изолинии и контурные полигоны методом кригинга в QGIS и вместе с результатом даёт карту стандартной ошибки.">
 <title>Isoliner — грид и изолинии для QGIS · Информ++</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bitter:wght@500;600;700&family=Golos+Text:wght@400;500;600&display=swap');
@@ -171,6 +172,12 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
   .reveal{opacity:1;transform:none}
   html{scroll-behavior:auto}
 }
+
+/* ---------- language toggle ---------- */
+.lang{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-right:2px}
+.lang button{appearance:none;border:0;background:transparent;color:var(--ink-soft);font-family:var(--body);font-size:13px;font-weight:600;padding:6px 10px;cursor:pointer;line-height:1.4}
+.lang button.on{background:var(--teal);color:#fff}
+.lang button:not(.on):hover{background:var(--paper-2);color:var(--ink)}
 </style>
 
 <!-- ===================== HEADER ===================== -->
@@ -178,10 +185,11 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
   <div class="wrap">
     <a class="brand" href="#top" style="text-decoration:none"><b style="color:#0A5446">Информ++</b> <span style="color:#4C5A55;font-weight:600">Isoliner</span></a>
     <nav>
-      <a class="hide" href="#thesis" style="color:#4C5A55;text-decoration:none;padding:8px 12px;border-radius:9px;font-weight:500;font-size:14px">Зачем кригинг</a>
-      <a class="hide" href="#tools" style="color:#4C5A55;text-decoration:none;padding:8px 12px;border-radius:9px;font-weight:500;font-size:14px">Инструменты</a>
-      <a class="hide" href="#docs" style="color:#4C5A55;text-decoration:none;padding:8px 12px;border-radius:9px;font-weight:500;font-size:14px">Документация</a>
-      <a class="btn-sm" href="https://plugins.qgis.org/plugins/grid_isolines/" target="_blank" rel="noopener" style="background:#0E7C66;color:#fff;text-decoration:none;padding:8px 14px;border-radius:9px;font-weight:600;font-size:14px">Установить</a>
+      <a class="hide" href="#thesis" style="color:#4C5A55;text-decoration:none;padding:8px 12px;border-radius:9px;font-weight:500;font-size:14px" data-i18n="nav.why">Зачем кригинг</a>
+      <a class="hide" href="#tools" style="color:#4C5A55;text-decoration:none;padding:8px 12px;border-radius:9px;font-weight:500;font-size:14px" data-i18n="nav.tools">Инструменты</a>
+      <a class="hide" href="#docs" style="color:#4C5A55;text-decoration:none;padding:8px 12px;border-radius:9px;font-weight:500;font-size:14px" data-i18n="nav.docs">Документация</a>
+      <div class="lang" role="group" aria-label="Язык / Language"><button type="button" data-lang="ru" aria-pressed="true">RU</button><button type="button" data-lang="en" aria-pressed="false">EN</button></div>
+      <a class="btn-sm" href="https://plugins.qgis.org/plugins/grid_isolines/" target="_blank" rel="noopener" style="background:#0E7C66;color:#fff;text-decoration:none;padding:8px 14px;border-radius:9px;font-weight:600;font-size:14px" data-i18n="nav.install">Установить</a>
     </nav>
   </div>
 </header>
@@ -192,20 +200,20 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
 <section class="hero">
   <div class="wrap">
     <div class="reveal">
-      <span class="eyebrow">Плагин QGIS · кригинг и изолинии</span>
-      <h1>Поверхности по скважинам, которым&nbsp;<em>можно доверять</em></h1>
-      <p class="lede">Isoliner строит грид, изолинии и контурные полигоны методом кригинга, а вместе с результатом даёт карту стандартной ошибки — видно, где данных мало и оценке верить не стоит.</p>
+      <span class="eyebrow" data-i18n="hero.eyebrow">Плагин QGIS · кригинг и изолинии</span>
+      <h1 data-i18n="hero.h1">Поверхности по скважинам, которым&nbsp;<em>можно доверять</em></h1>
+      <p class="lede" data-i18n="hero.lede">Isoliner строит грид, изолинии и контурные полигоны методом кригинга, а вместе с результатом даёт карту стандартной ошибки — видно, где данных мало и оценке верить не стоит.</p>
       <div class="cta">
         <a class="btn btn-primary" href="https://plugins.qgis.org/plugins/grid_isolines/" target="_blank" rel="noopener">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-          Установить в QGIS
+          <span data-i18n="hero.cta1">Установить в QGIS</span>
         </a>
-        <a class="btn btn-ghost" href="https://github.com/Valery35/qgis-isoliner/raw/main/grid_isolines/doc/Isoliner.pdf" target="_blank" rel="noopener">Руководство (PDF)</a>
+        <a class="btn btn-ghost" href="https://github.com/Valery35/qgis-isoliner/raw/main/grid_isolines/doc/Isoliner.pdf" target="_blank" rel="noopener" data-i18n="hero.cta2" data-doc>Руководство (PDF)</a>
       </div>
       <div class="meta">
-        <span><b>Ядро</b> GSLIB KB2D</span>
-        <span><b>7</b> инструментов</span>
-        <span><b>Открытый</b> код · бесплатно</span>
+        <span data-i18n="hero.m1"><b>Ядро</b> GSLIB KB2D</span>
+        <span data-i18n="hero.m2"><b>7</b> инструментов</span>
+        <span data-i18n="hero.m3"><b>Открытый</b> код · бесплатно</span>
       </div>
     </div>
 
@@ -255,9 +263,9 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
 <section class="thesis" id="thesis">
   <div class="wrap">
     <div class="reveal">
-      <span class="eyebrow">Кригинг или триангуляция</span>
-      <h2>Одни и те же скважины. Разный ответ.</h2>
-      <p class="sub">Триангуляция строит поверхность по прямым между точками: быстро, но с изломами на скважинах и без единого слова о достоверности. Кригинг взвешивает скважины по пространственной структуре данных и показывает, где оценке можно верить.</p>
+      <span class="eyebrow" data-i18n="th.eyebrow">Кригинг или триангуляция</span>
+      <h2 data-i18n="th.h2">Одни и те же скважины. Разный ответ.</h2>
+      <p class="sub" data-i18n="th.sub">Триангуляция строит поверхность по прямым между точками: быстро, но с изломами на скважинах и без единого слова о достоверности. Кригинг взвешивает скважины по пространственной структуре данных и показывает, где оценке можно верить.</p>
     </div>
 
     <div class="triptych reveal">
@@ -282,8 +290,8 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
             <circle cx="220" cy="55" r="3"/><circle cx="220" cy="160" r="3"/>
           </g>
         </svg>
-        <div class="tag">Триангуляция</div>
-        <div class="desc">Кусочно-линейно, гребни на скважинах, нет оценки достоверности.</div>
+        <div class="tag" data-i18n="th.tin.tag">Триангуляция</div>
+        <div class="desc" data-i18n="th.tin.desc">Кусочно-линейно, гребни на скважинах, нет оценки достоверности.</div>
       </div>
       <!-- Kriging -->
       <div class="panel win">
@@ -306,8 +314,8 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
             <circle cx="220" cy="70" r="3"/>
           </g>
         </svg>
-        <div class="tag">Кригинг</div>
-        <div class="desc">Гладко, веса по вариограмме данных, учёт анизотропии.</div>
+        <div class="tag" data-i18n="th.kr.tag">Кригинг</div>
+        <div class="desc" data-i18n="th.kr.desc">Гладко, веса по вариограмме данных, учёт анизотропии.</div>
       </div>
       <!-- Error map -->
       <div class="panel">
@@ -331,8 +339,8 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
             <circle cx="92" cy="96" r="3"/>
           </g>
         </svg>
-        <div class="tag">Карта ошибки</div>
-        <div class="desc">Тёмное — оценке верим (скважины рядом), светлое — догадка. У триангуляции этого нет.</div>
+        <div class="tag" data-i18n="th.err.tag">Карта ошибки</div>
+        <div class="desc" data-i18n="th.err.desc">Тёмное — оценке верим (скважины рядом), светлое — догадка. У триангуляции этого нет.</div>
       </div>
     </div>
   </div>
@@ -342,45 +350,45 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
 <section class="section" id="tools">
   <div class="wrap">
     <div class="reveal">
-      <span class="eyebrow">Что входит</span>
-      <h2>Семь инструментов: путь от скважин до карты</h2>
-      <p class="intro">Isoliner — это не один алгоритм, а связка инструментов QGIS Processing, проходящая весь маршрут: оценить структуру данных, подобрать и проверить модель, построить грид и изолинии, переиспользовать настройки.</p>
+      <span class="eyebrow" data-i18n="tl.eyebrow">Что входит</span>
+      <h2 data-i18n="tl.h2">Семь инструментов: путь от скважин до карты</h2>
+      <p class="intro" data-i18n="tl.intro">Isoliner — это не один алгоритм, а связка инструментов QGIS Processing, проходящая весь маршрут: оценить структуру данных, подобрать и проверить модель, построить грид и изолинии, переиспользовать настройки.</p>
     </div>
     <div class="tools reveal">
       <div class="card">
         <div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg></div>
         <h3>2D Kriging</h3>
-        <p>Ординарный и простой кригинг по точечному слою на ядре GSLIB KB2D.</p>
+        <p data-i18n="tl.c1.p">Ординарный и простой кригинг по точечному слою на ядре GSLIB KB2D.</p>
       </div>
       <div class="card">
         <div class="ic"><svg viewBox="0 0 24 24"><path d="M3 16c4-1 5-9 9-9s5 8 9 7"/><path d="M3 20c4-1 6-6 9-6s6 5 9 4"/><path d="M4 11c3-1 5-6 8-6"/></svg></div>
-        <h3>Изолинии из растра</h3>
-        <p>Линии и контурные полигоны (пояса) с точным совпадением границ.</p>
+        <h3 data-i18n="tl.c2.h">Изолинии из растра</h3>
+        <p data-i18n="tl.c2.p">Линии и контурные полигоны (пояса) с точным совпадением границ.</p>
       </div>
       <div class="card">
         <div class="ic"><svg viewBox="0 0 24 24"><path d="M3 20h18"/><path d="M3 20C7 8 11 6 21 5"/><circle cx="7" cy="13" r="1.3"/><circle cx="11" cy="9.5" r="1.3"/><circle cx="16" cy="6.8" r="1.3"/></svg></div>
-        <h3>Вариограмма</h3>
-        <p>Экспериментальная вариограмма с подбором модели и HTML-отчётом.</p>
+        <h3 data-i18n="tl.c3.h">Вариограмма</h3>
+        <p data-i18n="tl.c3.p">Экспериментальная вариограмма с подбором модели и HTML-отчётом.</p>
       </div>
       <div class="card">
         <div class="ic"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="5" transform="rotate(-30 12 12)"/><path d="M5.5 16.5 18.5 7.5"/></svg></div>
-        <h3>Вариограммная карта</h3>
-        <p>Поверхность γ(h_x, h_y): направление и сила анизотропии для кригинга.</p>
+        <h3 data-i18n="tl.c4.h">Вариограммная карта</h3>
+        <p data-i18n="tl.c4.p">Поверхность γ(h_x, h_y): направление и сила анизотропии для кригинга.</p>
       </div>
       <div class="card">
         <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 4v16h16"/><circle cx="9" cy="14" r="1.3"/><circle cx="13" cy="9" r="1.3"/><circle cx="17" cy="11" r="1.3"/><circle cx="11" cy="17" r="1.3"/></svg></div>
-        <h3>Кросс-валидация</h3>
-        <p>Скользящий контроль leave-one-out с метриками: проверка по ошибке.</p>
+        <h3 data-i18n="tl.c5.h">Кросс-валидация</h3>
+        <p data-i18n="tl.c5.p">Скользящий контроль leave-one-out с метриками: проверка по ошибке.</p>
       </div>
       <div class="card">
         <div class="ic"><svg viewBox="0 0 24 24"><circle cx="7" cy="8" r="1.4"/><circle cx="16" cy="7" r="1.4"/><circle cx="12" cy="14" r="1.4"/><circle cx="18" cy="16" r="1.4"/><circle cx="6" cy="16" r="1.4"/></svg></div>
-        <h3>Пример скважин</h3>
-        <p>Генератор учебного точечного слоя для обучения и проверки.</p>
+        <h3 data-i18n="tl.c6.h">Пример скважин</h3>
+        <p data-i18n="tl.c6.p">Генератор учебного точечного слоя для обучения и проверки.</p>
       </div>
       <div class="card">
         <div class="ic"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v6h7"/><path d="M8 15h8M8 18h5"/></svg></div>
-        <h3>Профили обработки</h3>
-        <p>Именованные наборы «вариограмма + отсев» для разных пластов и зон.</p>
+        <h3 data-i18n="tl.c7.h">Профили обработки</h3>
+        <p data-i18n="tl.c7.p">Именованные наборы «вариограмма + отсев» для разных пластов и зон.</p>
       </div>
     </div>
   </div>
@@ -390,9 +398,9 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
 <section class="section" style="padding-top:0">
   <div class="wrap">
     <div class="reveal">
-      <span class="eyebrow">Как это выглядит</span>
-      <h2>Результат и контроль качества</h2>
-      <p class="intro">Три результата, ради которых всё и делается: гладкий грид с изолиниями, отчёт вариограммы и карта стандартной ошибки.</p>
+      <span class="eyebrow" data-i18n="gl.eyebrow">Как это выглядит</span>
+      <h2 data-i18n="gl.h2">Результат и контроль качества</h2>
+      <p class="intro" data-i18n="gl.intro">Три результата, ради которых всё и делается: гладкий грид с изолиниями, отчёт вариограммы и карта стандартной ошибки.</p>
     </div>
     <div class="gallery reveal">
       <figure>
@@ -408,7 +416,7 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
             <g fill="none" stroke="#0A3E33" stroke-width="1" opacity=".5"><path d="M-10,110 C60,90 110,130 250,108"/><path d="M40,80 C110,58 180,76 250,70"/></g>
           </svg>
         </div>
-        <figcaption><b>Грид и изолинии.</b> Гладкая поверхность и контурные пояса.</figcaption>
+        <figcaption data-i18n="gl.f1"><b>Грид и изолинии.</b> Гладкая поверхность и контурные пояса.</figcaption>
       </figure>
       <figure>
         <div class="ph">
@@ -422,7 +430,7 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
             <g fill="#16221F"><circle cx="46" cy="138" r="2.6"/><circle cx="66" cy="120" r="2.6"/><circle cx="86" cy="92" r="2.6"/><circle cx="110" cy="70" r="2.6"/><circle cx="140" cy="60" r="2.6"/><circle cx="172" cy="54" r="2.6"/><circle cx="206" cy="50" r="2.6"/></g>
           </svg>
         </div>
-        <figcaption><b>Вариограмма.</b> Облако, подобранная модель, дисперсия данных.</figcaption>
+        <figcaption data-i18n="gl.f2"><b>Вариограмма.</b> Облако, подобранная модель, дисперсия данных.</figcaption>
       </figure>
       <figure>
         <div class="ph">
@@ -436,7 +444,7 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
             <g fill="#0c1f1a" stroke="#EAF1ED" stroke-width="1.1"><circle cx="68" cy="66" r="3"/><circle cx="158" cy="78" r="3"/><circle cx="118" cy="126" r="3"/><circle cx="100" cy="92" r="3"/></g>
           </svg>
         </div>
-        <figcaption><b>Стандартная ошибка.</b> Где оценке можно доверять.</figcaption>
+        <figcaption data-i18n="gl.f3"><b>Стандартная ошибка.</b> Где оценке можно доверять.</figcaption>
       </figure>
     </div>
   </div>
@@ -446,16 +454,16 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
 <section class="section apps">
   <div class="wrap">
     <div class="reveal">
-      <span class="eyebrow">Где применяется</span>
-      <h2>Любой числовой параметр, заданный точками</h2>
+      <span class="eyebrow" data-i18n="ap.eyebrow">Где применяется</span>
+      <h2 data-i18n="ap.h2">Любой числовой параметр, заданный точками</h2>
       <div class="chips">
-        <div class="chip">Отметки <b>кровли и подошвы</b> пластов</div>
-        <div class="chip">Карты <b>мощностей</b></div>
-        <div class="chip"><b>ФМС</b> и химия</div>
-        <div class="chip">Уровни <b>подземных вод</b></div>
-        <div class="chip"><b>Гидроизогипсы</b> и гидроизопьезы</div>
-        <div class="chip">Данные <b>геофизики</b></div>
-        <div class="chip">Мониторинг и <b>опробование</b></div>
+        <div class="chip" data-i18n="ap.ch1">Отметки <b>кровли и подошвы</b> пластов</div>
+        <div class="chip" data-i18n="ap.ch2">Карты <b>мощностей</b></div>
+        <div class="chip" data-i18n="ap.ch3"><b>ФМС</b> и химия</div>
+        <div class="chip" data-i18n="ap.ch4">Уровни <b>подземных вод</b></div>
+        <div class="chip" data-i18n="ap.ch5"><b>Гидроизогипсы</b> и гидроизопьезы</div>
+        <div class="chip" data-i18n="ap.ch6">Данные <b>геофизики</b></div>
+        <div class="chip" data-i18n="ap.ch7">Мониторинг и <b>опробование</b></div>
       </div>
     </div>
   </div>
@@ -465,22 +473,22 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
 <section class="section docs" id="docs">
   <div class="wrap">
     <div class="reveal">
-      <span class="eyebrow" style="color:#CFE7DF">Документация</span>
-      <h2>Руководство объясняет каждый шаг</h2>
-      <p>Подбор вариограммы, выбор максимального расстояния, чтение кросс-валидации, профили обработки и типичные ситуации с решениями. На русском, в PDF. Краткая справка открывается прямо из каждого инструмента кнопкой «Справка».</p>
+      <span class="eyebrow" style="color:#CFE7DF" data-i18n="dc.eyebrow">Документация</span>
+      <h2 data-i18n="dc.h2">Руководство объясняет каждый шаг</h2>
+      <p data-i18n="dc.p">Подбор вариограммы, выбор максимального расстояния, чтение кросс-валидации, профили обработки и типичные ситуации с решениями. На русском, в PDF. Краткая справка открывается прямо из каждого инструмента кнопкой «Справка».</p>
     </div>
     <div class="links reveal">
-      <a class="dlink" href="https://github.com/Valery35/qgis-isoliner/raw/main/grid_isolines/doc/Isoliner.pdf" target="_blank" rel="noopener">
+      <a class="dlink" href="https://github.com/Valery35/qgis-isoliner/raw/main/grid_isolines/doc/Isoliner.pdf" target="_blank" rel="noopener" data-doc>
         <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>
-        <div>Скачать руководство<span>PDF · русский</span></div>
+        <div data-i18n="dc.l1">Скачать руководство<span>PDF · русский</span></div>
       </a>
       <a class="dlink" href="https://plugins.qgis.org/plugins/grid_isolines/" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-        <div>Установить из репозитория QGIS<span>plugins.qgis.org</span></div>
+        <div data-i18n="dc.l2">Установить из репозитория QGIS<span>plugins.qgis.org</span></div>
       </a>
       <a class="dlink" href="https://github.com/Valery35/qgis-isoliner" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4 1.5-4-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.3 4.3 0 0 0-.1-3.2s-1-.3-3.4 1.3a11.7 11.7 0 0 0-6 0C6.3 2.3 5.3 2.6 5.3 2.6a4.3 4.3 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>
-        <div>Исходный код<span>GitHub</span></div>
+        <div data-i18n="dc.l3">Исходный код<span>GitHub</span></div>
       </a>
     </div>
   </div>
@@ -493,7 +501,7 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
   <div class="wrap">
     <div>
       <a class="brand" href="#top"><b>Информ++</b></a>
-      <p>Isoliner разработан в ООО «Информ++» — мы делаем промышленное ПО для геологии, горного дела, гидрогеологии и геомеханики. Плагин открытый и бесплатный: работает сам по себе или движком интерполяции в связке с <a class="gc" href="https://www.informpp.ru/главная-страница/геоконструктор" target="_blank" rel="noopener">Геоконструктором</a>.</p>
+      <p data-i18n="ft.p">Isoliner разработан в ООО «Информ++» — мы делаем промышленное ПО для геологии, горного дела, гидрогеологии и геомеханики. Плагин открытый и бесплатный: работает сам по себе или движком интерполяции в связке с <a class="gc" href="https://www.informpp.ru/главная-страница/геоконструктор" target="_blank" rel="noopener">Геоконструктором</a>.</p>
     </div>
     <div class="copy">© ООО «Информ++» (Inform++) · informpp.ru</div>
   </div>
@@ -519,5 +527,39 @@ figcaption b{color:var(--ink);font-weight:600;font-family:var(--display)}
              if(history&&history.pushState) history.pushState(null,'',h); }
     });
   });
+})();
+
+(function(){
+  var EN={"nav.why": "Why kriging", "nav.tools": "Tools", "nav.docs": "Documentation", "nav.install": "Install", "hero.eyebrow": "QGIS plugin · kriging and contours", "hero.h1": "Surfaces from boreholes you can&nbsp;<em>actually trust</em>", "hero.lede": "Isoliner builds grids, contours and contour polygons by kriging, and ships every result with a standard-error map, so you see where data is sparse and the estimate should not be trusted.", "hero.cta1": "Install in QGIS", "hero.cta2": "Manual (PDF)", "hero.m1": "<b>Core</b> GSLIB KB2D", "hero.m2": "<b>7</b> tools", "hero.m3": "<b>Open</b> source · free", "th.eyebrow": "Kriging or triangulation", "th.h2": "Same boreholes. Different answer.", "th.sub": "Triangulation draws the surface from straight lines between points: fast, but kinked at every borehole and silent about reliability. Kriging weighs boreholes by the spatial structure of the data and shows where the estimate can be trusted.", "th.tin.tag": "Triangulation", "th.tin.desc": "Piecewise-linear, ridges at boreholes, no reliability estimate.", "th.kr.tag": "Kriging", "th.kr.desc": "Smooth, weights from the data variogram, anisotropy aware.", "th.err.tag": "Error map", "th.err.desc": "Dark means the estimate is solid (boreholes nearby), light means a guess. Triangulation has nothing like it.", "tl.eyebrow": "What is inside", "tl.h2": "Seven tools: the route from boreholes to map", "tl.intro": "Isoliner is not a single algorithm but a chain of QGIS Processing tools that covers the whole route: assess the data structure, fit and check the model, build the grid and contours, reuse the settings.", "tl.c1.p": "Ordinary and simple kriging over a point layer on the GSLIB KB2D core.", "tl.c2.h": "Contours from raster", "tl.c2.p": "Lines and contour polygons (belts) with exactly matching boundaries.", "tl.c3.h": "Variogram", "tl.c3.p": "Experimental variogram with model fitting and an HTML report.", "tl.c4.h": "Variogram map", "tl.c4.p": "A γ(h_x, h_y) surface: direction and strength of anisotropy for kriging.", "tl.c5.h": "Cross-validation", "tl.c5.p": "Leave-one-out validation with metrics: a check by error.", "tl.c6.h": "Sample boreholes", "tl.c6.p": "Generator of a teaching point layer for learning and testing.", "tl.c7.h": "Processing profiles", "tl.c7.p": "Named 'variogram + filtering' sets for different seams and zones.", "gl.eyebrow": "How it looks", "gl.h2": "Result and quality control", "gl.intro": "The three results it all comes down to: a smooth grid with contours, the variogram report and the standard-error map.", "gl.f1": "<b>Grid and contours.</b> A smooth surface and contour belts.", "gl.f2": "<b>Variogram.</b> The cloud, the fitted model, the data variance.", "gl.f3": "<b>Standard error.</b> Where the estimate can be trusted.", "ap.eyebrow": "Where it is used", "ap.h2": "Any numeric parameter defined by points", "ap.ch1": "<b>Top and bottom</b> marks of seams", "ap.ch2": "<b>Thickness</b> maps", "ap.ch3": "<b>Phys-mech</b> properties and chemistry", "ap.ch4": "<b>Groundwater</b> levels", "ap.ch5": "<b>Water-table</b> and piezometric contours", "ap.ch6": "<b>Geophysics</b> data", "ap.ch7": "Monitoring and <b>sampling</b>", "dc.eyebrow": "Documentation", "dc.h2": "The manual explains every step", "dc.p": "Variogram fitting, choosing the maximum distance, reading cross-validation, processing profiles and typical situations with solutions. In English, as a PDF. A short help opens straight from every tool with the <b>Help</b> button.", "dc.l1": "Download the manual<span>PDF · English</span>", "dc.l2": "Install from the QGIS repository<span>plugins.qgis.org</span>", "dc.l3": "Source code<span>GitHub</span>", "ft.p": "Isoliner is developed at Inform++ LLC, where we build industrial software for geology, mining, hydrogeology and geomechanics. The plugin is open and free: it works on its own or as the interpolation engine alongside <a class=\"gc\" href=\"https://www.informpp.ru/главная-страница/геоконструктор\" target=\"_blank\" rel=\"noopener\">Geoconstructor</a>."};
+  var META={"ru": {"title": "Isoliner — грид и изолинии для QGIS · Информ++", "desc": "Isoliner строит грид, изолинии и контурные полигоны методом кригинга в QGIS и вместе с результатом даёт карту стандартной ошибки."}, "en": {"title": "Isoliner — grids and contours for QGIS · Inform++", "desc": "Isoliner builds grids, contours and contour polygons by kriging in QGIS and ships every result with a standard-error map."}};
+  var nodes=document.querySelectorAll('[data-i18n]');
+  var RU={};
+  nodes.forEach(function(n){ RU[n.getAttribute('data-i18n')]=n.innerHTML; });
+  var md=document.querySelector('meta[name="description"]');
+  function apply(lang){
+    nodes.forEach(function(n){
+      var k=n.getAttribute('data-i18n');
+      var v = lang==='en' ? (EN[k]!=null?EN[k]:RU[k]) : RU[k];
+      if(v!=null) n.innerHTML=v;
+    });
+    if(META[lang]){ document.title=META[lang].title; if(md) md.setAttribute('content',META[lang].desc); }
+    document.documentElement.lang=lang;
+    document.querySelectorAll('[data-doc]').forEach(function(a){
+      var h=(a.getAttribute('href')||'').replace('Isoliner_en.pdf','Isoliner.pdf');
+      if(lang==='en') h=h.replace('Isoliner.pdf','Isoliner_en.pdf');
+      a.setAttribute('href',h);
+    });
+    document.querySelectorAll('.lang [data-lang]').forEach(function(b){
+      var on=b.getAttribute('data-lang')===lang;
+      b.classList.toggle('on',on); b.setAttribute('aria-pressed',on?'true':'false');
+    });
+    try{ localStorage.setItem('isoliner_lang',lang); }catch(e){}
+  }
+  var saved=null; try{ saved=localStorage.getItem('isoliner_lang'); }catch(e){}
+  var initial = saved || (((navigator.language||'').toLowerCase().indexOf('en')===0) ? 'en' : 'ru');
+  document.querySelectorAll('.lang [data-lang]').forEach(function(b){
+    b.addEventListener('click', function(){ apply(b.getAttribute('data-lang')); });
+  });
+  apply(initial);
 })();
 </script>
