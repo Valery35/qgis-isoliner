@@ -234,6 +234,15 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.1.0** — trend removal (regression kriging) in **2D Kriging** and
+  **Cross-validation**: a "Remove polynomial trend" checkbox and a trend degree
+  (plane or quadratic). The trend is removed by least squares before kriging,
+  the residuals are kriged, and the trend is added back; useful for seam marks
+  and thicknesses with a general dip within an area. The **Variogram map** gains
+  a "Write anisotropy to a profile" field: the azimuth, the coefficient and the
+  major-axis range are written into a chosen profile and shown in the caption on
+  load. Manual and PDFs (EN/RU) updated.
+
 - **2.0.0** — full bilingual plugin (EN/RU): the interface language follows
   the QGIS locale. Dialogs, drop-down options, hints and help panels, plus
   logs, warnings, exceptions, HTML reports, output layer names and

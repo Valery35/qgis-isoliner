@@ -242,6 +242,37 @@ def cross_validate(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
     return est, var
 
 
+def cross_validate_detrend(xd, yd, vrd, degree, vg, ktype, skmean,
+                           ndmin, ndmax, rad2, nodata, progress=None):
+    """Скользящий контроль для регрессии-кригинга. На каждом шаге исключённая
+    точка не участвует в подборе тренда: тренд переподбирается по n-1 точкам,
+    кригуются их остатки, тренд добавляется к оценке обратно. Так LOO остаётся
+    добросовестным, без утечки исключённой точки ни в тренд, ни в кригинг.
+
+    Вариограмма vg задаётся по остаткам (фиксирована). Возвращает (est, var) в
+    исходных единицах значения: var - дисперсия ошибки кригинга остатков, тренд
+    детерминирован и своей погрешности не добавляет. PolyTrend берётся при
+    вызове (определён ниже в модуле)."""
+    n = len(xd)
+    est = np.full(n, nodata, float)
+    var = np.full(n, nodata, float)
+    keep = np.ones(n, bool)
+    for i in range(n):
+        keep[i] = False
+        xi, yi, zi = xd[keep], yd[keep], vrd[keep]
+        tr = PolyTrend.fit(xi, yi, zi, degree)
+        ri = zi - tr(xi, yi)
+        e, v = _solve_point(xd[i], yd[i], xi, yi, ri, vg, ktype, skmean,
+                            ndmin, ndmax, rad2, nodata)
+        keep[i] = True
+        if e != nodata:
+            est[i] = float(tr(xd[i:i + 1], yd[i:i + 1])[0]) + e
+            var[i] = v
+        if progress is not None and (i & 255) == 0:
+            progress(i, n)
+    return est, var
+
+
 def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                rad2, nodata, xmn, ymn, cell, nx, ny, progress=None,
                with_variance=False):
@@ -664,3 +695,68 @@ def variogram_map(xs, ys, vs, n_bins=15, maxlag=None, min_pairs=5,
             "range_capped": capped,
             "n_used": n, "subsampled": subsampled, "maxlag": maxlag,
             "n_bins": n_bins}
+
+
+# ===========================================================================
+#  Полиномиальный тренд (регрессия-кригинг)
+# ===========================================================================
+class PolyTrend:
+    """Полиномиальный тренд m(x, y) степени 1 или 2, подобранный МНК.
+
+    Назначение - снять региональную составляющую перед кригингом. При наличии
+    тренда (падение пласта, общий уклон поля) экспериментальная вариограмма
+    сырого значения раздувается: радиус завышен, порога нет, форма как у
+    степенной модели. Снятие тренда возвращает вариограмму остатков к виду с
+    наггетом и порогом, кригинг идёт по остаткам, а тренд добавляется к оценке
+    обратно:  оценка = m(x, y) + кригинг_остатков(x, y).
+
+    Координаты центрируются и масштабируются на собственное стандартное
+    отклонение, иначе матрица плана для степени 2 плохо обусловлена в метровых
+    координатах. Чистый NumPy, как и всё ядро.
+
+    Степень 1: m = b0 + b1*x + b2*y.
+    Степень 2: m = b0 + b1*x + b2*y + b3*x^2 + b4*x*y + b5*y^2.
+    """
+
+    def __init__(self, beta, x0, y0, sx, sy, degree):
+        self.beta = np.asarray(beta, float)
+        self.x0 = float(x0)
+        self.y0 = float(y0)
+        self.sx = float(sx) or 1.0
+        self.sy = float(sy) or 1.0
+        self.degree = int(degree)
+
+    @staticmethod
+    def n_terms(degree):
+        return 3 if int(degree) == 1 else 6
+
+    def _design(self, x, y):
+        X = (np.asarray(x, float) - self.x0) / self.sx
+        Y = (np.asarray(y, float) - self.y0) / self.sy
+        cols = [np.ones_like(X), X, Y]
+        if self.degree >= 2:
+            cols += [X * X, X * Y, Y * Y]
+        return np.column_stack(cols)
+
+    @classmethod
+    def fit(cls, x, y, z, degree):
+        """Подбор тренда по точкам. degree приводится к 1 или 2."""
+        degree = 2 if int(degree) >= 2 else 1
+        x = np.asarray(x, float)
+        y = np.asarray(y, float)
+        z = np.asarray(z, float)
+        x0, y0 = float(np.mean(x)), float(np.mean(y))
+        sx = float(np.std(x)) or 1.0
+        sy = float(np.std(y)) or 1.0
+        self = cls(np.zeros(cls.n_terms(degree)), x0, y0, sx, sy, degree)
+        B = self._design(x, y)
+        beta, *_ = np.linalg.lstsq(B, z, rcond=None)
+        self.beta = beta
+        return self
+
+    def __call__(self, x, y):
+        """Значение тренда в точке/массиве точек."""
+        return self._design(x, y) @ self.beta
+
+    def residuals(self, x, y, z):
+        return np.asarray(z, float) - self(x, y)

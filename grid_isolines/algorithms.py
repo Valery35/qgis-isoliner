@@ -70,7 +70,8 @@ from qgis.core import (
 )
 
 from .kb2d import (
-    Variogram, build_grid, clip_outliers, cross_validate, EPS,
+    Variogram, build_grid, clip_outliers, cross_validate, EPS, PolyTrend,
+    cross_validate_detrend,
     experimental_variogram, fit_variogram, model_curve, variogram_map,
     MODEL_SPHERICAL, MODEL_EXPONENTIAL, MODEL_GAUSSIAN, GAUSS_MIN_NUGGET_FRAC)
 from .isolines import (
@@ -375,6 +376,18 @@ def _save_profile(name, profile):
     d = _load_profiles()
     d[name] = profile
     return _save_profiles(d)
+
+
+def _merge_anisotropy(prof, azimuth, anis, rng=None):
+    """Вписать анизотропию в существующий профиль, сохранив модель, наггет,
+    силл и отсев. Радиус главной оси (rng) обновляется только если задан и
+    положителен: при упёртом в окно радиусе его лучше не перетирать."""
+    p = dict(prof)
+    p["azimuth"] = float(azimuth)
+    p["anis"] = float(anis)
+    if rng is not None and rng > 0:
+        p["range"] = float(rng)
+    return p
 
 
 def _get_profile(name):
@@ -751,6 +764,31 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
     xd, yd, vrd = _read_points(source, zfield, feedback,
                                vmin=vmin, vmax=vmax, pct=pct, cap=cap)
 
+    # --- регрессия-кригинг: снятие полиномиального тренда -------------------
+    # Тренд снимается МНК, дальше кригуются остатки, а после построения грида
+    # тренд добавляется обратно к оценке. Параметры есть только у «2D Kriging»,
+    # поэтому читаем через getattr - прочие вызовы остаются без изменения.
+    trend = None
+    if getattr(alg, "DETREND", None) and \
+            alg.parameterAsBool(parameters, alg.DETREND, context):
+        degree = alg.parameterAsEnum(parameters, alg.DETREND_DEG, context) + 1
+        need = PolyTrend.n_terms(degree)
+        if len(vrd) <= need:
+            feedback.pushWarning(
+                _tr("Снятие тренда отключено: точек %d, для степени %d нужно "
+                "больше %d.") % (len(vrd), degree, need))
+        else:
+            var0 = float(np.var(vrd))
+            trend = PolyTrend.fit(xd, yd, vrd, degree)
+            vrd = trend.residuals(xd, yd, vrd)
+            var1 = float(np.var(vrd))
+            share = 100.0 * (1.0 - var1 / var0) if var0 > 0 else 0.0
+            feedback.pushInfo(
+                _tr("Снят тренд степени %d: убрано %.1f%% дисперсии "
+                "(s данных %.4g, s остатка %.4g). Вариограмму задавайте по "
+                "остаткам, стандартная ошибка - это ошибка кригинга остатков.")
+                % (degree, share, math.sqrt(var0), math.sqrt(var1)))
+
     ext = alg.parameterAsExtent(parameters, alg.EXTENT, context)
     if ext is None or ext.isEmpty():
         xmin, xmax = float(xd.min()), float(xd.max())
@@ -788,6 +826,22 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
                      rad2, nodata, xmn, ymn, cell, nx, ny, progress=prog,
                      with_variance=want_se)
     grid, segrid = res if want_se else (res, None)
+
+    # --- регрессия-кригинг: возврат тренда к оценке ------------------------
+    # Координаты ячеек строго как в build_grid (строка 0 - север):
+    # iy = ny - row, yloc = ymn + (iy-1)*cell, xloc = xmn + ix*cell.
+    # Тренд добавляется только к валидным ячейкам, nodata остаётся nodata.
+    # Стандартная ошибка не меняется: тренд детерминирован, кригуются остатки.
+    if trend is not None:
+        xs_cells = xmn + np.arange(nx) * cell
+        valid = grid != nodata
+        for row in range(ny):
+            iy = ny - row
+            yloc = ymn + (iy - 1) * cell
+            m = valid[row]
+            if m.any():
+                tr_row = trend(xs_cells[m], np.full(int(m.sum()), yloc))
+                grid[row, m] = grid[row, m] + tr_row.astype(grid.dtype)
 
     crs = source.sourceCrs()
     geotr = (xmin, cell, 0.0, ymin + ny * cell, 0.0, -cell)
@@ -917,6 +971,8 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     PROFILE = "PROFILE"
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
 
+    DETREND, DETREND_DEG = "DETREND", "DETREND_DEG"
+
     SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
 
     def tr(self, s): return _tr(s)
@@ -950,6 +1006,20 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessingParameterField.Numeric,
             defaultValue=_dv(self, self.ZFIELD, None)))
         _add_kriging_params(self)
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.DETREND, self.tr("Снять полиномиальный тренд"),
+            defaultValue=_dv(self, self.DETREND, False)))
+        deg = QgsProcessingParameterEnum(
+            self.DETREND_DEG, self.tr("Степень тренда"),
+            options=[self.tr("1 (плоскость)"), self.tr("2 (квадратичная)")],
+            defaultValue=_dv(self, self.DETREND_DEG, 0))
+        deg.setHelp(self.tr(
+            "Региональный тренд снимается МНК перед кригингом, кригуются остатки, "
+            "тренд возвращается к оценке. Полезно для отметок пласта и мощностей "
+            "с общим падением. Для химии без тренда эффекта почти нет. Степень 1 "
+            "обычно достаточна, степень 2 может вобрать часть реальной структуры "
+            "в тренд - следите за вариограммой остатков."))
+        self.addParameter(deg)
         self.addParameter(_profile_enum(
             self.PROFILE, _tr("Загрузить профиль обработки")))
         self.addParameter(QgsProcessingParameterBoolean(
@@ -1432,6 +1502,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
     IDFIELD = "IDFIELD"
+    DETREND, DETREND_DEG = "DETREND", "DETREND_DEG"
     PROFILE = "PROFILE"
     OUTPUT = "OUTPUT"
     OUTPUT_HTML = "OUTPUT_HTML"
@@ -1488,6 +1559,20 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             self.IDFIELD, self.tr("Поле номера скважины (необязательно)"),
             parentLayerParameterName=self.INPUT, optional=True))
         _add_cv_params(self)
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.DETREND, self.tr("Снять полиномиальный тренд"),
+            defaultValue=_dv(self, self.DETREND, False)))
+        deg = QgsProcessingParameterEnum(
+            self.DETREND_DEG, self.tr("Степень тренда"),
+            options=[self.tr("1 (плоскость)"), self.tr("2 (квадратичная)")],
+            defaultValue=_dv(self, self.DETREND_DEG, 0))
+        deg.setHelp(self.tr(
+            "Региональный тренд снимается МНК перед кригингом, кригуются остатки, "
+            "тренд возвращается к оценке. Полезно для отметок пласта и мощностей "
+            "с общим падением. Для химии без тренда эффекта почти нет. Степень 1 "
+            "обычно достаточна, степень 2 может вобрать часть реальной структуры "
+            "в тренд - следите за вариограммой остатков."))
+        self.addParameter(deg)
         self.addParameter(_profile_enum(
             self.PROFILE, _tr("Загрузить профиль обработки")))
         self.addParameter(QgsProcessingParameterString(
@@ -1567,8 +1652,32 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             if feedback.isCanceled():
                 raise QgsProcessingException(_tr("Прервано пользователем."))
             feedback.setProgress(int(95.0 * done / total))
-        est, var = cross_validate(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
-                                  rad2, nodata, progress=prog)
+
+        detrend = self.parameterAsBool(parameters, self.DETREND, context)
+        if detrend:
+            degree = self.parameterAsEnum(parameters, self.DETREND_DEG, context) + 1
+            need = PolyTrend.n_terms(degree)
+            if len(vrd) <= need:
+                feedback.pushWarning(
+                    _tr("Снятие тренда отключено: точек %d, для степени %d нужно "
+                    "больше %d.") % (len(vrd), degree, need))
+                detrend = False
+            else:
+                var0 = float(np.var(vrd))
+                _r = PolyTrend.fit(xd, yd, vrd, degree).residuals(xd, yd, vrd)
+                share = 100.0 * (1.0 - float(np.var(_r)) / var0) if var0 > 0 else 0.0
+                feedback.pushInfo(
+                    _tr("Снят тренд степени %d: убрано %.1f%% дисперсии. Тренд "
+                    "переподбирается на каждом шаге LOO по остальным точкам, "
+                    "вариограмму задавайте по остаткам.") % (degree, share))
+
+        if detrend:
+            est, var = cross_validate_detrend(
+                xd, yd, vrd, degree, vg, ktype, skmean, ndmin, ndmax,
+                rad2, nodata, progress=prog)
+        else:
+            est, var = cross_validate(xd, yd, vrd, vg, ktype, skmean, ndmin,
+                                      ndmax, rad2, nodata, progress=prog)
 
         ok = est != nodata
         nvalid = int(ok.sum())
@@ -2607,6 +2716,7 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
     INPUT, ZFIELD = "INPUT", "ZFIELD"
     N_BINS, MAXLAG, MIN_PAIRS = "N_BINS", "MAXLAG", "MIN_PAIRS"
     OUTPUT_HTML, OUTPUT_RASTER = "OUTPUT_HTML", "OUTPUT_RASTER"
+    WRITE_PROFILE = "WRITE_PROFILE"
 
     def tr(self, s): return _tr(s)
     def helpUrl(self): return _help_url()
@@ -2655,6 +2765,8 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
             self.MIN_PAIRS, self.tr("Мин. число пар в ячейке"),
             QgsProcessingParameterNumber.Integer,
             defaultValue=_dv(self, self.MIN_PAIRS, 5), minValue=1)))
+        self.addParameter(_profile_enum(
+            self.WRITE_PROFILE, _tr("Записать анизотропию в профиль"), pick=True))
         self.addParameter(QgsProcessingParameterFileDestination(
             self.OUTPUT_HTML, self.tr("Отчёт (HTML)"),
             self.tr("HTML files (*.html)"), optional=True,
@@ -2707,6 +2819,38 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
                 _tr("Анизотропия не выражена (структура близка к изотропной или "
                 "радиус меньше ячейки). Можно уменьшить макс. лаг или увеличить "
                 "число бинов."))
+
+        # Запись анизотропии в выбранный профиль (азимут, коэффициент и радиус
+        # главной оси). Модель, наггет, силл и отсев в профиле сохраняются - их
+        # даёт омнинаправленная вариограмма, а карта лишь дописывает геометрию.
+        widx = self.parameterAsEnum(parameters, self.WRITE_PROFILE, context)
+        if widx > 0:
+            pname = ([PROFILE_NONE] + _profile_names())[widx] \
+                if widx <= len(_profile_names()) else None
+            prof = _get_profile(pname) if pname else None
+            if prof is None:
+                feedback.pushWarning(
+                    _tr("Профиль «%s» не найден - анизотропия не сохранена. "
+                    "Сначала сохраните профиль в «Вариограмме» или "
+                    "«Кросс-валидации».") % pname)
+            elif not m["resolved"]:
+                feedback.pushWarning(
+                    _tr("Анизотропия не выражена - в профиль писать нечего."))
+            else:
+                rng = None if m["range_capped"] else float(m["range_major"])
+                _save_profile(pname, _merge_anisotropy(
+                    prof, float(m["azimuth"]), float(m["anis"]), rng))
+                if rng is None:
+                    feedback.pushInfo(
+                        _tr("В профиль «%s» записаны азимут=%.0f° и анизотропия="
+                        "%.2f (радиус оставлен прежним: упёрся в макс. лаг). При "
+                        "загрузке профиля они появятся в подписи.")
+                        % (pname, m["azimuth"], m["anis"]))
+                else:
+                    feedback.pushInfo(
+                        _tr("В профиль «%s» записаны азимут=%.0f°, анизотропия="
+                        "%.2f, радиус a=%.4g. При загрузке профиля они появятся "
+                        "в подписи.") % (pname, m["azimuth"], m["anis"], rng))
 
         results = {}
         src_name = _short(src.sourceName()) if hasattr(src, "sourceName") else zfield
