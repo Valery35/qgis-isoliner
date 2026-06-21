@@ -21,6 +21,7 @@
 Полностью защищён try/except: при любой несовместимости API виджет
 откатывается к обычному числовому полю, диалог не ломается.
 """
+from .i18n import tr as _tr  # двуязычие RU/EN
 import math
 
 from qgis.PyQt.QtWidgets import QWidget, QHBoxLayout, QLabel
@@ -54,8 +55,8 @@ class CellSizeWrapper(_BASE):
                 self._spin.setDecimals(5)
             except Exception:
                 pass
-            self._spin.setToolTip("0 = авто: min(охват)/50")
-            self._label = QLabel("грид: -")
+            self._spin.setToolTip(_tr("0 = авто: min(охват)/50"))
+            self._label = QLabel(_tr("грид: -"))
             self._label.setStyleSheet("color:#888;")
             lay.addWidget(self._spin, 1)
             lay.addWidget(self._label, 0)
@@ -179,17 +180,17 @@ class CellSizeWrapper(_BASE):
             cell = self._spin.value()
             ext = self._get_extent()
             if ext is None or ext.isEmpty():
-                self._label.setText("грид: -")
+                self._label.setText(_tr("грид: -"))
                 return
             w, h = ext.width(), ext.height()
             c = cell if cell > 0 else (round((min(w, h) or 1.0) / 50.0, 5) or 1.0)
             nx = max(int(math.ceil(w / c)), 1)
             ny = max(int(math.ceil(h / c)), 1)
-            suffix = " (авто)" if cell <= 0 else ""
-            self._label.setText("грид: %d × %d%s" % (nx, ny, suffix))
+            suffix = _tr(" (авто)") if cell <= 0 else ""
+            self._label.setText(_tr("грид: %d × %d%s") % (nx, ny, suffix))
         except Exception:
             try:
-                self._label.setText("грид: -")
+                self._label.setText(_tr("грид: -"))
             except Exception:
                 pass
 
@@ -263,16 +264,16 @@ class ProfileWrapper(_BASE):
             name = opts[idx] if 0 <= idx < len(opts) else PROFILE_NONE
             if idx <= 0 or name == PROFILE_NONE:
                 self._label.setText(
-                    "Профиль не выбран - расчёт по полям диалога."
-                    if self.WARN else "Профиль не выбран.")
+                    _tr("Профиль не выбран - расчёт по полям диалога.")
+                    if self.WARN else _tr("Профиль не выбран."))
                 return
             prof = _get_profile(name)
             if not prof:
-                self._label.setText("Профиль «%s» не найден." % name)
+                self._label.setText(_tr("Профиль «%s» не найден.") % name)
                 return
-            txt = "Профиль «%s»: %s." % (name, _profile_summary(prof))
+            txt = _tr("Профиль «%s»: %s.") % (name, _profile_summary(prof))
             if self.WARN:
-                txt += " Расчёт пойдёт по профилю - поля ниже игнорируются."
+                txt += _tr(" Расчёт пойдёт по профилю - поля ниже игнорируются.")
             self._label.setText(txt)
         except Exception:
             try:

@@ -42,6 +42,8 @@ import math
 
 from qgis.core import QgsProcessingException
 
+from .i18n import tr as _tr  # двуязычие RU/EN
+
 DEFAULT_FIELD = "ELEV"
 INDEX_FIELD = "is_index"
 
@@ -56,7 +58,7 @@ def _parse_levels(text):
         try:
             out.append(float(tok))
         except ValueError:
-            raise QgsProcessingException("Не удалось разобрать уровень: %r" % tok)
+            raise QgsProcessingException(_tr("Не удалось разобрать уровень: %r") % tok)
     return sorted(set(out))
 
 
@@ -130,7 +132,7 @@ def _smooth_raster(raster, band, sigma, nodata, feedback):
 
     ds = gdal.Open(raster)
     if ds is None:
-        raise QgsProcessingException("Не удалось открыть растр для сглаживания.")
+        raise QgsProcessingException(_tr("Не удалось открыть растр для сглаживания."))
     b = ds.GetRasterBand(int(band))
     arr = b.ReadAsArray().astype(float)
     nd = b.GetNoDataValue()
@@ -144,7 +146,7 @@ def _smooth_raster(raster, band, sigma, nodata, feedback):
     if nd is not None:
         valid &= (arr != nd)
 
-    feedback.pushInfo("Сглаживание поля (σ=%g яч.)…" % sigma)
+    feedback.pushInfo(_tr("Сглаживание поля (σ=%g яч.)…") % sigma)
     sm = _gaussian_nodata(arr, valid, sigma)
     out_nd = float(nd) if nd is not None else -9999.0
     res = np.where(valid, sm, out_nd).astype(np.float32)
@@ -221,7 +223,7 @@ def _densify_raster(raster, band, factor, nodata, feedback):
     p = int(factor)
     ds = gdal.Open(raster)
     if ds is None:
-        raise QgsProcessingException("Не удалось открыть растр для сгущения.")
+        raise QgsProcessingException(_tr("Не удалось открыть растр для сгущения."))
     b = ds.GetRasterBand(int(band))
     arr = b.ReadAsArray().astype(float)
     nd = b.GetNoDataValue()
@@ -238,7 +240,7 @@ def _densify_raster(raster, band, factor, nodata, feedback):
         ds = None
         return raster
 
-    feedback.pushInfo("Сгущение грида ×%d (бикубика)…" % p)
+    feedback.pushInfo(_tr("Сгущение грида ×%d (бикубика)…") % p)
     filled = _fill_invalid(arr, valid, iters=3)
     filled = np.where(np.isfinite(filled), filled, float(np.mean(arr[valid])))
     dense = _cubic_resample_matrix(ny, p) @ filled @ _cubic_resample_matrix(nx, p).T
@@ -311,21 +313,21 @@ def _contour_lines(processing, raster, band, interval, base, levels,
     elif interval > 0:
         params["INTERVAL"] = float(interval)
     else:
-        raise QgsProcessingException("Задайте шаг изолиний или уровни.")
+        raise QgsProcessingException(_tr("Задайте шаг изолиний или уровни."))
 
     feedback.pushInfo("gdal:contour…")
     cur = processing.run("gdal:contour", params, context=context,
                          feedback=feedback, is_child_algorithm=True)["OUTPUT"]
 
     if min_length and min_length > 0:
-        feedback.pushInfo("Фильтр коротких линий (< %g)…" % min_length)
+        feedback.pushInfo(_tr("Фильтр коротких линий (< %g)…") % min_length)
         cur = processing.run("native:extractbyexpression", {
             "INPUT": cur, "EXPRESSION": "$length >= %g" % float(min_length),
             "OUTPUT": "TEMPORARY_OUTPUT",
         }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
 
     if line_iter and line_iter > 0:
-        feedback.pushInfo("Скругление линий (Chaikin, %d итер.)…" % line_iter)
+        feedback.pushInfo(_tr("Скругление линий (Chaikin, %d итер.)…") % line_iter)
         cur = processing.run("native:smoothgeometry", {
             "INPUT": cur, "ITERATIONS": int(line_iter), "OFFSET": 0.25,
             "MAX_ANGLE": 180.0, "OUTPUT": "TEMPORARY_OUTPUT",
@@ -341,7 +343,7 @@ def _finalize_lines(processing, cur, interval, base, index_every, field_name,
     """Доводит линии до выходного слоя: флаг главных изолиний (is_index) и
     сохранение. Общий хвост для линейного выхода (с полигонами и без)."""
     if index_every and index_every > 1 and interval > 0:
-        feedback.pushInfo("Главные изолинии: каждая %d-я…" % index_every)
+        feedback.pushInfo(_tr("Главные изолинии: каждая %d-я…") % index_every)
         step = float(interval) * int(index_every)
         expr = ('CASE WHEN abs(("{f}" - {b}) - round(("{f}" - {b})/{s})*{s})'
                 ' < {tol} THEN 1 ELSE 0 END').format(
@@ -400,7 +402,7 @@ def _footprint_lines(processing, raster, band, nodata, context, feedback):
 
     ds = gdal.Open(raster)
     if ds is None:
-        raise QgsProcessingException("Не удалось открыть растр.")
+        raise QgsProcessingException(_tr("Не удалось открыть растр."))
     b = ds.GetRasterBand(int(band))
     arr = b.ReadAsArray().astype(float)
     nd = b.GetNoDataValue()
@@ -414,7 +416,7 @@ def _footprint_lines(processing, raster, band, nodata, context, feedback):
     if nd is not None:
         valid &= (arr != nd)
     if not valid.any():
-        raise QgsProcessingException("В растре нет валидных значений.")
+        raise QgsProcessingException(_tr("В растре нет валидных значений."))
 
     MASK_ND = 0
     mask = np.where(valid, 1, MASK_ND).astype(np.int32)
@@ -432,7 +434,7 @@ def _footprint_lines(processing, raster, band, nodata, context, feedback):
     ods = None
     ds = None
 
-    feedback.pushInfo("Контур валидной области…")
+    feedback.pushInfo(_tr("Контур валидной области…"))
     fp = processing.run("gdal:polygonize", {
         "INPUT": tmp, "BAND": 1, "FIELD": "DN",
         "EIGHT_CONNECTEDNESS": False, "OUTPUT": "TEMPORARY_OUTPUT",
@@ -490,9 +492,9 @@ def _polygonize_belts(processing, lines_layer, area_lines, crs, context,
             if g is not None and not g.isEmpty():
                 geoms.append(g)
 
-    feedback.pushInfo("Нодирование сети линий (GEOS)…")
+    feedback.pushInfo(_tr("Нодирование сети линий (GEOS)…"))
     merged = QgsGeometry.unaryUnion(geoms)
-    feedback.pushInfo("Полигонизация поясов (GEOS)…")
+    feedback.pushInfo(_tr("Полигонизация поясов (GEOS)…"))
     poly = QgsGeometry.polygonize([merged])
 
     mem = QgsVectorLayer("Polygon?crs=%s" % (crs.authid() or crs.toWkt()),
@@ -506,7 +508,7 @@ def _polygonize_belts(processing, lines_layer, area_lines, crs, context,
                 feats.append(nf)
     mem.dataProvider().addFeatures(feats)
     mem.updateExtents()
-    feedback.pushInfo("Поясов получено (GEOS): %d" % len(feats))
+    feedback.pushInfo(_tr("Поясов получено (GEOS): %d") % len(feats))
     return mem
 
 
@@ -523,7 +525,7 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
                   else _layer_from_string(polys_src, context))
     if poly_layer is None:
         raise QgsProcessingException(
-            "Полигонизация не дала результата (проверьте изолинии/контур).")
+            _tr("Полигонизация не дала результата (проверьте изолинии/контур)."))
 
     vals = arr[valid]
     # rmin/rmax расширяем до крайних уровней, чтобы mins/maxs были
@@ -539,12 +541,12 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
     fields.append(QgsField("ELEV_MAX", QVariant.Double, len=20, prec=6))
     mem = QgsVectorLayer(
         "MultiPolygon?crs=%s" % (crs.authid() or crs.toWkt()),
-        "пояса", "memory")
+        _tr("пояса"), "memory")
     dp = mem.dataProvider()
     dp.addAttributes(fields.toList())
     mem.updateFields()
 
-    feedback.pushInfo("Назначение диапазонов поясам…")
+    feedback.pushInfo(_tr("Назначение диапазонов поясам…"))
     out_feats = []
     n_total = max(poly_layer.featureCount(), 1)
     for i, feat in enumerate(poly_layer.getFeatures()):
@@ -570,7 +572,7 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
         if i % 200 == 0:
             feedback.setProgress(int(100.0 * i / n_total))
     if not out_feats:
-        raise QgsProcessingException("Ни один пояс не получил значения.")
+        raise QgsProcessingException(_tr("Ни один пояс не получил значения."))
     dp.addFeatures(out_feats)
     mem.updateExtents()
     return _save(processing, mem, final_output, context, feedback)
@@ -606,7 +608,7 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
     if not levels:
         levels = compute_levels(rp, rb, interval, base)
     if not levels:
-        raise QgsProcessingException("Недостаточно уровней для полигонов.")
+        raise QgsProcessingException(_tr("Недостаточно уровней для полигонов."))
     levels = sorted(levels)
 
     # 1) контур валидной области + массив растра (для выборки поясов)
@@ -623,7 +625,7 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
                          min_length, li, field_name, ignore_nodata, nodata,
                          context, feedback)
     snap_tol = float(3.0 * px)
-    feedback.pushInfo("Согласование концов изолиний с контуром…")
+    feedback.pushInfo(_tr("Согласование концов изолиний с контуром…"))
     iso = processing.run("native:snapgeometries", {
         "INPUT": iso, "REFERENCE_LAYER": area_lines,
         "TOLERANCE": snap_tol, "BEHAVIOR": 5,
@@ -645,7 +647,7 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
     iso_single = processing.run("native:multiparttosingleparts", {
         "INPUT": iso, "OUTPUT": "TEMPORARY_OUTPUT",
     }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
-    feedback.pushInfo("Продление открытых концов за контур…")
+    feedback.pushInfo(_tr("Продление открытых концов за контур…"))
     split = processing.run("native:extractbyexpression", {
         "INPUT": iso_single,
         "EXPRESSION":

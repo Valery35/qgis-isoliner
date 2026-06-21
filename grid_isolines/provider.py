@@ -21,6 +21,7 @@ from qgis.core import QgsProcessingProvider, QgsMessageLog
 from qgis.PyQt.QtGui import QIcon
 
 from .algorithms import ALGORITHMS
+from . import i18n
 
 
 def _log(msg):
@@ -32,14 +33,15 @@ def _log(msg):
 
 class GridIsolinesProvider(QgsProcessingProvider):
     def loadAlgorithms(self):
+        i18n.init_from_qgis()  # выбрать язык до регистрации (group/displayName)
         loaded = 0
         for cls in ALGORITHMS:
             try:
                 self.addAlgorithm(cls())
                 loaded += 1
             except Exception as e:   # один сбойный алгоритм не валит группу
-                _log("Не удалось добавить %s: %s" % (cls.__name__, e))
-        _log("Загружено алгоритмов: %d" % loaded)
+                _log(i18n.tr("Не удалось добавить %s: %s") % (cls.__name__, e))
+        _log(i18n.tr("Загружено алгоритмов: %d") % loaded)
 
     def id(self):
         return "isoliner"

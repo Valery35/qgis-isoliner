@@ -34,7 +34,9 @@ import uuid
 import numpy as np
 from osgeo import gdal, osr
 
-from qgis.PyQt.QtCore import QCoreApplication, QUrl, QVariant
+from qgis.PyQt.QtCore import QUrl, QVariant
+
+from .i18n import tr as _tr  # двуязычие RU/EN (нужен до module-level констант)
 from qgis.core import (
     QgsProcessing,
     QgsProcessingAlgorithm,
@@ -75,11 +77,11 @@ from .isolines import (
     isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD,
     _gaussian_nodata)
 
-GROUP = "Грид и изолинии"
+GROUP = _tr("Грид и изолинии")
 GROUP_ID = "grid_isolines"
 
-MODEL_LABELS = ["Сферическая", "Экспоненциальная", "Гауссова", "Степенная"]
-KTYPE_LABELS = ["Ординарный (OK)", "Простой (SK)"]
+MODEL_LABELS = [_tr("Сферическая"), _tr("Экспоненциальная"), _tr("Гауссова"), _tr("Степенная")]
+KTYPE_LABELS = [_tr("Ординарный (OK)"), _tr("Простой (SK)")]
 
 NSTRUCT = 1  # число структур вариограммы (S2/S3 убраны как неиспользуемые)
 
@@ -88,8 +90,9 @@ CREDIT = ("\n\n- - -\nРазработано при поддержке ООО «
           "www.informpp.ru/главная-страница/qgis-isoliner")
 
 
-def _tr(s):
-    return QCoreApplication.translate("GridIsolines", s)
+def _credit():
+    """Подпись «Разработано при поддержке…» на активном языке."""
+    return _tr(CREDIT)
 
 
 def _advanced(param):
@@ -225,9 +228,24 @@ def _set_field_aliases(context, path, aliases):
 
 
 def _help_url():
-    """file:// ссылка на руководство в комплекте плагина (для кнопки «Справка»)."""
-    p = os.path.join(os.path.dirname(__file__), "doc", "Isoliner.pdf")
-    return QUrl.fromLocalFile(p).toString() if os.path.exists(p) else ""
+    """file:// ссылка на руководство в комплекте (для кнопки «Справка»).
+
+    На английской локали открывается Isoliner_en.pdf, если он есть; иначе -
+    русское Isoliner.pdf. Так одна кнопка даёт справку на языке интерфейса."""
+    from .i18n import language as _lang  # текущий язык интерфейса
+    doc = os.path.join(os.path.dirname(__file__), "doc")
+    candidates = []
+    try:
+        if _lang() == "en":
+            candidates.append("Isoliner_en.pdf")
+    except Exception:
+        pass
+    candidates.append("Isoliner.pdf")
+    for fname in candidates:
+        p = os.path.join(doc, fname)
+        if os.path.exists(p):
+            return QUrl.fromLocalFile(p).toString()
+    return ""
 
 
 # --- запоминание введённых значений (в сессии и между запусками) ----------
@@ -267,7 +285,7 @@ def _dv(alg, key, fallback):
 # отсев ураганных проб». Хранятся глобально в QgsSettings (кросс-проектно),
 # отдельно от per-algorithm настроек. «Вариограмма» и «Кросс-валидация» их
 # сохраняют, «2D Kriging» подставляет, отдельный инструмент «Профили» правит.
-PROFILE_NONE = "(не выбран)"
+PROFILE_NONE = _tr("(не выбран)")
 
 
 def _profiles_key():
@@ -379,16 +397,16 @@ def _clear_profiles():
 def _profile_summary(p):
     """Короткое текстовое описание профиля для Журнала."""
     try:
-        s = ("наггет C0=%.4g, %s, порог C=%.4g, радиус a=%.4g" % (
+        s = (_tr("наггет C0=%.4g, %s, порог C=%.4g, радиус a=%.4g") % (
             p["nugget"], MODEL_LABELS[int(p["model"])], p["sill"], p["range"]))
         if float(p.get("anis", 1.0)) != 1.0 or float(p.get("azimuth", 0.0)) != 0.0:
-            s += (", анизотропия %.3g по азимуту %.4g°" % (
+            s += (_tr(", анизотропия %.3g по азимуту %.4g°") % (
                 p.get("anis", 1.0), p.get("azimuth", 0.0)))
         if float(p.get("val_pct", 0.0)) != 0.0:
-            s += (", отсев %.4g%%" % p["val_pct"])
+            s += (_tr(", отсев %.4g%%") % p["val_pct"])
         return s
     except Exception:
-        return "профиль"
+        return _tr("профиль")
 
 
 # ключи параметров структуры вариограммы
@@ -419,8 +437,8 @@ def _apply_profile(alg, parameters, context, feedback):
     prof = _get_profile(name) if name else None
     if not prof:
         feedback.pushWarning(
-            "Профиль не найден - использую значения из диалога. "
-            "Список профилей обновляется при открытии окна инструмента.")
+            _tr("Профиль не найден - использую значения из диалога. "
+            "Список профилей обновляется при открытии окна инструмента."))
         return parameters
     parameters = dict(parameters)
     parameters[alg.NUGGET] = prof["nugget"]
@@ -436,7 +454,7 @@ def _apply_profile(alg, parameters, context, feedback):
     for i in range(2, NSTRUCT + 1):
         parameters[_sk(i, "SILL")] = 0.0
     feedback.pushInfo(
-        "Подставлен профиль «%s»: %s." % (name, _profile_summary(prof)))
+        _tr("Подставлен профиль «%s»: %s.") % (name, _profile_summary(prof)))
     return parameters
 
 
@@ -444,7 +462,7 @@ def _profile_enum(key, label, pick=False):
     """Выпадающий список профилей с подписью-обёрткой (значения профиля
     строкой ниже). На QGIS без старого API виджетов - обычный список."""
     p = QgsProcessingParameterEnum(
-        key, _tr(label), options=[PROFILE_NONE] + _profile_names(),
+        key, _tr(label), options=[_tr(PROFILE_NONE)] + _profile_names(),
         defaultValue=0)
     try:
         from .widgets import (ProfileWrapper, ProfilePickWrapper,
@@ -459,7 +477,7 @@ def _profile_enum(key, label, pick=False):
 
 def _add_kriging_params(alg):
     alg.addParameter(QgsProcessingParameterEnum(
-        alg.KTYPE, _tr("Тип кригинга"), options=KTYPE_LABELS,
+        alg.KTYPE, _tr("Тип кригинга"), options=[_tr(x) for x in KTYPE_LABELS],
         defaultValue=_dv(alg, alg.KTYPE, 0)))
 
     # поиск и сетка - основные параметры
@@ -521,7 +539,7 @@ def _add_kriging_params(alg):
         off = _tr("порог/вклад C") if i == 1 else _tr("порог/вклад C (0 = выкл.)")
         alg.addParameter(_advanced(QgsProcessingParameterEnum(
             _sk(i, "MODEL"), "%s · %s" % (tag, _tr("модель")),
-            options=MODEL_LABELS, defaultValue=_dv(alg, _sk(i, "MODEL"), 0))))
+            options=[_tr(x) for x in MODEL_LABELS], defaultValue=_dv(alg, _sk(i, "MODEL"), 0))))
         alg.addParameter(_advanced(QgsProcessingParameterNumber(
             _sk(i, "SILL"), "%s · %s" % (tag, off),
             QgsProcessingParameterNumber.Double,
@@ -586,13 +604,13 @@ def _read_points(source, zfield, feedback=None,
             ids.append(f[id_idx] if id_idx >= 0 else f.id())
     if feedback is not None and (skipped_value or skipped_geom):
         feedback.pushInfo(
-            "Пропущено точек: %d без значения «%s»%s. Прочитано: %d." %
+            _tr("Пропущено точек: %d без значения «%s»%s. Прочитано: %d.") %
             (skipped_value, zfield,
-             (" и %d без геометрии" % skipped_geom) if skipped_geom else "",
+             (_tr(" и %d без геометрии") % skipped_geom) if skipped_geom else "",
              len(xs)))
     if len(xs) < 2:
         raise QgsProcessingException(
-            "Недостаточно валидных точек с числовым значением.")
+            _tr("Недостаточно валидных точек с числовым значением."))
 
     xs = np.asarray(xs, float)
     ys = np.asarray(ys, float)
@@ -608,7 +626,7 @@ def _read_points(source, zfield, feedback=None,
             xs, ys, vs = xs, ys, out
             if feedback is not None:
                 feedback.pushInfo(
-                    "Ураганные пробы: срезано %d значений к [%.4g; %.4g]." %
+                    _tr("Ураганные пробы: срезано %d значений к [%.4g; %.4g].") %
                     (nch, lo, hi))
         else:
             ncut = int(np.count_nonzero(~keep))
@@ -617,11 +635,11 @@ def _read_points(source, zfield, feedback=None,
                 ids = ids[keep]
             if feedback is not None:
                 feedback.pushInfo(
-                    "Ураганные пробы: удалено %d точек вне [%.4g; %.4g]; "
-                    "осталось %d." % (ncut, lo, hi, len(xs)))
+                    _tr("Ураганные пробы: удалено %d точек вне [%.4g; %.4g]; "
+                    "осталось %d.") % (ncut, lo, hi, len(xs)))
         if len(xs) < 2:
             raise QgsProcessingException(
-                "После отсева ураганных проб осталось < 2 точек.")
+                _tr("После отсева ураганных проб осталось < 2 точек."))
 
     # схлопывание совпадающих точек (один XY = несколько проб) -> среднее Z.
     # без этого матрица кригинга вырождается: дыры NoData и «разлёт» ±1e15.
@@ -644,11 +662,11 @@ def _read_points(source, zfield, feedback=None,
             ids = ids[first]      # за совпавшими точками - id первой
         if feedback is not None:
             feedback.pushInfo(
-                "Совпадающих точек усреднено: %d (осталось %d)" %
+                _tr("Совпадающих точек усреднено: %d (осталось %d)") %
                 (len(inv) - len(uniq), len(uniq)))
     if len(xs) < 2:
         raise QgsProcessingException(
-            "После усреднения совпадающих точек осталось < 2 узлов.")
+            _tr("После усреднения совпадающих точек осталось < 2 узлов."))
     if return_ids:
         return xs, ys, vs, ids
     return xs, ys, vs
@@ -672,13 +690,13 @@ def _build_variogram(alg, parameters, context, nugget, auto_range, feedback=None
                 rng = 1.0
                 if feedback:
                     feedback.pushWarning(
-                        "Структура %d: степенная модель - поле «радиус a» это "
-                        "показатель ω (0<ω<2), а не радиус; задан 0, взят ω=1." % i)
+                        _tr("Структура %d: степенная модель - поле «радиус a» это "
+                        "показатель ω (0<ω<2), а не радиус; задан 0, взят ω=1.") % i)
             elif not (0.0 < rng < 2.0):
                 if feedback:
                     feedback.pushWarning(
-                        "Структура %d: показатель степенной модели ω=%.3g вне "
-                        "(0; 2) - приведён к диапазону." % (i, rng))
+                        _tr("Структура %d: показатель степенной модели ω=%.3g вне "
+                        "(0; 2) - приведён к диапазону.") % (i, rng))
                 rng = min(max(rng, 0.05), 1.999)
         elif rng <= 0:
             rng = auto_range
@@ -692,13 +710,13 @@ def _build_variogram(alg, parameters, context, nugget, auto_range, feedback=None
                            "ang": 0.0, "anis": 1.0})
     if feedback and nugget > 0 and sill_total <= 0:
         feedback.pushWarning(
-            "Задан только наггет (структурный вклад C = 0): кригинг выродится "
-            "в локальное среднее, поверхность будет почти плоской.")
+            _tr("Задан только наггет (структурный вклад C = 0): кригинг выродится "
+            "в локальное среднее, поверхность будет почти плоской."))
     vg = Variogram(nugget, structures)
     if feedback and vg.nugget_raised_from is not None:
         feedback.pushInfo(
-            "Гауссова модель: наггет повышен с %.4g до %.4g для устойчивости "
-            "(минимум %g%% структурного силла)." % (
+            _tr("Гауссова модель: наггет повышен с %.4g до %.4g для устойчивости "
+            "(минимум %g%% структурного силла).") % (
                 vg.nugget_raised_from, vg.c0, GAUSS_MIN_NUGGET_FRAC * 100))
     return vg
 
@@ -754,16 +772,16 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
     vg = _build_variogram(alg, parameters, context, nugget, auto_range, feedback)
     nodata = -9999.0
     want_se = stderr_path is not None
-    feedback.pushInfo("Сетка %d x %d, ячейка %.4g, точек %d, структур %d" %
+    feedback.pushInfo(_tr("Сетка %d x %d, ячейка %.4g, точек %d, структур %d") %
                       (nx, ny, cell, len(xd), vg.nst))
     feedback.pushInfo(
-        "Дисперсия данных: %.4g. Ориентир: суммарный силл (C0 + вклады C) "
+        _tr("Дисперсия данных: %.4g. Ориентир: суммарный силл (C0 + вклады C) "
         "задавайте близким к ней. Наггет и силл - в абсолютных единицах "
-        "дисперсии, не 0-1." % float(np.var(vrd)))
+        "дисперсии, не 0-1.") % float(np.var(vrd)))
 
     def prog(done, total):
         if feedback.isCanceled():
-            raise QgsProcessingException("Прервано пользователем.")
+            raise QgsProcessingException(_tr("Прервано пользователем."))
         feedback.setProgress(int(80.0 * done / total))
 
     res = build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
@@ -804,12 +822,12 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
     smooth = alg.parameterAsBool(parameters, alg.SMOOTH, context)
     sm_rad = alg.parameterAsDouble(parameters, alg.SMOOTH_RADIUS, context)
     if smooth and sm_rad and sm_rad > 0:
-        feedback.pushInfo("Сглаживание грида (σ=%g яч.)…" % sm_rad)
+        feedback.pushInfo(_tr("Сглаживание грида (σ=%g яч.)…") % sm_rad)
         gvalid = np.isfinite(grid) & (grid != nodata)
         gsm = _gaussian_nodata(grid, gvalid, float(sm_rad))
         grid = np.where(gvalid, gsm, nodata).astype(grid.dtype)
     if mask_layer is not None:
-        feedback.pushInfo("Обрезка по маске…")
+        feedback.pushInfo(_tr("Обрезка по маске…"))
     _write(out_path, grid)
     feedback.setProgress(85)
     if want_se:
@@ -828,7 +846,7 @@ def _build_mask(alg, parameters, context, feedback, layer):
         return None
     from qgis import processing
     src = layer if layer is not None else parameters.get(alg.INPUT)
-    feedback.pushInfo("Контур скважин: выпуклая оболочка…")
+    feedback.pushInfo(_tr("Контур скважин: выпуклая оболочка…"))
     # Выпуклая оболочка ВСЕХ точек: сначала dissolve (все объекты -> один
     # мультиточечный объект), затем convexhull (одна оболочка по всем точкам).
     # Раньше использовался native:minimumboundinggeometry, но в QGIS 3.40 этого
@@ -874,7 +892,7 @@ def _add_isoline_params(alg):
         defaultValue=_dv(alg, alg.MIN_LENGTH, 0.0), minValue=0.0))
     alg.addParameter(QgsProcessingParameterEnum(
         alg.DENSIFY, _tr("Бикубическое сглаживание изолиний (сгущение грида)"),
-        options=["выкл.", "×2", "×3", "×4"],
+        options=[_tr("выкл."), "×2", "×3", "×4"],
         defaultValue=_dv(alg, alg.DENSIFY, 0)))
     alg.addParameter(QgsProcessingParameterNumber(
         alg.SMOOTH_LINE_ITER, _tr("Скругление линий (Chaikin), итераций "
@@ -907,7 +925,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     def displayName(self): return self.tr("1. 2D Kriging (точки → растр)")
 
     def helpUrl(self): return _help_url()
-    def group(self): return GROUP
+    def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
 
     def shortHelpString(self):
@@ -919,7 +937,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
             "числовых атрибутов.\n\nРадиус поиска 0 = по всей выборке; "
             "размер ячейки 0 = min(охват)/50; радиус корреляции 0 = "
             "max(охват)/3. Опция обрезки убирает экстраполяцию вне контура "
-            "скважин." + CREDIT))
+            "скважин.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -933,7 +951,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
             defaultValue=_dv(self, self.ZFIELD, None)))
         _add_kriging_params(self)
         self.addParameter(_profile_enum(
-            self.PROFILE, "Загрузить профиль обработки"))
+            self.PROFILE, _tr("Загрузить профиль обработки")))
         self.addParameter(QgsProcessingParameterBoolean(
             self.SMOOTH, self.tr("Сгладить грид (Гаусс)"),
             defaultValue=_dv(self, self.SMOOTH, False)))
@@ -969,11 +987,11 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
                                            source, zfield, out_path, mask,
                                            stderr_path=se_path)
         _set_output_name(context, path,
-                         "Кригинг %s · %s" % (zfield, _short(src)))
+                         _tr("Кригинг %s · %s") % (zfield, _short(src)))
         results = {self.OUTPUT: path}
         if se:
             _set_output_name(context, se,
-                             "Стд. ошибка · %s · %s" % (zfield, _short(src)))
+                             _tr("Стд. ошибка · %s · %s") % (zfield, _short(src)))
             results[self.OUTPUT_STDERR] = se
         feedback.setProgress(100)
         return results
@@ -997,7 +1015,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
     def displayName(self): return self.tr("2. Изолинии из растра")
 
     def helpUrl(self): return _help_url()
-    def group(self): return GROUP
+    def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
 
     def shortHelpString(self):
@@ -1017,7 +1035,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
             "границы СОВПАДАЮТ с изолиниями, покрытие сплошное. Чтобы их не "
             "строить - очистите поле «Контурные полигоны».\n\nПоля: линии - "
             "значение уровня (по умолчанию ELEV) и is_index (1 у главных); "
-            "полигоны - ELEV_MIN/ELEV_MAX (диапазон пояса)." + CREDIT))
+            "полигоны - ELEV_MIN/ELEV_MAX (диапазон пояса).") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -1076,8 +1094,8 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
                 min_len, False, 0.0, densify, sm_line, field_name, True, nodata,
                 out_dest, poly_dest, context, feedback)
             out, poly = res["lines"], res["polygons"]
-            _set_output_name(context, out, "Изолинии · %s" % name)
-            _set_output_name(context, poly, "Полигоны · %s" % name)
+            _set_output_name(context, out, _tr("Изолинии · %s") % name)
+            _set_output_name(context, poly, _tr("Полигоны · %s") % name)
             _order_lines_above(context, out, poly)   # изолинии над полигонами
             results = {self.OUTPUT: out, self.OUTPUT_POLYGONS: poly}
         else:
@@ -1085,7 +1103,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
                 rl.source(), band, interval, base, levels, index_every,
                 min_len, False, 0.0, densify, sm_line, field_name, True, nodata,
                 out_dest, context, feedback)
-            _set_output_name(context, out, "Изолинии · %s" % name)
+            _set_output_name(context, out, _tr("Изолинии · %s") % name)
             results = {self.OUTPUT: out}
 
         feedback.setProgress(100)
@@ -1100,41 +1118,41 @@ def _cv_advice(me, mae, rmse, msdr, r):
     good = True
     if msdr == msdr:
         if msdr > 1.3:
-            tips.append("MSDR заметно больше 1 (%.3g): карта стандартной ошибки "
+            tips.append(_tr("MSDR заметно больше 1 (%.3g): карта стандартной ошибки "
                         "занижена. Умножьте наггет C0 и вклады C на MSDR (радиус "
                         "и модель не трогайте) и пересчитайте - сами оценки не "
-                        "изменятся, поправится только дисперсия кригинга." % msdr)
+                        "изменятся, поправится только дисперсия кригинга.") % msdr)
             good = False
         elif msdr < 0.7:
-            tips.append("MSDR меньше 1 (%.3g): неопределённость завышена. "
+            tips.append(_tr("MSDR меньше 1 (%.3g): неопределённость завышена. "
                         "Разделите наггет C0 и вклады C на MSDR (радиус и модель "
-                        "не трогайте) и пересчитайте - оценки не изменятся." % msdr)
+                        "не трогайте) и пересчитайте - оценки не изменятся.") % msdr)
             good = False
         else:
-            tips.append("MSDR близок к 1: масштаб вариограммы подобран адекватно.")
+            tips.append(_tr("MSDR близок к 1: масштаб вариограммы подобран адекватно."))
     if abs(me) > 0.1 * rr:
-        tips.append("ME заметно отличается от 0 (%+.3g): возможен "
+        tips.append(_tr("ME заметно отличается от 0 (%+.3g): возможен "
                     "систематический сдвиг - проверьте данные и тип кригинга "
-                    "(для простого - заданное среднее)." % me)
+                    "(для простого - заданное среднее).") % me)
         good = False
     else:
-        tips.append("ME близок к 0: систематического смещения нет.")
+        tips.append(_tr("ME близок к 0: систематического смещения нет."))
     if r == r:
         if r < 0.5:
-            tips.append("Низкая корреляция (R=%.2f): модель слабо предсказывает - "
+            tips.append(_tr("Низкая корреляция (R=%.2f): модель слабо предсказывает - "
                         "попробуйте другой радиус, модель или анизотропию; либо "
                         "это предел данных (короткомасштабная изменчивость, "
-                        "зоны замещения)." % r)
+                        "зоны замещения).") % r)
             good = False
         elif r >= 0.8:
-            tips.append("Высокая корреляция (R=%.2f): оценки хорошо согласуются "
-                        "с фактом." % r)
+            tips.append(_tr("Высокая корреляция (R=%.2f): оценки хорошо согласуются "
+                        "с фактом.") % r)
     if good:
-        tips.insert(0, "Итог: параметры можно утверждать - перенесите ту же "
-                       "вариограмму и настройки поиска в «2D Kriging».")
+        tips.insert(0, _tr("Итог: параметры можно утверждать - перенесите ту же "
+                       "вариограмму и настройки поиска в «2D Kriging»."))
     else:
-        tips.insert(0, "Итог: параметры стоит подправить (см. ниже) и повторить "
-                       "кросс-валидацию перед финальным кригингом.")
+        tips.insert(0, _tr("Итог: параметры стоит подправить (см. ниже) и повторить "
+                       "кросс-валидацию перед финальным кригингом."))
     return tips
 
 
@@ -1151,11 +1169,11 @@ def _cv_used_params(alg, parameters, context):
         return None if (v is None or v == "") else pd(name)
     items = []
     if pe(alg.KTYPE) != 0:
-        items.append(("Тип кригинга", "простой (SK)"))
-        items.append(("Среднее (SK)", "%.4g" % pd(alg.SKMEAN)))
+        items.append((_tr("Тип кригинга"), _tr("простой (SK)")))
+        items.append((_tr("Среднее (SK)"), "%.4g" % pd(alg.SKMEAN)))
     nug = pd(alg.NUGGET)
     if nug != 0:
-        items.append(("Наггет C0", "%.4g" % nug))
+        items.append((_tr("Наггет C0"), "%.4g" % nug))
     for i in range(1, NSTRUCT + 1):
         sill = pd(_sk(i, "SILL"))
         defsill = 1.0 if i == 1 else 0.0
@@ -1172,28 +1190,28 @@ def _cv_used_params(alg, parameters, context):
             parts.append("a=%g" % rng)
         az = pd(_sk(i, "AZIMUTH"))
         if az != 0:
-            parts.append("азимут=%g°" % az)
+            parts.append(_tr("азимут=%g°") % az)
         anis = pd(_sk(i, "ANIS"))
         if anis != 1:
-            parts.append("анис=%g" % anis)
+            parts.append(_tr("анис=%g") % anis)
         if parts:
-            items.append(("Структура %d" % i, ", ".join(parts)))
+            items.append((_tr("Структура %d") % i, ", ".join(parts)))
     if pd(alg.RADIUS) != 0:
-        items.append(("Радиус поиска", "%g" % pd(alg.RADIUS)))
+        items.append((_tr("Радиус поиска"), "%g" % pd(alg.RADIUS)))
     if pi(alg.MIN_POINTS) != 1:
-        items.append(("Мин. точек", "%d" % pi(alg.MIN_POINTS)))
+        items.append((_tr("Мин. точек"), "%d" % pi(alg.MIN_POINTS)))
     if pi(alg.MAX_POINTS) != 24:
-        items.append(("Макс. точек", "%d" % pi(alg.MAX_POINTS)))
+        items.append((_tr("Макс. точек"), "%d" % pi(alg.MAX_POINTS)))
     if pd(alg.VAL_PCT) != 0:
-        items.append(("Отсев: перцентиль, %", "%.4g" % pd(alg.VAL_PCT)))
+        items.append((_tr("Отсев: перцентиль, %"), "%.4g" % pd(alg.VAL_PCT)))
     vmin = popt(alg.VAL_MIN)
     if vmin is not None:
-        items.append(("Нижняя граница", "%.4g" % vmin))
+        items.append((_tr("Нижняя граница"), "%.4g" % vmin))
     vmax = popt(alg.VAL_MAX)
     if vmax is not None:
-        items.append(("Верхняя граница", "%.4g" % vmax))
+        items.append((_tr("Верхняя граница"), "%.4g" % vmax))
     if pb(alg.VAL_CAP):
-        items.append(("Срезка (capping)", "да"))
+        items.append((_tr("Срезка (capping)"), _tr("да")))
     return items
 
 
@@ -1209,9 +1227,9 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
     rows = "".join(
         "<tr><td>%s</td><td style='text-align:right'>%s</td>"
         "<td style='color:#777'>%s</td></tr>" % m for m in metrics)
-    table = ("<table style='border-collapse:collapse' cellpadding='6'>"
+    table = (_tr("<table style='border-collapse:collapse' cellpadding='6'>"
              "<tr><th align='left'>Метрика</th><th>Значение</th>"
-             "<th align='left'>Смысл</th></tr>%s</table>" % rows)
+             "<th align='left'>Смысл</th></tr>%s</table>") % rows)
     if used_params:
         prows = "".join(
             "<tr><td style='color:#555'>%s</td>"
@@ -1220,14 +1238,14 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
         params_inner = ("<table style='border-collapse:collapse' "
                         "cellpadding='4'>%s</table>" % prows)
     else:
-        params_inner = ("<span style='color:#777'>все параметры - "
-                        "стандартные</span>")
+        params_inner = (_tr("<span style='color:#777'>все параметры - "
+                        "стандартные</span>"))
     params_box = (
-        "<div style='background:#f5f5f7;border:1px solid #ddd;"
+        _tr("<div style='background:#f5f5f7;border:1px solid #ddd;"
         "padding:8px 14px;border-radius:6px'>"
         "<b>Параметры кригинга</b> "
         "<span style='color:#888;font-size:88%%'>(отличные от стандартных)</span>"
-        "<div style='margin-top:6px'>%s</div></div>" % params_inner)
+        "<div style='margin-top:6px'>%s</div></div>") % params_inner)
     table = ("<div style='display:flex;gap:24px;flex-wrap:wrap;"
              "align-items:flex-start'><div>%s</div><div>%s</div></div>"
              % (table, params_box))
@@ -1235,9 +1253,9 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
     if advice:
         items = "".join("<li>%s</li>" % a for a in advice)
         advice_html = (
-            "<div style='background:#f3f7f4;border:1px solid #cde0d6;"
+            _tr("<div style='background:#f3f7f4;border:1px solid #cde0d6;"
             "padding:8px 14px;border-radius:6px;max-width:900px;margin:12px 0'>"
-            "<b>Рекомендации</b><ul style='margin:6px 0'>%s</ul></div>" % items)
+            "<b>Рекомендации</b><ul style='margin:6px 0'>%s</ul></div>") % items)
     chart = ""
     try:
         import numpy as _np
@@ -1258,7 +1276,7 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
         if n > 30000:
             sel = _np.random.default_rng(0).choice(n, 30000, replace=False)
             sel = _np.unique(_np.concatenate([sel, worst]))
-            note = " (показаны ~30000 точек)"
+            note = _tr(" (показаны ~30000 точек)")
         else:
             sel = _np.arange(n); note = ""
         fx = fact[sel]; ey = est[sel]
@@ -1267,15 +1285,15 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
         fig = make_subplots(
             rows=2, cols=2, row_heights=[0.58, 0.42],
             specs=[[{"colspan": 2}, None], [{}, {}]],
-            subplot_titles=("Оценка vs факт" + note,
-                            "Гистограмма ошибок", "QQ-график остатков"),
+            subplot_titles=(_tr("Оценка vs факт") + note,
+                            _tr("Гистограмма ошибок"), _tr("QQ-график остатков")),
             vertical_spacing=0.12)
         fig.add_trace(go.Scattergl(
             x=fx, y=ey, mode="markers",
             marker=dict(size=4, color="#1f6f54", opacity=0.35),
             customdata=lab_sel,
-            hovertemplate="скв. %{customdata}<br>факт %{x:.3g}"
-                          "<br>оценка %{y:.3g}<extra></extra>"),
+            hovertemplate=_tr("скв. %{customdata}<br>факт %{x:.3g}"
+                          "<br>оценка %{y:.3g}<extra></extra>")),
             row=1, col=1)
         fig.add_trace(go.Scatter(
             x=[lo, hi], y=[lo, hi], mode="lines",
@@ -1289,8 +1307,8 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
                             line=dict(width=1.5)),
                 text=[labels[i] for i in worst], textposition="top center",
                 textfont=dict(size=9, color="#cc3333"),
-                hovertemplate="скв. %{text}<br>факт %{x:.3g}"
-                              "<br>оценка %{y:.3g}<extra>худшие</extra>"),
+                hovertemplate=_tr("скв. %{text}<br>факт %{x:.3g}"
+                              "<br>оценка %{y:.3g}<extra>худшие</extra>")),
                 row=1, col=1)
         fig.add_trace(go.Histogram(x=err, marker_color="#1f6f54"),
                       row=2, col=1)
@@ -1310,28 +1328,28 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
             fig.add_trace(go.Scattergl(
                 x=theo, y=srs, mode="markers",
                 marker=dict(size=4, color="#1f6f54", opacity=0.5),
-                hovertemplate="теор. %{x:.2f}<br>ошибка (z) %{y:.2f}<extra></extra>"),
+                hovertemplate=_tr("теор. %{x:.2f}<br>ошибка (z) %{y:.2f}<extra></extra>")),
                 row=2, col=2)
             fig.add_trace(go.Scatter(
                 x=[ql, qh], y=[ql, qh], mode="lines",
                 line=dict(color="#cc3333", width=2), hoverinfo="skip"),
                 row=2, col=2)
-            fig.update_xaxes(title_text="теор. квантили (норм.)", row=2, col=2)
-            fig.update_yaxes(title_text="ошибка (z-оценка)", row=2, col=2)
+            fig.update_xaxes(title_text=_tr("теор. квантили (норм.)"), row=2, col=2)
+            fig.update_yaxes(title_text=_tr("ошибка (z-оценка)"), row=2, col=2)
         else:
-            fig.add_annotation(text="недостаточно точек для QQ",
+            fig.add_annotation(text=_tr("недостаточно точек для QQ"),
                                showarrow=False, row=2, col=2)
-        fig.update_xaxes(title_text="факт", row=1, col=1)
-        fig.update_yaxes(title_text="оценка (LOO)", row=1, col=1)
-        fig.update_xaxes(title_text="оценка − факт", row=2, col=1)
+        fig.update_xaxes(title_text=_tr("факт"), row=1, col=1)
+        fig.update_yaxes(title_text=_tr("оценка (LOO)"), row=1, col=1)
+        fig.update_xaxes(title_text=_tr("оценка − факт"), row=2, col=1)
         fig.update_layout(showlegend=False, height=720,
                           margin=dict(l=50, r=20, t=50, b=50))
         chart = fig.to_html(full_html=False, include_plotlyjs=True)
     except Exception as e:
         if feedback is not None:
-            feedback.pushInfo("plotly недоступен (%s) - отчёт без графика." % e)
-        chart = "<p><i>Интерактивный график недоступен (нет plotly). "
-        chart += "Диаграмму можно построить по слою остатков.</i></p>"
+            feedback.pushInfo(_tr("plotly недоступен (%s) - отчёт без графика.") % e)
+        chart = _tr("<p><i>Интерактивный график недоступен (нет plotly). ")
+        chart += _tr("Диаграмму можно построить по слою остатков.</i></p>")
     html = (
         "<html><head><meta charset='utf-8'><title>%s</title></head><body>"
         "<h2>%s</h2>%s%s<br>%s%s</body></html>" % (
@@ -1343,7 +1361,7 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
 def _add_cv_params(alg):
     """Параметры для кросс-валидации: вариограмма и поиск, без сетки/растра."""
     alg.addParameter(QgsProcessingParameterEnum(
-        alg.KTYPE, _tr("Тип кригинга"), options=KTYPE_LABELS,
+        alg.KTYPE, _tr("Тип кригинга"), options=[_tr(x) for x in KTYPE_LABELS],
         defaultValue=_dv(alg, alg.KTYPE, 0)))
     alg.addParameter(QgsProcessingParameterNumber(
         alg.RADIUS, _tr("Радиус поиска (0 = вся выборка)"),
@@ -1371,7 +1389,7 @@ def _add_cv_params(alg):
         off = _tr("порог/вклад C") if i == 1 else _tr("порог/вклад C (0 = выкл.)")
         alg.addParameter(_advanced(QgsProcessingParameterEnum(
             _sk(i, "MODEL"), "%s · %s" % (tag, _tr("модель")),
-            options=MODEL_LABELS, defaultValue=_dv(alg, _sk(i, "MODEL"), 0))))
+            options=[_tr(x) for x in MODEL_LABELS], defaultValue=_dv(alg, _sk(i, "MODEL"), 0))))
         alg.addParameter(_advanced(QgsProcessingParameterNumber(
             _sk(i, "SILL"), "%s · %s" % (tag, off),
             QgsProcessingParameterNumber.Double,
@@ -1429,8 +1447,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
     def displayName(self):
         return self.tr("5. Кросс-валидация вариограммы")
 
-    def group(self):
-        return self.tr("Грид и изолинии")
+    def group(self): return self.tr(GROUP)
 
     def groupId(self):
         return "grid_isolines"
@@ -1472,7 +1489,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             parentLayerParameterName=self.INPUT, optional=True))
         _add_cv_params(self)
         self.addParameter(_profile_enum(
-            self.PROFILE, "Загрузить профиль обработки"))
+            self.PROFILE, _tr("Загрузить профиль обработки")))
         self.addParameter(QgsProcessingParameterString(
             self.SAVE_PROFILE,
             self.tr("Сохранить профиль под именем (пусто = не сохранять)"),
@@ -1535,20 +1552,20 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
                 val_max=_opt(self.VAL_MAX), val_cap=cap)
             if _save_profile(pname, prof):
                 feedback.pushInfo(
-                    "Профиль «%s» сохранён: проверенная модель Структуры 1 "
-                    "(с анизотропией, если задана) + отсев." % pname.strip())
+                    _tr("Профиль «%s» сохранён: проверенная модель Структуры 1 "
+                    "(с анизотропией, если задана) + отсев.") % pname.strip())
         nodata = -9999.0
 
         dvar = float(np.var(vrd))
         feedback.pushInfo(
-            "Дисперсия данных: %.4g. Ориентир: суммарный силл (C0 + вклады C) "
+            _tr("Дисперсия данных: %.4g. Ориентир: суммарный силл (C0 + вклады C) "
             "задавайте близким к ней. Наггет и силл - в абсолютных единицах "
-            "дисперсии, не 0-1." % dvar)
-        feedback.pushInfo("Кросс-валидация по %d точкам…" % len(xd))
+            "дисперсии, не 0-1.") % dvar)
+        feedback.pushInfo(_tr("Кросс-валидация по %d точкам…") % len(xd))
 
         def prog(done, total):
             if feedback.isCanceled():
-                raise QgsProcessingException("Прервано пользователем.")
+                raise QgsProcessingException(_tr("Прервано пользователем."))
             feedback.setProgress(int(95.0 * done / total))
         est, var = cross_validate(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                                   rad2, nodata, progress=prog)
@@ -1556,7 +1573,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
         ok = est != nodata
         nvalid = int(ok.sum())
         if nvalid < 2:
-            raise QgsProcessingException("Слишком мало оценённых точек.")
+            raise QgsProcessingException(_tr("Слишком мало оценённых точек."))
         err = est[ok] - vrd[ok]
         me = float(np.mean(err))
         mae = float(np.mean(np.abs(err)))
@@ -1569,13 +1586,13 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
         except Exception:
             r = float("nan")
 
-        feedback.pushInfo("== Кросс-валидация (leave-one-out) ==")
-        feedback.pushInfo("Точек оценено: %d из %d" % (nvalid, len(xd)))
-        feedback.pushInfo("ME (смещение):   %+.4g   (ближе к 0 - лучше)" % me)
+        feedback.pushInfo(_tr("== Кросс-валидация (leave-one-out) =="))
+        feedback.pushInfo(_tr("Точек оценено: %d из %d") % (nvalid, len(xd)))
+        feedback.pushInfo(_tr("ME (смещение):   %+.4g   (ближе к 0 - лучше)") % me)
         feedback.pushInfo("MAE:             %.4g" % mae)
-        feedback.pushInfo("RMSE:            %.4g   (меньше - лучше)" % rmse)
-        feedback.pushInfo("MSDR:            %.3f   (ближе к 1 - лучше)" % msdr)
-        feedback.pushInfo("R (оценка/факт): %.3f" % r)
+        feedback.pushInfo(_tr("RMSE:            %.4g   (меньше - лучше)") % rmse)
+        feedback.pushInfo(_tr("MSDR:            %.3f   (ближе к 1 - лучше)") % msdr)
+        feedback.pushInfo(_tr("R (оценка/факт): %.3f") % r)
         advice = _cv_advice(me, mae, rmse, msdr, r)
         for a in advice:
             feedback.pushInfo("• " + a)
@@ -1590,17 +1607,17 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
         aliases = {}
         if idname:
             fields.append(QgsField(idname, QVariant.String))
-            aliases[idname] = "Номер скважины"
+            aliases[idname] = _tr("Номер скважины")
         fields.append(QgsField(valname, QVariant.Double))
-        aliases[valname] = "Факт (%s)" % zfield
+        aliases[valname] = _tr("Факт (%s)") % zfield
         fields.append(QgsField("z_est", QVariant.Double))
-        aliases["z_est"] = "Оценка кригинга (LOO)"
+        aliases["z_est"] = _tr("Оценка кригинга (LOO)")
         fields.append(QgsField("error", QVariant.Double))
-        aliases["error"] = "Ошибка (оценка − факт)"
+        aliases["error"] = _tr("Ошибка (оценка − факт)")
         fields.append(QgsField("abs_error", QVariant.Double))
-        aliases["abs_error"] = "|Ошибка|"
+        aliases["abs_error"] = _tr("|Ошибка|")
         fields.append(QgsField("std_resid", QVariant.Double))
-        aliases["std_resid"] = "Станд. остаток (со знаком)"
+        aliases["std_resid"] = _tr("Станд. остаток (со знаком)")
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Point, source.sourceCrs())
@@ -1619,7 +1636,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
                 f.setAttributes(attrs)
                 sink.addFeature(f)
         _set_output_name(context, dest,
-                         "Остатки CV %s · %s" % (zfield, _short(src)))
+                         _tr("Остатки CV %s · %s") % (zfield, _short(src)))
         _set_field_aliases(context, dest, aliases)
 
         # HTML-отчёт (интерактивный график + метрики)
@@ -1628,16 +1645,16 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
         results = {self.OUTPUT: dest}
         if html_path:
             metrics = [
-                ("ME (смещение)", "%+.4g" % me, "ближе к 0 - лучше"),
-                ("MAE", "%.4g" % mae, "средняя |ошибка|"),
-                ("RMSE", "%.4g" % rmse, "меньше - лучше"),
-                ("MSDR", "%.3f" % msdr, "ближе к 1 - лучше"),
-                ("R (оценка/факт)", "%.3f" % r, "корреляция"),
-                ("Дисперсия данных", "%.4g" % dvar,
-                 "суммарный силл (C0 + вклады C) ≈ дисперсии данных"),
-                ("Точек оценено", "%d" % nvalid, "из %d" % len(xd)),
+                (_tr("ME (смещение)"), "%+.4g" % me, _tr("ближе к 0 - лучше")),
+                ("MAE", "%.4g" % mae, _tr("средняя |ошибка|")),
+                ("RMSE", "%.4g" % rmse, _tr("меньше - лучше")),
+                ("MSDR", "%.3f" % msdr, _tr("ближе к 1 - лучше")),
+                (_tr("R (оценка/факт)"), "%.3f" % r, _tr("корреляция")),
+                (_tr("Дисперсия данных"), "%.4g" % dvar,
+                 _tr("суммарный силл (C0 + вклады C) ≈ дисперсии данных")),
+                (_tr("Точек оценено"), "%d" % nvalid, _tr("из %d") % len(xd)),
             ]
-            title = "Кросс-валидация %s · %s" % (zfield, _short(src))
+            title = _tr("Кросс-валидация %s · %s") % (zfield, _short(src))
             ok_idx = np.where(ok)[0]
             ids_ok = ([ids[i] for i in ok_idx]
                       if (idfield and ids is not None) else None)
@@ -1648,7 +1665,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
                                  used_params, feedback)
                 results[self.OUTPUT_HTML] = html_path
             except Exception as e:
-                feedback.pushInfo("Не удалось записать HTML-отчёт: %s" % e)
+                feedback.pushInfo(_tr("Не удалось записать HTML-отчёт: %s") % e)
         feedback.setProgress(100)
         return results
 
@@ -1719,8 +1736,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
     def displayName(self):
         return self.tr("6. Создать пример скважин (демо)")
 
-    def group(self):
-        return self.tr("Грид и изолинии")
+    def group(self): return self.tr(GROUP)
 
     def groupId(self):
         return "grid_isolines"
@@ -1763,10 +1779,10 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber.Double, defaultValue=0.15,
             minValue=0.02, maxValue=0.6))
         for key, label, dv in (
-                (self.ROOF_MIN, "Кровля: минимум, м (абс.)", -250.0),
-                (self.ROOF_MAX, "Кровля: максимум, м (абс.)", -50.0),
-                (self.THICK_MIN, "Мощность: минимум, м", 1.0),
-                (self.THICK_MAX, "Мощность: максимум, м", 8.0)):
+                (self.ROOF_MIN, _tr("Кровля: минимум, м (абс.)"), -250.0),
+                (self.ROOF_MAX, _tr("Кровля: максимум, м (абс.)"), -50.0),
+                (self.THICK_MIN, _tr("Мощность: минимум, м"), 1.0),
+                (self.THICK_MAX, _tr("Мощность: максимум, м"), 8.0)):
             p = QgsProcessingParameterNumber(
                 key, self.tr(label), QgsProcessingParameterNumber.Double,
                 defaultValue=dv)
@@ -1789,12 +1805,12 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         crs = self.parameterAsExtentCrs(parameters, self.EXTENT, context)
         rect = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
         if rect.isEmpty() or rect.width() <= 0 or rect.height() <= 0:
-            raise QgsProcessingException("Не задана корректная область (экстент).")
+            raise QgsProcessingException(_tr("Не задана корректная область (экстент)."))
         n = self.parameterAsInt(parameters, self.N_POINTS, context)
         vmin = self.parameterAsDouble(parameters, self.VMIN, context)
         vmax = self.parameterAsDouble(parameters, self.VMAX, context)
         if vmax <= vmin:
-            raise QgsProcessingException("Максимум значения должен быть больше минимума.")
+            raise QgsProcessingException(_tr("Максимум значения должен быть больше минимума."))
         smooth = self.parameterAsDouble(parameters, self.SMOOTH, context)
         nug = self.parameterAsDouble(parameters, self.NUGGET_FRAC, context)
         seed = self.parameterAsInt(parameters, self.SEED, context)
@@ -1841,14 +1857,14 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         rng_m = 2.0 * smooth * max(xmax - xmin, ymax - ymin)
         var = float(np.var(valsX))
         feedback.pushInfo(
-            "Сгенерировано скважин: %d. Поля: кровля (roof), мощность (thick), "
-            "содержание X. Дисперсия X ≈ %.4g." % (n, var))
+            _tr("Сгенерировано скважин: %d. Поля: кровля (roof), мощность (thick), "
+            "содержание X. Дисперсия X ≈ %.4g.") % (n, var))
         feedback.pushInfo(
-            "Стартовая вариограмма для X (кригинг/кросс-валидация): суммарный "
+            _tr("Стартовая вариограмма для X (кригинг/кросс-валидация): суммарный "
             "силл ≈ %.4g, наггет C0 ≈ %.4g, радиус ≈ %.4g (в единицах "
-            "координат). Уточните наггет по кросс-валидации до MSDR ≈ 1." %
+            "координат). Уточните наггет по кросс-валидации до MSDR ≈ 1.") %
             (var, nug * var, rng_m))
-        _set_output_name(context, dest, "Скважины (демо)")
+        _set_output_name(context, dest, _tr("Скважины (демо)"))
         # псевдонимы полей на демо-слое не ставим: этот слой создан, чтобы
         # подавать его в кригинг/кросс-валидацию, а псевдонимы на временном
         # слое вызывают предупреждения «не совместимы с временными слоями»
@@ -1874,7 +1890,7 @@ def _add_model_params(alg):
         off = _tr("порог/вклад C") if i == 1 else _tr("порог/вклад C (0 = выкл.)")
         alg.addParameter(_advanced(QgsProcessingParameterEnum(
             _sk(i, "MODEL"), "%s · %s" % (tag, _tr("модель")),
-            options=MODEL_LABELS, defaultValue=_dv(alg, _sk(i, "MODEL"), 0))))
+            options=[_tr(x) for x in MODEL_LABELS], defaultValue=_dv(alg, _sk(i, "MODEL"), 0))))
         alg.addParameter(_advanced(QgsProcessingParameterNumber(
             _sk(i, "SILL"), "%s · %s" % (tag, off),
             QgsProcessingParameterNumber.Double,
@@ -1902,12 +1918,12 @@ def _fit_advice(fit, data_var, maxlag=None):
     """Короткие рекомендации по подобранной модели."""
     tips = []
     if not fit:
-        return ["Точек экспериментальной вариограммы мало для подбора. "
-                "Увеличьте число лагов или максимальное расстояние."]
+        return [_tr("Точек экспериментальной вариограммы мало для подбора. "
+                "Увеличьте число лагов или максимальное расстояние.")]
     name = MODEL_LABELS[fit["model"]].lower()
     total = fit["nugget"] + fit["sill"]
-    tips.append("Рекомендация: модель %s, наггет C0=%.4g, вклад C=%.4g "
-                "(сумма %.4g), радиус a=%.4g. Качество подгонки R²=%.3f."
+    tips.append(_tr("Рекомендация: модель %s, наггет C0=%.4g, вклад C=%.4g "
+                "(сумма %.4g), радиус a=%.4g. Качество подгонки R²=%.3f.")
                 % (name, fit["nugget"], fit["sill"], total,
                    fit["range"], fit["r2"]))
     # радиус у края окна: модель не вышла на плато, порог экстраполирован
@@ -1915,39 +1931,39 @@ def _fit_advice(fit, data_var, maxlag=None):
     if data_var and data_var > 0:
         rel = total / data_var
         if rel < 0.6:
-            msg = ("Суммарный порог заметно ниже дисперсии данных (%.4g): "
+            msg = (_tr("Суммарный порог заметно ниже дисперсии данных (%.4g): "
                    "вариограмма не вышла на плато - увеличьте максимальное "
-                   "расстояние, возможен тренд или вторая структура." % data_var)
+                   "расстояние, возможен тренд или вторая структура.") % data_var)
             if edge:
-                msg += (" Радиус подбора (%.4g) достигает края окна (%.4g), "
-                        "это подтверждает: кривая ещё растёт."
+                msg += (_tr(" Радиус подбора (%.4g) достигает края окна (%.4g), "
+                        "это подтверждает: кривая ещё растёт.")
                         % (fit["range"], maxlag))
             tips.append(msg)
         elif rel > 1.6:
-            tips.append("Суммарный порог заметно выше дисперсии данных (%.4g) - "
+            tips.append(_tr("Суммарный порог заметно выше дисперсии данных (%.4g) - "
                         "окно, вероятно, перешагивает тренд или безрудную зону. "
                         "Уменьшите максимальное расстояние до локального "
-                        "масштаба и проверьте выбросы." % data_var)
+                        "масштаба и проверьте выбросы.") % data_var)
         else:
-            msg = ("Суммарный порог близок к дисперсии данных (%.4g) - "
-                   "масштаб правдоподобен." % data_var)
+            msg = (_tr("Суммарный порог близок к дисперсии данных (%.4g) - "
+                   "масштаб правдоподобен.") % data_var)
             if edge:
-                msg += (" Радиус подбора (%.4g) у края окна (%.4g) - считайте "
+                msg += (_tr(" Радиус подбора (%.4g) у края окна (%.4g) - считайте "
                         "его нижней оценкой, при сомнении увеличьте окно и "
-                        "проверьте, стабилизируется ли радиус."
+                        "проверьте, стабилизируется ли радиус.")
                         % (fit["range"], maxlag))
             tips.append(msg)
     elif edge:
-        tips.append("Радиус подбора (%.4g) достигает края окна (%.4g) - "
+        tips.append(_tr("Радиус подбора (%.4g) достигает края окна (%.4g) - "
                     "вариограмма не вышла на плато, радиус считайте нижней "
-                    "оценкой." % (fit["range"], maxlag))
+                    "оценкой.") % (fit["range"], maxlag))
     if fit["model"] == MODEL_GAUSSIAN and fit["nugget"] < 0.05 * (total or 1.0):
-        tips.append("Гауссова модель с почти нулевым наггетом численно "
+        tips.append(_tr("Гауссова модель с почти нулевым наггетом численно "
                     "неустойчива (кригинг даёт «бычьи глаза», MSDR "
-                    "разваливается). Задайте небольшой наггет C0.")
-    tips.append("Сохраните модель в профиль (поле «Сохранить профиль под "
+                    "разваливается). Задайте небольшой наггет C0."))
+    tips.append(_tr("Сохраните модель в профиль (поле «Сохранить профиль под "
                 "именем»), проверьте «Кросс-валидацией» и подставьте профиль "
-                "в «2D Kriging».")
+                "в «2D Kriging»."))
     return tips
 
 
@@ -1964,17 +1980,17 @@ def _write_variogram_report(path, title, series, data_var, fit, model_curves,
                 "</table>" % tr)
 
     meta_box = (
-        "<div style='background:#f5f5f7;border:1px solid #ddd;"
+        _tr("<div style='background:#f5f5f7;border:1px solid #ddd;"
         "padding:8px 14px;border-radius:6px;display:inline-block'>"
-        "<b>Сводка</b><div style='margin-top:6px'>%s</div></div>"
+        "<b>Сводка</b><div style='margin-top:6px'>%s</div></div>")
         % _meta_table(meta))
     advice_html = ""
     if advice:
         items = "".join("<li>%s</li>" % a for a in advice)
         advice_html = (
-            "<div style='background:#f3f7f4;border:1px solid #cde0d6;"
+            _tr("<div style='background:#f3f7f4;border:1px solid #cde0d6;"
             "padding:8px 14px;border-radius:6px;max-width:900px;margin:12px 0'>"
-            "<b>Рекомендации</b><ul style='margin:6px 0'>%s</ul></div>" % items)
+            "<b>Рекомендации</b><ul style='margin:6px 0'>%s</ul></div>") % items)
 
     chart = ""
     try:
@@ -1984,7 +2000,7 @@ def _write_variogram_report(path, title, series, data_var, fit, model_curves,
             fig.add_trace(go.Scattergl(
                 x=cloud[0], y=cloud[1], mode="markers",
                 marker=dict(size=3, color="#bbbbbb", opacity=0.25),
-                name="облако пар", hoverinfo="skip"))
+                name=_tr("облако пар"), hoverinfo="skip"))
         for k, s in enumerate(series):
             col = s.get("color") or _VG_COLORS[k % len(_VG_COLORS)]
             npairs = s.get("npairs")
@@ -1999,7 +2015,7 @@ def _write_variogram_report(path, title, series, data_var, fit, model_curves,
                 name=s["label"],
                 customdata=(npairs if npairs is not None else None),
                 hovertemplate=("h %{x:.4g}<br>γ %{y:.4g}" +
-                               ("<br>пар %{customdata}" if npairs is not None
+                               (_tr("<br>пар %{customdata}") if npairs is not None
                                 else "") + "<extra>" + s["label"] + "</extra>")))
         if model_curves:
             for mc in model_curves:
@@ -2011,18 +2027,18 @@ def _write_variogram_report(path, title, series, data_var, fit, model_curves,
         if data_var and data_var > 0:
             fig.add_hline(y=data_var, line=dict(color="#999999", width=1,
                           dash="dash"),
-                          annotation_text="дисперсия данных",
+                          annotation_text=_tr("дисперсия данных"),
                           annotation_position="right")
-        fig.update_xaxes(title_text="расстояние h", rangemode="tozero")
-        fig.update_yaxes(title_text="полудисперсия γ(h)", rangemode="tozero")
+        fig.update_xaxes(title_text=_tr("расстояние h"), rangemode="tozero")
+        fig.update_yaxes(title_text=_tr("полудисперсия γ(h)"), rangemode="tozero")
         fig.update_layout(height=560, legend=dict(orientation="h"),
                           margin=dict(l=60, r=20, t=30, b=50))
         chart = fig.to_html(full_html=False, include_plotlyjs=True)
     except Exception as e:
         if feedback is not None:
-            feedback.pushInfo("plotly недоступен (%s) - отчёт без графика." % e)
-        head = ("<tr><th align='left'>серия</th><th>h</th><th>γ(h)</th>"
-                "<th>пар</th></tr>")
+            feedback.pushInfo(_tr("plotly недоступен (%s) - отчёт без графика.") % e)
+        head = (_tr("<tr><th align='left'>серия</th><th>h</th><th>γ(h)</th>"
+                "<th>пар</th></tr>"))
         body = ""
         for s in series:
             np_ = s.get("npairs")
@@ -2032,10 +2048,10 @@ def _write_variogram_report(path, title, series, data_var, fit, model_curves,
                          "<td style='text-align:right'>%s</td></tr>" % (
                              s["label"], s["lag"][i], s["gamma"][i],
                              (np_[i] if np_ is not None else "")))
-        chart = ("<p><i>Интерактивный график недоступен (нет plotly). "
+        chart = (_tr("<p><i>Интерактивный график недоступен (нет plotly). "
                  "Значения экспериментальной вариограммы:</i></p>"
                  "<table border='1' cellpadding='4' "
-                 "style='border-collapse:collapse'>%s%s</table>" % (head, body))
+                 "style='border-collapse:collapse'>%s%s</table>") % (head, body))
 
     html = (
         "<html><head><meta charset='utf-8'><title>%s</title></head><body>"
@@ -2059,8 +2075,8 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
     OUTPUT, OUTPUT_HTML = "OUTPUT", "OUTPUT_HTML"
     SAVE_PROFILE = "SAVE_PROFILE"
 
-    FIT_LABELS = ["Авто (лучшая по R²)", "Сферическая",
-                  "Экспоненциальная", "Гауссова"]
+    FIT_LABELS = [_tr("Авто (лучшая по R²)"), _tr("Сферическая"),
+                  _tr("Экспоненциальная"), _tr("Гауссова")]
 
     def tr(self, s): return _tr(s)
 
@@ -2128,7 +2144,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
             defaultValue=_dv(self, self.FIT, True)))
         self.addParameter(_advanced(QgsProcessingParameterEnum(
             self.FIT_MODEL, self.tr("Модель для подбора"),
-            options=self.FIT_LABELS, defaultValue=_dv(self, self.FIT_MODEL, 0))))
+            options=[_tr(x) for x in self.FIT_LABELS], defaultValue=_dv(self, self.FIT_MODEL, 0))))
         self.addParameter(_advanced(QgsProcessingParameterBoolean(
             self.ROBUST, self.tr("Устойчивая оценка (Кресси-Хокинса)"),
             defaultValue=_dv(self, self.ROBUST, False))))
@@ -2195,8 +2211,8 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
         xs, ys, vs = _read_points(source, zfield, feedback,
                                   vmin=vmin, vmax=vmax, pct=pct, cap=cap)
         data_var = float(np.var(vs))
-        feedback.pushInfo("Точек: %d. Дисперсия данных: %.4g (ориентир для "
-                          "суммарного порога)." % (len(xs), data_var))
+        feedback.pushInfo(_tr("Точек: %d. Дисперсия данных: %.4g (ориентир для "
+                          "суммарного порога).") % (len(xs), data_var))
         # порог размера группы: % от выборки, но не меньше 30 точек
         group_min = max(int(round(min_group_pct / 100.0 * len(xs))), 30)
 
@@ -2204,17 +2220,17 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
                                      robust=robust,
                                      cloud_max=(20000 if show_cloud else 0))
         if ev["subsampled"]:
-            feedback.pushInfo("Точек много - для расчёта пар использована "
-                              "случайная подвыборка %d точек." % ev["n_used"])
+            feedback.pushInfo(_tr("Точек много - для расчёта пар использована "
+                              "случайная подвыборка %d точек.") % ev["n_used"])
         if maxlag and maxlag > 0:
             W = float(xs.max() - xs.min()); H = float(ys.max() - ys.min())
             spacing = (W * H / max(len(xs), 1)) ** 0.5 if W > 0 and H > 0 else 0.0
             if spacing > 0 and maxlag < spacing:
                 feedback.pushWarning(
-                    "Максимальное расстояние (%.4g) меньше типичного шага между "
+                    _tr("Максимальное расстояние (%.4g) меньше типичного шага между "
                     "точками (~%.4g) - пар почти нет. Значение задаётся в "
-                    "единицах слоя (обычно метры)." % (maxlag, spacing))
-        series = [{"label": "все точки", "lag": ev["lag"], "gamma": ev["gamma"],
+                    "единицах слоя (обычно метры).") % (maxlag, spacing))
+        series = [{"label": _tr("все точки"), "lag": ev["lag"], "gamma": ev["gamma"],
                    "npairs": ev["npairs"], "color": _VG_COLORS[0]}]
 
         # группировка: отдельная кривая на каждое значение поля
@@ -2233,10 +2249,10 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
                     if len(seen) > 12:
                         break
             except Exception as e:
-                feedback.pushInfo("Не удалось перечислить группы: %s" % e)
+                feedback.pushInfo(_tr("Не удалось перечислить группы: %s") % e)
                 vals = []
             if len(vals) > 12:
-                feedback.pushWarning("Групп больше 12 - группировка пропущена.")
+                feedback.pushWarning(_tr("Групп больше 12 - группировка пропущена."))
             elif len(vals) >= 2:
                 gname = QgsExpression.quotedColumnRef(gfield)
                 skipped = []
@@ -2264,11 +2280,11 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
                 if skipped:
                     txt = ", ".join("%s (%d)" % (("—" if g is None else g), n)
                                     for g, n in skipped)
-                    feedback.pushInfo("Группы меньше %d точек пропущены: %s."
+                    feedback.pushInfo(_tr("Группы меньше %d точек пропущены: %s.")
                                       % (group_min, txt))
             else:
-                feedback.pushInfo("В поле группировки меньше 2 значений - "
-                                  "строю только общую кривую.")
+                feedback.pushInfo(_tr("В поле группировки меньше 2 значений - "
+                                  "строю только общую кривую."))
 
         # подбор модели по общей кривой (рекомендация)
         fit = None
@@ -2278,7 +2294,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
                                 model=model_arg)
             if fit:
                 feedback.pushInfo(
-                    "Подбор: модель %s, C0=%.4g, C=%.4g, a=%.4g, R²=%.3f" % (
+                    _tr("Подбор: модель %s, C0=%.4g, C=%.4g, a=%.4g, R²=%.3f") % (
                         MODEL_LABELS[fit["model"]], fit["nugget"], fit["sill"],
                         fit["range"], fit["r2"]))
                 pname = self.parameterAsString(
@@ -2295,10 +2311,10 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
                             parameters, self.VAL_CAP, context))
                     if _save_profile(pname, prof):
                         feedback.pushInfo(
-                            "Профиль «%s» сохранён: изотропная модель из "
+                            _tr("Профиль «%s» сохранён: изотропная модель из "
                             "автоподбора + текущий отсев. Анизотропию можно "
                             "задать в кросс-валидации или инструменте "
-                            "«Профили»." % pname.strip())
+                            "«Профили».") % pname.strip())
 
         # наложение заданной модели
         model_curves = None
@@ -2309,10 +2325,10 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
             vg = _build_variogram(self, parameters, context, nugget, auto_range,
                                   feedback)
             mc = model_curve(vg, ev["maxlag"])
-            model_curves = [{"label": "заданная модель", "h": mc[0],
+            model_curves = [{"label": _tr("заданная модель"), "h": mc[0],
                              "gamma": mc[1], "color": "#cc3333"}]
             if len(mc) == 3:
-                model_curves.append({"label": "модель (малая ось)", "h": mc[0],
+                model_curves.append({"label": _tr("модель (малая ось)"), "h": mc[0],
                                      "gamma": mc[2], "color": "#cc3333",
                                      "dash": "dot"})
         # кривая подобранной модели
@@ -2321,7 +2337,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
                 "it": fit["model"] + 1, "cc": fit["sill"], "aa": fit["range"],
                 "ang": 0.0, "anis": 1.0}])
             hf, gf = model_curve(vgf, ev["maxlag"])
-            mc = {"label": "подобранная модель", "h": hf, "gamma": gf,
+            mc = {"label": _tr("подобранная модель"), "h": hf, "gamma": gf,
                   "color": "#1f6f54", "dash": "solid"}
             model_curves = (model_curves or []) + [mc]
 
@@ -2343,25 +2359,25 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
                     f.setAttributes([label, float(lag[i]), float(gamma[i]),
                                      int(npairs[i])])
                     sink.addFeature(f)
-            _emit("все точки", ev["lag"], ev["gamma"], ev["npairs"])
+            _emit(_tr("все точки"), ev["lag"], ev["gamma"], ev["npairs"])
             for s in series[1:]:
                 _emit(s["label"], s["lag"], s["gamma"], s["npairs"])
             _set_output_name(context, dest,
-                             "Вариограмма %s · %s" % (zfield, _short(src)))
+                             _tr("Вариограмма %s · %s") % (zfield, _short(src)))
             results[self.OUTPUT] = dest
 
         # HTML-отчёт
         html_path = self.parameterAsFileOutput(parameters, self.OUTPUT_HTML,
                                                context)
         if html_path:
-            meta = [("Поле Z", zfield), ("Точек", "%d" % len(xs)),
-                    ("Дисперсия данных", "%.4g" % data_var),
-                    ("Число лагов", "%d" % n_lags),
-                    ("Максимальное расстояние", "%.4g" % ev["maxlag"]),
-                    ("Оценка", "Кресси-Хокинса" if robust else "Матерона")]
+            meta = [(_tr("Поле Z"), zfield), (_tr("Точек"), "%d" % len(xs)),
+                    (_tr("Дисперсия данных"), "%.4g" % data_var),
+                    (_tr("Число лагов"), "%d" % n_lags),
+                    (_tr("Максимальное расстояние"), "%.4g" % ev["maxlag"]),
+                    (_tr("Оценка"), _tr("Кресси-Хокинса") if robust else _tr("Матерона"))]
             if ev["subsampled"]:
-                meta.append(("Подвыборка точек", "%d" % ev["n_used"]))
-            title = "Вариограмма %s · %s" % (zfield, _short(src))
+                meta.append((_tr("Подвыборка точек"), "%d" % ev["n_used"]))
+            title = _tr("Вариограмма %s · %s") % (zfield, _short(src))
             cloud = ((ev["cloud_h"], ev["cloud_g"]) if show_cloud and
                      ev["cloud_h"].size else None)
             try:
@@ -2369,7 +2385,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
                                         model_curves, advice, meta, cloud, feedback)
                 results[self.OUTPUT_HTML] = html_path
             except Exception as e:
-                feedback.pushInfo("Не удалось записать HTML-отчёт: %s" % e)
+                feedback.pushInfo(_tr("Не удалось записать HTML-отчёт: %s") % e)
 
         _save_values(self, parameters)
         feedback.setProgress(100)
@@ -2392,8 +2408,8 @@ class ProfilesAlgorithm(QgsProcessingAlgorithm):
     AZIMUTH = "AZIMUTH"
     ANIS = "ANIS"
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
-    ACTION_LABELS = ["Показать список", "Сохранить вручную (по полям ниже)",
-                     "Удалить выбранный", "Очистить все"]
+    ACTION_LABELS = [_tr("Показать список"), _tr("Сохранить вручную (по полям ниже)"),
+                     _tr("Удалить выбранный"), _tr("Очистить все")]
 
     def tr(self, s): return _tr(s)
 
@@ -2405,7 +2421,7 @@ class ProfilesAlgorithm(QgsProcessingAlgorithm):
 
     def displayName(self): return self.tr("7. Профили обработки")
 
-    def group(self): return GROUP
+    def group(self): return self.tr(GROUP)
 
     def groupId(self): return GROUP_ID
 
@@ -2423,9 +2439,9 @@ class ProfilesAlgorithm(QgsProcessingAlgorithm):
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterEnum(
             self.ACTION, self.tr("Действие"),
-            options=self.ACTION_LABELS, defaultValue=0))
+            options=[_tr(x) for x in self.ACTION_LABELS], defaultValue=0))
         self.addParameter(_profile_enum(
-            self.PROFILE, "Профиль (для удаления / просмотра)", pick=True))
+            self.PROFILE, _tr("Профиль (для удаления / просмотра)"), pick=True))
         self.addParameter(QgsProcessingParameterString(
             self.NAME, self.tr("Имя профиля (для «Сохранить вручную»)"),
             optional=True))
@@ -2434,7 +2450,7 @@ class ProfilesAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber.Double, defaultValue=0.0, minValue=0.0)))
         self.addParameter(_advanced(QgsProcessingParameterEnum(
             self.MODEL, self.tr("Модель: тип"),
-            options=MODEL_LABELS, defaultValue=0)))
+            options=[_tr(x) for x in MODEL_LABELS], defaultValue=0)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.SILL, self.tr("Модель: порог/вклад C"),
             QgsProcessingParameterNumber.Double, defaultValue=1.0, minValue=0.0)))
@@ -2473,16 +2489,16 @@ class ProfilesAlgorithm(QgsProcessingAlgorithm):
         if action == 0:
             profs = _load_profiles()
             if not profs:
-                feedback.pushInfo("Сохранённых профилей нет.")
+                feedback.pushInfo(_tr("Сохранённых профилей нет."))
             else:
-                feedback.pushInfo("Сохранённые профили (%d):" % len(profs))
+                feedback.pushInfo(_tr("Сохранённые профили (%d):") % len(profs))
                 for nm in sorted(profs):
                     feedback.pushInfo("  - %s: %s" % (nm, _profile_summary(profs[nm])))
         elif action == 1:
             nm = (self.parameterAsString(parameters, self.NAME, context) or "").strip()
             if not nm:
                 raise QgsProcessingException(
-                    "Для сохранения укажите «Имя профиля».")
+                    _tr("Для сохранения укажите «Имя профиля»."))
             anis = self.parameterAsDouble(parameters, self.ANIS, context)
             prof = _make_profile(
                 self.parameterAsDouble(parameters, self.NUGGET, context),
@@ -2496,23 +2512,23 @@ class ProfilesAlgorithm(QgsProcessingAlgorithm):
                 val_max=self._opt(parameters, self.VAL_MAX, context),
                 val_cap=self.parameterAsBool(parameters, self.VAL_CAP, context))
             _save_profile(nm, prof)
-            feedback.pushInfo("Профиль «%s» сохранён: %s" % (nm, _profile_summary(prof)))
+            feedback.pushInfo(_tr("Профиль «%s» сохранён: %s") % (nm, _profile_summary(prof)))
         elif action == 2:
             idx = self.parameterAsEnum(parameters, self.PROFILE, context)
             opts = [PROFILE_NONE] + _profile_names()
             if idx <= 0 or idx >= len(opts):
                 raise QgsProcessingException(
-                    "Выберите профиль для удаления в поле «Профиль».")
+                    _tr("Выберите профиль для удаления в поле «Профиль»."))
             nm = opts[idx]
             _delete_profile(nm)
-            feedback.pushInfo("Профиль «%s» удалён." % nm)
+            feedback.pushInfo(_tr("Профиль «%s» удалён.") % nm)
             rest = _profile_names()
-            feedback.pushInfo("Осталось профилей: %d%s" % (
+            feedback.pushInfo(_tr("Осталось профилей: %d%s") % (
                 len(rest), (" - " + ", ".join(rest)) if rest else ""))
         elif action == 3:
             n = len(_load_profiles())
             _clear_profiles()
-            feedback.pushInfo("Удалены все профили (%d)." % n)
+            feedback.pushInfo(_tr("Удалены все профили (%d).") % n)
         return {}
 
 
@@ -2524,17 +2540,17 @@ def _write_varmap_report(path, title, m, meta, advice, feedback=None):
         "<tr><td style='color:#555'>%s</td>"
         "<td style='text-align:right'><b>%s</b></td></tr>" % kv for kv in meta)
     meta_box = (
-        "<div style='background:#f5f5f7;border:1px solid #ddd;padding:8px 14px;"
+        _tr("<div style='background:#f5f5f7;border:1px solid #ddd;padding:8px 14px;"
         "border-radius:6px;display:inline-block'><b>Сводка</b>"
         "<div style='margin-top:6px'><table cellpadding='4'>%s</table></div>"
-        "</div>" % meta_rows)
+        "</div>") % meta_rows)
     advice_html = ""
     if advice:
         items = "".join("<li>%s</li>" % a for a in advice)
         advice_html = (
-            "<div style='background:#f3f7f4;border:1px solid #cde0d6;"
+            _tr("<div style='background:#f3f7f4;border:1px solid #cde0d6;"
             "padding:8px 14px;border-radius:6px;max-width:900px;margin:12px 0'>"
-            "<b>Что дальше</b><ul style='margin:6px 0'>%s</ul></div>" % items)
+            "<b>Что дальше</b><ul style='margin:6px 0'>%s</ul></div>") % items)
 
     grid = m["grid"]
     cell = m["cell"]
@@ -2563,22 +2579,22 @@ def _write_varmap_report(path, title, m, meta, advice, feedback=None):
                 ey.append(rmaj * _m.cos(t) * dy + rmin * _m.sin(t) * my)
             fig.add_trace(go.Scatter(
                 x=ex, y=ey, mode="lines",
-                line=dict(color="#ffffff", width=2), name="эллипс анизотропии"))
+                line=dict(color="#ffffff", width=2), name=_tr("эллипс анизотропии")))
             fig.add_trace(go.Scatter(
                 x=[-rmaj * dx, rmaj * dx], y=[-rmaj * dy, rmaj * dy],
                 mode="lines", line=dict(color="#ff5555", width=2, dash="dash"),
-                name="главная ось"))
-        fig.update_xaxes(title_text="лаг по востоку h_x", zeroline=True)
-        fig.update_yaxes(title_text="лаг по северу h_y", zeroline=True,
+                name=_tr("главная ось")))
+        fig.update_xaxes(title_text=_tr("лаг по востоку h_x"), zeroline=True)
+        fig.update_yaxes(title_text=_tr("лаг по северу h_y"), zeroline=True,
                          scaleanchor="x", scaleratio=1)
         fig.update_layout(height=640, legend=dict(orientation="h"),
                           margin=dict(l=60, r=20, t=30, b=50))
         chart = fig.to_html(full_html=False, include_plotlyjs=True)
     except Exception as e:
         if feedback is not None:
-            feedback.pushInfo("plotly недоступен (%s) - отчёт без графика." % e)
-        chart = ("<p><i>Интерактивный график недоступен (нет plotly). "
-                 "Числовые оценки - в сводке выше.</i></p>")
+            feedback.pushInfo(_tr("plotly недоступен (%s) - отчёт без графика.") % e)
+        chart = (_tr("<p><i>Интерактивный график недоступен (нет plotly). "
+                 "Числовые оценки - в сводке выше.</i></p>"))
 
     html = ("<html><head><meta charset='utf-8'><title>%s</title></head><body>"
             "<h2>%s</h2>%s%s<br>%s%s</body></html>" % (
@@ -2615,7 +2631,7 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
             "Если структура близка к изотропной или радиус меньше ячейки - "
             "анизотропия не оценивается (помечается «не выражена»).\n\n"
             "Опц. растр поверхности (в координатах лага, начало в 0,0) - для "
-            "тех, кто хочет видеть карту на холсте." + CREDIT))
+            "тех, кто хочет видеть карту на холсте.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -2658,92 +2674,92 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
         min_pairs = self.parameterAsInt(parameters, self.MIN_PAIRS, context)
 
         xs, ys, vs = _read_points(src, zfield, feedback)
-        feedback.pushInfo("Вариограммная карта: %d точек…" % len(xs))
+        feedback.pushInfo(_tr("Вариограммная карта: %d точек…") % len(xs))
         m = variogram_map(xs, ys, vs, n_bins=n_bins,
                           maxlag=(maxlag if maxlag > 0 else None),
                           min_pairs=min_pairs)
 
         if m["subsampled"]:
-            feedback.pushInfo("Точки прорежены до %d (для скорости)." % m["n_used"])
+            feedback.pushInfo(_tr("Точки прорежены до %d (для скорости).") % m["n_used"])
         if m["resolved"]:
             feedback.pushInfo(
-                "Анизотропия: азимут главной оси %.0f° (геогр.), "
-                "коэффициент %.2f (малая/главная), радиус главной оси %.4g."
+                _tr("Анизотропия: азимут главной оси %.0f° (геогр.), "
+                "коэффициент %.2f (малая/главная), радиус главной оси %.4g.")
                 % (m["azimuth"], m["anis"], m["range_major"]))
             if m["range_capped"]:
                 feedback.pushWarning(
-                    "Радиус главной оси упёрся в макс. лаг (%.4g): вдоль "
+                    _tr("Радиус главной оси упёрся в макс. лаг (%.4g): вдоль "
                     "простирания вариограмма на полку не вышла. Радиус - нижняя "
                     "оценка, анизотропия (%.2f) занижена по выраженности. "
                     "Увеличьте «Макс. лаг», либо это признак тренда / очень "
-                    "сильной непрерывности." % (m["maxlag"], m["anis"]))
+                    "сильной непрерывности.") % (m["maxlag"], m["anis"]))
                 feedback.pushInfo(
-                    "В «2D Kriging» подставьте азимут=%.0f и анизотропию≈%.2f "
+                    _tr("В «2D Kriging» подставьте азимут=%.0f и анизотропию≈%.2f "
                     "(как ориентир); радиус a задайте больше %.4g по смыслу "
-                    "данных." % (m["azimuth"], m["anis"], m["maxlag"]))
+                    "данных.") % (m["azimuth"], m["anis"], m["maxlag"]))
             else:
                 feedback.pushInfo(
-                    "Подставьте в структуру вариограммы «2D Kriging»: азимут=%.0f, "
-                    "анизотропия=%.2f, радиус a=%.4g." % (
+                    _tr("Подставьте в структуру вариограммы «2D Kriging»: азимут=%.0f, "
+                    "анизотропия=%.2f, радиус a=%.4g.") % (
                         m["azimuth"], m["anis"], m["range_major"]))
         else:
             feedback.pushInfo(
-                "Анизотропия не выражена (структура близка к изотропной или "
+                _tr("Анизотропия не выражена (структура близка к изотропной или "
                 "радиус меньше ячейки). Можно уменьшить макс. лаг или увеличить "
-                "число бинов.")
+                "число бинов."))
 
         results = {}
         src_name = _short(src.sourceName()) if hasattr(src, "sourceName") else zfield
         html_path = self.parameterAsFileOutput(parameters, self.OUTPUT_HTML,
                                                context)
         if html_path:
-            meta = [("Поле Z", zfield), ("Точек", "%d" % m["n_used"]),
-                    ("Дисперсия (силл)", "%.4g" % m["sill"]),
-                    ("Макс. лаг", "%.4g" % m["maxlag"]),
-                    ("Ячейка лага", "%.4g" % m["cell"]),
-                    ("Бинов на полуось", "%d" % m["n_bins"])]
+            meta = [(_tr("Поле Z"), zfield), (_tr("Точек"), "%d" % m["n_used"]),
+                    (_tr("Дисперсия (силл)"), "%.4g" % m["sill"]),
+                    (_tr("Макс. лаг"), "%.4g" % m["maxlag"]),
+                    (_tr("Ячейка лага"), "%.4g" % m["cell"]),
+                    (_tr("Бинов на полуось"), "%d" % m["n_bins"])]
             if m["resolved"]:
-                rad_str = ("≥ %.4g (упёрся в макс. лаг)" % m["range_major"]
+                rad_str = (_tr("≥ %.4g (упёрся в макс. лаг)") % m["range_major"]
                            if m["range_capped"] else "%.4g" % m["range_major"])
-                meta += [("Азимут главной оси", "%.0f°" % m["azimuth"]),
-                         ("Анизотропия (малая/главная)", "%.2f" % m["anis"]),
-                         ("Радиус главной оси", rad_str)]
+                meta += [(_tr("Азимут главной оси"), "%.0f°" % m["azimuth"]),
+                         (_tr("Анизотропия (малая/главная)"), "%.2f" % m["anis"]),
+                         (_tr("Радиус главной оси"), rad_str)]
             else:
-                meta.append(("Анизотропия", "не выражена"))
+                meta.append((_tr("Анизотропия"), _tr("не выражена")))
             if m["resolved"] and not m["range_capped"]:
                 advice = [
-                    "Главная ось непрерывности ~%.0f° (геогр.). Для складчатости "
-                    "это направление простирания." % m["azimuth"],
-                    "В «2D Kriging» задайте: азимут=%.0f, анизотропия=%.2f, "
-                    "радиус a=%.4g." % (m["azimuth"], m["anis"], m["range_major"]),
-                    "Оценка индикативная - сверьте с формой хитмапа (эллипса)."]
+                    _tr("Главная ось непрерывности ~%.0f° (геогр.). Для складчатости "
+                    "это направление простирания.") % m["azimuth"],
+                    _tr("В «2D Kriging» задайте: азимут=%.0f, анизотропия=%.2f, "
+                    "радиус a=%.4g.") % (m["azimuth"], m["anis"], m["range_major"]),
+                    _tr("Оценка индикативная - сверьте с формой хитмапа (эллипса).")]
             elif m["resolved"] and m["range_capped"]:
                 advice = [
-                    "Главная ось непрерывности ~%.0f° (геогр.). Для складчатости "
-                    "это направление простирания." % m["azimuth"],
-                    "Радиус главной оси упёрся в макс. лаг (%.4g): вдоль "
+                    _tr("Главная ось непрерывности ~%.0f° (геогр.). Для складчатости "
+                    "это направление простирания.") % m["azimuth"],
+                    _tr("Радиус главной оси упёрся в макс. лаг (%.4g): вдоль "
                     "простирания вариограмма на полку не вышла - радиус считайте "
                     "нижней оценкой, а анизотропию (%.2f) - заниженной по "
-                    "выраженности." % (m["maxlag"], m["anis"]),
-                    "В «2D Kriging» задайте азимут=%.0f и анизотропию≈%.2f как "
+                    "выраженности.") % (m["maxlag"], m["anis"]),
+                    _tr("В «2D Kriging» задайте азимут=%.0f и анизотропию≈%.2f как "
                     "ориентир, радиус a возьмите больше %.4g по смыслу данных. "
-                    "Чтобы измерить радиус - увеличьте «Макс. лаг»." % (
+                    "Чтобы измерить радиус - увеличьте «Макс. лаг».") % (
                         m["azimuth"], m["anis"], m["maxlag"]),
-                    "Если γ не выходит на полку даже при широком окне - в данных "
+                    _tr("Если γ не выходит на полку даже при широком окне - в данных "
                     "тренд: его убирают до интерполяции либо учитывают видом "
-                    "кригинга."]
+                    "кригинга.")]
             else:
                 advice = [
-                    "Анизотропия не разрешается на этой сетке: структура близка к "
-                    "изотропной либо радиус меньше ячейки.",
-                    "Попробуйте уменьшить «Макс. лаг» или увеличить «Бинов на "
-                    "полуось», чтобы разрешить ближнюю структуру."]
-            title = "Вариограммная карта %s · %s" % (zfield, src_name)
+                    _tr("Анизотропия не разрешается на этой сетке: структура близка к "
+                    "изотропной либо радиус меньше ячейки."),
+                    _tr("Попробуйте уменьшить «Макс. лаг» или увеличить «Бинов на "
+                    "полуось», чтобы разрешить ближнюю структуру.")]
+            title = _tr("Вариограммная карта %s · %s") % (zfield, src_name)
             try:
                 _write_varmap_report(html_path, title, m, meta, advice, feedback)
                 results[self.OUTPUT_HTML] = html_path
             except Exception as e:
-                feedback.pushInfo("Не удалось записать HTML-отчёт: %s" % e)
+                feedback.pushInfo(_tr("Не удалось записать HTML-отчёт: %s") % e)
 
         rast_path = self.parameterAsOutputLayer(parameters, self.OUTPUT_RASTER,
                                                 context)
@@ -2752,9 +2768,9 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
                 self._write_surface_raster(rast_path, m, src, context, feedback)
                 results[self.OUTPUT_RASTER] = rast_path
                 _set_output_name(context, rast_path,
-                                 "Вариокарта · %s" % zfield)
+                                 _tr("Вариокарта · %s") % zfield)
             except Exception as e:
-                feedback.pushInfo("Не удалось записать растр поверхности: %s" % e)
+                feedback.pushInfo(_tr("Не удалось записать растр поверхности: %s") % e)
 
         _save_values(self, parameters)
         feedback.setProgress(100)
