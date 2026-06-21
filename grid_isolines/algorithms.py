@@ -282,6 +282,53 @@ def _dv(alg, key, fallback):
     return getattr(alg, "_defaults", {}).get(key, fallback)
 
 
+def _last_profile_key(alg):
+    return "isoliner/last_profile/" + alg.name()
+
+
+def _remember_profile(alg, name):
+    """Запомнить последний применённый профиль по имени (между сессиями)."""
+    try:
+        QgsSettings().setValue(_last_profile_key(alg), name or "")
+    except Exception:
+        pass
+
+
+def _recalled_profile_index(alg):
+    """Индекс последнего применённого профиля в списке [нет] + имена. По имени,
+    а не по сохранённому индексу: добавление или удаление профиля не должно
+    сдвигать выбор на чужой."""
+    if alg is None:
+        return 0
+    try:
+        name = QgsSettings().value(_last_profile_key(alg), "")
+    except Exception:
+        name = ""
+    names = _profile_names()
+    return (names.index(name) + 1) if name and name in names else 0
+
+
+# Коды кондиционности из kb2d.data_warnings в текст для Журнала.
+def _warn_data(feedback, xs, ys, vs):
+    """Тихие предупреждения о плохой кондиционности входных точек. Не
+    останавливают расчёт, только подсказывают в Журнал."""
+    from .kb2d import data_warnings
+    for code, val in data_warnings(xs, ys, vs):
+        if code == "few_points":
+            feedback.pushWarning(_tr(
+                "Мало точек (%d): оценка кригинга и вариограммы неустойчива.")
+                % val)
+        elif code == "duplicates":
+            feedback.pushWarning(_tr(
+                "Точек с совпадающими координатами: %d. Частая причина "
+                "вырожденной матрицы и артефактов. Уберите дубли или усредните "
+                "пробы в одной точке.") % val)
+        elif code == "constant":
+            feedback.pushWarning(_tr(
+                "Все значения одинаковы: кригинг вырождается, вариограмма "
+                "нулевая. Проверьте выбранное поле."))
+
+
 # Профили обработки: именованные наборы «вариограмма (Структура 1) + наггет +
 # отсев ураганных проб». Хранятся глобально в QgsSettings (кросс-проектно),
 # отдельно от per-algorithm настроек. «Вариограмма» и «Кросс-валидация» их
@@ -468,15 +515,19 @@ def _apply_profile(alg, parameters, context, feedback):
         parameters[_sk(i, "SILL")] = 0.0
     feedback.pushInfo(
         _tr("Подставлен профиль «%s»: %s.") % (name, _profile_summary(prof)))
+    _remember_profile(alg, name)
     return parameters
 
 
-def _profile_enum(key, label, pick=False):
+def _profile_enum(key, label, pick=False, alg=None):
     """Выпадающий список профилей с подписью-обёрткой (значения профиля
-    строкой ниже). На QGIS без старого API виджетов - обычный список."""
+    строкой ниже). На QGIS без старого API виджетов - обычный список. Если
+    передан alg и это не pick-список, по умолчанию подставляется последний
+    применённый профиль (запоминается между сессиями)."""
+    default = _recalled_profile_index(alg) if (alg is not None and not pick) else 0
     p = QgsProcessingParameterEnum(
         key, _tr(label), options=[_tr(PROFILE_NONE)] + _profile_names(),
-        defaultValue=0)
+        defaultValue=default)
     try:
         from .widgets import (ProfileWrapper, ProfilePickWrapper,
                               WRAPPER_AVAILABLE)
@@ -763,6 +814,7 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
 
     xd, yd, vrd = _read_points(source, zfield, feedback,
                                vmin=vmin, vmax=vmax, pct=pct, cap=cap)
+    _warn_data(feedback, xd, yd, vrd)
 
     # --- регрессия-кригинг: снятие полиномиального тренда -------------------
     # Тренд снимается МНК, дальше кригуются остатки, а после построения грида
@@ -1021,7 +1073,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
             "в тренд - следите за вариограммой остатков."))
         self.addParameter(deg)
         self.addParameter(_profile_enum(
-            self.PROFILE, _tr("Загрузить профиль обработки")))
+            self.PROFILE, _tr("Загрузить профиль обработки"), alg=self))
         self.addParameter(QgsProcessingParameterBoolean(
             self.SMOOTH, self.tr("Сгладить грид (Гаусс)"),
             defaultValue=_dv(self, self.SMOOTH, False)))
@@ -1043,7 +1095,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
 
     def processAlgorithm(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
-        _save_values(self, parameters)
+        _saved = dict(parameters)
         parameters = _apply_profile(self, parameters, context, feedback)
         source = self.parameterAsSource(parameters, self.INPUT, context)
         zfield = self.parameterAsString(parameters, self.ZFIELD, context)
@@ -1063,6 +1115,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
             _set_output_name(context, se,
                              _tr("Стд. ошибка · %s · %s") % (zfield, _short(src)))
             results[self.OUTPUT_STDERR] = se
+        _save_values(self, _saved)
         feedback.setProgress(100)
         return results
 
@@ -1125,7 +1178,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
 
     def processAlgorithm(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
-        _save_values(self, parameters)
+        _saved = dict(parameters)
         rl = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         if rl is None:
             raise QgsProcessingException(self.tr("Не задан растр."))
@@ -1176,6 +1229,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
             _set_output_name(context, out, _tr("Изолинии · %s") % name)
             results = {self.OUTPUT: out}
 
+        _save_values(self, _saved)
         feedback.setProgress(100)
         return results
 
@@ -1574,7 +1628,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             "в тренд - следите за вариограммой остатков."))
         self.addParameter(deg)
         self.addParameter(_profile_enum(
-            self.PROFILE, _tr("Загрузить профиль обработки")))
+            self.PROFILE, _tr("Загрузить профиль обработки"), alg=self))
         self.addParameter(QgsProcessingParameterString(
             self.SAVE_PROFILE,
             self.tr("Сохранить профиль под именем (пусто = не сохранять)"),
@@ -1606,6 +1660,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             source, zfield, feedback,
             vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
             pct=pct, cap=cap, id_field=idfield, return_ids=True)
+        _warn_data(feedback, xd, yd, vrd)
 
         ktype = 1 if self.parameterAsEnum(parameters, self.KTYPE, context) == 0 else 0
         skmean = self.parameterAsDouble(parameters, self.SKMEAN, context)
@@ -2319,6 +2374,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
         # читаем все точки (для общей кривой, дисперсии и облака)
         xs, ys, vs = _read_points(source, zfield, feedback,
                                   vmin=vmin, vmax=vmax, pct=pct, cap=cap)
+        _warn_data(feedback, xs, ys, vs)
         data_var = float(np.var(vs))
         feedback.pushInfo(_tr("Точек: %d. Дисперсия данных: %.4g (ориентир для "
                           "суммарного порога).") % (len(xs), data_var))
@@ -2786,6 +2842,7 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
         min_pairs = self.parameterAsInt(parameters, self.MIN_PAIRS, context)
 
         xs, ys, vs = _read_points(src, zfield, feedback)
+        _warn_data(feedback, xs, ys, vs)
         feedback.pushInfo(_tr("Вариограммная карта: %d точек…") % len(xs))
         m = variogram_map(xs, ys, vs, n_bins=n_bins,
                           maxlag=(maxlag if maxlag > 0 else None),

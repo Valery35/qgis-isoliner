@@ -234,6 +234,11 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.1.1** — quiet conveniences. The selected processing profile is remembered
+  between sessions and prefilled when **2D Kriging** and **Cross-validation**
+  open. Run parameters are saved only on success. Data-conditioning warnings are
+  added to the log: few points, coinciding coordinates, identical values.
+
 - **2.1.0** — trend removal (regression kriging) in **2D Kriging** and
   **Cross-validation**: a "Remove polynomial trend" checkbox and a trend degree
   (plane or quadratic). The trend is removed by least squares before kriging,

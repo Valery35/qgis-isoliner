@@ -308,6 +308,27 @@ def test_variogram_map_range_capped():
     assert m2["range_major"] < m2["maxlag"]
 
 
+def test_data_warnings_few_points():
+    w = dict(kb2d.data_warnings([0, 1, 2], [0, 1, 2], [5, 6, 7], min_points=8))
+    assert w.get("few_points") == 3
+
+
+def test_data_warnings_duplicates():
+    xs = [0.0, 0.0, 1.0, 1.0, 1.0]
+    ys = [0.0, 0.0, 1.0, 1.0, 1.0]
+    w = dict(kb2d.data_warnings(xs, ys, [1, 2, 3, 4, 5], min_points=1))
+    assert w.get("duplicates") == 3          # 5 точек, 2 уникальные позиции
+
+
+def test_data_warnings_constant_and_clean():
+    n = 20
+    xs = list(range(n))
+    cw = dict(kb2d.data_warnings(xs, xs, [3.0] * n))
+    assert "constant" in cw
+    clean = kb2d.data_warnings(xs, xs, [float(i) for i in range(n)])
+    assert clean == []                       # разные координаты и значения
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
