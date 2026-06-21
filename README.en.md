@@ -25,7 +25,7 @@ The **"Grid and isolines"** group contains seven tools:
    removal" saved by Variogram and Cross-validation and applied by 2D Kriging.
    Global storage, list management.
 
-Suitable for seam tops, thicknesses, physical-mechanical properties, chemistry
+Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
 and any numeric attribute.
 
 ## Installation
@@ -50,9 +50,11 @@ No separate cache cleaning or folder removal is needed.
 
 ## Documentation
 
-The full reference for every parameter is `doc/Isoliner.pdf`, shipped with the
-plugin (in Russian). In each tool's dialog the **"Help"** button opens it. The
-right-hand panel shows a short hint.
+The full reference for every parameter is shipped with the plugin:
+`doc/Isoliner.pdf` (Russian) and `doc/Isoliner_en.pdf` (English). The interface
+is bilingual (EN/RU) and follows the QGIS locale; in each tool's dialog the
+**"Help"** button opens the PDF in the language of the interface. The right-hand
+panel shows a short hint.
 
 ## Quick start
 
@@ -229,9 +231,16 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 ## Changelog
 
-Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is in
-Russian.
+Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
+bilingual (EN/RU).
 
+- **2.0.0** — full bilingual plugin (EN/RU): the interface language follows
+  the QGIS locale. Dialogs, drop-down options, hints and help panels, plus
+  logs, warnings, exceptions, HTML reports, output layer names and
+  residual-field aliases are all translated. Bilingual manual:
+  `doc/Isoliner.pdf` (RU) + `doc/Isoliner_en.pdf` (EN); the **"Help"** button
+  opens the PDF by interface language. Dictionary-based i18n engine with
+  coverage and import tests.
 - **1.9.1** — bicubic isoline smoothing (grid densification ×2…×4 before
   contouring, off by default) - smooth lines without "octagons", for both
   lines and polygons; belt boundaries coincide with isolines. Belt
