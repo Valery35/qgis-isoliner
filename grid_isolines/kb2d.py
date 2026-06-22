@@ -97,6 +97,70 @@ class Variogram:
                 cov += self.pmx - self.cc[i] * (h ** self.aa[i])
         return cov
 
+    def cova2_array(self, dx, dy):
+        """Ковариация для массивов разностей (dx, dy) - векторный двойник cova2.
+
+        Нужна для блочного кригинга, где на каждую ячейку приходится суммировать
+        ковариацию по точкам дискретизации. Результат совпадает с cova2 поэлементно,
+        включая значение maxcov при нулевой разности (точечная C(0))."""
+        dx = np.asarray(dx, float)
+        dy = np.asarray(dy, float)
+        cov = np.zeros(np.broadcast(dx, dy).shape, float)
+        for i in range(self.nst):
+            r0, r1, r2, r3 = self.rotmat[i]
+            dx1 = dx * r0 + dy * r1
+            dy1 = (dx * r2 + dy * r3) / self.anis[i]
+            h = np.sqrt(np.maximum(dx1 * dx1 + dy1 * dy1, 0.0))
+            t = self.it[i]
+            if t == 1:                       # spherical
+                hr = h / self.aa[i]
+                cov += np.where(hr < 1.0,
+                                self.cc[i] * (1.0 - hr * (1.5 - 0.5 * hr * hr)),
+                                0.0)
+            elif t == 2:                     # exponential
+                cov += self.cc[i] * np.exp(-h / self.aa[i])
+            elif t == 3:                     # gaussian
+                cov += self.cc[i] * np.exp(-(h * h) / (self.aa[i] * self.aa[i]))
+            else:                            # power
+                cov += self.pmx - self.cc[i] * (h ** self.aa[i])
+        zero = (dx * dx + dy * dy) < EPS
+        if np.any(zero):
+            cov = np.where(zero, self.maxcov, cov)
+        return cov
+
+
+def block_offsets(cell, nxdis, nydis):
+    """Смещения точек дискретизации блока относительно центра ячейки (GSLIB kb2d).
+
+    Блок - квадратная ячейка грида размером cell. Делится на nxdis×nydis
+    подъячеек, точки берутся в их центрах. Возвращает (bdx, bdy) - два массива
+    длины nxdis*nydis. При 1×1 - единственная точка (0, 0): точечный кригинг."""
+    nxdis = max(int(nxdis), 1)
+    nydis = max(int(nydis), 1)
+    xdis = cell / nxdis
+    ydis = cell / nydis
+    xs = (np.arange(nxdis) + 0.5) * xdis - 0.5 * cell
+    ys = (np.arange(nydis) + 0.5) * ydis - 0.5 * cell
+    gx, gy = np.meshgrid(xs, ys)
+    return gx.ravel(), gy.ravel()
+
+
+def block_block_cov(vg, bdx, bdy):
+    """Средняя ковариация «блок-блок» Cbb - по всем парам точек дискретизации.
+
+    Это дисперсионный член блочного кригинга: средняя точечная ковариация внутри
+    блока. На диагонали (точка сама с собой) по правилу GSLIB вычитается наггет:
+    короткомасштабный наггет внутри блока усредняется. Для блока 1×1 возвращает
+    точечную C(0) = maxcov, и блочный кригинг вырождается в точечный."""
+    ndb = len(bdx)
+    if ndb <= 1:
+        return vg.maxcov
+    dx = bdx[:, None] - bdx[None, :]
+    dy = bdy[:, None] - bdy[None, :]
+    cov = vg.cova2_array(dx, dy)
+    cov = cov - np.eye(ndb) * vg.c0          # снять наггет с диагонали (GSLIB)
+    return float(cov.sum() / (ndb * ndb))
+
 
 def clip_outliers(values, vmin=None, vmax=None, pct=0.0, cap=False):
     """Отсев/срезка ураганных проб. Возвращает (values_out, keep_mask, lo, hi).
@@ -128,15 +192,22 @@ def clip_outliers(values, vmin=None, vmax=None, pct=0.0, cap=False):
 
 
 def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
-                 ndmin, ndmax, rad2, nodata):
-    """Точечный кригинг в одной точке. Возвращает (оценка, дисперсия).
+                 ndmin, ndmax, rad2, nodata, bdx=None, bdy=None, cbb=None):
+    """Кригинг в одной точке (или в блоке). Возвращает (оценка, дисперсия).
+
+    Точечный кригинг (bdx=None или один узел дискретизации) воспроизводит пробу
+    в совпадающем узле и даёт нулевую дисперсию. Блочный кригинг (bdx/bdy -
+    смещения точек дискретизации от центра ячейки, cbb - блок-блок ковариация)
+    оценивает СРЕДНЕЕ по блоку: правые ковариации усредняются по точкам блока,
+    дисперсионный член - блочный (cbb < C(0)). Блок не воспроизводит пробы точно,
+    зато дисперсия ниже точечной - это и есть смысл оценки запасов по блоку.
 
     Дисперсия - это дисперсия ошибки кригинга:
-        SK:  σ² = C(0) − Σ λ_i C(x_i, x0)
-        OK:  σ² = C(0) − Σ λ_i C(x_i, x0) − μ   (μ - множитель Лагранжа)
-    При совпадении узла с пробой σ² = 0. Если оценка не получена (вырожденная
-    система) - дисперсия принимается равной априорной (силл). Когда соседей
-    меньше ndmin, и оценка, и дисперсия = nodata."""
+        SK:  σ² = Cbb − Σ λ_i C(x_i, блок)
+        OK:  σ² = Cbb − Σ λ_i C(x_i, блок) − μ   (μ - множитель Лагранжа)
+    Cbb = C(0) для точки, средняя внутриблочная ковариация для блока. Если оценка
+    не получена (вырожденная система) - дисперсия принимается равной Cbb. Когда
+    соседей меньше ndmin, и оценка, и дисперсия = nodata."""
     dx = xd - xloc
     dy = yd - yloc
     h2 = dx * dx + dy * dy
@@ -150,36 +221,53 @@ def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
     ya = yd[sel]
     vra = vrd[sel]
     h2sel = h2[sel]
-    cbb = vg.maxcov                          # point support: C(0)
+    c0pt = vg.maxcov                         # точечная C(0): диагональ данных
+    block = bdx is not None and len(bdx) > 1
+    if cbb is None:                          # дисперсионный член
+        cbb = c0pt                           # точка по умолчанию
 
-    # совпадение узла с пробой -> возвращаем значение пробы, дисперсия 0
-    if h2sel[0] < EPS:
+    # точечный кригинг: совпадение узла с пробой -> значение пробы, дисперсия 0
+    if not block and h2sel[0] < EPS:
         return float(vra[0]), 0.0
 
+    # правые ковариации: точка-точка либо среднее точка-блок
+    if block:
+        bx = xloc + bdx
+        by = yloc + bdy
+        ddx = xa[:, None] - bx[None, :]
+        ddy = ya[:, None] - by[None, :]
+        cb_arr = vg.cova2_array(ddx, ddy)
+        coin = (ddx * ddx + ddy * ddy) < EPS
+        if np.any(coin):                     # проба на узле блока: снять наггет
+            cb_arr = np.where(coin, cb_arr - vg.c0, cb_arr)
+        rhs = cb_arr.mean(axis=1)
+    else:
+        rhs = np.array([vg.cova2(xa[i] - xloc, ya[i] - yloc) for i in range(na)])
+
     if na == 1:
-        cb = vg.cova2(xa[0] - xloc, ya[0] - yloc)
+        cb = float(rhs[0])
         if ktype == 0:                       # simple
-            s = cb / cbb
+            s = cb / c0pt
             return s * vra[0] + (1.0 - s) * skmean, max(cbb - s * cb, 0.0)
-        # ordinary, единственная проба: λ=1, μ=cb−C(0) -> σ²=2(C(0)−cb)
-        return float(vra[0]), max(2.0 * (cbb - cb), 0.0)
+        # ordinary, единственная проба: λ=1, μ=cb−C(0) -> σ²=Cbb−2cb+C(0)
+        return float(vra[0]), max(cbb - 2.0 * cb + c0pt, 0.0)
 
     # допустимый разброс оценки (защита от «разлёта» весов)
     vmin = float(vra.min()); vmax = float(vra.max())
     span = (vmax - vmin) or (abs(vmax) + 1.0)
     lo, hi = vmin - 3.0 * span, vmax + 3.0 * span
-    jitter = cbb * 1e-9                       # микро-регуляризация диагонали
+    jitter = c0pt * 1e-9                       # микро-регуляризация диагонали
 
     neq = na + ktype                         # +1 row for OK unbiasedness
     A = np.empty((neq, neq))
     r = np.empty(neq)
     for i in range(na):
-        A[i, i] = cbb + jitter
+        A[i, i] = c0pt + jitter
         for j in range(i + 1, na):
             c = vg.cova2(xa[i] - xa[j], ya[i] - ya[j])
             A[i, j] = c
             A[j, i] = c
-        r[i] = vg.cova2(xa[i] - xloc, ya[i] - yloc)
+        r[i] = rhs[i]
     if ktype == 1:                           # ordinary kriging
         A[na, :na] = vg.maxcov
         A[:na, na] = vg.maxcov
@@ -275,14 +363,24 @@ def cross_validate_detrend(xd, yd, vrd, degree, vg, ktype, skmean,
 
 def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                rad2, nodata, xmn, ymn, cell, nx, ny, progress=None,
-               with_variance=False):
+               with_variance=False, ndisc=1):
     """Sweep the grid, GSLIB order (north row first). Returns float32 (ny,nx).
 
     При with_variance=True возвращает кортеж (оценка, стд.ошибка), где второй
     грид - стандартная ошибка кригинга = sqrt(дисперсия) (nodata там же, где
-    nodata у оценки)."""
+    nodata у оценки).
+
+    ndisc - дискретизация блока N×N на ячейку: 1 (по умолчанию) - точечный
+    кригинг, >1 - блочный (оценка среднего по ячейке, дисперсия блочная). Блок
+    равен ячейке грида; смещения дискретизации и блок-блок ковариация считаются
+    один раз до прохода (вариограмма стационарна)."""
     grid = np.full((ny, nx), nodata, dtype=np.float32)
     sgrid = np.full((ny, nx), nodata, dtype=np.float32) if with_variance else None
+    bdx = bdy = None
+    cbb = None
+    if ndisc and int(ndisc) > 1:
+        bdx, bdy = block_offsets(cell, int(ndisc), int(ndisc))
+        cbb = block_block_cov(vg, bdx, bdy)
     total = nx * ny
     done = 0
     for row in range(ny):                    # row 0 = north
@@ -292,7 +390,7 @@ def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
             xloc = xmn + ix * cell
             e, v = _solve_point(
                 xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
-                ndmin, ndmax, rad2, nodata)
+                ndmin, ndmax, rad2, nodata, bdx=bdx, bdy=bdy, cbb=cbb)
             grid[row, ix] = e
             if with_variance and e != nodata:
                 sgrid[row, ix] = math.sqrt(max(v, 0.0))

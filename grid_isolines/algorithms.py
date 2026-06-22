@@ -919,9 +919,20 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
             raise QgsProcessingException(_tr("Прервано пользователем."))
         feedback.setProgress(int(80.0 * done / total))
 
+    # блочный кригинг - параметры есть только у «2D Kriging», читаем через
+    # getattr, прочие вызовы (CV, индикатор) остаются точечными.
+    ndisc = 1
+    if getattr(alg, "BLOCK", None) and \
+            alg.parameterAsBool(parameters, alg.BLOCK, context):
+        ndisc = max(int(alg.parameterAsInt(parameters, alg.BLOCK_DISC, context)), 2)
+        feedback.pushInfo(
+            _tr("Блочный кригинг: дискретизация %d×%d на ячейку. Оценка - среднее "
+            "по блоку, стандартная ошибка блочная (ниже точечной). Значения в "
+            "узлах-пробах точно не воспроизводятся.") % (ndisc, ndisc))
+
     res = build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                      rad2, nodata, xmn, ymn, cell, nx, ny, progress=prog,
-                     with_variance=want_se)
+                     with_variance=want_se, ndisc=ndisc)
     grid, segrid = res if want_se else (res, None)
 
     # --- регрессия-кригинг: возврат тренда к оценке ------------------------
@@ -1070,6 +1081,8 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
 
     DETREND, DETREND_DEG = "DETREND", "DETREND_DEG"
 
+    BLOCK, BLOCK_DISC = "BLOCK", "BLOCK_DISC"
+
     SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
 
     def tr(self, s): return _tr(s)
@@ -1117,6 +1130,26 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
             "обычно достаточна, степень 2 может вобрать часть реальной структуры "
             "в тренд - следите за вариограммой остатков."))
         self.addParameter(deg)
+        block = QgsProcessingParameterBoolean(
+            self.BLOCK, self.tr("Блочный кригинг"),
+            defaultValue=_dv(self, self.BLOCK, False))
+        block.setHelp(self.tr(
+            "Оценивает СРЕДНЕЕ по ячейке грида, а не значение в её центре: каждая "
+            "ячейка разбивается на N×N точек дискретизации, ковариации "
+            "усредняются по блоку. Поверхность глаже, стандартная ошибка ниже "
+            "точечной - подходит для оценки запасов и содержаний по блоку. "
+            "Пробы при этом не воспроизводятся точно (среднее блока ≠ значение "
+            "в точке). Выключено - обычный точечный кригинг."))
+        self.addParameter(block)
+        disc = QgsProcessingParameterNumber(
+            self.BLOCK_DISC, self.tr("Дискретизация блока, N×N на ячейку"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.BLOCK_DISC, 4), minValue=2, maxValue=10)
+        disc.setHelp(self.tr(
+            "Сколько точек на сторону ячейки берётся для усреднения по блоку "
+            "(всего N×N). 4×4 достаточно почти всегда; больше - точнее, но "
+            "медленнее. Действует только при включённом блочном кригинге."))
+        self.addParameter(disc)
         self.addParameter(_profile_enum(
             self.PROFILE, _tr("Загрузить профиль обработки"), alg=self))
         self.addParameter(QgsProcessingParameterBoolean(

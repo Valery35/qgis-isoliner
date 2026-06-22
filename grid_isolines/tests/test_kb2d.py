@@ -329,6 +329,75 @@ def test_data_warnings_constant_and_clean():
     assert clean == []                       # разные координаты и значения
 
 
+def test_block_offsets_cover_cell():
+    """Точки дискретизации блока симметричны и лежат внутри ячейки."""
+    bx, by = kb2d.block_offsets(20.0, 4, 4)
+    assert len(bx) == 16
+    assert abs(bx.mean()) < 1e-9 and abs(by.mean()) < 1e-9   # центрированы
+    assert bx.max() < 10.0 and bx.min() > -10.0              # внутри ячейки
+    assert (bx.max() - bx.min()) < 20.0
+
+
+def test_block_block_cov_below_point():
+    """Блок-блок ковариация Cbb положительна и ниже точечной C(0); 1×1 = C(0)."""
+    vg = kb2d.Variogram(0.5, [{"it": 1, "cc": 1.0, "aa": 50.0,
+                               "ang": 0.0, "anis": 1.0}])
+    bx, by = kb2d.block_offsets(20.0, 4, 4)
+    cbb = kb2d.block_block_cov(vg, bx, by)
+    assert 0.0 < cbb < vg.maxcov
+    bx1, by1 = kb2d.block_offsets(20.0, 1, 1)        # блок 1×1 -> точка
+    assert abs(kb2d.block_block_cov(vg, bx1, by1) - vg.maxcov) < 1e-12
+
+
+def test_block_disc1_equals_point():
+    """build_grid с ndisc=1 байт-в-байт совпадает с точечным (по умолчанию)."""
+    rng = np.random.default_rng(7)
+    xs = rng.uniform(0, 100, 40); ys = rng.uniform(0, 100, 40)
+    vs = 0.05 * xs + 0.03 * ys
+    vg = kb2d.Variogram(0.0, [{"it": 1, "cc": 1.0, "aa": 40.0,
+                               "ang": 0.0, "anis": 1.0}])
+    g_def = kb2d.build_grid(xs, ys, vs, vg, 1, 0.0, 1, 24, 1e18, -9999.0,
+                            0.0, 0.0, 5.0, 21, 21)
+    g_d1 = kb2d.build_grid(xs, ys, vs, vg, 1, 0.0, 1, 24, 1e18, -9999.0,
+                           0.0, 0.0, 5.0, 21, 21, ndisc=1)
+    assert np.array_equal(g_def, g_d1)
+
+
+def test_block_kriging_lowers_variance_far():
+    """Вдали от данных блочный кригинг даёт меньшую дисперсию, чем точечный,
+    а оценка остаётся близкой (блок усредняет ту же поверхность)."""
+    xs = np.array([0., 100., 0., 100.]); ys = np.array([0., 0., 100., 100.])
+    vs = np.array([1., 2., 3., 4.])
+    vg = kb2d.Variogram(0.0, [{"it": 1, "cc": 1.0, "aa": 200.0,
+                               "ang": 0.0, "anis": 1.0}])
+    e_p, v_p = kb2d._solve_point(50., 50., xs, ys, vs, vg, 1, 0.0,
+                                 1, 24, 1e18, -9999.0)
+    bdx, bdy = kb2d.block_offsets(20.0, 4, 4)
+    cbb = kb2d.block_block_cov(vg, bdx, bdy)
+    e_b, v_b = kb2d._solve_point(50., 50., xs, ys, vs, vg, 1, 0.0,
+                                 1, 24, 1e18, -9999.0,
+                                 bdx=bdx, bdy=bdy, cbb=cbb)
+    assert v_b < v_p                          # блок: дисперсия ниже точечной
+    assert abs(e_b - e_p) < 0.5               # оценки близки
+
+
+def test_block_kriging_no_overshoot():
+    """Блочная оценка по сетке не выходит за диапазон данных и неотрицательна
+    по стандартной ошибке."""
+    rng = np.random.default_rng(9)
+    xs = rng.uniform(0, 100, 60); ys = rng.uniform(0, 100, 60)
+    vs = 0.04 * xs + 0.02 * ys
+    vg = kb2d.Variogram(0.0, [{"it": 1, "cc": 1.0, "aa": 50.0,
+                               "ang": 0.0, "anis": 1.0}])
+    g, se = kb2d.build_grid(xs, ys, vs, vg, 1, 0.0, 1, 24, 1e18, -9999.0,
+                            0.0, 0.0, 5.0, 21, 21, with_variance=True, ndisc=4)
+    v = g[g != -9999.0]
+    assert v.min() >= vs.min() - 1e-5
+    assert v.max() <= vs.max() + 1e-5
+    sev = se[se != -9999.0]
+    assert (sev >= 0).all()
+
+
 def test_categorical_indicator_grids():
     import numpy as _np
     rng = _np.random.default_rng(0)

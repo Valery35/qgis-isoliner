@@ -8,7 +8,7 @@ A Processing-provider plugin for interpolating point data and building isolines.
 The **"Grid and isolines"** group contains eight tools:
 
 1. **2D Kriging (points → raster)** — ordinary/simple kriging over a point
-   layer. Core: GSLIB KB2D.
+   layer, point or block. Core: GSLIB KB2D.
 2. **Isolines from raster** — isolines (lines) and contour polygons (bands
    between isolines) whose boundaries coincide with the lines.
 3. **Variogram (experimental)** — isotropic experimental variogram from points
@@ -88,6 +88,13 @@ panel shows a short hint.
   Gaussian/power), azimuth, anisotropy. Correlation range `0` = `max(extent)/3`.
 - **Smooth grid (Gaussian)** (off by default) — Gaussian smoothing of the output
   raster, radius in cells. The smoothed grid is the kriging output.
+- **Block kriging** (off by default) and **Block discretization, N×N per cell**
+  (default `4`) — estimates the average over the grid cell rather than the value
+  at its centre. The cell is split into N×N discretization points and the
+  covariances are averaged over the block (GSLIB KB2D scheme). The surface is
+  smoother and the standard error is lower than for point kriging — for
+  estimating reserves and grades over a block. Samples at nodes are then not
+  reproduced exactly.
 - **Load processing profile** — applies a saved profile (nugget, variogram
   structure, outliers) over the dialog fields. The list refreshes when the
   window opens.
@@ -237,6 +244,15 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
+
+- **2.4.0** — the **2D Kriging** tool gained **block kriging** (a **Block
+  kriging** checkbox and a **Block discretization, N×N per cell** field, 4×4 by
+  default). It estimates the average over a grid cell rather than the value at
+  its centre: the cell is split into N×N discretization points and the
+  covariances are averaged over the block (GSLIB KB2D scheme). The surface is
+  smoother and the standard error is lower than for point kriging — for
+  estimating reserves and grades over a block. Off by default: ordinary point
+  kriging. Trend removal and block kriging work together.
 
 - **2.3.0** — a new tool **Categorical indicator kriging**: for a categorical
   field it builds an indicator per class, krige each with the KB2D core and
