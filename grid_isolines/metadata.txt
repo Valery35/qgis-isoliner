@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=2.1.1
+version=2.2.0
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,21 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=2.1.1
+changelog=2.2.0
+    - Инструмент «Изолинии из растра»: выбор «Стиль изолиний» с двумя
+      встроенными пресетами (папка styles) - структурный (по умолчанию) и
+      депрессионный со штрихами вниз. Стиль накладывается на слой
+      автоматически.
+    - Депрессионный стиль сам включает расчёт стороны склона: линии получают
+      поле dn_sign (плюс один склон вниз справа от направления линии, минус
+      один слева, ноль у края) сэмплированием исходного растра по обе стороны
+      линии. По нему штрихи на главных изолиниях смотрят в сторону понижения.
+      Отдельной галки нет, всё решает выбор стиля.
+    - Выбор языка интерфейса: русский только при русской локали QGIS,
+      английский для всех остальных локалей и при неопределённой локали.
+      Раньше английский включался лишь при ровно английской локали, а прочие
+      языки получали русский.
+    2.1.1
     - Тихие удобства. Выбранный профиль обработки запоминается между
       сессиями и подставляется при следующем открытии «2D Kriging» и
       «Кросс-валидации».

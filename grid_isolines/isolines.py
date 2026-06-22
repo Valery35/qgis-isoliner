@@ -338,10 +338,41 @@ def _contour_lines(processing, raster, band, interval, base, levels,
     }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
 
 
+def _add_slope_side(processing, cur, slope_ref, context, feedback):
+    """Добавляет поле dn_sign: +1 склон вниз справа от направления линии, -1
+    слева, 0 у края. Сэмплит исходный растр по обе стороны линии в её середине
+    (project на ±90° от азимута линии) и сравнивает: куда ниже, туда штрих. Это
+    общий атрибут для бергштрихов, не зависит от типа изолиний."""
+    rid, band, eps = slope_ref
+    expr = (
+        "with_variable('p', line_interpolate_point($geometry, $length/2.0),"
+        " with_variable('a', line_interpolate_angle($geometry, $length/2.0),"
+        "  with_variable('vr', raster_value('{rid}', {b}, "
+        "project(@p, {e}, radians(@a + 90))),"
+        "   with_variable('vl', raster_value('{rid}', {b}, "
+        "project(@p, {e}, radians(@a - 90))),"
+        "    CASE WHEN @vr IS NULL OR @vl IS NULL THEN 0"
+        "     WHEN @vr < @vl THEN 1 ELSE -1 END))))"
+    ).format(rid=rid, b=int(band), e=float(eps))
+    feedback.pushInfo(_tr("Сторона склона (dn_sign) для бергштрихов…"))
+    return processing.run("native:fieldcalculator", {
+        "INPUT": cur, "FIELD_NAME": "dn_sign", "FIELD_TYPE": 1,
+        "FIELD_LENGTH": 2, "FIELD_PRECISION": 0, "FORMULA": expr,
+        "OUTPUT": "TEMPORARY_OUTPUT",
+    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+
+
 def _finalize_lines(processing, cur, interval, base, index_every, field_name,
-                    final_output, context, feedback):
-    """Доводит линии до выходного слоя: флаг главных изолиний (is_index) и
-    сохранение. Общий хвост для линейного выхода (с полигонами и без)."""
+                    final_output, context, feedback, slope_ref=None):
+    """Доводит линии до выходного слоя: сторона склона (dn_sign, опционально),
+    флаг главных изолиний (is_index) и сохранение. Общий хвост для линейного
+    выхода (с полигонами и без)."""
+    if slope_ref:
+        try:
+            cur = _add_slope_side(processing, cur, slope_ref, context, feedback)
+        except Exception as e:
+            feedback.pushWarning(
+                _tr("Не удалось вычислить сторону склона (dn_sign): %s") % e)
     if index_every and index_every > 1 and interval > 0:
         feedback.pushInfo(_tr("Главные изолинии: каждая %d-я…") % index_every)
         step = float(interval) * int(index_every)
@@ -359,7 +390,7 @@ def _finalize_lines(processing, cur, interval, base, index_every, field_name,
 def isolines_from_raster(raster, band, interval, base, levels_text,
                          index_every, min_length, smooth, smooth_radius,
                          densify, line_iter, field_name, ignore_nodata, nodata,
-                         final_output, context, feedback):
+                         final_output, context, feedback, slope_ref=None):
     """Изолинии-линии. levels_text (если задан) имеет приоритет над шагом.
     Сглаживание - на уровне поля; line_iter - лёгкое скругление линий."""
     from qgis import processing
@@ -372,7 +403,8 @@ def isolines_from_raster(raster, band, interval, base, levels_text,
                          min_length, li, field_name, ignore_nodata, nodata,
                          context, feedback)
     return _finalize_lines(processing, cur, interval, base, index_every,
-                           field_name, final_output, context, feedback)
+                           field_name, final_output, context, feedback,
+                           slope_ref=slope_ref)
 
 
 # ---------------------------------------------------------------------------
@@ -582,7 +614,8 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
 def isolines_and_polygons(raster, band, interval, base, levels_text,
                           index_every, min_length, smooth, smooth_radius,
                           densify, line_iter, field_name, ignore_nodata, nodata,
-                          lines_output, polygons_output, context, feedback):
+                          lines_output, polygons_output, context, feedback,
+                          slope_ref=None):
     """Изолинии И контурные пояса из ОДНОГО набора линий.
 
     Сглаживание выполняется один раз на уровне поля (растра); этот же
@@ -634,7 +667,8 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
 
     # 3) линейный выход - из ЭТИХ же согласованных линий
     lines_out = _finalize_lines(processing, iso, interval, base, index_every,
-                                field_name, lines_output, context, feedback)
+                                field_name, lines_output, context, feedback,
+                                slope_ref=slope_ref)
 
     # Овершут ТОЛЬКО для открытых линий (упираются концами в контур): их
     # продлеваем за контур на ~1 ячейку, чтобы пересечь его и чисто

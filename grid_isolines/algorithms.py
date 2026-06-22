@@ -194,6 +194,51 @@ def _order_lines_above(context, lines_path, polys_path):
         pass
 
 
+def _style_path(name):
+    """Путь к встроенному пресету стиля в папке styles модуля (без .qml)."""
+    return os.path.join(os.path.dirname(__file__), "styles", name + ".qml")
+
+
+class _StylePostProcessor(QgsProcessingLayerPostProcessorInterface):
+    """Накладывает .qml-стиль на загруженный слой и, опционально, регистрирует
+    его id для перестановки порядка (линии над полигонами). У слоя может быть
+    только один пост-процессор, поэтому стиль и порядок объединены здесь."""
+    def __init__(self, style_path=None, order_state=None, role=None):
+        super().__init__()
+        self.style_path = style_path
+        self.order_state = order_state
+        self.role = role
+
+    def postProcessLayer(self, layer, context, feedback):
+        try:
+            if self.style_path and os.path.exists(self.style_path):
+                layer.loadNamedStyle(self.style_path)
+                layer.triggerRepaint()
+        except Exception:
+            pass
+        try:
+            if self.order_state is not None and self.role:
+                if self.role == "lines":
+                    self.order_state.lines_id = layer.id()
+                else:
+                    self.order_state.polys_id = layer.id()
+                from qgis.PyQt.QtCore import QTimer
+                QTimer.singleShot(0, self.order_state.reorder)
+        except Exception:
+            pass
+
+
+def _attach_style(context, path, style_path=None, order_state=None, role=None):
+    """Вешает на выходной слой пост-процессор стиля (и порядка, если задан)."""
+    try:
+        if path and context.willLoadLayerOnCompletion(path):
+            pp = _StylePostProcessor(style_path, order_state, role)
+            _KEEP_ALIVE.append(pp)
+            context.layerToLoadOnCompletionDetails(path).setPostProcessor(pp)
+    except Exception:
+        pass
+
+
 class _AliasPostProcessor(QgsProcessingLayerPostProcessorInterface):
     """Ставит псевдонимы полей на загруженный слой - но только если слой
     постоянный. Временные (memory) слои псевдонимы не хранят и QGIS на каждую
@@ -1130,7 +1175,14 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
     SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
     SMOOTH_LINE_ITER = "SMOOTH_LINE_ITER"
     DENSIFY = "DENSIFY"
+    STYLE = "STYLE"
     FIELD_NAME, OUTPUT, OUTPUT_POLYGONS = "FIELD_NAME", "OUTPUT", "OUTPUT_POLYGONS"
+
+    # выбор стиля линий -> имя пресета в папке styles (None = без стиля).
+    # Депрессия сама включает расчёт стороны склона (dn_sign), отдельной галки нет.
+    _STYLE_MAP = [None, "iso_structure", "iso_depression"]
+    _STYLE_LABELS = ["Без стиля", "Структура / гипсометрия",
+                     "Депрессия (штрихи вниз)"]
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return RasterToIsolinesAlgorithm()
@@ -1168,6 +1220,10 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
             self.BAND, self.tr("Канал"),
             QgsProcessingParameterNumber.Integer, defaultValue=1, minValue=1)))
         _add_isoline_params(self)
+        self.addParameter(QgsProcessingParameterEnum(
+            self.STYLE, self.tr("Стиль изолиний"),
+            options=[self.tr(x) for x in self._STYLE_LABELS],
+            defaultValue=_dv(self, self.STYLE, 1)))
         self.addParameter(QgsProcessingParameterVectorDestination(
             self.OUTPUT, self.tr("Изолинии (линии)"),
             type=QgsProcessing.TypeVectorLine))
@@ -1210,23 +1266,41 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
         poly_dest = self.parameterAsOutputLayer(
             parameters, self.OUTPUT_POLYGONS, context)
 
+        style_idx = self.parameterAsEnum(parameters, self.STYLE, context)
+        style_name = self._STYLE_MAP[style_idx] if 0 <= style_idx < len(
+            self._STYLE_MAP) else None
+        line_style = _style_path(style_name) if style_name else None
+
+        # сторона склона (dn_sign) нужна только депрессионному стилю, поэтому
+        # считается автоматически, когда он выбран. Берётся по ИСХОДНОМУ растру
+        # (стабильный слой с id), шаг сэмпла ~ ячейка. Сглаживание сторону не
+        # переворачивает.
+        slope_ref = None
+        if style_name == "iso_depression":
+            eps = rl.rasterUnitsPerPixelX() or 1.0
+            slope_ref = (rl.id(), band, float(eps))
+
         if poly_dest:
             # линии и пояса строятся из ОДНОГО набора линий -> границы совпадают
             res = isolines_and_polygons(
                 rl.source(), band, interval, base, levels, index_every,
                 min_len, False, 0.0, densify, sm_line, field_name, True, nodata,
-                out_dest, poly_dest, context, feedback)
+                out_dest, poly_dest, context, feedback, slope_ref=slope_ref)
             out, poly = res["lines"], res["polygons"]
             _set_output_name(context, out, _tr("Изолинии · %s") % name)
             _set_output_name(context, poly, _tr("Полигоны · %s") % name)
-            _order_lines_above(context, out, poly)   # изолинии над полигонами
+            st = _OrderState()
+            _KEEP_ALIVE.append(st)
+            _attach_style(context, out, line_style, st, "lines")
+            _attach_style(context, poly, None, st, "polys")
             results = {self.OUTPUT: out, self.OUTPUT_POLYGONS: poly}
         else:
             out = isolines_from_raster(
                 rl.source(), band, interval, base, levels, index_every,
                 min_len, False, 0.0, densify, sm_line, field_name, True, nodata,
-                out_dest, context, feedback)
+                out_dest, context, feedback, slope_ref=slope_ref)
             _set_output_name(context, out, _tr("Изолинии · %s") % name)
+            _attach_style(context, out, line_style)
             results = {self.OUTPUT: out}
 
         _save_values(self, _saved)

@@ -26,18 +26,18 @@ def set_language(lang):
         _LANG = None
         return
     code = str(lang).strip().lower().replace("-", "_").split("_")[0]
-    _LANG = "en" if code == "en" else "ru"
+    _LANG = "ru" if code == "ru" else "en"
 
 
 def language():
     """Текущий язык ('ru'/'en'); инициализирует по QGIS при необходимости."""
     if _LANG is None:
         init_from_qgis()
-    return _LANG or "ru"
+    return _LANG or "en"
 
 
 def init_from_qgis():
-    """Определить язык интерфейса по настройкам QGIS. По умолчанию 'ru'."""
+    """Определить язык интерфейса по настройкам QGIS. По умолчанию 'en'."""
     loc = ""
     try:
         from qgis.core import QgsApplication
@@ -52,7 +52,7 @@ def init_from_qgis():
             loc = s.value("locale/userLocale", "") if override else ""
         except Exception:
             loc = ""
-    set_language(loc or "ru")
+    set_language(loc or "en")
     return _LANG
 
 
@@ -228,6 +228,17 @@ TRANSLATIONS = {
     'Дисперсия (силл)': 'Variance (sill)',
     'лаг по северу h_y': 'north lag h_y',
     'Радиус главной оси': 'Major-axis range',
+    'Стиль изолиний': 'Isoline style',
+    'Без стиля': 'No style',
+    'Структура / гипсометрия': 'Structure / hypsometry',
+    'Мощности': 'Thickness',
+    'Гидроизогипсы': 'Water-table contours',
+    'Содержания': 'Grades',
+    'Депрессия (штрихи вниз)': 'Depression (downhill hachures)',
+    'Выбран депрессионный стиль, но «Сторона склона для бергштрихов» выключена - поля dn_sign нет, штрихи не определят сторону. Включите галку, чтобы штрихи смотрели вниз.': 'The depression style is selected but "Downhill side for hachures" is off, so there is no dn_sign field and the hachures cannot pick a side. Enable the checkbox so the hachures point downhill.',
+    'Сторона склона для бергштрихов (поле dn_sign)': 'Downhill side for hachures (dn_sign field)',
+    'Сторона склона (dn_sign) для бергштрихов…': 'Downhill side (dn_sign) for hachures…',
+    'Не удалось вычислить сторону склона (dn_sign): %s': 'Could not compute the downhill side (dn_sign): %s',
     'Мало точек (%d): оценка кригинга и вариограммы неустойчива.': 'Few points (%d): the kriging and variogram estimates are unstable.',
     'Точек с совпадающими координатами: %d. Частая причина вырожденной матрицы и артефактов. Уберите дубли или усредните пробы в одной точке.': 'Points with coinciding coordinates: %d. A common cause of a singular matrix and artefacts. Remove duplicates or average the samples at one location.',
     'Все значения одинаковы: кригинг вырождается, вариограмма нулевая. Проверьте выбранное поле.': 'All values are identical: kriging degenerates and the variogram is zero. Check the selected field.',

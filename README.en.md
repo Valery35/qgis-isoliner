@@ -234,6 +234,15 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.2.0** — the **Isolines from raster** tool gains an **Isoline style**
+  choice with two bundled presets (the `styles` folder): structural (default)
+  and depression with downhill hachures. The style is applied to the layer
+  automatically. The depression style turns on the downhill-side computation by
+  itself: lines get a `dn_sign` field (downhill on the right of the line
+  direction = +1, on the left = -1) by sampling the source raster on both sides
+  of the line, so the hachures on index contours point toward the low ground.
+  No separate checkbox.
+
 - **2.1.1** — quiet conveniences. The selected processing profile is remembered
   between sessions and prefilled when **2D Kriging** and **Cross-validation**
   open. Run parameters are saved only on success. Data-conditioning warnings are
