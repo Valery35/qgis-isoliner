@@ -1166,6 +1166,207 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
 
 
 # ===========================================================================
+#  Категориальный индикаторный кригинг
+# ===========================================================================
+class CategoricalIndicatorAlgorithm(QgsProcessingAlgorithm):
+    """Категориальный индикаторный кригинг по текстовому/категориальному полю.
+    На каждый класс строит индикатор 0/1, кригует ординарным кригингом (ядро
+    KB2D), нормирует вероятности к сумме 1. Выход: многополосный растр
+    вероятностей (полоса на класс), карта зон (самый вероятный класс) и
+    уверенность. Кодом класса не кригует - у категорий нет порядка."""
+    INPUT, CLASS_FIELD = "INPUT", "CLASS_FIELD"
+    RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
+    CELL_SIZE, EXTENT = "CELL_SIZE", "EXTENT"
+    OUTPUT_PROB, OUTPUT_ZONE, OUTPUT_CONF = \
+        "OUTPUT_PROB", "OUTPUT_ZONE", "OUTPUT_CONF"
+
+    def tr(self, s): return _tr(s)
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP)
+    def groupId(self): return GROUP_ID
+    def name(self): return "categorical_indicator"
+    def displayName(self):
+        return self.tr("8. Категориальный индикаторный кригинг")
+    def createInstance(self): return CategoricalIndicatorAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Индикаторный кригинг по категориальному полю (минтип, литотип, "
+            "класс). На каждый класс строится индикатор 0/1, кригуется отдельно "
+            "(ядро GSLIB KB2D), оценка обрезается в 0-1, затем вероятности по "
+            "классам нормируются к сумме 1. Кодом класса не кригуем: у категорий "
+            "нет порядка.\n\nВыход: многополосный растр вероятностей (полоса на "
+            "класс, в описании полосы - имя класса), растр зон (код самого "
+            "вероятного класса, соответствие кодов в Журнале) и растр "
+            "уверенности (максимум вероятности). Пустые и NULL исключаются. "
+            "Вариограмма каждого индикатора подбирается автоматически "
+            "(сферическая).") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Точечный слой"),
+            [QgsProcessing.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            self.CLASS_FIELD, self.tr("Категориальное поле (класс)"),
+            parentLayerParameterName=self.INPUT,
+            defaultValue=_dv(self, self.CLASS_FIELD, None)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.RADIUS, self.tr("Радиус поиска (0 = вся выборка)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.RADIUS, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.MIN_POINTS, self.tr("Мин. число точек"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.MIN_POINTS, 4), minValue=1))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.MAX_POINTS, self.tr("Макс. число точек"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.MAX_POINTS, 24), minValue=1, maxValue=120))
+        cs = QgsProcessingParameterNumber(
+            self.CELL_SIZE, self.tr("Размер ячейки (0 = авто, min(охват)/50)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.CELL_SIZE, 0.0), minValue=0.0)
+        try:
+            from .widgets import CellSizeWrapper, WRAPPER_AVAILABLE
+            if WRAPPER_AVAILABLE:
+                cs.setMetadata({"widget_wrapper": {"class": CellSizeWrapper}})
+        except Exception:
+            pass
+        self.addParameter(cs)
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Охват растра (по умолчанию - по слою)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_PROB, self.tr("Вероятности по классам (многополосный)")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_ZONE, self.tr("Карта зон (самый вероятный класс)")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_CONF, self.tr("Уверенность (макс. вероятность)"),
+            optional=True, createByDefault=False))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        source = self.parameterAsSource(parameters, self.INPUT, context)
+        field = self.parameterAsString(parameters, self.CLASS_FIELD, context)
+        if source is None:
+            raise QgsProcessingException(self.tr("Не задан точечный слой."))
+
+        xs, ys, labels = [], [], []
+        for ft in source.getFeatures():
+            if feedback.isCanceled():
+                raise QgsProcessingException(_tr("Прервано пользователем."))
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            v = ft.attribute(field)
+            if v is None:
+                continue
+            s = str(v).strip()
+            if s == "" or s.upper() == "NULL":
+                continue
+            p = g.asPoint()
+            xs.append(p.x()); ys.append(p.y()); labels.append(s)
+        if len(xs) < 3:
+            raise QgsProcessingException(
+                _tr("Слишком мало точек с заданным классом."))
+        xs = np.asarray(xs, float); ys = np.asarray(ys, float)
+        labels = np.asarray(labels, dtype=object)
+        classes = sorted(set(labels.tolist()))
+        feedback.pushInfo(_tr("Классов: %d, точек: %d.") % (len(classes), len(xs)))
+        for c in classes:
+            ncls = int((labels == c).sum())
+            feedback.pushInfo("  %s: %d" % (c, ncls))
+            if ncls < 10:
+                feedback.pushWarning(_tr(
+                    "Класс «%s»: всего %d точек, индикаторная вариограмма будет "
+                    "шумной, вероятность по нему ненадёжна.") % (c, ncls))
+
+        crs = source.sourceCrs()
+        rect = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        if rect is None or rect.isEmpty():
+            rect = source.sourceExtent()
+        xmin, xmax = rect.xMinimum(), rect.xMaximum()
+        ymin, ymax = rect.yMinimum(), rect.yMaximum()
+        width, height = xmax - xmin, ymax - ymin
+        cell = self.parameterAsDouble(parameters, self.CELL_SIZE, context)
+        if cell <= 0:
+            cell = (min(width, height) / 50.0) or 1.0
+        nx = max(int(math.ceil(width / cell)), 1)
+        ny = max(int(math.ceil(height / cell)), 1)
+        xmn, ymn = xmin + 0.5 * cell, ymin + 0.5 * cell
+        radius = self.parameterAsDouble(parameters, self.RADIUS, context)
+        if radius <= 0:
+            radius = math.hypot(width, height) or 1e12
+        ndmin = self.parameterAsInt(parameters, self.MIN_POINTS, context)
+        ndmax = self.parameterAsInt(parameters, self.MAX_POINTS, context)
+        nodata = -9999.0
+        feedback.pushInfo(_tr("Сетка %d x %d, ячейка %.4g.") % (nx, ny, cell))
+
+        def prog(k, K, done, total):
+            if feedback.isCanceled():
+                raise QgsProcessingException(_tr("Прервано пользователем."))
+            feedback.setProgress(int(88.0 * (k + done / max(total, 1)) / max(K, 1)))
+
+        from .kb2d import categorical_indicator_grids
+        probs, zone, conf = categorical_indicator_grids(
+            xs, ys, labels, classes, xmn, ymn, cell, nx, ny,
+            ndmin=ndmin, ndmax=ndmax, radius=radius, nodata=nodata, progress=prog)
+
+        geotr = (xmin, cell, 0.0, ymin + ny * cell, 0.0, -cell)
+        wkt = None
+        if crs is not None and crs.isValid():
+            srs = osr.SpatialReference(); srs.ImportFromWkt(crs.toWkt())
+            wkt = srs.ExportToWkt()
+        drv = gdal.GetDriverByName("GTiff")
+        opt = ["COMPRESS=LZW", "TILED=YES"]
+
+        def _create(path, nbands):
+            ds = drv.Create(path, nx, ny, nbands, gdal.GDT_Float32, options=opt)
+            ds.SetGeoTransform(geotr)
+            if wkt:
+                ds.SetProjection(wkt)
+            return ds
+
+        prob_path = self.parameterAsOutputLayer(parameters, self.OUTPUT_PROB, context)
+        zone_path = self.parameterAsOutputLayer(parameters, self.OUTPUT_ZONE, context)
+        conf_path = self.parameterAsOutputLayer(parameters, self.OUTPUT_CONF, context)
+
+        K = len(classes)
+        ds = _create(prob_path, K)
+        for k in range(K):
+            b = ds.GetRasterBand(k + 1)
+            b.SetNoDataValue(nodata)
+            b.SetDescription(classes[k])
+            b.WriteArray(probs[:, :, k]); b.FlushCache()
+        ds = None
+
+        zg = zone.astype(np.float32)
+        zg[zone < 0] = nodata
+        ds = _create(zone_path, 1)
+        bz = ds.GetRasterBand(1); bz.SetNoDataValue(nodata)
+        bz.WriteArray(zg); bz.FlushCache(); ds = None
+
+        results = {self.OUTPUT_PROB: prob_path, self.OUTPUT_ZONE: zone_path}
+        if conf_path:
+            ds = _create(conf_path, 1)
+            bc = ds.GetRasterBand(1); bc.SetNoDataValue(nodata)
+            bc.WriteArray(conf); bc.FlushCache(); ds = None
+            results[self.OUTPUT_CONF] = conf_path
+
+        _set_output_name(context, prob_path, _tr("Вероятности минтипа"))
+        _set_output_name(context, zone_path, _tr("Зоны минтипа"))
+        feedback.pushInfo(_tr("Коды зон: ") + "; ".join(
+            "%d=%s" % (i, classes[i]) for i in range(K)))
+        feedback.pushInfo(_tr(
+            "Полосы растра вероятностей подписаны именами классов."))
+        _save_values(self, _saved)
+        feedback.setProgress(100)
+        return results
+
+
+# ===========================================================================
 #  2. Растр → изолинии
 # ===========================================================================
 class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
@@ -1961,6 +2162,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
     THICK_MAX = "THICK_MAX"
     SMOOTH = "SMOOTH"
     NUGGET_FRAC = "NUGGET_FRAC"
+    MINTYPE = "MINTYPE"
     SEED = "SEED"
     OUTPUT = "OUTPUT"
 
@@ -2030,6 +2232,10 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterNumber.Double, defaultValue=0.35,
             minValue=0.0, maxValue=0.7)
         _advanced(p); self.addParameter(p)
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.MINTYPE,
+            self.tr("Добавить категориальное поле минтипа (демо замещения)"),
+            defaultValue=False))
         p = QgsProcessingParameterNumber(
             self.SEED, self.tr("Зерно ГСЧ (0 = случайно)"),
             QgsProcessingParameterNumber.Integer, defaultValue=0, minValue=0)
@@ -2076,11 +2282,22 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
                              min(thick_min, thick_max), max(thick_min, thick_max),
                              min(nug * 0.6, 0.5))
 
+        want_mt = self.parameterAsBool(parameters, self.MINTYPE, context)
+        mt = None
+        if want_mt:
+            # скрытое поле «замещения» 0-1 -> пороги в три класса минтипа,
+            # сильвинит остаётся фоном (по образцу БКПРУ-4)
+            repl = _demo_values(rng, G, w, xs, ys, ext, 0.0, 1.0, 0.12)
+            mt = np.where(repl > 0.72, "Каменная соль замещения",
+                 np.where(repl > 0.55, "Частичное замещение кс", "Сильвинит"))
+
         fields = QgsFields()
         fields.append(QgsField("well", QVariant.String))
         fields.append(QgsField("roof", QVariant.Double))
         fields.append(QgsField("thick", QVariant.Double))
         fields.append(QgsField("X", QVariant.Double))
+        if want_mt:
+            fields.append(QgsField("mintype", QVariant.String))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Point, crs)
@@ -2088,8 +2305,11 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             f = QgsFeature(fields)
             f.setGeometry(QgsGeometry.fromPointXY(
                 QgsPointXY(float(xs[i]), float(ys[i]))))
-            f.setAttributes(["SK-%04d" % (i + 1), float(roof[i]),
-                             float(thick[i]), float(valsX[i])])
+            attrs = ["SK-%04d" % (i + 1), float(roof[i]),
+                     float(thick[i]), float(valsX[i])]
+            if want_mt:
+                attrs.append(str(mt[i]))
+            f.setAttributes(attrs)
             sink.addFeature(f)
 
         rng_m = 2.0 * smooth * max(xmax - xmin, ymax - ymin)
@@ -2102,6 +2322,11 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             "силл ≈ %.4g, наггет C0 ≈ %.4g, радиус ≈ %.4g (в единицах "
             "координат). Уточните наггет по кросс-валидации до MSDR ≈ 1.") %
             (var, nug * var, rng_m))
+        if want_mt:
+            from collections import Counter
+            cc = Counter(mt.tolist())
+            feedback.pushInfo(_tr("Поле mintype (демо): ") + ", ".join(
+                "%s=%d" % (k, v) for k, v in cc.items()))
         _set_output_name(context, dest, _tr("Скважины (демо)"))
         # псевдонимы полей на демо-слое не ставим: этот слой создан, чтобы
         # подавать его в кригинг/кросс-валидацию, а псевдонимы на временном
@@ -3081,6 +3306,7 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
 
 ALGORITHMS = [
     Kriging2DAlgorithm,
+    CategoricalIndicatorAlgorithm,
     RasterToIsolinesAlgorithm,
     ExperimentalVariogramAlgorithm,
     VariogramMapAlgorithm,

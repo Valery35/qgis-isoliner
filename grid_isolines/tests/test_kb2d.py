@@ -329,6 +329,41 @@ def test_data_warnings_constant_and_clean():
     assert clean == []                       # разные координаты и значения
 
 
+def test_categorical_indicator_grids():
+    import numpy as _np
+    rng = _np.random.default_rng(0)
+
+    def blob(cx, cy, n, lab):
+        return cx + rng.normal(0, 80, n), cy + rng.normal(0, 80, n), [lab] * n
+    xa, ya, la = blob(200, 200, 60, "A")
+    xb, yb, lb = blob(800, 250, 60, "B")
+    xc, yc, lc = blob(500, 750, 60, "C")
+    xd = _np.concatenate([xa, xb, xc])
+    yd = _np.concatenate([ya, yb, yc])
+    lab = _np.array(la + lb + lc, dtype=object)
+    classes = ["A", "B", "C"]
+    probs, zone, conf = kb2d.categorical_indicator_grids(
+        xd, yd, lab, classes, xmn=0, ymn=0, cell=25.0, nx=40, ny=40,
+        ndmin=2, ndmax=16)
+    assert probs.shape == (40, 40, 3) and zone.shape == (40, 40)
+
+    def zone_at(x, y):                       # build_grid: row 0 = север (верх)
+        row = zone.shape[0] - 1 - int(round(y / 25.0))
+        col = int(round(x / 25.0))
+        row = min(max(row, 0), zone.shape[0] - 1)
+        col = min(max(col, 0), zone.shape[1] - 1)
+        return classes[zone[row, col]] if zone[row, col] >= 0 else None
+
+    assert zone_at(200, 200) == "A"          # центр каждого кластера -> свой класс
+    assert zone_at(800, 250) == "B"
+    assert zone_at(500, 750) == "C"
+    valid = zone >= 0
+    ssum = _np.clip(probs, 0, 1).sum(2)[valid]
+    assert _np.allclose(ssum, 1.0, atol=1e-5)   # нормировка к единице
+    cv = conf[valid]
+    assert cv.min() >= 0.0 and cv.max() <= 1.0  # уверенность в [0,1]
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

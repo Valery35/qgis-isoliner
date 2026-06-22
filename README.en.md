@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The **"Grid and isolines"** group contains seven tools:
+The **"Grid and isolines"** group contains eight tools:
 
 1. **2D Kriging (points → raster)** — ordinary/simple kriging over a point
    layer. Core: GSLIB KB2D.
@@ -24,6 +24,10 @@ The **"Grid and isolines"** group contains seven tools:
 7. **Processing profiles** — named sets of "variogram (Structure 1) + outlier
    removal" saved by Variogram and Cross-validation and applied by 2D Kriging.
    Global storage, list management.
+8. **Categorical indicator kriging** — for a categorical field (mineral type,
+   lithotype) it builds a 0/1 indicator per class, krige each with the KB2D core
+   and normalises the probabilities. Outputs: a multiband probability raster, a
+   zone map and a confidence raster.
 
 Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
 and any numeric attribute.
@@ -234,14 +238,19 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.3.0** — a new tool **Categorical indicator kriging**: for a categorical
+  field it builds an indicator per class, krige each with the KB2D core and
+  normalises the probabilities to sum to 1, producing a multiband probability
+  raster, a zone map and a confidence raster. The sample-wells generator gains a
+  categorical mineral-type option for teaching.
+
 - **2.2.0** — the **Isolines from raster** tool gains an **Isoline style**
   choice with two bundled presets (the `styles` folder): structural (default)
   and depression with downhill hachures. The style is applied to the layer
   automatically. The depression style turns on the downhill-side computation by
-  itself: lines get a `dn_sign` field (downhill on the right of the line
-  direction = +1, on the left = -1) by sampling the source raster on both sides
-  of the line, so the hachures on index contours point toward the low ground.
-  No separate checkbox.
+  itself: lines get a `dn_sign` field by sampling the source raster on both
+  sides of the line, so the hachures on index contours point toward the low
+  ground. No separate checkbox.
 
 - **2.1.1** — quiet conveniences. The selected processing profile is remembered
   between sessions and prefilled when **2D Kriging** and **Cross-validation**

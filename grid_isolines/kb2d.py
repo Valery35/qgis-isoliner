@@ -728,6 +728,68 @@ def data_warnings(xs, ys, vs, min_points=8):
     return out
 
 
+def _auto_indicator_variogram(xd, yd, ind, n_lags=15, maxlag=None):
+    """Авто-вариограмма индикатора 0/1: сферическая модель по экспериментальной.
+    Сферическая, потому что индикаторные вариограммы устойчивее и не уводят в
+    численно капризную гауссову."""
+    ev = experimental_variogram(xd, yd, ind, n_lags=n_lags, maxlag=maxlag,
+                                robust=False)
+    fit = fit_variogram(ev["lag"], ev["gamma"], ev["npairs"], model=0)
+    if fit is None:
+        p = float(np.mean(ind))
+        sill = max(p * (1.0 - p), 1e-6)
+        aa = max((ev.get("maxlag") or 1.0) * 0.25, EPS)
+        return Variogram(0.0, [{"it": 1, "cc": sill, "aa": aa,
+                                "ang": 0.0, "anis": 1.0}])
+    return Variogram(fit["nugget"], [{"it": fit["model"] + 1,
+            "cc": fit["sill"], "aa": fit["range"], "ang": 0.0, "anis": 1.0}])
+
+
+def categorical_indicator_grids(xd, yd, labels, classes, xmn, ymn, cell, nx, ny,
+                                ndmin=4, ndmax=24, radius=None, nodata=-9999.0,
+                                models=None, progress=None):
+    """Категориальный индикаторный кригинг.
+
+    На каждый класс из classes строит индикатор 0/1, кригует ординарным
+    кригингом (ktype=0) и обрезает оценку в [0, 1]. Затем вероятности по классам
+    нормируются к сумме 1 в каждой ячейке. Кодом класса НЕ кригуем: у категорий
+    нет порядка, поэтому только раздельные индикаторы.
+
+    Возвращает (probs, zone, conf):
+      probs - float32 ny×nx×K, нормированные вероятности (nodata вне области),
+      zone  - int32 ny×nx, индекс самого вероятного класса (-1 = нет оценки),
+      conf  - float32 ny×nx, максимум нормированной вероятности (nodata вне).
+
+    radius - радиус поиска (по умолчанию по размеру грида). models - список
+    готовых Variogram по классам или None (тогда авто-подбор по индикатору)."""
+    xd = np.asarray(xd, float)
+    yd = np.asarray(yd, float)
+    labels = np.asarray(labels, dtype=object)
+    K = len(classes)
+    if not radius or radius <= 0:
+        radius = max(nx * cell, ny * cell)
+    rad2 = float(radius) * float(radius)
+    raw = np.empty((ny, nx, K), dtype=np.float32)
+    for k, c in enumerate(classes):
+        ind = (labels == c).astype(float)
+        vg = (models[k] if (models and k < len(models) and models[k] is not None)
+              else _auto_indicator_variogram(xd, yd, ind))
+        prog = (lambda d, t, _k=k: progress(_k, K, d, t)) if progress else None
+        raw[:, :, k] = build_grid(xd, yd, ind, vg, 0, 0.0, ndmin, ndmax, rad2,
+                                  nodata, xmn, ymn, cell, nx, ny, progress=prog)
+    valid = np.all(raw != nodata, axis=2)
+    clipped = np.clip(raw, 0.0, 1.0)
+    s = clipped.sum(axis=2, keepdims=True)
+    s[s == 0] = 1.0
+    probs = (clipped / s).astype(np.float32)
+    am = np.argmax(probs, axis=2)
+    zone = np.full((ny, nx), -1, dtype=np.int32)
+    zone[valid] = am[valid].astype(np.int32)
+    conf = np.where(valid, probs.max(axis=2), nodata).astype(np.float32)
+    probs[~valid] = nodata
+    return probs, zone, conf
+
+
 class PolyTrend:
     """Полиномиальный тренд m(x, y) степени 1 или 2, подобранный МНК.
 

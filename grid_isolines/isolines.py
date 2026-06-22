@@ -339,10 +339,11 @@ def _contour_lines(processing, raster, band, interval, base, levels,
 
 
 def _add_slope_side(processing, cur, slope_ref, context, feedback):
-    """Добавляет поле dn_sign: +1 склон вниз справа от направления линии, -1
-    слева, 0 у края. Сэмплит исходный растр по обе стороны линии в её середине
-    (project на ±90° от азимута линии) и сравнивает: куда ниже, туда штрих. Это
-    общий атрибут для бергштрихов, не зависит от типа изолиний."""
+    """Добавляет поле dn_sign для бергштрихов. Знак выбран так, чтобы в стиле
+    смещение offset = @dn_sign * ширина клало штрих на сторону склона ВНИЗ
+    (с учётом того, что в QGIS положительное смещение уходит влево от
+    направления линии). 0 у края, где значение не прочиталось. Считается
+    сэмплированием исходного растра по обе стороны линии в её середине."""
     rid, band, eps = slope_ref
     expr = (
         "with_variable('p', line_interpolate_point($geometry, $length/2.0),"
@@ -352,7 +353,7 @@ def _add_slope_side(processing, cur, slope_ref, context, feedback):
         "   with_variable('vl', raster_value('{rid}', {b}, "
         "project(@p, {e}, radians(@a - 90))),"
         "    CASE WHEN @vr IS NULL OR @vl IS NULL THEN 0"
-        "     WHEN @vr < @vl THEN 1 ELSE -1 END))))"
+        "     WHEN @vr < @vl THEN -1 ELSE 1 END))))"
     ).format(rid=rid, b=int(band), e=float(eps))
     feedback.pushInfo(_tr("Сторона склона (dn_sign) для бергштрихов…"))
     return processing.run("native:fieldcalculator", {
