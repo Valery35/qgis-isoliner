@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The **"Grid and isolines"** group contains eight tools:
+The **"Grid and isolines"** group contains nine tools:
 
 1. **2D Kriging (points → raster)** — ordinary/simple kriging over a point
    layer, point or block. Core: GSLIB KB2D.
@@ -28,6 +28,10 @@ The **"Grid and isolines"** group contains eight tools:
    lithotype) it builds a 0/1 indicator per class, krige each with the KB2D core
    and normalises the probabilities. Outputs: a multiband probability raster, a
    zone map and a confidence raster.
+9. **Hydraulic gradient and flow direction** — from a head raster it builds the
+   hydraulic gradient |∇h|, the flow-direction azimuth (down-gradient) and a
+   point layer of flow vectors (styled as arrows automatically). Hydrogeology without
+   permeability.
 
 Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
 and any numeric attribute.
@@ -244,6 +248,15 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
+
+- **2.5.0** — a new tool **Hydraulic gradient and flow direction**
+  (hydrogeology): from a head raster it builds the gradient magnitude |∇h|, the
+  flow-direction azimuth (down-gradient) and a point layer of flow vectors
+  styled as arrows automatically. The geometry of the head field without
+  permeability, the
+  Darcy velocity is not computed. Optional smoothing of the head before
+  computing. The sample-wells generator gained a head field option with a
+  regional slope for an end-to-end learning cycle.
 
 - **2.4.0** — the **2D Kriging** tool gained **block kriging** (a **Block
   kriging** checkbox and a **Block discretization, N×N per cell** field, 4×4 by

@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=2.4.0
+version=2.5.0
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,22 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=2.4.0
+changelog=2.5.0
+    - Новый инструмент «Гидравлический градиент и направление потока»
+      (гидрогеология). По растру напора строит гидравлический градиент i = |∇h|
+      (безразмерный, м/м), азимут направления потока (компасный, вниз по
+      градиенту) и точечный слой векторов потока, который автоматически
+      оформляется стрелками (пресет flow_arrows.qml: поворот по азимуту,
+      размер по градиенту).
+      Это геометрия поля напора без проницаемости: скорость по Дарси (минус K
+      на градиент) требует коэффициента фильтрации и здесь не считается.
+      Опционально сглаживание напора перед расчётом (градиент усиливает шум).
+    - Демо-генератор скважин: опция добавить поле напора (head) с региональным
+      уклоном - сквозной учебный цикл «демо → кригинг напора → градиент потока».
+    - Инструменты разнесены по двум группам Processing: «Грид и изолинии»
+      (основной поток) и «Дополнительные инструменты» (категориальный
+      индикаторный кригинг и гидравлический градиент).
+    2.4.0
     - В инструменте «2D Kriging» появился блочный кригинг (галка «Блочный
       кригинг» и поле «Дискретизация блока, N×N на ячейку», по умолчанию 4×4).
       Оценивается среднее по ячейке грида, а не значение в её центре: ячейка

@@ -77,9 +77,12 @@ from .kb2d import (
 from .isolines import (
     isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD,
     _gaussian_nodata)
+from . import hydro
 
 GROUP = _tr("Грид и изолинии")
 GROUP_ID = "grid_isolines"
+GROUP2 = _tr("Дополнительные инструменты")
+GROUP2_ID = "extra_tools"
 
 MODEL_LABELS = [_tr("Сферическая"), _tr("Экспоненциальная"), _tr("Гауссова"), _tr("Степенная")]
 KTYPE_LABELS = [_tr("Ординарный (OK)"), _tr("Простой (SK)")]
@@ -1215,8 +1218,8 @@ class CategoricalIndicatorAlgorithm(QgsProcessingAlgorithm):
 
     def tr(self, s): return _tr(s)
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP)
-    def groupId(self): return GROUP_ID
+    def group(self): return self.tr(GROUP2)
+    def groupId(self): return GROUP2_ID
     def name(self): return "categorical_indicator"
     def displayName(self):
         return self.tr("8. Категориальный индикаторный кригинг")
@@ -2196,6 +2199,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
     SMOOTH = "SMOOTH"
     NUGGET_FRAC = "NUGGET_FRAC"
     MINTYPE = "MINTYPE"
+    HEAD = "HEAD"
     SEED = "SEED"
     OUTPUT = "OUTPUT"
 
@@ -2269,6 +2273,10 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             self.MINTYPE,
             self.tr("Добавить категориальное поле минтипа (демо замещения)"),
             defaultValue=False))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.HEAD,
+            self.tr("Добавить поле напора (для градиента потока)"),
+            defaultValue=False))
         p = QgsProcessingParameterNumber(
             self.SEED, self.tr("Зерно ГСЧ (0 = случайно)"),
             QgsProcessingParameterNumber.Integer, defaultValue=0, minValue=0)
@@ -2324,11 +2332,27 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             mt = np.where(repl > 0.72, "Каменная соль замещения",
                  np.where(repl > 0.55, "Частичное замещение кс", "Сильвинит"))
 
+        want_head = self.parameterAsBool(parameters, self.HEAD, context)
+        head = None
+        if want_head:
+            # напор: выраженный региональный уклон (поток вниз по нему) плюс
+            # мягкая локальная вариация. Уклон в случайном направлении, перепад
+            # ~20 м на охват - после кригинга поток идёт осмысленно.
+            ang = rng.uniform(0.0, 2.0 * np.pi)
+            ux, uy = math.cos(ang), math.sin(ang)
+            proj = (xs - xmin) * ux + (ys - ymin) * uy
+            lo, hi = float(proj.min()), float(proj.max())
+            proj = (proj - lo) / ((hi - lo) or 1.0)
+            head = 100.0 + 20.0 * (1.0 - proj) + \
+                _demo_values(rng, G, w, xs, ys, ext, -2.0, 2.0, 0.05)
+
         fields = QgsFields()
         fields.append(QgsField("well", QVariant.String))
         fields.append(QgsField("roof", QVariant.Double))
         fields.append(QgsField("thick", QVariant.Double))
         fields.append(QgsField("X", QVariant.Double))
+        if want_head:
+            fields.append(QgsField("head", QVariant.Double))
         if want_mt:
             fields.append(QgsField("mintype", QVariant.String))
         sink, dest = self.parameterAsSink(
@@ -2340,6 +2364,8 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
                 QgsPointXY(float(xs[i]), float(ys[i]))))
             attrs = ["SK-%04d" % (i + 1), float(roof[i]),
                      float(thick[i]), float(valsX[i])]
+            if want_head:
+                attrs.append(float(head[i]))
             if want_mt:
                 attrs.append(str(mt[i]))
             f.setAttributes(attrs)
@@ -2360,6 +2386,11 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             cc = Counter(mt.tolist())
             feedback.pushInfo(_tr("Поле mintype (демо): ") + ", ".join(
                 "%s=%d" % (k, v) for k, v in cc.items()))
+        if want_head:
+            feedback.pushInfo(_tr(
+                "Поле напора (head): региональный уклон + локальная вариация. "
+                "Кригуйте head, затем подайте растр в «Гидравлический градиент "
+                "и направление потока»."))
         _set_output_name(context, dest, _tr("Скважины (демо)"))
         # псевдонимы полей на демо-слое не ставим: этот слой создан, чтобы
         # подавать его в кригинг/кросс-валидацию, а псевдонимы на временном
@@ -3337,6 +3368,172 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
         ds = None
 
 
+# ===========================================================================
+#  9. Гидравлический градиент и направление потока (гидрогеология)
+# ===========================================================================
+def _write_grid_tiff(path, array, geotr, crs_wkt, nodata, nx, ny):
+    """Пишет одноканальный Float32 GeoTIFF с геопривязкой и nodata."""
+    driver = gdal.GetDriverByName("GTiff")
+    ds = driver.Create(path, nx, ny, 1, gdal.GDT_Float32,
+                       options=["COMPRESS=LZW", "TILED=YES"])
+    ds.SetGeoTransform(geotr)
+    if crs_wkt:
+        ds.SetProjection(crs_wkt)
+    band = ds.GetRasterBand(1)
+    band.SetNoDataValue(nodata)
+    band.WriteArray(array)
+    band.FlushCache()
+    ds = None
+
+
+class FlowGradientAlgorithm(QgsProcessingAlgorithm):
+    INPUT, BAND = "INPUT", "BAND"
+    SMOOTH_RADIUS = "SMOOTH_RADIUS"
+    VECTOR_STEP = "VECTOR_STEP"
+    OUTPUT, OUTPUT_AZIMUTH, OUTPUT_VECTORS = "OUTPUT", "OUTPUT_AZIMUTH", "OUTPUT_VECTORS"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return FlowGradientAlgorithm()
+    def name(self): return "flow_gradient"
+    def displayName(self):
+        return self.tr("9. Гидравлический градиент и направление потока")
+
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP2)
+    def groupId(self): return GROUP2_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "По растру напора (пьезометрической поверхности) строит "
+            "гидравлический градиент и направление потока. Вход - растр напора, "
+            "например результат «2D Kriging» по уровням в скважинах.\n\n"
+            "Выходы: растр модуля градиента |∇h| (безразмерный, м/м), растр "
+            "азимута направления потока (компасный, 0 = север, вниз по "
+            "градиенту) и точечный слой векторов потока для оформления стрелками "
+            "(поля az - азимут, grad - градиент).\n\n"
+            "Это геометрия поля напора, без проницаемости: скорость фильтрации "
+            "по Дарси (v = −K·∇h) требует коэффициента фильтрации K и здесь не "
+            "считается. Изолинии напора стройте инструментом «Изолинии из "
+            "растра».\n\nГрадиент усиливает шум грида - при пятнистом результате "
+            "включите сглаживание (радиус в ячейках) или сгладьте напор в "
+            "«2D Kriging».") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.INPUT, self.tr("Растр напора")))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BAND, self.tr("Канал"),
+            QgsProcessingParameterNumber.Integer, defaultValue=1, minValue=1)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.SMOOTH_RADIUS,
+            self.tr("Сглаживание напора перед расчётом, ячеек (0 = без)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.SMOOTH_RADIUS, 0.0),
+            minValue=0.0, maxValue=10.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.VECTOR_STEP, self.tr("Векторы потока: шаг прореживания, ячеек"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.VECTOR_STEP, 8), minValue=1, maxValue=200))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Гидравлический градиент (модуль)")))
+        az = QgsProcessingParameterRasterDestination(
+            self.OUTPUT_AZIMUTH, self.tr("Направление потока (азимут)"),
+            optional=True, createByDefault=True)
+        self.addParameter(az)
+        vec = QgsProcessingParameterFeatureSink(
+            self.OUTPUT_VECTORS, self.tr("Векторы потока (точки)"),
+            type=QgsProcessing.TypeVectorPoint, optional=True,
+            createByDefault=True)
+        self.addParameter(vec)
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        rl = self.parameterAsRasterLayer(parameters, self.INPUT, context)
+        if rl is None:
+            raise QgsProcessingException(self.tr("Не задан растр напора."))
+        band = self.parameterAsInt(parameters, self.BAND, context)
+        sm_rad = self.parameterAsDouble(parameters, self.SMOOTH_RADIUS, context)
+        step = self.parameterAsInt(parameters, self.VECTOR_STEP, context)
+        name = _short(rl.name())
+
+        ds = gdal.Open(rl.source())
+        if ds is None:
+            raise QgsProcessingException(self.tr("Не удалось открыть растр напора."))
+        b = ds.GetRasterBand(band)
+        arr = b.ReadAsArray().astype(float)
+        gt = ds.GetGeoTransform()
+        src_nd = b.GetNoDataValue()
+        ds = None
+        ny, nx = arr.shape
+        cellx = abs(gt[1]) or 1.0
+        celly = abs(gt[5]) or 1.0
+        nodata = -9999.0
+
+        valid = np.isfinite(arr)
+        if src_nd is not None:
+            valid &= (arr != src_nd)
+        if not valid.any():
+            raise QgsProcessingException(self.tr("В растре напора нет данных."))
+
+        feedback.pushInfo(_tr("Растр напора %d x %d, ячейка %.4g x %.4g.")
+                          % (nx, ny, cellx, celly))
+        if sm_rad and sm_rad > 0:
+            feedback.pushInfo(_tr("Сглаживание напора (σ=%g яч.)…") % sm_rad)
+            arr = _gaussian_nodata(np.where(valid, arr, 0.0), valid, float(sm_rad))
+        z = np.where(valid, arr, nodata)
+
+        feedback.setProgress(40)
+        mag, az = hydro.head_gradient(z, cellx, celly, nodata)
+        feedback.setProgress(60)
+
+        crs = rl.crs()
+        crs_wkt = crs.toWkt() if (crs is not None and crs.isValid()) else None
+
+        out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+        az_path = self.parameterAsOutputLayer(
+            parameters, self.OUTPUT_AZIMUTH, context) or None
+        _write_grid_tiff(out_path, mag, gt, crs_wkt, nodata, nx, ny)
+        _set_output_name(context, out_path,
+                         _tr("Гидравлический градиент · %s") % name)
+        results = {self.OUTPUT: out_path}
+        if az_path:
+            _write_grid_tiff(az_path, az, gt, crs_wkt, nodata, nx, ny)
+            _set_output_name(context, az_path,
+                             _tr("Направление потока · %s") % name)
+            results[self.OUTPUT_AZIMUTH] = az_path
+        feedback.setProgress(75)
+
+        # векторное поле стрелок: точки с азимутом и градиентом
+        fields = QgsFields()
+        fields.append(QgsField("az", QVariant.Double))
+        fields.append(QgsField("grad", QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT_VECTORS, context, fields,
+            QgsWkbTypes.Point, crs)
+        if sink is not None:
+            xs, ys, azs, grs = hydro.flow_samples(mag, az, gt, step, nodata)
+            for i in range(len(xs)):
+                f = QgsFeature(fields)
+                f.setGeometry(QgsGeometry.fromPointXY(
+                    QgsPointXY(float(xs[i]), float(ys[i]))))
+                f.setAttributes([float(azs[i]), float(grs[i])])
+                sink.addFeature(f)
+            feedback.pushInfo(
+                _tr("Векторов потока: %d (шаг %d яч.). Слой оформлен стрелками "
+                "автоматически: поворот по полю «az», размер по «grad». "
+                "Символику можно поменять в свойствах слоя.")
+                % (len(xs), max(int(step), 1)))
+            _set_output_name(context, dest, _tr("Векторы потока · %s") % name)
+            _attach_style(context, dest, _style_path("flow_arrows"))
+            results[self.OUTPUT_VECTORS] = dest
+
+        _save_values(self, _saved)
+        feedback.setProgress(100)
+        return results
+
+
 ALGORITHMS = [
     Kriging2DAlgorithm,
     CategoricalIndicatorAlgorithm,
@@ -3346,4 +3543,5 @@ ALGORITHMS = [
     CrossValidationAlgorithm,
     ExampleWellsAlgorithm,
     ProfilesAlgorithm,
+    FlowGradientAlgorithm,
 ]
