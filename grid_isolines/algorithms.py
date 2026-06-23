@@ -71,7 +71,7 @@ from qgis.core import (
 
 from .kb2d import (
     Variogram, build_grid, clip_outliers, cross_validate, EPS, PolyTrend,
-    cross_validate_detrend,
+    cross_validate_detrend, ExternalDrift,
     experimental_variogram, fit_variogram, model_curve, variogram_map,
     MODEL_SPHERICAL, MODEL_EXPONENTIAL, MODEL_GAUSSIAN, GAUSS_MIN_NUGGET_FRAC)
 from .isolines import (
@@ -833,6 +833,73 @@ def _build_variogram(alg, parameters, context, nugget, auto_range, feedback=None
     return vg
 
 
+def _sample_raster_bilinear(src, xd, yd, band=1):
+    """Билинейная выборка значений растра в точках (xd, yd).
+
+    Используется кригингом с внешним дрейфом: снимает значение s растра дрейфа
+    в каждой скважине. Возвращает массив длины len(xd) с np.nan там, где точка
+    вне растра либо все четыре соседних пикселя - nodata. Веса соседей с nodata
+    обнуляются и нормируются, поэтому у края покрытия выборка остаётся честной.
+    Координаты точек считаются в той же системе, что и растр (CRS совмещены
+    вызывающей стороной). Растр предполагается осеориентированным (gt[2]=gt[4]=0).
+    """
+    ds = gdal.Open(src)
+    if ds is None:
+        return None
+    b = ds.GetRasterBand(int(band))
+    arr = b.ReadAsArray().astype(float)
+    gt = ds.GetGeoTransform()
+    nd = b.GetNoDataValue()
+    ds = None
+    ny, nx = arr.shape
+    valid = np.isfinite(arr)
+    if nd is not None:
+        valid &= (arr != nd)
+    px = float(gt[1]) or 1.0
+    py = float(gt[5]) or 1.0
+    fx = (np.asarray(xd, float) - gt[0]) / px - 0.5
+    fy = (np.asarray(yd, float) - gt[3]) / py - 0.5
+    x0 = np.floor(fx).astype(int)
+    y0 = np.floor(fy).astype(int)
+    tx = fx - x0
+    ty = fy - y0
+    out = np.full(len(fx), np.nan, float)
+    for k in range(len(fx)):
+        i0, j0 = int(y0[k]), int(x0[k])
+        acc = 0.0
+        wsum = 0.0
+        for dj, wx in ((0, 1.0 - tx[k]), (1, tx[k])):
+            for di, wy in ((0, 1.0 - ty[k]), (1, ty[k])):
+                ii, jj = i0 + di, j0 + dj
+                if 0 <= ii < ny and 0 <= jj < nx and valid[ii, jj]:
+                    w = wx * wy
+                    acc += w * arr[ii, jj]
+                    wsum += w
+        if wsum > 0.0:
+            out[k] = acc / wsum
+    return out
+
+
+def _resample_drift_to_grid(src, xmin, ymin, cell, nx, ny, band=1):
+    """Передискретизация растра дрейфа на сетку кригинга (билинейно).
+
+    Сетка совпадает с build_grid: геотрансформация (xmin, cell, 0,
+    ymin+ny*cell, 0, -cell), центры ячеек = узлы оценки, строка 0 - север.
+    Возвращает (ny, nx) float с np.nan в ячейках без покрытия. CRS не меняется:
+    растр дрейфа и точки должны быть в одной системе координат.
+    """
+    out_bounds = (float(xmin), float(ymin),
+                  float(xmin) + nx * cell, float(ymin) + ny * cell)
+    ds = gdal.Warp("", src, format="MEM", outputBounds=out_bounds,
+                   width=int(nx), height=int(ny),
+                   resampleAlg=gdal.GRA_Bilinear, dstNodata=float("nan"))
+    if ds is None:
+        return None
+    arr = ds.GetRasterBand(int(band)).ReadAsArray().astype(float)
+    ds = None
+    return arr
+
+
 def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
                          out_path, mask_layer=None, stderr_path=None):
     """Считывает параметры кригинга, строит грид, пишет GeoTIFF.
@@ -888,6 +955,55 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
                 "(s данных %.4g, s остатка %.4g). Вариограмму задавайте по "
                 "остаткам, стандартная ошибка - это ошибка кригинга остатков.")
                 % (degree, share, math.sqrt(var0), math.sqrt(var1)))
+
+    # --- кригинг с внешним дрейфом: снятие дрейфа по растру -----------------
+    # Дрейф - линейная (или квадратичная) регрессия значения на стороннюю
+    # величину s, известную всюду (растр). Снимается МНК, кригуются остатки, а
+    # дрейф возвращается к оценке из того же растра, пересчитанного на сетку.
+    # Та же схема регрессия-кригинг, что и у полиномиального тренда. Параметры
+    # есть только у инструмента внешнего дрейфа, поэтому читаем через getattr.
+    drift = None
+    drift_src = None
+    drift_band = 1
+    if getattr(alg, "DRIFT_RASTER", None) and \
+            parameters.get(alg.DRIFT_RASTER) not in (None, ""):
+        rl = alg.parameterAsRasterLayer(parameters, alg.DRIFT_RASTER, context)
+        if rl is None:
+            raise QgsProcessingException(_tr("Не удалось открыть растр дрейфа."))
+        drift_src = rl.source()
+        if getattr(alg, "DRIFT_BAND", None):
+            drift_band = max(int(alg.parameterAsInt(
+                parameters, alg.DRIFT_BAND, context)), 1)
+        if rl.crs() != source.sourceCrs():
+            feedback.pushWarning(_tr(
+                "Растр дрейфа и точки в разных системах координат. Совместите "
+                "CRS, иначе выборка дрейфа в скважинах будет неверной."))
+        ddeg = alg.parameterAsEnum(parameters, alg.DRIFT_DEG, context) + 1
+        s_pts = _sample_raster_bilinear(drift_src, xd, yd, drift_band)
+        if s_pts is None:
+            raise QgsProcessingException(_tr("Не удалось прочитать растр дрейфа."))
+        ok = np.isfinite(s_pts)
+        need = ExternalDrift.n_terms(ddeg)
+        if int(ok.sum()) <= need:
+            feedback.pushWarning(_tr(
+                "Внешний дрейф отключён: точек со значением дрейфа %d, для "
+                "модели нужно больше %d.") % (int(ok.sum()), need))
+        else:
+            if not ok.all():
+                feedback.pushWarning(_tr(
+                    "Отброшено %d точек вне растра дрейфа (нет значения s).")
+                    % int((~ok).sum()))
+                xd, yd, vrd, s_pts = xd[ok], yd[ok], vrd[ok], s_pts[ok]
+            var0 = float(np.var(vrd))
+            drift = ExternalDrift.fit(s_pts, vrd, ddeg)
+            vrd = drift.residuals(s_pts, vrd)
+            var1 = float(np.var(vrd))
+            share = 100.0 * (1.0 - var1 / var0) if var0 > 0 else 0.0
+            feedback.pushInfo(_tr(
+                "Снят внешний дрейф степени %d: убрано %.1f%% дисперсии "
+                "(s данных %.4g, s остатка %.4g). Кригуются остатки, дрейф "
+                "возвращается к оценке из растра. Вариограмму задавайте по "
+                "остаткам.") % (ddeg, share, math.sqrt(var0), math.sqrt(var1)))
 
     ext = alg.parameterAsExtent(parameters, alg.EXTENT, context)
     if ext is None or ext.isEmpty():
@@ -953,6 +1069,31 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
             if m.any():
                 tr_row = trend(xs_cells[m], np.full(int(m.sum()), yloc))
                 grid[row, m] = grid[row, m] + tr_row.astype(grid.dtype)
+
+    # --- внешний дрейф: возврат дрейфа к оценке из растра -------------------
+    # Растр дрейфа пересчитывается на ту же сетку (центры ячеек = узлы), дрейф
+    # m(s) добавляется к кригованным остаткам. Ячейки, не покрытые растром
+    # дрейфа, достроить нельзя - их оценка и стандартная ошибка становятся
+    # nodata. Дрейф детерминирован, своей погрешности к ошибке не добавляет.
+    if drift is not None:
+        sg = _resample_drift_to_grid(drift_src, xmin, ymin, cell, nx, ny,
+                                     drift_band)
+        if sg is None:
+            raise QgsProcessingException(_tr(
+                "Не удалось пересчитать растр дрейфа на сетку кригинга."))
+        have_s = np.isfinite(sg)
+        dvals = drift(sg.ravel()).reshape(sg.shape)
+        add = (grid != nodata) & have_s
+        grid[add] = grid[add] + dvals[add].astype(grid.dtype)
+        lost = (grid != nodata) & (~have_s)
+        n_lost = int(lost.sum())
+        if n_lost:
+            grid[lost] = nodata
+            if segrid is not None:
+                segrid[lost] = nodata
+            feedback.pushInfo(_tr(
+                "%d ячеек оставлены пустыми: растр дрейфа их не покрывает.")
+                % n_lost)
 
     crs = source.sourceCrs()
     geotr = (xmin, cell, 0.0, ymin + ny * cell, 0.0, -cell)
@@ -1091,7 +1232,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return Kriging2DAlgorithm()
     def name(self): return "kriging2d"
-    def displayName(self): return self.tr("1. 2D Kriging (точки → растр)")
+    def displayName(self): return self.tr("1.1 2D Kriging (точки → растр)")
 
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
@@ -1222,7 +1363,7 @@ class CategoricalIndicatorAlgorithm(QgsProcessingAlgorithm):
     def groupId(self): return GROUP2_ID
     def name(self): return "categorical_indicator"
     def displayName(self):
-        return self.tr("8. Категориальный индикаторный кригинг")
+        return self.tr("2.1 Категориальный индикаторный кригинг")
     def createInstance(self): return CategoricalIndicatorAlgorithm()
 
     def shortHelpString(self):
@@ -1424,7 +1565,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return RasterToIsolinesAlgorithm()
     def name(self): return "raster_to_isolines"
-    def displayName(self): return self.tr("2. Изолинии из растра")
+    def displayName(self): return self.tr("1.2 Изолинии из растра")
 
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
@@ -1881,7 +2022,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
         return "crossvalidation"
 
     def displayName(self):
-        return self.tr("5. Кросс-валидация вариограммы")
+        return self.tr("1.5 Кросс-валидация вариограммы")
 
     def group(self): return self.tr(GROUP)
 
@@ -2202,6 +2343,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
     HEAD = "HEAD"
     SEED = "SEED"
     OUTPUT = "OUTPUT"
+    OUTPUT_DRIFT = "OUTPUT_DRIFT"
 
     def tr(self, s): return _tr(s)
 
@@ -2211,7 +2353,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         return "examplewells"
 
     def displayName(self):
-        return self.tr("6. Создать пример скважин (демо)")
+        return self.tr("1.6 Создать пример скважин (демо)")
 
     def group(self): return self.tr(GROUP)
 
@@ -2233,7 +2375,11 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             "Поля результата: номер скважины, абсолютная отметка кровли (roof), "
             "мощность (thick) и содержание X. Диапазоны кровли и мощности по "
             "умолчанию близки к реальным калийным данным; их можно изменить в "
-            "разделе «Дополнительно»."))
+            "разделе «Дополнительно».\n\nНеобязательные галки добавляют поля для "
+            "смежных инструментов: напор (head) для градиента потока и "
+            "категориальный минтип для индикаторного кригинга. Включённый вывод "
+            "«Поверхность дрейфа» даёт растр сторонней поверхности и поле dz, "
+            "линейно с ней связанное, для кригинга с внешним дрейфом."))
 
     def createInstance(self):
         return ExampleWellsAlgorithm()
@@ -2284,6 +2430,17 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Скважины (демо)"),
             type=QgsProcessing.TypeVectorPoint))
+        dr = QgsProcessingParameterRasterDestination(
+            self.OUTPUT_DRIFT,
+            self.tr("Поверхность дрейфа (растр) + поле dz, для внешнего дрейфа"),
+            optional=True, createByDefault=False)
+        dr.setHelp(self.tr(
+            "Включите этот вывод, чтобы получить пару для кригинга с внешним "
+            "дрейфом: растр гладкой сторонней поверхности s (известна всюду) и "
+            "поле dz скважин, линейно с ней связанное. Запустите «Кригинг с "
+            "внешним дрейфом» по полю dz с этим растром как дрейфом. Если вывод "
+            "пропущен, поле dz не добавляется. По умолчанию выключено."))
+        self.addParameter(dr)
 
     def processAlgorithm(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
@@ -2346,6 +2503,25 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             head = 100.0 + 20.0 * (1.0 - proj) + \
                 _demo_values(rng, G, w, xs, ys, ext, -2.0, 2.0, 0.05)
 
+        drift_path = self.parameterAsOutputLayer(
+            parameters, self.OUTPUT_DRIFT, context)
+        want_drift = bool(drift_path)
+        drift_grid = None
+        dz = None
+        if want_drift:
+            # сторонняя структурная поверхность s(x,y) (соседний/подстилающий
+            # пласт): гладкая, крупные пятна, без шума - известна всюду. Поле dz
+            # скважин линейно связано с s (кровля целевого пласта повторяет
+            # подстилающую поверхность) плюс мягкая локальная структура. На этой
+            # паре «растр s + поле dz» показывают «Кригинг с внешним дрейфом».
+            wd = max(1, int(round(min(max(smooth * 1.4, 0.08), 0.6) * G)))
+            sfield = _demo_field(rng, G, wd)        # GxG, среднее 0, ст.откл. 1
+            s_lo, s_hi = -320.0, -120.0
+            drift_grid = 0.5 * (s_lo + s_hi) + sfield * (0.25 * (s_hi - s_lo))
+            s_at_well = _demo_sample(drift_grid, xs, ys, xmin, xmax, ymin, ymax)
+            local = _demo_values(rng, G, w, xs, ys, ext, -4.0, 4.0, 0.12)
+            dz = 30.0 + 0.9 * s_at_well + local
+
         fields = QgsFields()
         fields.append(QgsField("well", QVariant.String))
         fields.append(QgsField("roof", QVariant.Double))
@@ -2355,6 +2531,8 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             fields.append(QgsField("head", QVariant.Double))
         if want_mt:
             fields.append(QgsField("mintype", QVariant.String))
+        if want_drift:
+            fields.append(QgsField("dz", QVariant.Double))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Point, crs)
@@ -2368,6 +2546,8 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
                 attrs.append(float(head[i]))
             if want_mt:
                 attrs.append(str(mt[i]))
+            if want_drift:
+                attrs.append(float(dz[i]))
             f.setAttributes(attrs)
             sink.addFeature(f)
 
@@ -2391,13 +2571,32 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
                 "Поле напора (head): региональный уклон + локальная вариация. "
                 "Кригуйте head, затем подайте растр в «Гидравлический градиент "
                 "и направление потока»."))
+        results = {self.OUTPUT: dest}
+        if want_drift:
+            # растр пишется так, что центры пикселей совпадают с узлами
+            # _demo_sample (G узлов от края до края), поэтому выборка дрейфа в
+            # скважинах инструментом внешнего дрейфа воспроизводит s_at_well.
+            cellx = (xmax - xmin) / (G - 1)
+            celly = (ymax - ymin) / (G - 1)
+            geotr = (xmin - 0.5 * cellx, cellx, 0.0,
+                     ymax + 0.5 * celly, 0.0, -celly)
+            crs_wkt = crs.toWkt() if (crs is not None and crs.isValid()) else None
+            _write_grid_tiff(drift_path, np.flipud(drift_grid).astype(np.float32),
+                             geotr, crs_wkt, -9999.0, G, G)
+            _set_output_name(context, drift_path, _tr("Поверхность дрейфа (демо)"))
+            results[self.OUTPUT_DRIFT] = drift_path
+            feedback.pushInfo(_tr(
+                "Поверхность дрейфа (растр) и поле dz: dz линейно связано с "
+                "поверхностью. Запустите «Кригинг с внешним дрейфом» по полю dz "
+                "с этим растром как дрейфом - сравните с обычным «2D Kriging» "
+                "по dz без дрейфа."))
         _set_output_name(context, dest, _tr("Скважины (демо)"))
         # псевдонимы полей на демо-слое не ставим: этот слой создан, чтобы
         # подавать его в кригинг/кросс-валидацию, а псевдонимы на временном
         # слое вызывают предупреждения «не совместимы с временными слоями»
         # при дальнейшей обработке. Имена полей (well, roof, thick, X) понятны.
         feedback.setProgress(100)
-        return {self.OUTPUT: dest}
+        return results
 
 
 def _add_model_params(alg):
@@ -2612,7 +2811,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
     def name(self): return "experimental_variogram"
 
     def displayName(self):
-        return self.tr("3. Вариограмма (экспериментальная)")
+        return self.tr("1.3 Вариограмма (экспериментальная)")
 
     def group(self): return self.tr(GROUP)
 
@@ -2947,7 +3146,7 @@ class ProfilesAlgorithm(QgsProcessingAlgorithm):
 
     def name(self): return "profiles"
 
-    def displayName(self): return self.tr("7. Профили обработки")
+    def displayName(self): return self.tr("1.7 Профили обработки")
 
     def group(self): return self.tr(GROUP)
 
@@ -3140,7 +3339,7 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def helpUrl(self): return _help_url()
     def name(self): return "variogram_map"
-    def displayName(self): return self.tr("4. Вариограммная карта (анизотропия)")
+    def displayName(self): return self.tr("1.4 Вариограммная карта (анизотропия)")
     def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
     def createInstance(self): return VariogramMapAlgorithm()
@@ -3396,7 +3595,7 @@ class FlowGradientAlgorithm(QgsProcessingAlgorithm):
     def createInstance(self): return FlowGradientAlgorithm()
     def name(self): return "flow_gradient"
     def displayName(self):
-        return self.tr("9. Гидравлический градиент и направление потока")
+        return self.tr("2.3 Гидравлический градиент и направление потока")
 
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP2)
@@ -3534,6 +3733,127 @@ class FlowGradientAlgorithm(QgsProcessingAlgorithm):
         return results
 
 
+class ExternalDriftKrigingAlgorithm(QgsProcessingAlgorithm):
+    """Кригинг с внешним дрейфом (External Drift) - регрессия-кригинг по
+    сторонней переменной, известной всюду (растр). Опирается на то же ядро,
+    что и «2D Kriging»: дрейф снимается регрессией, кригуются остатки, дрейф
+    возвращается к оценке из растра. Математика кригинга не меняется."""
+
+    INPUT, ZFIELD = "INPUT", "ZFIELD"
+    DRIFT_RASTER, DRIFT_BAND, DRIFT_DEG = "DRIFT_RASTER", "DRIFT_BAND", "DRIFT_DEG"
+    KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
+    RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
+    CELL_SIZE, EXTENT, OUTPUT = "CELL_SIZE", "EXTENT", "OUTPUT"
+    CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
+    OUTPUT_STDERR = "OUTPUT_STDERR"
+    VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
+    SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return ExternalDriftKrigingAlgorithm()
+    def name(self): return "kriging_external_drift"
+    def displayName(self):
+        return self.tr("2.2 Кригинг с внешним дрейфом (External Drift)")
+
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP2)
+    def groupId(self): return GROUP2_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Кригинг с внешним дрейфом (External Drift): оценка по точкам, "
+            "когда поле закономерно связано со сторонней величиной, известной "
+            "всюду в виде растра (структурная поверхность соседнего пласта, "
+            "грубая региональная модель, сейсмический атрибут).\n\nДрейф "
+            "снимается регрессией значения на растр, кригуются остатки, дрейф "
+            "возвращается к оценке из того же растра. Это та же схема регрессия-"
+            "кригинг, что и флажок «Снять полиномиальный тренд» у «2D Kriging», "
+            "только дрейф здесь не функция координат, а функция внешнего "
+            "значения. Степень дрейфа 1 (линейный) почти всегда достаточна.\n\n"
+            "Вариограмму задавайте по ОСТАТКАМ. Растр дрейфа и точки должны быть "
+            "в одной системе координат. Ячейки вне покрытия растра дрейфа "
+            "остаются пустыми. Поиск, анизотропия, обрезка и стандартная ошибка "
+            "- как у «2D Kriging».") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Точечный слой"),
+            [QgsProcessing.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            self.ZFIELD, self.tr("Поле значения (Z)"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric,
+            defaultValue=_dv(self, self.ZFIELD, None)))
+        dr = QgsProcessingParameterRasterLayer(
+            self.DRIFT_RASTER, self.tr("Растр внешнего дрейфа (известен всюду)"))
+        dr.setHelp(self.tr(
+            "Сторонняя величина s, заданная растром во всей области: соседний "
+            "пласт, структурная поверхность, грубая модель, сейсмический "
+            "атрибут. Значение поля Z регрессируется на s, кригуются остатки, "
+            "дрейф возвращается из растра. Растр должен покрывать область "
+            "оценки и быть в той же системе координат, что и точки."))
+        self.addParameter(dr)
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.DRIFT_BAND, self.tr("Канал растра дрейфа"),
+            QgsProcessingParameterNumber.Integer, defaultValue=1, minValue=1)))
+        ddeg = QgsProcessingParameterEnum(
+            self.DRIFT_DEG, self.tr("Степень дрейфа"),
+            options=[self.tr("1 (линейный)"), self.tr("2 (квадратичный)")],
+            defaultValue=_dv(self, self.DRIFT_DEG, 0))
+        ddeg.setHelp(self.tr(
+            "Связь значения с внешней величиной s. Степень 1 - линейный дрейф "
+            "m = a0 + a1·s, обычный выбор для External Drift. Степень 2 "
+            "описывает изогнутую связь m = a0 + a1·s + a2·s², но может вобрать "
+            "часть реальной структуры в дрейф - после неё посмотрите на "
+            "вариограмму остатков."))
+        self.addParameter(ddeg)
+        _add_kriging_params(self)
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.SMOOTH, self.tr("Сгладить грид (Гаусс)"),
+            defaultValue=_dv(self, self.SMOOTH, False)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.SMOOTH_RADIUS, self.tr("Радиус сглаживания, ячеек"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.SMOOTH_RADIUS, 1.0),
+            minValue=0.0, maxValue=10.0))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Растр кригинга с дрейфом")))
+        se = QgsProcessingParameterRasterDestination(
+            self.OUTPUT_STDERR, self.tr("Стандартная ошибка кригинга"),
+            optional=True, createByDefault=False)
+        se.setHelp(self.tr(
+            "Необязательный растр стандартной ошибки кригинга остатков "
+            "(sqrt дисперсии): мера неопределённости. Дрейф детерминирован и "
+            "своей погрешности к ней не добавляет."))
+        self.addParameter(se)
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        source = self.parameterAsSource(parameters, self.INPUT, context)
+        zfield = self.parameterAsString(parameters, self.ZFIELD, context)
+        out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+        se_path = self.parameterAsOutputLayer(
+            parameters, self.OUTPUT_STDERR, context) or None
+        layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
+        src = layer.name() if layer is not None else "data"
+        mask = _build_mask(self, parameters, context, feedback, layer)
+        path, _, se = _run_kriging_to_tiff(self, parameters, context, feedback,
+                                           source, zfield, out_path, mask,
+                                           stderr_path=se_path)
+        _set_output_name(context, path,
+                         _tr("Кригинг+дрейф %s · %s") % (zfield, _short(src)))
+        results = {self.OUTPUT: path}
+        if se:
+            _set_output_name(context, se,
+                             _tr("Стд. ошибка · %s · %s") % (zfield, _short(src)))
+            results[self.OUTPUT_STDERR] = se
+        _save_values(self, _saved)
+        feedback.setProgress(100)
+        return results
+
+
 ALGORITHMS = [
     Kriging2DAlgorithm,
     CategoricalIndicatorAlgorithm,
@@ -3544,4 +3864,5 @@ ALGORITHMS = [
     ExampleWellsAlgorithm,
     ProfilesAlgorithm,
     FlowGradientAlgorithm,
+    ExternalDriftKrigingAlgorithm,
 ]

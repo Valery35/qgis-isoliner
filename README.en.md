@@ -5,33 +5,23 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The **"Grid and isolines"** group contains nine tools:
+The tools are split into two Processing groups — **"Grid and isolines"** and **"Additional tools"** — ten in all:
 
-1. **2D Kriging (points → raster)** — ordinary/simple kriging over a point
-   layer, point or block. Core: GSLIB KB2D.
-2. **Isolines from raster** — isolines (lines) and contour polygons (bands
-   between isolines) whose boundaries coincide with the lines.
-3. **Variogram (experimental)** — isotropic experimental variogram from points
-   with model fitting (nugget, sill, range) and an HTML report. Lets you set the
-   variogram from the shape of the cloud rather than by eye.
-4. **Variogram map (anisotropy)** — γ(h_x, h_y) surface: anisotropy shows as an
-   ellipse; estimates the major-axis azimuth, anisotropy ratio and range to feed
-   into kriging.
-5. **Variogram cross-validation** — leave-one-out check: validate and tune
-   kriging parameters by error, not by eye.
-6. **Create sample wells (demo)** — generates a training point layer with roof,
-   thickness and a component grade.
-7. **Processing profiles** — named sets of "variogram (Structure 1) + outlier
-   removal" saved by Variogram and Cross-validation and applied by 2D Kriging.
-   Global storage, list management.
-8. **Categorical indicator kriging** — for a categorical field (mineral type,
-   lithotype) it builds a 0/1 indicator per class, krige each with the KB2D core
-   and normalises the probabilities. Outputs: a multiband probability raster, a
-   zone map and a confidence raster.
-9. **Hydraulic gradient and flow direction** — from a head raster it builds the
-   hydraulic gradient |∇h|, the flow-direction azimuth (down-gradient) and a
-   point layer of flow vectors (styled as arrows automatically). Hydrogeology without
-   permeability.
+### "Grid and isolines" group
+
+- **1.1 2D Kriging (points → raster)** — ordinary/simple kriging over a point layer, point or block. Core: GSLIB KB2D.
+- **1.2 Isolines from raster** — isolines (lines) and contour polygons (bands between isolines) whose boundaries coincide with the lines.
+- **1.3 Variogram (experimental)** — isotropic experimental variogram from points with model fitting (nugget, sill, range) and an HTML report. Lets you set the variogram from the shape of the cloud rather than by eye.
+- **1.4 Variogram map (anisotropy)** — γ(h_x, h_y) surface: anisotropy shows as an ellipse. Estimates the major-axis azimuth, anisotropy ratio and range to feed into kriging.
+- **1.5 Variogram cross-validation** — leave-one-out check: validate and tune kriging parameters by error, not by eye.
+- **1.6 Create sample wells (demo)** — generates a training point layer with roof, thickness and a grade. Adds fields for the related tools: head, a categorical mineral type, and, as a separate output, a drift surface (raster) with a dz field.
+- **1.7 Processing profiles** — named sets of "variogram (Structure 1) + outlier removal" saved by Variogram and Cross-validation and applied by 2D Kriging. Global storage, list management.
+
+### "Additional tools" group
+
+- **2.1 Categorical indicator kriging** — for a categorical field (mineral type, lithotype) it builds a 0/1 indicator per class, krige each with the KB2D core and normalises the probabilities. Outputs: a multiband probability raster, a zone map and a confidence raster.
+- **2.2 External Drift Kriging** — estimation from points when the field is related to a secondary variable known everywhere as a raster (the structural surface of an adjacent seam, a coarse model, a seismic attribute). The drift is removed by regression, the residuals are kriged, and the drift is added back from the raster. The same regression-kriging scheme as trend removal, only here the drift is a function of the external value, not of the coordinates.
+- **2.3 Hydraulic gradient and flow direction** — from a head raster it builds the hydraulic gradient |∇h|, the flow-direction azimuth (down-gradient) and a point layer of flow vectors (styled as arrows automatically). Hydrogeology without permeability.
 
 Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
 and any numeric attribute.
@@ -156,6 +146,7 @@ panel shows a short hint.
 - **Smoothness (fraction of extent)** — correlation range (larger = larger
   "patches").
 - **Nugget fraction (of variance)** — short-range noise (less predictability).
+- Fields for the related tools: checkboxes **head** (for the flow gradient) and a **categorical mineral type** (for indicator kriging), plus the **drift surface** output - an s raster and a related dz field for external drift.
 - The starting variogram is printed to the Log. The data is usable for
   kriging/CV.
 
@@ -249,6 +240,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.6.0** — a new tool **External Drift Kriging**: regression kriging against an external raster known everywhere (an adjacent seam, a coarse model, a seismic attribute). The drift is removed by regression, the residuals are kriged, and the drift is added back from the raster. Degree 1 or 2; search, anisotropy, clipping and the standard error as in 2D Kriging. The demo generator can output a drift surface (raster) and a related dz field for an end-to-end check. Tools are renumbered per group: "Grid and isolines" 1.1-1.7, "Additional tools" 2.1-2.3 (the old flat 1-10 sorted as strings).
 - **2.5.0** — a new tool **Hydraulic gradient and flow direction**
   (hydrogeology): from a head raster it builds the gradient magnitude |∇h|, the
   flow-direction azimuth (down-gradient) and a point layer of flow vectors

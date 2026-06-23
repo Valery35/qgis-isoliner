@@ -81,15 +81,15 @@ def missing_keys(keys):
 
 TRANSLATIONS = {
     'Размер ячейки (0 = авто, min(охват)/50)': 'Cell size (0 = auto, min(extent)/50)',
-    '1. 2D Kriging (точки → растр)': '1. 2D Kriging (points → raster)',
-    '2. Изолинии из растра': '2. Isolines from raster',
-    '5. Кросс-валидация вариограммы': '5. Variogram cross-validation',
+    '1.1 2D Kriging (точки → растр)': '1.1 2D Kriging (points → raster)',
+    '1.2 Изолинии из растра': '1.2 Isolines from raster',
+    '1.5 Кросс-валидация вариограммы': '1.5 Variogram cross-validation',
     'Грид и изолинии': 'Grid and isolines',
     'Дополнительные инструменты': 'Additional tools',
-    '6. Создать пример скважин (демо)': '6. Create sample wells (demo)',
-    '3. Вариограмма (экспериментальная)': '3. Variogram (experimental)',
-    '7. Профили обработки': '7. Processing profiles',
-    '4. Вариограммная карта (анизотропия)': '4. Variogram map (anisotropy)',
+    '1.6 Создать пример скважин (демо)': '1.6 Create sample wells (demo)',
+    '1.3 Вариограмма (экспериментальная)': '1.3 Variogram (experimental)',
+    '1.7 Профили обработки': '1.7 Processing profiles',
+    '1.4 Вариограммная карта (анизотропия)': '1.4 Variogram map (anisotropy)',
     'Тип кригинга': 'Kriging type',
     'Радиус поиска (0 = вся выборка)': 'Search radius (0 = whole sample)',
     'Мин. число точек': 'Min. number of points',
@@ -112,7 +112,7 @@ TRANSLATIONS = {
     'Стандартная ошибка кригинга': 'Kriging standard error',
     'Необязательный растр стандартной ошибки кригинга (sqrt дисперсии ошибки): мера неопределённости оценки. Мала у скважин, растёт вдали от данных.': 'Optional kriging standard-error raster (sqrt of error variance): a measure of estimate uncertainty. Small near wells, grows away from data.',
     'Скользящий контроль (leave-one-out): каждая скважина по очереди исключается, её значение предсказывается кригингом по остальным, и сравнивается с фактическим. Помогает подобрать вариограмму (наггет, радиус, модель) по ошибке, а не на глаз.\n\nВ Журнал выводятся метрики: ME (смещение, к 0), RMSE (меньше - лучше), MSDR (к 1 - вариограмма адекватна по масштабу), R. Перебирайте параметры и сравнивайте RMSE и MSDR.\n\nСлой остатков (опц.) - точки со следующими полями:\n  • <номер скважины> - если задано «Поле номера скважины»;\n  • <имя проверяемого поля> - фактическое значение (факт);\n  • z_est - оценка кригинга по остальным точкам (LOO);\n  • error - оценка минус факт (минус: занижено, плюс: завышено);\n  • abs_error - модуль ошибки;\n  • std_resid - стандартизованный остаток: error / стандартную ошибку кригинга, со знаком (это не дисперсия).\nПо нему видно, где модель промахивается.\n\nHTML-отчёт (по умолчанию) открывается в просмотрщике результатов: интерактивный график «оценка vs факт», гистограмма ошибок и таблица метрик.': 'Leave-one-out cross-validation: each well is removed in turn, its value is predicted by kriging from the rest, and compared with the actual value. Helps tune the variogram (nugget, range, model) by error rather than by eye.\n\nThe Log reports metrics: ME (bias, → 0), RMSE (lower is better), MSDR (→ 1 means the variogram is adequate in scale), R. Try different parameters and compare RMSE and MSDR.\n\nResiduals layer (opt.) - points with the following fields:\n  • <well number> - if "Well number field" is set;\n  • <validated field name> - the actual value;\n  • z_est - kriging estimate from the other points (LOO);\n  • error - estimate minus actual (minus: under, plus: over);\n  • abs_error - absolute error;\n  • std_resid - standardized residual: error / kriging standard error, signed (not a variance).\nIt shows where the model misses.\n\nThe HTML report (default) opens in the result viewer: an interactive "estimate vs actual" plot, an error histogram and a metrics table.',
-    'Создаёт точечный слой «скважин» со случайными координатами в пределах области и значением абстрактного компонента (X, %), имеющим пространственную структуру. Предназначен для обучения и проверки инструментов без реальных данных.\n\nОбласть задаётся экстентом (можно по слою, по холсту карты, вручную координатами или рисованием). «Гладкость» задаёт радиус корреляции как долю охвата (больше - крупнее «пятна»). «Доля наггета» задаёт долю дисперсии, приходящуюся на короткомасштабный шум (чем больше, тем меньше предсказуемость). В Журнал выводится стартовая вариограмма - её уточняют кросс-валидацией.\n\nПоля результата: номер скважины, абсолютная отметка кровли (roof), мощность (thick) и содержание X. Диапазоны кровли и мощности по умолчанию близки к реальным калийным данным; их можно изменить в разделе «Дополнительно».': 'Creates a point "wells" layer with random coordinates within an area and a value of an abstract component (X, %), with a spatial structure. Intended for learning and testing the tools without real data.\n\nThe area is set by an extent (by layer, by map canvas, manually by coordinates or by drawing). "Smoothness" sets the correlation range as a fraction of the extent (larger - bigger "patches"). "Nugget fraction" sets the share of variance due to short-range noise (larger - less predictable). The Log prints the starting variogram - refine it with cross-validation.\n\nResult fields: well number, absolute roof elevation (roof), thickness (thick) and grade X. The default roof and thickness ranges are close to real potash data; you can change them under "Advanced".',
+    'Создаёт точечный слой «скважин» со случайными координатами в пределах области и значением абстрактного компонента (X, %), имеющим пространственную структуру. Предназначен для обучения и проверки инструментов без реальных данных.\n\nОбласть задаётся экстентом (можно по слою, по холсту карты, вручную координатами или рисованием). «Гладкость» задаёт радиус корреляции как долю охвата (больше - крупнее «пятна»). «Доля наггета» задаёт долю дисперсии, приходящуюся на короткомасштабный шум (чем больше, тем меньше предсказуемость). В Журнал выводится стартовая вариограмма - её уточняют кросс-валидацией.\n\nПоля результата: номер скважины, абсолютная отметка кровли (roof), мощность (thick) и содержание X. Диапазоны кровли и мощности по умолчанию близки к реальным калийным данным; их можно изменить в разделе «Дополнительно».\n\nНеобязательные галки добавляют поля для смежных инструментов: напор (head) для градиента потока и категориальный минтип для индикаторного кригинга. Включённый вывод «Поверхность дрейфа» даёт растр сторонней поверхности и поле dz, линейно с ней связанное, для кригинга с внешним дрейфом.': 'Creates a point "wells" layer with random coordinates within an area and a value of an abstract component (X, %), with a spatial structure. Intended for learning and testing the tools without real data.\n\nThe area is set by an extent (by layer, by map canvas, manually by coordinates or by drawing). "Smoothness" sets the correlation range as a fraction of the extent (larger - bigger "patches"). "Nugget fraction" sets the share of variance due to short-range noise (larger - less predictable). The Log prints the starting variogram - refine it with cross-validation.\n\nResult fields: well number, absolute roof elevation (roof), thickness (thick) and grade X. The default roof and thickness ranges are close to real potash data; you can change them under "Advanced".\n\nOptional checkboxes add fields for the neighbouring tools: head for the flow gradient and a categorical mineral type for indicator kriging. Enabling the "Drift surface" output gives a raster of a secondary surface and a dz field linearly related to it, for external drift kriging.',
     'Доля наггета (от дисперсии)': 'Nugget fraction (of variance)',
     'Зерно ГСЧ (0 = случайно)': 'RNG seed (0 = random)',
     'Строит изотропную экспериментальную полувариограмму по точкам: облако пар усредняется по интервалам расстояния (лагам). Помогает увидеть структуру данных и подобрать вариограмму глазом, а не угадывать наггет/радиус.\n\nПоле группировки (необязательно): для каждого значения поля строится своя кривая - удобно сравнить совокупности разной плотности (поверхностная и подземная разведка) и проверить, общая ли у них структура.\n\nПодбор модели (по умолчанию) даёт наггет C0, вклад C, радиус a и модель. Сохраните их в профиль (поле «Сохранить профиль под именем») и подставьте в «2D Kriging». Можно наложить уже заданную модель, чтобы сравнить её с облаком.\n\nHTML-отчёт открывается в просмотрщике результатов: точки по лагам, модель и подобранная кривая, линия дисперсии данных. Слой-таблица (опц.) содержит лаг, γ(h) и число пар для построения в QGIS.': 'Builds an isotropic experimental semivariogram from points: the pair cloud is averaged over distance intervals (lags). Helps reveal the structure of the data and set the variogram by eye, instead of guessing the nugget/range.\n\nGrouping field (optional): a separate curve is built for each field value - handy to compare populations of different density (surface vs underground survey) and check whether they share a structure.\n\nModel fitting (default) gives nugget C0, contribution C, range a and the model. Save them to a profile (the "Save profile as" field) and apply them in "2D Kriging". You can overlay an already-set model to compare it with the cloud.\n\nThe HTML report opens in the result viewer: points by lag, the model and the fitted curve, the data-variance line. The table layer (opt.) holds lag, γ(h) and the number of pairs for plotting in QGIS.',
@@ -141,7 +141,7 @@ TRANSLATIONS = {
     'Оценивает СРЕДНЕЕ по ячейке грида, а не значение в её центре: каждая ячейка разбивается на N×N точек дискретизации, ковариации усредняются по блоку. Поверхность глаже, стандартная ошибка ниже точечной - подходит для оценки запасов и содержаний по блоку. Пробы при этом не воспроизводятся точно (среднее блока ≠ значение в точке). Выключено - обычный точечный кригинг.': 'Estimates the AVERAGE over the grid cell rather than the value at its centre: each cell is split into N×N discretization points and the covariances are averaged over the block. The surface is smoother and the standard error is lower than for point kriging - suitable for estimating reserves and grades over a block. Samples are then not reproduced exactly (the block average ≠ the value at a point). Off - ordinary point kriging.',
     'Сколько точек на сторону ячейки берётся для усреднения по блоку (всего N×N). 4×4 достаточно почти всегда; больше - точнее, но медленнее. Действует только при включённом блочном кригинге.': 'How many points per cell side are used to average over the block (N×N in total). 4×4 is almost always enough; more is more accurate but slower. Active only when block kriging is on.',
     'Блочный кригинг: дискретизация %d×%d на ячейку. Оценка - среднее по блоку, стандартная ошибка блочная (ниже точечной). Значения в узлах-пробах точно не воспроизводятся.': 'Block kriging: %d×%d discretization per cell. The estimate is the block average, the standard error is the block error (lower than point). Values at sample nodes are not reproduced exactly.',
-    '9. Гидравлический градиент и направление потока': '9. Hydraulic gradient and flow direction',
+    '2.3 Гидравлический градиент и направление потока': '2.3 Hydraulic gradient and flow direction',
     'Добавить поле напора (для градиента потока)': 'Add a head field (for flow gradient)',
     'Поле напора (head): региональный уклон + локальная вариация. Кригуйте head, затем подайте растр в «Гидравлический градиент и направление потока».': 'Head field (head): a regional slope plus local variation. Krige head, then feed the raster to "Hydraulic gradient and flow direction".',
     'Растр напора': 'Head raster',
@@ -253,7 +253,7 @@ TRANSLATIONS = {
     'Дисперсия (силл)': 'Variance (sill)',
     'лаг по северу h_y': 'north lag h_y',
     'Радиус главной оси': 'Major-axis range',
-    '8. Категориальный индикаторный кригинг': '8. Categorical indicator kriging',
+    '2.1 Категориальный индикаторный кригинг': '2.1 Categorical indicator kriging',
     'Вероятности минтипа': 'Mineral-type probabilities',
     'Вероятности по классам (многополосный)': 'Class probabilities (multiband)',
     'Добавить категориальное поле минтипа (демо замещения)': 'Add a categorical mineral-type field (replacement demo)',
@@ -485,4 +485,100 @@ TRANSLATIONS = {
     'теор. %{x:.2f}<br>ошибка (z) %{y:.2f}<extra></extra>': 'theor. %{x:.2f}<br>error (z) %{y:.2f}<extra></extra>',
     'теор. квантили (норм.)': 'theor. quantiles (norm.)',
     'факт': 'actual',
+
+    # --- Кригинг с внешним дрейфом (External Drift) ---
+    '2.2 Кригинг с внешним дрейфом (External Drift)':
+        '2.2 External Drift Kriging',
+    'Растр внешнего дрейфа (известен всюду)':
+        'External drift raster (known everywhere)',
+    'Канал растра дрейфа': 'Drift raster band',
+    'Степень дрейфа': 'Drift degree',
+    '1 (линейный)': '1 (linear)',
+    '2 (квадратичный)': '2 (quadratic)',
+    'Растр кригинга с дрейфом': 'Drift kriging raster',
+    'Кригинг+дрейф %s · %s': 'Kriging+drift %s · %s',
+    'Сторонняя величина s, заданная растром во всей области: соседний пласт, '
+    'структурная поверхность, грубая модель, сейсмический атрибут. Значение '
+    'поля Z регрессируется на s, кригуются остатки, дрейф возвращается из '
+    'растра. Растр должен покрывать область оценки и быть в той же системе '
+    'координат, что и точки.':
+        'A secondary variable s given as a raster across the whole area: an '
+        'adjacent seam, a structural surface, a coarse model, a seismic '
+        'attribute. The Z field is regressed on s, the residuals are kriged, '
+        'and the drift is added back from the raster. The raster must cover '
+        'the estimation area and share the CRS of the points.',
+    'Связь значения с внешней величиной s. Степень 1 - линейный дрейф '
+    'm = a0 + a1·s, обычный выбор для External Drift. Степень 2 описывает '
+    'изогнутую связь m = a0 + a1·s + a2·s², но может вобрать часть реальной '
+    'структуры в дрейф - после неё посмотрите на вариограмму остатков.':
+        'The relation between the value and the external variable s. Degree 1 '
+        'is the linear drift m = a0 + a1·s, the usual choice for external '
+        'drift. Degree 2 describes a curved relation m = a0 + a1·s + a2·s², '
+        'but may absorb part of the real structure into the drift - check the '
+        'residual variogram after using it.',
+    'Необязательный растр стандартной ошибки кригинга остатков (sqrt '
+    'дисперсии): мера неопределённости. Дрейф детерминирован и своей '
+    'погрешности к ней не добавляет.':
+        'An optional raster of the residual kriging standard error (sqrt of '
+        'variance): a measure of uncertainty. The drift is deterministic and '
+        'adds no error of its own.',
+    'Кригинг с внешним дрейфом (External Drift): оценка по точкам, когда поле '
+    'закономерно связано со сторонней величиной, известной всюду в виде '
+    'растра (структурная поверхность соседнего пласта, грубая региональная '
+    'модель, сейсмический атрибут).\n\nДрейф снимается регрессией значения на '
+    'растр, кригуются остатки, дрейф возвращается к оценке из того же растра. '
+    'Это та же схема регрессия-кригинг, что и флажок «Снять полиномиальный '
+    'тренд» у «2D Kriging», только дрейф здесь не функция координат, а функция '
+    'внешнего значения. Степень дрейфа 1 (линейный) почти всегда '
+    'достаточна.\n\nВариограмму задавайте по ОСТАТКАМ. Растр дрейфа и точки '
+    'должны быть в одной системе координат. Ячейки вне покрытия растра дрейфа '
+    'остаются пустыми. Поиск, анизотропия, обрезка и стандартная ошибка - как '
+    'у «2D Kriging».':
+        'External Drift Kriging: estimation from points when the field is '
+        'systematically related to a secondary variable known everywhere as a '
+        'raster (the structural surface of an adjacent seam, a coarse regional '
+        'model, a seismic attribute).\n\nThe drift is removed by regressing '
+        'the value on the raster, the residuals are kriged, and the drift is '
+        'added back from the same raster. This is the same regression-kriging '
+        'scheme as the "Remove polynomial trend" option of "2D Kriging", only '
+        'here the drift is a function of the external value, not of the '
+        'coordinates. Drift degree 1 (linear) is almost always '
+        'enough.\n\nFit the variogram on the RESIDUALS. The drift raster and '
+        'the points must share the CRS. Cells outside the drift raster '
+        'coverage are left empty. Search, anisotropy, clipping and the '
+        'standard error are as in "2D Kriging".',
+    'Не удалось открыть растр дрейфа.': 'Could not open the drift raster.',
+    'Не удалось прочитать растр дрейфа.': 'Could not read the drift raster.',
+    'Не удалось пересчитать растр дрейфа на сетку кригинга.':
+        'Could not resample the drift raster onto the kriging grid.',
+    'Растр дрейфа и точки в разных системах координат. Совместите CRS, иначе '
+    'выборка дрейфа в скважинах будет неверной.':
+        'The drift raster and the points are in different coordinate systems. '
+        'Match the CRS, otherwise the drift sampled at the wells will be '
+        'wrong.',
+    'Внешний дрейф отключён: точек со значением дрейфа %d, для модели нужно '
+    'больше %d.':
+        'External drift disabled: %d points carry a drift value, the model '
+        'needs more than %d.',
+    'Отброшено %d точек вне растра дрейфа (нет значения s).':
+        '%d points outside the drift raster were dropped (no s value).',
+    'Снят внешний дрейф степени %d: убрано %.1f%% дисперсии (s данных %.4g, '
+    's остатка %.4g). Кригуются остатки, дрейф возвращается к оценке из '
+    'растра. Вариограмму задавайте по остаткам.':
+        'External drift of degree %d removed: %.1f%% of the variance taken '
+        'out (s of data %.4g, s of residual %.4g). The residuals are kriged '
+        'and the drift is added back from the raster. Fit the variogram on '
+        'the residuals.',
+    '%d ячеек оставлены пустыми: растр дрейфа их не покрывает.':
+        '%d cells were left empty: the drift raster does not cover them.',
+    'Добавить поверхность дрейфа и поле dz (для внешнего дрейфа)': 'Add a drift surface and a dz field (for external drift)',
+    'Поверхность дрейфа (растр, демо)': 'Drift surface (raster, demo)',
+    'Поверхность дрейфа (демо)': 'Drift surface (demo)',
+    'Растр сторонней поверхности s, известной всюду: подаётся как дрейф в «Кригинг с внешним дрейфом», а поле dz скважин с ним линейно связано. Создаётся только при включённой галке поверхности дрейфа.':
+        'A raster of a secondary surface s known everywhere: feed it as the drift to External Drift Kriging, while the wells dz field is linearly related to it. Created only when the drift-surface checkbox is on.',
+    'Поверхность дрейфа (растр) и поле dz: dz линейно связано с поверхностью. Запустите «Кригинг с внешним дрейфом» по полю dz с этим растром как дрейфом - сравните с обычным «2D Kriging» по dz без дрейфа.':
+        'Drift surface (raster) and dz field: dz is linearly related to the surface. Run External Drift Kriging on dz with this raster as the drift, and compare it with plain 2D Kriging on dz without the drift.',
+    'Поверхность дрейфа (растр) + поле dz, для внешнего дрейфа': 'Drift surface (raster) + dz field, for external drift',
+    'Включите этот вывод, чтобы получить пару для кригинга с внешним дрейфом: растр гладкой сторонней поверхности s (известна всюду) и поле dz скважин, линейно с ней связанное. Запустите «Кригинг с внешним дрейфом» по полю dz с этим растром как дрейфом. Если вывод пропущен, поле dz не добавляется. По умолчанию выключено.':
+        'Enable this output to get a pair for external drift kriging: a raster of a smooth secondary surface s (known everywhere) and a wells dz field linearly related to it. Run External Drift Kriging on dz with this raster as the drift. If the output is skipped, the dz field is not added. Off by default.',
 }

@@ -948,3 +948,62 @@ class PolyTrend:
 
     def residuals(self, x, y, z):
         return np.asarray(z, float) - self(x, y)
+
+class ExternalDrift:
+    """Линейный дрейф по внешней переменной s, известной всюду (растр).
+
+    Брат PolyTrend для кригинга с внешним дрейфом (External Drift). Если поле
+    закономерно связано с уже известной всюду величиной s (соседний пласт,
+    структурная поверхность, сейсмический атрибут, грубая модель), эту связь
+    снимают регрессией перед кригингом. Дальше кригуются остатки, а дрейф
+    добавляется к оценке обратно из растра s:
+        оценка = m(s) + кригинг_остатков.
+
+    Дрейф здесь не функция координат, как у PolyTrend, а функция стороннего
+    значения s в той же точке. Математика кригинга при этом не меняется: ровно
+    та же схема регрессия-кригинг, что и у снятия полиномиального тренда.
+
+    Степень 1: m = a0 + a1*s (линейный дрейф, обычный выбор для External Drift).
+    Степень 2: m = a0 + a1*s + a2*s^2 (если связь явно изогнута).
+
+    s центрируется и масштабируется на своё стандартное отклонение, иначе план
+    для степени 2 плохо обусловлен. Чистый NumPy, как и всё ядро.
+    """
+
+    def __init__(self, beta, s0, ss, degree):
+        self.beta = np.asarray(beta, float)
+        self.s0 = float(s0)
+        self.ss = float(ss) or 1.0
+        self.degree = int(degree)
+
+    @staticmethod
+    def n_terms(degree):
+        return 2 if int(degree) == 1 else 3
+
+    def _design(self, s):
+        S = (np.asarray(s, float) - self.s0) / self.ss
+        cols = [np.ones_like(S), S]
+        if self.degree >= 2:
+            cols.append(S * S)
+        return np.column_stack(cols)
+
+    @classmethod
+    def fit(cls, s, z, degree):
+        """Подбор дрейфа по точкам (s, z). degree приводится к 1 или 2."""
+        degree = 2 if int(degree) >= 2 else 1
+        s = np.asarray(s, float)
+        z = np.asarray(z, float)
+        s0 = float(np.mean(s))
+        ss = float(np.std(s)) or 1.0
+        self = cls(np.zeros(cls.n_terms(degree)), s0, ss, degree)
+        B = self._design(s)
+        beta, *_ = np.linalg.lstsq(B, z, rcond=None)
+        self.beta = beta
+        return self
+
+    def __call__(self, s):
+        """Значение дрейфа по внешнему значению s (точка или массив)."""
+        return self._design(s) @ self.beta
+
+    def residuals(self, s, z):
+        return np.asarray(z, float) - self(s)
