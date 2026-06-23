@@ -32,7 +32,7 @@ A few terms used below. A variogram describes how much more strongly values diff
 
 The main way is from the official QGIS repository. Open Plugins → Manage and Install Plugins → the **All** tab, type "Isoliner" in the search, select the plugin and click **Install**. When installed from the repository, QGIS itself reports new versions and updates the plugin at the press of a button.
 
-![Module tools in the Processing panel: the Isoliner → Grid and isolines group and its tools.](images/ui_toolbox.png){width=55%}
+![Module tools in the Processing panel: the Isoliner provider with two groups - "1. Grid and isolines" (1.1-1.7) and "2. Additional tools" (2.1-2.3).](images/ui_toolbox_en.png){width=55%}
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
@@ -597,6 +597,8 @@ The **External Drift Kriging** tool estimates a field from points when that fiel
 
 The tool sits in the **Additional tools** group and rests on the same engine as **2D Kriging**. The kriging mathematics does not change. What changes is only what the regional component is removed against.
 
+![The **External Drift Kriging** tool window: the point layer, the Z field, the secondary-surface raster as the drift, and the drift degree. Search, anisotropy and clipping are under **Advanced**, as in **2D Kriging**.](images/ui_external_drift_en.png){width=82%}
+
 Parameters:
 
 | Parameter | What it sets | Default / advice |
@@ -622,6 +624,8 @@ External drift removes the regional component not against the coordinates but ag
 First the drift raster is sampled at each well, bilinearly over the four neighbouring cells. Then the field value is regressed on this sampled value by least squares. The **Drift degree** sets the form of the relation. Degree 1 is the linear drift, value equals a0 plus a1 times the drift, the usual choice for external drift. Degree 2 describes a curved relation with the square of the drift, but it may absorb part of the real structure, so after using it you should look at the residual variogram.
 
 Next the regression residuals are kriged, exactly like an ordinary field in **2D Kriging**, with their own variogram, search and anisotropy. At the last step the drift raster is resampled onto the kriging grid and the drift is added back to the kriged residual estimate. The final estimate in each cell equals the drift plus the kriged residual. Because the drift is known everywhere, between the wells the estimate is drawn not towards a local mean but towards the shape of the external surface.
+
+![External drift kriging on sparse wells (computed with the Isoliner core). Left - the external surface s (drift). In the centre, ordinary kriging of dz relaxes to the mean in the data void. On the right, external drift kriging of dz follows the shape of the external surface where there are no wells. The dashed box marks the data void.](images/edk_result_en.png){width=98%}
 
 Wells that fall outside the drift raster do not enter the fit, and the tool reports to the Log how many were dropped. Grid cells not covered by the drift raster cannot be completed, so they are left empty together with the standard error in them.
 

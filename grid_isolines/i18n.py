@@ -581,4 +581,6 @@ TRANSLATIONS = {
     'Поверхность дрейфа (растр) + поле dz, для внешнего дрейфа': 'Drift surface (raster) + dz field, for external drift',
     'Включите этот вывод, чтобы получить пару для кригинга с внешним дрейфом: растр гладкой сторонней поверхности s (известна всюду) и поле dz скважин, линейно с ней связанное. Запустите «Кригинг с внешним дрейфом» по полю dz с этим растром как дрейфом. Если вывод пропущен, поле dz не добавляется. По умолчанию выключено.':
         'Enable this output to get a pair for external drift kriging: a raster of a smooth secondary surface s (known everywhere) and a wells dz field linearly related to it. Run External Drift Kriging on dz with this raster as the drift. If the output is skipped, the dz field is not added. Off by default.',
+    '1. Грид и изолинии': '1. Grid and isolines',
+    '2. Дополнительные инструменты': '2. Additional tools',
 }

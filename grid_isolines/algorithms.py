@@ -79,9 +79,9 @@ from .isolines import (
     _gaussian_nodata)
 from . import hydro
 
-GROUP = _tr("Грид и изолинии")
+GROUP = _tr("1. Грид и изолинии")
 GROUP_ID = "grid_isolines"
-GROUP2 = _tr("Дополнительные инструменты")
+GROUP2 = _tr("2. Дополнительные инструменты")
 GROUP2_ID = "extra_tools"
 
 MODEL_LABELS = [_tr("Сферическая"), _tr("Экспоненциальная"), _tr("Гауссова"), _tr("Степенная")]
