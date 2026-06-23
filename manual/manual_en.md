@@ -6,7 +6,7 @@ toc-title: "Contents"
 
 # Introduction
 
-Isoliner is a Processing provider for interpolating point data and building isolines. The kriging core is the KB2D algorithm from GSLIB. The tools are split into two groups: **Grid and isolines** - seven tools of the main processing flow, and **Additional tools** - two specialised computations.
+Isoliner is a Processing provider for interpolating point data and building isolines. The kriging core is the KB2D algorithm from GSLIB. The tools are split into two groups: **Grid and isolines** - seven tools of the main processing flow, and **Additional tools** - three specialised computations.
 
 **2D Kriging (points → raster)** - ordinary or simple kriging over a point layer.
 
@@ -18,7 +18,7 @@ Isoliner is a Processing provider for interpolating point data and building isol
 
 **Create sample wells (demo)** - generates a training point layer with a spatial structure (roof, thickness, component grade) for learning and testing without real data.
 
-The **Additional tools** group holds two specialised computations.
+The **Additional tools** group holds three specialised computations.
 
 **Categorical indicator kriging** - a class-probability map from a categorical field (mineral type, lithotype): an indicator is built per class and kriged separately, giving a probability raster, a zone map and a confidence raster.
 
@@ -58,7 +58,7 @@ Isolines from raster: from the resulting raster, isolines and, if needed, filled
 
 The steps are independent: **Isolines from raster** works with any raster, not only with a kriging result.
 
-The tools are grouped into two Processing groups. The "Grid and isolines" group is the main processing flow, from kriging to isolines. The "Additional tools" group holds the specialised computations, categorical indicator kriging and the hydraulic gradient with flow direction.
+The tools are grouped into two Processing groups. The "Grid and isolines" group is the main processing flow, from kriging to isolines. The "Additional tools" group holds the specialised computations, categorical indicator kriging, the hydraulic gradient with flow direction, and external drift kriging.
 
 ![The whole process on a generated example: wells with measurements (left) are turned into a continuous grid by kriging (centre), from which isolines and contour polygons are built (right).](images/schema_process.png){width=98%}
 
@@ -239,7 +239,14 @@ Builds isolines (lines) and, by default, contour polygons. Levels are set by a u
 | Band (adv.) | The band number of the input raster. | 1 |
 | Isolines / Contour polygons | The output layers. Polygons are built by default into a temporary layer. | - |
 
-Output fields: for lines - the level value (ELEV by default) and is_index (1 on index isolines). For polygons - ELEV_MIN and ELEV_MAX (the band range).
+Output fields:
+
+| Layer | Field | Type | Holds |
+|---|---|---|---|
+| Isolines | ELEV | number | The level value of the line (name set by the **Value field name**). |
+| Isolines | is_index | integer | 1 on index isolines (every Nth), otherwise 0 - for thickening. |
+| Contour polygons | ELEV_MIN | number | Lower level of the band. |
+| Contour polygons | ELEV_MAX | number | Upper level of the band. |
 
 ## Isoline smoothing
 
@@ -418,6 +425,21 @@ The tool checks how well the variogram is fitted, by the leave-one-out method: e
 
 ![The Variogram cross-validation dialog. The Well number field enables well labels in the report.](images/ui_crossval.png){width=82%}
 
+Parameters:
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Points with values | Source points (wells). | - |
+| Value field Z | The numeric attribute being checked. | - |
+| Well-number field | An ID field for labels in the report and residuals layer. | optional |
+| Kriging type, radius, min/max points, nugget, structures | Kriging and variogram settings. The check runs kriging with exactly these, so a good set carries into "2D Kriging" unchanged. | as in "2D Kriging" |
+| Remove polynomial trend | Regression kriging: the trend is refit at each LOO step, the gain shows in the RMSE. | off |
+| Trend degree | A plane or a quadratic surface. | 1 (plane) |
+| Load processing profile | Apply a saved model over the dialog fields. | (none) |
+| Save profile as | Save the validated model to a profile (with anisotropy). | empty = do not save |
+| Residuals layer (points) | Points with actual/estimate/error fields (see the field table below). | optional |
+| Cross-validation report (HTML) | Interactive report: estimate vs actual, histogram, QQ-plot, metrics. | created by default |
+
 The Log outputs the metrics:
 
 **ME (mean error)** - the systematic error. Should be close to 0 (unbiasedness).
@@ -471,11 +493,37 @@ The **Create sample wells (demo)** tool builds a point layer with random coordin
 
 ![The Create sample wells (demo) dialog.](images/ui_demo.png){width=82%}
 
-Parameters: the area (the extent - it can be set by layer, by map canvas, by coordinates or by drawing on the map). The number of wells. The minimum and maximum of value X. The roof and thickness ranges (by default - as for KrII). The smoothness (a fraction of the extent - it sets the correlation range: a larger value means larger areas of homogeneity). The nugget fraction (the fraction of the variance falling on short-range noise; the larger it is, the lower the predictability). In the **Advanced** section - the random-number generator seed for reproducibility.
+Parameters:
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Area (extent) | The generation rectangle (by layer, canvas, coordinates, drawing). | - |
+| Number of wells | How many points to create. | 300 |
+| Minimum / maximum of value X | The component grade range. | 0 / 50 |
+| Smoothness (fraction of extent) | Correlation range as a fraction of the extent: larger - bigger "patches". | 0.15 |
+| Roof, thickness: min/max (Adv.) | Ranges of the roof and thick fields. | as for KrII |
+| Nugget fraction (Adv.) | Share of variance on short-range noise: larger - less predictable. | 0.35 |
+| Add a categorical mineral-type field | A mintype field (silvinite, replacement) for indicator kriging. | off |
+| Add a head field | A head field with a regional slope for the flow gradient. | off |
+| RNG seed (Adv.) | Reproducibility of the generation. 0 = random. | 0 |
+| Sample wells (demo) | The output point layer. | - |
+| Drift surface (raster) + dz field | Enable the output to get an s raster and a dz field for external drift. | off (skipped) |
 
 At start the Log outputs the starting variogram (total sill ≈ the data variance, nugget, range). The generated data have a recoverable variogram, so it is convenient to learn the whole cycle on them: build a grid in **2D Kriging**, then isolines, and check the parameters with cross-validation.
 
-Two checkboxes add optional fields for learning the related tools. **Add a categorical mineral-type field** adds a mintype field with a silvinite background and replacement spots for categorical indicator kriging. **Add a head field** adds a head field with a pronounced regional slope for the hydraulic gradient: krige head, feed the raster to the flow tool, and the arrows follow the head downhill.
+Two checkboxes and a separate output add optional fields for learning the related tools. **Add a categorical mineral-type field** adds a mintype field with a silvinite background and replacement spots for categorical indicator kriging. **Add a head field** adds a head field with a pronounced regional slope for the hydraulic gradient: krige head, feed the raster to the flow tool, and the arrows follow the head downhill. Enabling the **Drift surface** output writes, as a separate raster, a smooth secondary surface s known everywhere, and adds a dz field linearly related to it. This pair is for learning external drift kriging: krige dz with the s raster as the drift and compare it with plain kriging of dz without the drift. If the drift-surface output is skipped, the dz field is not added.
+
+Result fields:
+
+| Field | Type | Holds |
+|---|---|---|
+| well | text | Well number, format SK-0001. |
+| roof | number | Absolute roof elevation of the seam, m. |
+| thick | number | Seam thickness, m. |
+| X | number | Grade of the abstract component, %. |
+| head | number | Head (piezometric level), m. Only with the head checkbox. |
+| mintype | text | Mineral type (silvinite, partial replacement, rock salt). Only with the mineral-type checkbox. |
+| dz | number | A value linearly related to the drift surface. Only when the drift-surface output is enabled. |
 
 # Processing profiles
 
@@ -516,7 +564,16 @@ The **Categorical indicator kriging** tool builds a probability map from a categ
 
 ![The Categorical indicator kriging dialog.](images/ui_categorical_en.png){width=80%}
 
-Parameters: a point layer and a categorical field. Search radius, minimum and maximum number of points, cell size and raster extent are all as in **2D Kriging**, with the same defaults. Empty values and NULL are excluded.
+Parameters:
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Point layer | Source points. | - |
+| Categorical field (class) | The class field (mineral type, lithotype). Empty and NULL are excluded. | - |
+| Search radius, min/max points, cell size, extent | Search and grid - as in "2D Kriging". | as in "2D Kriging" |
+| Class probabilities (multiband) | Raster: one band per class, the class name in the band description. | - |
+| Zone map (most likely class) | Raster of the most-likely class code; the code mapping goes to the Log. | - |
+| Confidence (max probability) | Raster of the maximum probability: where the class is firm, where it is contested. | optional |
 
 ## How it is computed
 
@@ -533,6 +590,52 @@ Three results. A multiband probability raster, one band per class, the class nam
 The categorical approach is convenient because it needs no boundary drawn in advance. There is no need to decide whether partial replacement counts as dangerous. All types are mapped as they are, and the required combination of classes is assembled later from the probabilities. Rare classes with few boreholes give a noisy variogram, the tool warns about this in the log, so read the probability of such a class with caution.
 
 To learn the tool without real data, switch on **Add a categorical mineral-type field** in **Create sample wells (demo)**. A mintype field is added to the layer with a silvinite background and replacement spots after a mine, ready to run the tool on.
+
+# External Drift Kriging
+
+The **External Drift Kriging** tool estimates a field from points when that field is systematically related to a quantity already known everywhere as a raster. Such a raster is called the drift. It can be the structural surface of an adjacent seam, a coarse regional model, a surface built on a sparse grid, or a seismic attribute. Ordinary kriging sees only the wells themselves, whereas here knowledge of the shape of the field between them is added, and the estimate leans on that shape where there are no wells.
+
+The tool sits in the **Additional tools** group and rests on the same engine as **2D Kriging**. The kriging mathematics does not change. What changes is only what the regional component is removed against.
+
+Parameters:
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Point layer | Source points. | - |
+| Value field (Z) | The attribute being interpolated. | - |
+| External drift raster | A secondary surface s known everywhere. Same CRS as the points, covers the area. | - |
+| Drift raster band (Adv.) | The band of a multiband drift raster. | 1 |
+| Drift degree | A linear (a0+a1·s) or quadratic relation. | 1 (linear) |
+| Kriging type, radius, min/max, nugget, structures | Kriging of the residuals - as in "2D Kriging". | as in "2D Kriging" |
+| Smooth grid (Gaussian), smoothing radius | Optional smoothing of the result. | off / 1 |
+| Drift kriging raster | The output estimate (drift + kriged residuals). | - |
+| Kriging standard error | An optional raster of the residual standard error. | skipped |
+
+## How it differs from trend removal
+
+The **Remove polynomial trend** option of **2D Kriging** describes the regional component with a polynomial in the coordinates, that is with a tilted or curved plane. This works when the dip of the seam is uniform and its shape is simple. But if the field has a pronounced structure that follows a known surface, a plane will not describe it.
+
+External drift removes the regional component not against the coordinates but against an external raster. If, for example, the roof of the seam of interest follows the relief of the underlying one, for which a surface already exists, that relation is removed by regressing on the underlying surface, and the departures from it are what gets kriged. The drift here is not a function of the position on the map but a function of the external raster value at the same point. Everything else matches trend removal. It is the same regression-kriging scheme.
+
+## How it is computed
+
+First the drift raster is sampled at each well, bilinearly over the four neighbouring cells. Then the field value is regressed on this sampled value by least squares. The **Drift degree** sets the form of the relation. Degree 1 is the linear drift, value equals a0 plus a1 times the drift, the usual choice for external drift. Degree 2 describes a curved relation with the square of the drift, but it may absorb part of the real structure, so after using it you should look at the residual variogram.
+
+Next the regression residuals are kriged, exactly like an ordinary field in **2D Kriging**, with their own variogram, search and anisotropy. At the last step the drift raster is resampled onto the kriging grid and the drift is added back to the kriged residual estimate. The final estimate in each cell equals the drift plus the kriged residual. Because the drift is known everywhere, between the wells the estimate is drawn not towards a local mean but towards the shape of the external surface.
+
+Wells that fall outside the drift raster do not enter the fit, and the tool reports to the Log how many were dropped. Grid cells not covered by the drift raster cannot be completed, so they are left empty together with the standard error in them.
+
+## Parameters
+
+The **point layer** and the **value field Z** are set as in **2D Kriging**. The **External drift raster** parameter is the secondary surface known everywhere. The optional **drift raster band** selects the band of a multi-band raster. Search, cell size, extent, clipping to the well hull, the nugget and variogram structures, outlier removal and grid smoothing all work and are described as in **2D Kriging**, with the same defaults.
+
+An important condition. The drift raster and the point layer must share the coordinate system, otherwise the drift value will be sampled at the wrong point. When the CRS does not match the tool warns in the Log. The drift raster must cover the whole estimation area, otherwise empty cells will appear along the edges.
+
+## The variogram on residuals
+
+As with trend removal, the variogram here is fitted on the regression residuals, not on the raw value. After the drift is removed the residual variogram returns to its normal form, reaches a sill with a nugget, and the range reflects the true scale of the local correlation. The standard-error raster in this mode is the error of kriging the residuals. The drift is treated as deterministic and adds no error of its own.
+
+A convenient way to fit the residual variogram without leaving the tool is not yet provided, so the residuals are judged by the share of variance removed, which the tool prints to the Log. If the drift took out a noticeable part of the spread, the relation with the external surface is real and the drift is appropriate. If it took out almost nothing, the field is not related to that raster, and plain **2D Kriging** will give the same result more simply.
 
 # Hydraulic gradient and flow direction
 
@@ -552,11 +655,28 @@ The tool describes the geometry of the head field, not the flow velocity. The Da
 
 The input is the **head raster** and its **band**. The **flow vectors, thinning step** parameter sets how many cells apart to place an arrow so they do not merge, eight by default. The **smooth head before computing** parameter removes fine grid ripple, set in cells, off by default.
 
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Head raster | The input piezometric surface (usually a "2D Kriging" result). | - |
+| Band (Adv.) | The band of the input raster. | 1 |
+| Smooth head before computing, cells | Damps grid noise before differentiation. 0 = none. | 0 |
+| Flow vectors: thinning step, cells | How many cells apart to place an arrow. | 8 |
+| Hydraulic gradient (magnitude) | The output \|∇h\| raster. | - |
+| Flow direction (azimuth) | The output azimuth raster (down-gradient). | created by default |
+| Flow vectors (points) | The point layer of arrows (fields az, grad). | created by default |
+
 Smoothing is switched on for substance, not for looks. Differentiation amplifies noise, so even a clean kriging grid can give a patchy gradient field with jittery arrows. A light smoothing brings the picture back to a readable form. The same effect can be had by smoothing the head itself back in **2D Kriging**.
 
 ## Arrows from points
 
 The vector layer is points, and the arrows are drawn by the symbology. The preset is applied automatically. The arrow marker is rotated by the **az** field, so it shows the flow direction, and its size is scaled by the **grad** field, so the arrow is longer where the gradient is steeper. The size is set in millimetres and does not depend on the map scale. The symbology can be changed in the layer properties. If you need a classic quiver diagram, where the arrow length is laid out in map units, the marker is replaced with a geometry generator, the recipe is in the styles folder next to the preset.
+
+Fields of the flow-vector layer:
+
+| Field | Type | Holds |
+|---|---|---|
+| az | number | Flow-direction azimuth, degrees (0 = north, clockwise, down-gradient). |
+| grad | number | Magnitude of the hydraulic gradient \|∇h\| at the point, dimensionless. |
 
 ## The learning cycle
 
