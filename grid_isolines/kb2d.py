@@ -718,7 +718,7 @@ def _estimate_anisotropy(grid, cell, n_bins, sill, maxlag, n_az=36,
     ranges = [(180.0 * k / n_az, float(raw[k])) for k in range(n_az)]
     # структура разрешима, только если главный радиус заметно больше ячейки;
     # иначе радиусы «на уровне сетки» и анизотропия недостоверна (шум/нет
-    # структуры) - честнее сообщить «изотропно / не определено».
+    # структуры) - корректнее сообщить «изотропно / не определено».
     resolved = r_major >= 3.0 * cell
     if not resolved:
         return 0.0, 1.0, r_major, r_major, ranges, False, False
