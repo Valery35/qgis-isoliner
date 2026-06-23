@@ -60,7 +60,8 @@ QGIS-плагин Isoliner. Группа инструментов Processing д�
   только эти PDF уходят в плагин.
 - Лендинг (`site/isoliner_landing.html`): держать число карточек = числу инструментов.
 - Структура репозитория: в корне `README.md`, `README.en.md`, `AGENTS.md`,
-  папки `grid_isolines/` (плагин) и `manual/` (исходник руководства).
+  папки `grid_isolines/` (плагин), `manual/` (исходник руководства) и
+  `site/` (лендинг `isoliner_landing.html`, в плагин не входит).
 
 ## Стиль руководства (RU)
 
