@@ -144,7 +144,7 @@ venv.bak/
 .ropeproject
 
 # mkdocs documentation
-/site
+# /site   (снято: в этом репозитории корневая site/ - лендинг плагина, её нужно версионировать)
 
 # mypy
 .mypy_cache/
