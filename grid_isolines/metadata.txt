@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=2.6.1
+version=2.7.1
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,17 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=2.6.1
+changelog=2.7.1
+    - В руководство (RU и EN) добавлены иллюстрации для «Карты вероятности
+      превышения»: окно инструмента и пример карты с расходящейся шкалой.
+    2.7.0
+    - Новый инструмент «Карта вероятности превышения» (группа
+      «Дополнительные инструменты», 2.4). По растрам оценки и стандартной
+      ошибки кригинга строит P(Z>порог) = Φ((оценка−порог)/ошибка) при
+      нормальном локальном распределении. Свой кригинг не выполняет, окно
+      «2D Kriging» не меняет - отдельный постпроцессор, как градиент потока.
+      Применение: бортовые содержания, зоны риска по любому порогу.
+    2.6.1
     - Группы инструментов пронумерованы: «1. Грид и изолинии» и
       «2. Дополнительные инструменты». Так порядок групп в дереве Processing
       одинаков в русской и английской локалях (раньше группы сортировались

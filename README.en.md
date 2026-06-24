@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into two Processing groups — **"Grid and isolines"** and **"Additional tools"** — ten in all:
+The tools are split into two Processing groups — **"Grid and isolines"** and **"Additional tools"** — eleven in all:
 
 ### "Grid and isolines" group
 
@@ -22,6 +22,7 @@ The tools are split into two Processing groups — **"Grid and isolines"** and *
 - **2.1 Categorical indicator kriging** — for a categorical field (mineral type, lithotype) it builds a 0/1 indicator per class, krige each with the KB2D core and normalises the probabilities. Outputs: a multiband probability raster, a zone map and a confidence raster.
 - **2.2 External Drift Kriging** — estimation from points when the field is related to a secondary variable known everywhere as a raster (the structural surface of an adjacent seam, a coarse model, a seismic attribute). The drift is removed by regression, the residuals are kriged, and the drift is added back from the raster. The same regression-kriging scheme as trend removal, only here the drift is a function of the external value, not of the coordinates.
 - **2.3 Hydraulic gradient and flow direction** — from a head raster it builds the hydraulic gradient |∇h|, the flow-direction azimuth (down-gradient) and a point layer of flow vectors (styled as arrows automatically). Hydrogeology without permeability.
+- **2.4 Exceedance probability map** — from the kriging estimate and standard-error rasters it builds P(Z>threshold) = Φ((estimate−threshold)/error) under a normal local distribution. A post-processor, runs no kriging of its own. Cut-off grades, risk zones.
 
 Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
 and any numeric attribute.
@@ -240,6 +241,8 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.7.1** — illustrations for the exceedance probability map were added to the manual (the tool window and a sample map).
+- **2.7.0** — a new tool **Exceedance probability map** (2.4): from the kriging estimate and standard-error rasters it builds P(Z>threshold) under a normal local distribution. A separate post-processor, it does not change the "2D Kriging" window. Cut-off grades, risk zones for any threshold.
 - **2.6.1** — tool groups are numbered ("1. Grid and isolines", "2. Additional tools") so the group order in the Processing tree is the same in the Russian and English locales; illustrations were added to the manual (the External Drift Kriging window, the tool tree, and an ordinary-vs-external-drift comparison).
 - **2.6.0** — a new tool **External Drift Kriging**: regression kriging against an external raster known everywhere (an adjacent seam, a coarse model, a seismic attribute). The drift is removed by regression, the residuals are kriged, and the drift is added back from the raster. Degree 1 or 2; search, anisotropy, clipping and the standard error as in 2D Kriging. The demo generator can output a drift surface (raster) and a related dz field for an end-to-end check. Tools are renumbered per group: "Grid and isolines" 1.1-1.7, "Additional tools" 2.1-2.3 (the old flat 1-10 sorted as strings).
 - **2.5.0** — a new tool **Hydraulic gradient and flow direction**

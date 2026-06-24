@@ -1007,3 +1007,48 @@ class ExternalDrift:
 
     def residuals(self, s, z):
         return np.asarray(z, float) - self(s)
+
+
+def _erf(x):
+    """Векторная аппроксимация erf (Abramowitz & Stegun 7.1.26).
+
+    Максимальная погрешность около 1.5e-7 - с запасом для карты вероятности.
+    Чистый NumPy, без scipy.
+    """
+    x = np.asarray(x, float)
+    sign = np.sign(x)
+    ax = np.abs(x)
+    t = 1.0 / (1.0 + 0.3275911 * ax)
+    poly = (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t
+             - 0.284496736) * t + 0.254829592) * t
+    y = 1.0 - poly * np.exp(-ax * ax)
+    return sign * y
+
+
+def norm_cdf(z):
+    """Функция распределения стандартного нормального закона Φ(z), векторно."""
+    return 0.5 * (1.0 + _erf(np.asarray(z, float) / math.sqrt(2.0)))
+
+
+def exceedance_prob(estimate, stderr, threshold, above=True):
+    """Карта вероятности превышения порога из оценки и стандартной ошибки.
+
+    Локальное распределение считается нормальным: Z ~ N(оценка, ошибка²). Тогда
+    P(Z > порог) = Φ((оценка − порог) / ошибка). Это дешёвая оценка из готовых
+    растров кригинга, отдельный кригинг не нужен. Для сильно скошенных полей
+    нормальное допущение грубовато - там точнее индикаторный кригинг.
+
+    Где ошибка ≤ 0 (узлы у данных, вырожденные ячейки) распределение
+    вырождается в ступеньку: вероятность 1, если оценка выше порога, иначе 0.
+    above=False даёт P(Z < порог) = 1 − P(Z > порог). Возвращает массив [0, 1].
+    """
+    est = np.asarray(estimate, float)
+    se = np.asarray(stderr, float)
+    safe = se > 0
+    z = (est - threshold) / np.where(safe, se, 1.0)
+    p = norm_cdf(z)
+    step = (est > threshold).astype(float)
+    p = np.where(safe, p, step)
+    if not above:
+        p = 1.0 - p
+    return p

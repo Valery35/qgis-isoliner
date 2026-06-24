@@ -71,7 +71,7 @@ from qgis.core import (
 
 from .kb2d import (
     Variogram, build_grid, clip_outliers, cross_validate, EPS, PolyTrend,
-    cross_validate_detrend, ExternalDrift,
+    cross_validate_detrend, ExternalDrift, exceedance_prob,
     experimental_variogram, fit_variogram, model_curve, variogram_map,
     MODEL_SPHERICAL, MODEL_EXPONENTIAL, MODEL_GAUSSIAN, GAUSS_MIN_NUGGET_FRAC)
 from .isolines import (
@@ -3854,6 +3854,146 @@ class ExternalDriftKrigingAlgorithm(QgsProcessingAlgorithm):
         return results
 
 
+class ExceedanceProbabilityAlgorithm(QgsProcessingAlgorithm):
+    """Карта вероятности превышения порога из растров оценки и стандартной
+    ошибки кригинга. Постобработка, как «Гидравлический градиент»: своего
+    кригинга не делает, считает P(Z>порог) = Φ((оценка−порог)/ошибка) из уже
+    готовых растров. Окно «2D Kriging» не трогает - инструмент отдельный."""
+
+    ESTIMATE, STDERR = "ESTIMATE", "STDERR"
+    BAND_EST, BAND_SE = "BAND_EST", "BAND_SE"
+    THRESHOLD, SIDE, OUTPUT = "THRESHOLD", "SIDE", "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return ExceedanceProbabilityAlgorithm()
+    def name(self): return "exceedance_probability"
+    def displayName(self):
+        return self.tr("2.4 Карта вероятности превышения")
+
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP2)
+    def groupId(self): return GROUP2_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Карта вероятности превышения порога по растрам оценки и стандартной "
+            "ошибки кригинга. Локальное распределение принимается нормальным, "
+            "Z ~ N(оценка, ошибка²), и вероятность считается одной формулой "
+            "P(Z>порог) = Φ((оценка−порог)/ошибка). Свой кригинг не выполняется, "
+            "берутся готовые растры, поэтому «2D Kriging» остаётся без изменений.\n"
+            "\nКак получить входы: запустите «2D Kriging» (или «Кригинг с внешним "
+            "дрейфом») и включите необязательный вывод стандартной ошибки. Подайте "
+            "сюда растр оценки и растр ошибки - получите растр вероятности 0…1.\n\n"
+            "Применение: бортовые содержания (вероятность, что содержание выше "
+            "кондиции), зоны риска по любому порогу. Для сильно скошенных полей "
+            "нормальное допущение грубовато - тогда точнее индикаторный кригинг по "
+            "порогам.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.ESTIMATE, self.tr("Растр оценки (кригинг)")))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.STDERR, self.tr("Растр стандартной ошибки кригинга")))
+        side = QgsProcessingParameterEnum(
+            self.SIDE, self.tr("Сторона"),
+            options=[self.tr("выше порога: P(Z > порог)"),
+                     self.tr("ниже порога: P(Z < порог)")],
+            defaultValue=0)
+        self.addParameter(side)
+        self.addParameter(QgsProcessingParameterNumber(
+            self.THRESHOLD, self.tr("Порог"),
+            QgsProcessingParameterNumber.Double, defaultValue=0.0))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BAND_EST, self.tr("Канал растра оценки"),
+            QgsProcessingParameterNumber.Integer, defaultValue=1, minValue=1)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BAND_SE, self.tr("Канал растра ошибки"),
+            QgsProcessingParameterNumber.Integer, defaultValue=1, minValue=1)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Растр вероятности (0…1)")))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        rl_e = self.parameterAsRasterLayer(parameters, self.ESTIMATE, context)
+        rl_s = self.parameterAsRasterLayer(parameters, self.STDERR, context)
+        if rl_e is None or rl_s is None:
+            raise QgsProcessingException(self.tr(
+                "Нужны оба растра: оценка и стандартная ошибка."))
+        be = self.parameterAsInt(parameters, self.BAND_EST, context)
+        bs = self.parameterAsInt(parameters, self.BAND_SE, context)
+        thr = self.parameterAsDouble(parameters, self.THRESHOLD, context)
+        above = self.parameterAsEnum(parameters, self.SIDE, context) == 0
+        name = _short(rl_e.name())
+
+        ds = gdal.Open(rl_e.source())
+        if ds is None:
+            raise QgsProcessingException(self.tr("Не удалось открыть растр оценки."))
+        eb = ds.GetRasterBand(be)
+        est = eb.ReadAsArray().astype(float)
+        gt = ds.GetGeoTransform()
+        e_nd = eb.GetNoDataValue()
+        ny, nx = est.shape
+        ds = None
+
+        # стандартную ошибку приводим к сетке оценки (билинейно), если решётки
+        # не совпадают. Из одного запуска кригинга они и так совпадают.
+        ds = gdal.Open(rl_s.source())
+        if ds is None:
+            raise QgsProcessingException(self.tr("Не удалось открыть растр ошибки."))
+        sb = ds.GetRasterBand(bs)
+        s_nd = sb.GetNoDataValue()
+        if (ds.RasterXSize, ds.RasterYSize) == (nx, ny) and \
+                ds.GetGeoTransform() == gt:
+            se = sb.ReadAsArray().astype(float)
+        else:
+            ds = None
+            feedback.pushInfo(_tr(
+                "Решётки оценки и ошибки различаются, ошибка приведена к сетке "
+                "оценки билинейно."))
+            se = _resample_drift_to_grid(rl_s.source(),
+                                         gt[0], gt[3] + ny * gt[5], abs(gt[1]),
+                                         nx, ny, bs)
+            if se is None:
+                raise QgsProcessingException(self.tr(
+                    "Не удалось привести растр ошибки к сетке оценки."))
+        if ds is not None:
+            ds = None
+
+        nodata = -9999.0
+        valid = np.isfinite(est) & np.isfinite(se)
+        if e_nd is not None:
+            valid &= (est != e_nd)
+        if s_nd is not None:
+            valid &= (se != s_nd)
+        if not valid.any():
+            raise QgsProcessingException(self.tr(
+                "Нет ячеек, где заданы и оценка, и ошибка."))
+
+        feedback.setProgress(40)
+        prob = exceedance_prob(np.where(valid, est, 0.0),
+                               np.where(valid, se, 0.0), thr, above)
+        out = np.where(valid, prob, nodata)
+        feedback.setProgress(70)
+
+        share = 100.0 * float(np.mean(prob[valid] >= 0.5)) if valid.any() else 0.0
+        feedback.pushInfo(_tr(
+            "Порог %.4g, сторона %s. Вероятность ≥ 0.5 в %.0f%% ячеек с данными.")
+            % (thr, _tr("выше") if above else _tr("ниже"), share))
+
+        crs = rl_e.crs()
+        crs_wkt = crs.toWkt() if (crs is not None and crs.isValid()) else None
+        out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+        _write_grid_tiff(out_path, out, gt, crs_wkt, nodata, nx, ny)
+        side_txt = _tr("P(>%.4g)") % thr if above else _tr("P(<%.4g)") % thr
+        _set_output_name(context, out_path,
+                         _tr("Вероятность %s · %s") % (side_txt, name))
+        _save_values(self, _saved)
+        feedback.setProgress(100)
+        return {self.OUTPUT: out_path}
+
+
 ALGORITHMS = [
     Kriging2DAlgorithm,
     CategoricalIndicatorAlgorithm,
@@ -3865,4 +4005,5 @@ ALGORITHMS = [
     ProfilesAlgorithm,
     FlowGradientAlgorithm,
     ExternalDriftKrigingAlgorithm,
+    ExceedanceProbabilityAlgorithm,
 ]

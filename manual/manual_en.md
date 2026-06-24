@@ -6,7 +6,7 @@ toc-title: "Contents"
 
 # Introduction
 
-Isoliner is a Processing provider for interpolating point data and building isolines. The kriging core is the KB2D algorithm from GSLIB. The tools are split into two groups: **Grid and isolines** - seven tools of the main processing flow, and **Additional tools** - three specialised computations.
+Isoliner is a Processing provider for interpolating point data and building isolines. The kriging core is the KB2D algorithm from GSLIB. The tools are split into two groups: **Grid and isolines** - seven tools of the main processing flow, and **Additional tools** - four specialised computations.
 
 **2D Kriging (points → raster)** - ordinary or simple kriging over a point layer.
 
@@ -58,7 +58,7 @@ Isolines from raster: from the resulting raster, isolines and, if needed, filled
 
 The steps are independent: **Isolines from raster** works with any raster, not only with a kriging result.
 
-The tools are grouped into two Processing groups. The "Grid and isolines" group is the main processing flow, from kriging to isolines. The "Additional tools" group holds the specialised computations, categorical indicator kriging, the hydraulic gradient with flow direction, and external drift kriging.
+The tools are grouped into two Processing groups. The "Grid and isolines" group is the main processing flow, from kriging to isolines. The "Additional tools" group holds the specialised computations, categorical indicator kriging, external drift kriging, the hydraulic gradient with flow direction, and the exceedance probability map.
 
 ![The whole process on a generated example: wells with measurements (left) are turned into a continuous grid by kriging (centre), from which isolines and contour polygons are built (right).](images/schema_process.png){width=98%}
 
@@ -685,6 +685,41 @@ Fields of the flow-vector layer:
 ## The learning cycle
 
 To walk the whole path without real data, switch on **Add a head field** in **Create sample wells (demo)**. A head field with a pronounced regional slope is added to the layer. Build a grid from it in **2D Kriging**, feed the raster here, and the arrows follow the head downhill. The same end-to-end scenario as for the other tools, only about hydrogeology.
+
+# Exceedance probability map
+
+The **Exceedance probability map** tool answers not "how much" but "how likely the value exceeds a threshold". From the kriging estimate raster and its standard-error raster it builds a probability raster from 0 to 1: in each cell the probability that the true value is above a given threshold.
+
+The tool sits in the **Additional tools** group and works as a post-processing step, like the hydraulic gradient. It runs no kriging of its own and does not touch the **2D Kriging** window, it takes ready rasters. So it works equally with the output of ordinary kriging and of external drift kriging.
+
+![The **Exceedance probability map** tool window: the kriging estimate raster, the standard-error raster of the same run, the side and the threshold. The raster bands are under **Advanced**.](images/ui_exceedance_en.png){width=82%}
+
+## How it is computed
+
+Kriging gives, in each cell, an estimate and its standard error. If the local distribution of the value is taken as normal, that is the value in the cell is treated as normal with the mean equal to the estimate and the standard deviation equal to the kriging error, the exceedance probability is one formula through the normal distribution function. Where the estimate is well above the threshold the probability is close to one, where it is below it is close to zero, and at the threshold itself it equals one half. The larger the standard error, the smoother the transition: away from the wells there is less certainty and the probability is drawn towards 0.5.
+
+No separate kriging is needed for this, so the map is built instantly. The normality assumption is rough in places, especially for strongly skewed fields such as grades with a long right tail. Where that matters, indicator kriging by thresholds, which does not rely on the shape of the distribution, is more accurate.
+
+## How to get the inputs
+
+Run **2D Kriging** (or **External Drift Kriging**) on your field and enable the optional **Kriging standard error** output. You get two rasters, the estimate and the error, and you feed them here. Their grids match, since they come from one run, but if rasters with different grids are supplied, the error is resampled onto the estimate grid bilinearly.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Estimate raster (kriging) | The field estimate raster (a kriging result). | - |
+| Kriging standard-error raster | The standard-error raster of the same run. | - |
+| Side | Probability above the threshold P(Z>t) or below P(Z<t). | above |
+| Threshold | The value the probability is computed against. | 0 |
+| Estimate raster band, error raster band (Adv.) | Bands of multiband rasters. | 1 |
+| Probability raster (0…1) | The output probability raster. | - |
+
+## Use
+
+Cut-off grades: the threshold is the cut-off, and the map shows the probability that the grade is above the cut-off. This is more honest than a single line drawn on the estimate, because near the edge of the ore body the certainty drops and the probability map shows it. Risk zones for any threshold: thickness below a critical value, an elevation above or below a hazardous one. The probability map complements the estimate map where not only the value matters but the confidence in it.
+
+![An exceedance probability map with a diverging colour ramp broken at 0.5. Red is where the value is confidently above the threshold, blue confidently below, and the white band along the P=0.5 line is the zone of uncertainty (contested values). The further from the wells, the wider the band.](images/prob_result.png){width=70%}
 
 # Typical situations and solutions
 
