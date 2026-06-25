@@ -5,11 +5,11 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into two Processing groups — **"Grid and isolines"** and **"Additional tools"** — eleven in all:
+The tools are split into two Processing groups — **"Grid and isolines"** and **"Additional tools"** — twelve in all:
 
 ### "Grid and isolines" group
 
-- **1.1 2D Kriging (points → raster)** — ordinary/simple kriging over a point layer, point or block. Core: GSLIB KB2D.
+- **1.1 2D Kriging (points → raster)** — ordinary/simple kriging over a point layer, point or block, with trend removal and an optional log transform (for log-normal K, T). Core: GSLIB KB2D.
 - **1.2 Isolines from raster** — isolines (lines) and contour polygons (bands between isolines) whose boundaries coincide with the lines.
 - **1.3 Variogram (experimental)** — isotropic experimental variogram from points with model fitting (nugget, sill, range) and an HTML report. Lets you set the variogram from the shape of the cloud rather than by eye.
 - **1.4 Variogram map (anisotropy)** — γ(h_x, h_y) surface: anisotropy shows as an ellipse. Estimates the major-axis azimuth, anisotropy ratio and range to feed into kriging.
@@ -21,8 +21,9 @@ The tools are split into two Processing groups — **"Grid and isolines"** and *
 
 - **2.1 Categorical indicator kriging** — for a categorical field (mineral type, lithotype) it builds a 0/1 indicator per class, krige each with the KB2D core and normalises the probabilities. Outputs: a multiband probability raster, a zone map and a confidence raster.
 - **2.2 External Drift Kriging** — estimation from points when the field is related to a secondary variable known everywhere as a raster (the structural surface of an adjacent seam, a coarse model, a seismic attribute). The drift is removed by regression, the residuals are kriged, and the drift is added back from the raster. The same regression-kriging scheme as trend removal, only here the drift is a function of the external value, not of the coordinates.
-- **2.3 Hydraulic gradient and flow direction** — from a head raster it builds the hydraulic gradient |∇h|, the flow-direction azimuth (down-gradient) and a point layer of flow vectors (styled as arrows automatically). Hydrogeology without permeability.
-- **2.4 Exceedance probability map** — from the kriging estimate and standard-error rasters it builds P(Z>threshold) = Φ((estimate−threshold)/error) under a normal local distribution. A post-processor, runs no kriging of its own. Cut-off grades, risk zones.
+- **2.3 Exceedance probability map** — from the kriging estimate and standard-error rasters it builds P(Z>threshold) = Φ((estimate−threshold)/error) under a normal local distribution. A post-processor, runs no kriging of its own. Cut-off grades, risk zones.
+- **2.4 Hydraulic gradient and flow direction** — from a head raster it builds the hydraulic gradient |∇h|, the flow-direction azimuth (down-gradient) and a point layer of flow vectors (styled as arrows automatically). Hydrogeology without permeability (with permeability — 2.5).
+- **2.5 Specific discharge (Darcy law)** — from a head raster and aquifer-property rasters (K, T) it computes the specific discharge q = K·|∇h| (m/day) and the flow per width Q = T·|∇h| (m²/day). A post-processor, runs no kriging of its own (krige K and T in log space).
 
 Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
 and any numeric attribute.
@@ -241,6 +242,11 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.9.3** — the "Value transform" (ln) list in 2D Kriging was moved under the Z field, closer and more visible.
+- **2.9.2** — downhill hachures (the "hachures down" style): fixed direction on QGIS 4 (the line-offset sign convention changed there relative to QGIS 3). QGIS 3 unchanged.
+- **2.9.1** — the demo K generation was brought to a realistic range (≈ 0.006…4 m/day, tail clipped), without single spikes into the hundreds.
+- **2.9.0** — **2D Kriging** gained an optional value log transform (ln/exp with a delta-method standard error) - kriging of log-normal K, T without a hand-built ln field. Tools 2.3 and 2.4 were swapped so the hydrogeology (gradient 2.4 and specific discharge 2.5) sits together. The example generator gained K and T fields.
+- **2.8.0** — a new tool **Specific discharge (Darcy law)** (2.5): from a head raster and K/T rasters it computes the specific discharge (m/day) and flow per width (m²/day). Hydrogeology now with permeability.
 - **2.7.1** — illustrations for the exceedance probability map were added to the manual (the tool window and a sample map).
 - **2.7.0** — a new tool **Exceedance probability map** (2.4): from the kriging estimate and standard-error rasters it builds P(Z>threshold) under a normal local distribution. A separate post-processor, it does not change the "2D Kriging" window. Cut-off grades, risk zones for any threshold.
 - **2.6.1** — tool groups are numbered ("1. Grid and isolines", "2. Additional tools") so the group order in the Processing tree is the same in the Russian and English locales; illustrations were added to the manual (the External Drift Kriging window, the tool tree, and an ordinary-vs-external-drift comparison).

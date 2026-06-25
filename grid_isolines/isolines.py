@@ -345,6 +345,16 @@ def _add_slope_side(processing, cur, slope_ref, context, feedback):
     направления линии). 0 у края, где значение не прочиталось. Считается
     сэмплированием исходного растра по обе стороны линии в её середине."""
     rid, band, eps = slope_ref
+    # Знак смещения линии в стиле трактуется QGIS по-разному в разных версиях:
+    # в QGIS 4 сторона перевернулась относительно QGIS 3, на котором стиль
+    # выверялся. Переворачиваем dn_sign для QGIS >= 4, чтобы штрих всегда лёг
+    # на сторону склона ВНИЗ в обеих линейках. QML при этом не меняется.
+    try:
+        from qgis.core import Qgis
+        _flip = -1 if int(Qgis.versionInt()) >= 40000 else 1
+    except Exception:
+        _flip = 1
+    neg, pos = -1 * _flip, 1 * _flip
     expr = (
         "with_variable('p', line_interpolate_point($geometry, $length/2.0),"
         " with_variable('a', line_interpolate_angle($geometry, $length/2.0),"
@@ -353,8 +363,8 @@ def _add_slope_side(processing, cur, slope_ref, context, feedback):
         "   with_variable('vl', raster_value('{rid}', {b}, "
         "project(@p, {e}, radians(@a - 90))),"
         "    CASE WHEN @vr IS NULL OR @vl IS NULL THEN 0"
-        "     WHEN @vr < @vl THEN -1 ELSE 1 END))))"
-    ).format(rid=rid, b=int(band), e=float(eps))
+        "     WHEN @vr < @vl THEN {neg} ELSE {pos} END))))"
+    ).format(rid=rid, b=int(band), e=float(eps), neg=neg, pos=pos)
     feedback.pushInfo(_tr("Сторона склона (dn_sign) для бергштрихов…"))
     return processing.run("native:fieldcalculator", {
         "INPUT": cur, "FIELD_NAME": "dn_sign", "FIELD_TYPE": 1,

@@ -931,6 +931,31 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
                                vmin=vmin, vmax=vmax, pct=pct, cap=cap)
     _warn_data(feedback, xd, yd, vrd)
 
+    # --- логарифмирование: кригинг лог-нормальных величин (K, T, ...) -------
+    # Кригуется ln(Z), оценка возвращается через exp (медианная оценка), а
+    # стандартная ошибка пересчитывается в исходные единицы дельта-методом
+    # SE_Z ≈ Z·SE_ln. Параметр есть только у «2D Kriging», читаем через getattr.
+    logt = False
+    if getattr(alg, "TRANSFORM", None) and \
+            alg.parameterAsEnum(parameters, alg.TRANSFORM, context) == 1:
+        pos = vrd > 0
+        ndrop = int((~pos).sum())
+        if ndrop:
+            feedback.pushWarning(_tr(
+                "Логарифм: отброшено %d точек со значением ≤ 0 "
+                "(ln определён только для положительных).") % ndrop)
+            xd, yd, vrd = xd[pos], yd[pos], vrd[pos]
+        if len(vrd) < 2:
+            raise QgsProcessingException(_tr(
+                "Логарифм: положительных значений недостаточно для кригинга."))
+        logt = True
+        vrd = np.log(vrd)
+        feedback.pushInfo(_tr(
+            "Логарифмирование включено: кригуется ln(Z), оценка возвращается "
+            "через exp (медиана). Вариограмму, наггет и среднее простого "
+            "кригинга задавайте в единицах ln. Стандартная ошибка "
+            "пересчитывается в исходные единицы дельта-методом."))
+
     # --- регрессия-кригинг: снятие полиномиального тренда -------------------
     # Тренд снимается МНК, дальше кригуются остатки, а после построения грида
     # тренд добавляется обратно к оценке. Параметры есть только у «2D Kriging»,
@@ -1095,6 +1120,17 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
                 "%d ячеек оставлены пустыми: растр дрейфа их не покрывает.")
                 % n_lost)
 
+    # --- логарифмирование: обратное преобразование оценки и ошибки ----------
+    # Оценка ln -> exp (медиана). Стандартная ошибка ln -> исходные единицы
+    # дельта-методом: SE_Z ≈ exp(оценка_ln)·SE_ln. nodata сохраняется.
+    if logt:
+        valid = grid != nodata
+        lin = np.exp(np.where(valid, grid, 0.0))
+        if segrid is not None:
+            sev = valid & (segrid != nodata)
+            segrid = np.where(sev, lin * segrid, nodata).astype(segrid.dtype)
+        grid = np.where(valid, lin, nodata).astype(grid.dtype)
+
     crs = source.sourceCrs()
     geotr = (xmin, cell, 0.0, ymin + ny * cell, 0.0, -cell)
 
@@ -1225,6 +1261,8 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
 
     DETREND, DETREND_DEG = "DETREND", "DETREND_DEG"
 
+    TRANSFORM = "TRANSFORM"
+
     BLOCK, BLOCK_DISC = "BLOCK", "BLOCK_DISC"
 
     SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
@@ -1259,6 +1297,20 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.Numeric,
             defaultValue=_dv(self, self.ZFIELD, None)))
+        tf = QgsProcessingParameterEnum(
+            self.TRANSFORM, self.tr("Преобразование значения"),
+            options=[self.tr("нет"),
+                     self.tr("ln (для лог-нормальных, напр. K, T)")],
+            defaultValue=_dv(self, self.TRANSFORM, 0))
+        tf.setHelp(self.tr(
+            "Логарифмирование перед кригингом для величин с разбросом на "
+            "порядки (коэффициент фильтрации, водопроводимость, содержания с "
+            "длинным правым хвостом). Кригуется ln(Z), оценка возвращается через "
+            "exp - это медианная (геометрическая) оценка. Стандартная ошибка "
+            "пересчитывается в исходные единицы дельта-методом. Значения должны "
+            "быть положительными. Избавляет от ручного создания поля ln(Z). "
+            "Вариограмму и наггет при этом задавайте в единицах ln."))
+        self.addParameter(tf)
         _add_kriging_params(self)
         self.addParameter(QgsProcessingParameterBoolean(
             self.DETREND, self.tr("Снять полиномиальный тренд"),
@@ -2341,6 +2393,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
     NUGGET_FRAC = "NUGGET_FRAC"
     MINTYPE = "MINTYPE"
     HEAD = "HEAD"
+    HYDRO = "HYDRO"
     SEED = "SEED"
     OUTPUT = "OUTPUT"
     OUTPUT_DRIFT = "OUTPUT_DRIFT"
@@ -2377,7 +2430,9 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             "умолчанию близки к реальным калийным данным; их можно изменить в "
             "разделе «Дополнительно».\n\nНеобязательные галки добавляют поля для "
             "смежных инструментов: напор (head) для градиента потока и "
-            "категориальный минтип для индикаторного кригинга. Включённый вывод "
+            "категориальный минтип для индикаторного кригинга. Галка K и T "
+            "добавляет напор и лог-нормальные поля K (коэф. фильтрации) и "
+            "T = K·мощность для «Удельного расхода (Дарси)». Включённый вывод "
             "«Поверхность дрейфа» даёт растр сторонней поверхности и поле dz, "
             "линейно с ней связанное, для кригинга с внешним дрейфом."))
 
@@ -2422,6 +2477,10 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterBoolean(
             self.HEAD,
             self.tr("Добавить поле напора (для градиента потока)"),
+            defaultValue=False))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.HYDRO,
+            self.tr("Добавить поля K и T и напор (для удельного расхода)"),
             defaultValue=False))
         p = QgsProcessingParameterNumber(
             self.SEED, self.tr("Зерно ГСЧ (0 = случайно)"),
@@ -2489,7 +2548,9 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             mt = np.where(repl > 0.72, "Каменная соль замещения",
                  np.where(repl > 0.55, "Частичное замещение кс", "Сильвинит"))
 
-        want_head = self.parameterAsBool(parameters, self.HEAD, context)
+        want_hydro = self.parameterAsBool(parameters, self.HYDRO, context)
+        want_head = self.parameterAsBool(parameters, self.HEAD, context) \
+            or want_hydro
         head = None
         if want_head:
             # напор: выраженный региональный уклон (поток вниз по нему) плюс
@@ -2502,6 +2563,20 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             proj = (proj - lo) / ((hi - lo) or 1.0)
             head = 100.0 + 20.0 * (1.0 - proj) + \
                 _demo_values(rng, G, w, xs, ys, ext, -2.0, 2.0, 0.05)
+
+        kK = kT = None
+        if want_hydro:
+            # коэффициент фильтрации K лог-нормален (разброс на порядки, как в
+            # реальных откачках). Поле ln(K) нормируется и подрезается до ±2.5σ,
+            # иначе пики гладкого поля после exp дают неестественные выбросы.
+            # Диапазон под ВКМКС: ln(K) ~ -1.8 ± 1.3·z -> K ~ 0.006…4 м/сут.
+            # Водопроводимость физически согласована: T = K · мощность.
+            kf = _demo_field(rng, G, max(1, int(round(min(max(smooth*1.2,0.06),0.5)*G))))
+            z_at = _demo_sample(kf, xs, ys, xmin, xmax, ymin, ymax)
+            z_at = (z_at - float(z_at.mean())) / (float(z_at.std()) or 1.0)
+            z_at = np.clip(z_at, -2.5, 2.5)
+            kK = np.exp(-1.8 + 1.3 * z_at)
+            kT = kK * np.maximum(thick, 0.1)
 
         drift_path = self.parameterAsOutputLayer(
             parameters, self.OUTPUT_DRIFT, context)
@@ -2529,6 +2604,9 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         fields.append(QgsField("X", QVariant.Double))
         if want_head:
             fields.append(QgsField("head", QVariant.Double))
+        if want_hydro:
+            fields.append(QgsField("K", QVariant.Double))
+            fields.append(QgsField("T", QVariant.Double))
         if want_mt:
             fields.append(QgsField("mintype", QVariant.String))
         if want_drift:
@@ -2544,6 +2622,9 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
                      float(thick[i]), float(valsX[i])]
             if want_head:
                 attrs.append(float(head[i]))
+            if want_hydro:
+                attrs.append(float(kK[i]))
+                attrs.append(float(kT[i]))
             if want_mt:
                 attrs.append(str(mt[i]))
             if want_drift:
@@ -2571,6 +2652,14 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
                 "Поле напора (head): региональный уклон + локальная вариация. "
                 "Кригуйте head, затем подайте растр в «Гидравлический градиент "
                 "и направление потока»."))
+        if want_hydro:
+            feedback.pushInfo(_tr(
+                "Поля K и T (демо): K лог-нормально (K ≈ %.4g…%.4g м/сут), "
+                "T = K·мощность. Для удельного расхода создайте калькулятором "
+                "поля ln(K) и ln(T), кригуйте их, а при подаче в «Удельный "
+                "расход (Дарси)» включите галку «Растры заданы как ln». Напор "
+                "(head) кригуйте как обычно.")
+                % (float(kK.min()), float(kK.max())))
         results = {self.OUTPUT: dest}
         if want_drift:
             # растр пишется так, что центры пикселей совпадают с узлами
@@ -3595,7 +3684,7 @@ class FlowGradientAlgorithm(QgsProcessingAlgorithm):
     def createInstance(self): return FlowGradientAlgorithm()
     def name(self): return "flow_gradient"
     def displayName(self):
-        return self.tr("2.3 Гидравлический градиент и направление потока")
+        return self.tr("2.4 Гидравлический градиент и направление потока")
 
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP2)
@@ -3868,7 +3957,7 @@ class ExceedanceProbabilityAlgorithm(QgsProcessingAlgorithm):
     def createInstance(self): return ExceedanceProbabilityAlgorithm()
     def name(self): return "exceedance_probability"
     def displayName(self):
-        return self.tr("2.4 Карта вероятности превышения")
+        return self.tr("2.3 Карта вероятности превышения")
 
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP2)
@@ -3994,6 +4083,242 @@ class ExceedanceProbabilityAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: out_path}
 
 
+class DarcyFluxAlgorithm(QgsProcessingAlgorithm):
+    """Удельный расход по закону Дарси. Постобработка над растром напора и
+    растрами свойств пласта: к геометрии потока (градиент, направление)
+    добавляет проницаемость. Скорость фильтрации q = K·|∇h| (м/сут) и расход
+    через единицу ширины Q = T·|∇h| (м²/сут). Своего кригинга не делает -
+    растры K и T получают кригингом по точкам (лог-кригинг для K и T)."""
+
+    INPUT, BAND = "INPUT", "BAND"
+    KRASTER, KBAND = "KRASTER", "KBAND"
+    TRASTER, TBAND = "TRASTER", "TBAND"
+    LOG_INPUT = "LOG_INPUT"
+    SMOOTH_RADIUS, VECTOR_STEP = "SMOOTH_RADIUS", "VECTOR_STEP"
+    OUTPUT_Q, OUTPUT_QW = "OUTPUT_Q", "OUTPUT_QW"
+    OUTPUT_AZIMUTH, OUTPUT_VECTORS = "OUTPUT_AZIMUTH", "OUTPUT_VECTORS"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return DarcyFluxAlgorithm()
+    def name(self): return "darcy_flux"
+    def displayName(self):
+        return self.tr("2.5 Удельный расход (закон Дарси)")
+
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP2)
+    def groupId(self): return GROUP2_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Удельный расход подземного потока по закону Дарси. К геометрии "
+            "потока (градиент напора и направление) добавляет свойства пласта, "
+            "переводя безразмерный градиент в физический поток.\n\nВходы: растр "
+            "напора и хотя бы один из растров свойств - коэффициент фильтрации K "
+            "или водопроводимость T. Выходы: скорость фильтрации q = K·|∇h| "
+            "(м/сут) и расход через единицу ширины потока Q = T·|∇h| (м²/сут), "
+            "плюс направление и стрелки.\n\nКак получить K и T: кригуйте их по "
+            "точкам испытаний. K и T обычно лог-нормальны (разброс на порядки), "
+            "поэтому кригуйте ln(K) и ln(T), а тут включите «Растры заданы как "
+            "ln». Истинная скорость воды v = q/n требует пористости и здесь не "
+            "считается. Напорные и безнапорные пласты разумно криговать "
+            "раздельно. Растры должны быть в одной системе координат.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.INPUT, self.tr("Растр напора")))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BAND, self.tr("Канал напора"),
+            QgsProcessingParameterNumber.Integer, defaultValue=1, minValue=1)))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.KRASTER, self.tr("Растр коэффициента фильтрации K (м/сут)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.TRASTER, self.tr("Растр водопроводимости T (м²/сут)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.LOG_INPUT,
+            self.tr("Растры K и T заданы как ln (экспонировать)"),
+            defaultValue=False))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.KBAND, self.tr("Канал растра K"),
+            QgsProcessingParameterNumber.Integer, defaultValue=1, minValue=1)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.TBAND, self.tr("Канал растра T"),
+            QgsProcessingParameterNumber.Integer, defaultValue=1, minValue=1)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.SMOOTH_RADIUS,
+            self.tr("Сглаживание напора перед расчётом, ячеек (0 = без)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.SMOOTH_RADIUS, 0.0),
+            minValue=0.0, maxValue=10.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.VECTOR_STEP, self.tr("Векторы потока: шаг прореживания, ячеек"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.VECTOR_STEP, 8), minValue=1, maxValue=200))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_Q, self.tr("Скорость фильтрации q = K·|∇h| (м/сут)"),
+            optional=True, createByDefault=True))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_QW, self.tr("Расход через ширину Q = T·|∇h| (м²/сут)"),
+            optional=True, createByDefault=True))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_AZIMUTH, self.tr("Направление потока (азимут)"),
+            optional=True, createByDefault=False))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_VECTORS, self.tr("Векторы потока (точки)"),
+            type=QgsProcessing.TypeVectorPoint, optional=True,
+            createByDefault=True))
+
+    def _grid(self, src, band, gt, nx, ny):
+        """Читает растр свойства, при несовпадении решётки приводит к сетке
+        напора билинейно. Возвращает массив с nan вне покрытия/данных."""
+        ds = gdal.Open(src)
+        if ds is None:
+            return None
+        if (ds.RasterXSize, ds.RasterYSize) == (nx, ny) and \
+                ds.GetGeoTransform() == gt:
+            b = ds.GetRasterBand(band)
+            a = b.ReadAsArray().astype(float)
+            nd = b.GetNoDataValue(); ds = None
+            return np.where(a == nd, np.nan, a) if nd is not None else a
+        ds = None
+        return _resample_drift_to_grid(src, gt[0], gt[3] + ny * gt[5],
+                                       abs(gt[1]), nx, ny, band)
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        rl = self.parameterAsRasterLayer(parameters, self.INPUT, context)
+        if rl is None:
+            raise QgsProcessingException(self.tr("Не задан растр напора."))
+        rl_k = self.parameterAsRasterLayer(parameters, self.KRASTER, context)
+        rl_t = self.parameterAsRasterLayer(parameters, self.TRASTER, context)
+        if rl_k is None and rl_t is None:
+            raise QgsProcessingException(self.tr(
+                "Задайте хотя бы один растр свойства: K или T."))
+        band = self.parameterAsInt(parameters, self.BAND, context)
+        kband = self.parameterAsInt(parameters, self.KBAND, context)
+        tband = self.parameterAsInt(parameters, self.TBAND, context)
+        as_log = self.parameterAsBool(parameters, self.LOG_INPUT, context)
+        sm_rad = self.parameterAsDouble(parameters, self.SMOOTH_RADIUS, context)
+        step = self.parameterAsInt(parameters, self.VECTOR_STEP, context)
+        name = _short(rl.name())
+
+        ds = gdal.Open(rl.source())
+        if ds is None:
+            raise QgsProcessingException(self.tr("Не удалось открыть растр напора."))
+        b = ds.GetRasterBand(band)
+        arr = b.ReadAsArray().astype(float)
+        gt = ds.GetGeoTransform()
+        src_nd = b.GetNoDataValue()
+        ds = None
+        ny, nx = arr.shape
+        cellx = abs(gt[1]) or 1.0
+        celly = abs(gt[5]) or 1.0
+        nodata = -9999.0
+
+        valid = np.isfinite(arr)
+        if src_nd is not None:
+            valid &= (arr != src_nd)
+        if not valid.any():
+            raise QgsProcessingException(self.tr("В растре напора нет данных."))
+        if sm_rad and sm_rad > 0:
+            arr = _gaussian_nodata(np.where(valid, arr, 0.0), valid, float(sm_rad))
+        z = np.where(valid, arr, nodata)
+
+        feedback.setProgress(35)
+        mag, az = hydro.head_gradient(z, cellx, celly, nodata)
+        gvalid = (mag != nodata) & np.isfinite(mag)
+
+        kgrid = tgrid = None
+        if rl_k is not None:
+            kgrid = self._grid(rl_k.source(), kband, gt, nx, ny)
+            if kgrid is None:
+                raise QgsProcessingException(self.tr("Не удалось прочитать растр K."))
+            if as_log:
+                kgrid = np.exp(kgrid)
+        if rl_t is not None:
+            tgrid = self._grid(rl_t.source(), tband, gt, nx, ny)
+            if tgrid is None:
+                raise QgsProcessingException(self.tr("Не удалось прочитать растр T."))
+            if as_log:
+                tgrid = np.exp(tgrid)
+        feedback.setProgress(55)
+
+        crs = rl.crs()
+        crs_wkt = crs.toWkt() if (crs is not None and crs.isValid()) else None
+        results = {}
+        q_primary = None
+
+        if kgrid is not None:
+            ok = gvalid & np.isfinite(kgrid)
+            q = np.where(ok, mag * kgrid, nodata).astype(np.float32)
+            q_primary = q
+            qp = self.parameterAsOutputLayer(parameters, self.OUTPUT_Q, context)
+            if qp:
+                _write_grid_tiff(qp, q, gt, crs_wkt, nodata, nx, ny)
+                _set_output_name(context, qp,
+                                 _tr("Скорость фильтрации q · %s") % name)
+                results[self.OUTPUT_Q] = qp
+                vv = q[q != nodata]
+                if vv.size:
+                    feedback.pushInfo(_tr(
+                        "Скорость фильтрации q: медиана %.4g, максимум %.4g м/сут.")
+                        % (float(np.median(vv)), float(vv.max())))
+        if tgrid is not None:
+            ok = gvalid & np.isfinite(tgrid)
+            qw = np.where(ok, mag * tgrid, nodata).astype(np.float32)
+            if q_primary is None:
+                q_primary = qw
+            qwp = self.parameterAsOutputLayer(parameters, self.OUTPUT_QW, context)
+            if qwp:
+                _write_grid_tiff(qwp, qw, gt, crs_wkt, nodata, nx, ny)
+                _set_output_name(context, qwp,
+                                 _tr("Расход через ширину Q · %s") % name)
+                results[self.OUTPUT_QW] = qwp
+                vv = qw[qw != nodata]
+                if vv.size:
+                    feedback.pushInfo(_tr(
+                        "Расход через ширину Q: медиана %.4g, максимум %.4g м²/сут.")
+                        % (float(np.median(vv)), float(vv.max())))
+        feedback.setProgress(75)
+
+        az_path = self.parameterAsOutputLayer(
+            parameters, self.OUTPUT_AZIMUTH, context) or None
+        if az_path:
+            _write_grid_tiff(az_path, az, gt, crs_wkt, nodata, nx, ny)
+            _set_output_name(context, az_path,
+                             _tr("Направление потока · %s") % name)
+            results[self.OUTPUT_AZIMUTH] = az_path
+
+        # стрелки: направление по az, размер по удельному расходу (поле grad)
+        fields = QgsFields()
+        fields.append(QgsField("az", QVariant.Double))
+        fields.append(QgsField("grad", QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT_VECTORS, context, fields,
+            QgsWkbTypes.Point, crs)
+        if sink is not None:
+            xs, ys, azs, vals = hydro.flow_samples(q_primary, az, gt, step, nodata)
+            for i in range(len(xs)):
+                f = QgsFeature(fields)
+                f.setGeometry(QgsGeometry.fromPointXY(
+                    QgsPointXY(float(xs[i]), float(ys[i]))))
+                f.setAttributes([float(azs[i]), float(vals[i])])
+                sink.addFeature(f)
+            feedback.pushInfo(_tr(
+                "Векторов потока: %d (шаг %d яч.). Поворот по «az», размер по "
+                "удельному расходу.") % (len(xs), max(int(step), 1)))
+            _set_output_name(context, dest, _tr("Векторы потока · %s") % name)
+            _attach_style(context, dest, _style_path("flow_arrows"))
+            results[self.OUTPUT_VECTORS] = dest
+
+        _save_values(self, _saved)
+        feedback.setProgress(100)
+        return results
+
+
 ALGORITHMS = [
     Kriging2DAlgorithm,
     CategoricalIndicatorAlgorithm,
@@ -4006,4 +4331,5 @@ ALGORITHMS = [
     FlowGradientAlgorithm,
     ExternalDriftKrigingAlgorithm,
     ExceedanceProbabilityAlgorithm,
+    DarcyFluxAlgorithm,
 ]

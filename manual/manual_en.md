@@ -6,7 +6,7 @@ toc-title: "Contents"
 
 # Introduction
 
-Isoliner is a Processing provider for interpolating point data and building isolines. The kriging core is the KB2D algorithm from GSLIB. The tools are split into two groups: **Grid and isolines** - seven tools of the main processing flow, and **Additional tools** - four specialised computations.
+Isoliner is a Processing provider for interpolating point data and building isolines. The kriging core is the KB2D algorithm from GSLIB. The tools are split into two groups: **Grid and isolines** - seven tools of the main processing flow, and **Additional tools** - five specialised computations.
 
 **2D Kriging (points → raster)** - ordinary or simple kriging over a point layer.
 
@@ -32,7 +32,7 @@ A few terms used below. A variogram describes how much more strongly values diff
 
 The main way is from the official QGIS repository. Open Plugins → Manage and Install Plugins → the **All** tab, type "Isoliner" in the search, select the plugin and click **Install**. When installed from the repository, QGIS itself reports new versions and updates the plugin at the press of a button.
 
-![Module tools in the Processing panel: the Isoliner provider with two groups - "1. Grid and isolines" (1.1-1.7) and "2. Additional tools" (2.1-2.3).](images/ui_toolbox_en.png){width=55%}
+![Module tools in the Processing panel: the Isoliner provider with two groups - "1. Grid and isolines" (1.1-1.7) and "2. Additional tools" (2.1-2.5).](images/ui_toolbox_en.png){width=55%}
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
@@ -58,7 +58,7 @@ Isolines from raster: from the resulting raster, isolines and, if needed, filled
 
 The steps are independent: **Isolines from raster** works with any raster, not only with a kriging result.
 
-The tools are grouped into two Processing groups. The "Grid and isolines" group is the main processing flow, from kriging to isolines. The "Additional tools" group holds the specialised computations, categorical indicator kriging, external drift kriging, the hydraulic gradient with flow direction, and the exceedance probability map.
+The tools are grouped into two Processing groups. The "Grid and isolines" group is the main processing flow, from kriging to isolines. The "Additional tools" group holds the specialised computations, categorical indicator kriging, external drift kriging, the hydraulic gradient with flow direction, the exceedance probability map, and the Darcy specific discharge.
 
 ![The whole process on a generated example: wells with measurements (left) are turned into a continuous grid by kriging (centre), from which isolines and contour polygons are built (right).](images/schema_process.png){width=98%}
 
@@ -75,6 +75,7 @@ Main parameters:
 | Point layer | Source points (wells) for interpolation. | - |
 | Selected features only | Compute only over the layer's selected points. | off |
 | Value field (Z) | The numeric attribute that is interpolated: roof elevation, thickness, geomechanical property, chemistry, etc. | remembered between runs |
+| Value transform | ln for log-normal quantities (K, T, grades with a long tail): ln(Z) is kriged and the estimate is returned via exp. | none |
 | Kriging type | Ordinary (OK) - estimates the mean locally itself. Simple (SK) - uses the specified **Mean**. | OK |
 | Search radius | Radius of the search window for neighbouring points around a node. 0 = whole sample. | 0 (whole sample) |
 | Min. number of points | If the window has fewer points, the node stays empty (nodata). | 1 |
@@ -197,6 +198,8 @@ A key property: the standard error depends on the geometry of the well layout an
 Ordinary kriging estimates the mean locally, within the search window, so it follows a smoothly varying mean on its own. The difficulty appears when the field has a pronounced regional component, such as a general dip of the seam across the area. Then the experimental variogram of the raw value gets inflated: the range is overstated, there is no sill, the shape resembles a power model, and a stable model is hard to fit.
 
 The **Remove polynomial trend** checkbox removes the regional component by least squares before kriging. The residuals are then kriged and the trend is added back to the estimate. The residual variogram returns to its normal shape: it reaches a sill with a nugget, and the range reflects the true scale of correlation rather than the span of the trend. The **Trend degree** field selects a plane or a quadratic surface.
+
+The **Value transform** list adds a logarithm for quantities spanning orders of magnitude, such as hydraulic conductivity or transmissivity. With **ln** selected, the natural logarithm of the value is kriged and the estimate is returned through the exponential. This is the median, geometric estimate, correct for log-normal fields. The standard error is converted back to the original units. The logarithm removes the need to build an ln field by hand in the calculator and applies to positive values only. Set the variogram and nugget in ln units when the logarithm is on.
 
 ![Trend removal on real data: a seam surface with a pronounced regional dip. The trend is removed by a polynomial, the residuals are kriged, and the trend is added back to the estimate.](images/rk_plasts_real.png){width=85%}
 
@@ -505,13 +508,14 @@ Parameters:
 | Nugget fraction (Adv.) | Share of variance on short-range noise: larger - less predictable. | 0.35 |
 | Add a categorical mineral-type field | A mintype field (silvinite, replacement) for indicator kriging. | off |
 | Add a head field | A head field with a regional slope for the flow gradient. | off |
+| Add K and T fields and head | Head plus log-normal K (m/day) and T = K·thickness for the specific discharge (Darcy). | off |
 | RNG seed (Adv.) | Reproducibility of the generation. 0 = random. | 0 |
 | Sample wells (demo) | The output point layer. | - |
 | Drift surface (raster) + dz field | Enable the output to get an s raster and a dz field for external drift. | off (skipped) |
 
 At start the Log outputs the starting variogram (total sill ≈ the data variance, nugget, range). The generated data have a recoverable variogram, so it is convenient to learn the whole cycle on them: build a grid in **2D Kriging**, then isolines, and check the parameters with cross-validation.
 
-Two checkboxes and a separate output add optional fields for learning the related tools. **Add a categorical mineral-type field** adds a mintype field with a silvinite background and replacement spots for categorical indicator kriging. **Add a head field** adds a head field with a pronounced regional slope for the hydraulic gradient: krige head, feed the raster to the flow tool, and the arrows follow the head downhill. Enabling the **Drift surface** output writes, as a separate raster, a smooth secondary surface s known everywhere, and adds a dz field linearly related to it. This pair is for learning external drift kriging: krige dz with the s raster as the drift and compare it with plain kriging of dz without the drift. If the drift-surface output is skipped, the dz field is not added.
+Two checkboxes and a separate output add optional fields for learning the related tools. **Add a categorical mineral-type field** adds a mintype field with a silvinite background and replacement spots for categorical indicator kriging. **Add a head field** adds a head field with a pronounced regional slope for the hydraulic gradient: krige head, feed the raster to the flow tool, and the arrows follow the head downhill. Enabling the **Drift surface** output writes, as a separate raster, a smooth secondary surface s known everywhere, and adds a dz field linearly related to it. This pair is for learning external drift kriging: krige dz with the s raster as the drift and compare it with plain kriging of dz without the drift. If the drift-surface output is skipped, the dz field is not added. The **Add K and T fields and head** checkbox generates head and log-normal K (hydraulic conductivity, spanning orders of magnitude as in real pumping tests) and T = K·thickness. They are for learning the Darcy specific discharge: krige K and T in **2D Kriging** with the **ln** transform (or ln fields by hand), plus head, then feed the rasters into the **Specific discharge** tool.
 
 Result fields:
 
@@ -521,7 +525,9 @@ Result fields:
 | roof | number | Absolute roof elevation of the seam, m. |
 | thick | number | Seam thickness, m. |
 | X | number | Grade of the abstract component, %. |
-| head | number | Head (piezometric level), m. Only with the head checkbox. |
+| head | number | Head (piezometric level), m. With the head checkbox or the K and T checkbox. |
+| K | number | Hydraulic conductivity, m/day (log-normal). Only with the K and T checkbox. |
+| T | number | Transmissivity T = K·thickness, m²/day. Only with the K and T checkbox. |
 | mintype | text | Mineral type (silvinite, partial replacement, rock salt). Only with the mineral-type checkbox. |
 | dz | number | A value linearly related to the drift surface. Only when the drift-surface output is enabled. |
 
@@ -641,51 +647,6 @@ As with trend removal, the variogram here is fitted on the regression residuals,
 
 A convenient way to fit the residual variogram without leaving the tool is not yet provided, so the residuals are judged by the share of variance removed, which the tool prints to the Log. If the drift took out a noticeable part of the spread, the relation with the external surface is real and the drift is appropriate. If it took out almost nothing, the field is not related to that raster, and plain **2D Kriging** will give the same result more simply.
 
-# Hydraulic gradient and flow direction
-
-The **Hydraulic gradient and flow direction** tool works with the head field, that is the piezometric surface, and shows where and how steeply groundwater flows. The input is a head raster, usually the result of **2D Kriging** on borehole water levels. For a hydrogeologist this is as natural a step after building the head surface as isolines are after kriging.
-
-![Flow vectors over the head surface: the arrows go down-gradient, from high head (warm tones) to low (cool), on top of the head isolines. The arrow length grows with the steepness of the gradient.](images/flow_result.png){width=78%}
-
-There are three outputs. The **gradient-magnitude raster** shows the steepness of the head surface, the hydraulic gradient i equals the magnitude of ∇h and is dimensionless. The **azimuth raster** holds the flow direction in degrees, where zero is north and the count goes clockwise. The point layer of **flow vectors** is thinned over the grid and styled as arrows right away, so the flow pattern is visible without touching the symbology.
-
-The direction is computed strictly. Water flows down-gradient, from higher head to lower, so the arrow points towards the falling surface. On flat areas, where the head is almost constant, the direction is undefined and the azimuth there is left empty.
-
-## Without permeability
-
-The tool describes the geometry of the head field, not the flow velocity. The Darcy filtration velocity equals minus the hydraulic conductivity K times the gradient, and it needs K itself, which the tool neither asks for nor computes. In other words, the map answers where and how steeply, but not how fast. Once K is available over the area, the velocity can be obtained by multiplying the gradient by the conductivity in a separate step.
-
-## Parameters and smoothing
-
-The input is the **head raster** and its **band**. The **flow vectors, thinning step** parameter sets how many cells apart to place an arrow so they do not merge, eight by default. The **smooth head before computing** parameter removes fine grid ripple, set in cells, off by default.
-
-| Parameter | What it sets | Default / advice |
-|---|---|---|
-| Head raster | The input piezometric surface (usually a "2D Kriging" result). | - |
-| Band (Adv.) | The band of the input raster. | 1 |
-| Smooth head before computing, cells | Damps grid noise before differentiation. 0 = none. | 0 |
-| Flow vectors: thinning step, cells | How many cells apart to place an arrow. | 8 |
-| Hydraulic gradient (magnitude) | The output \|∇h\| raster. | - |
-| Flow direction (azimuth) | The output azimuth raster (down-gradient). | created by default |
-| Flow vectors (points) | The point layer of arrows (fields az, grad). | created by default |
-
-Smoothing is switched on for substance, not for looks. Differentiation amplifies noise, so even a clean kriging grid can give a patchy gradient field with jittery arrows. A light smoothing brings the picture back to a readable form. The same effect can be had by smoothing the head itself back in **2D Kriging**.
-
-## Arrows from points
-
-The vector layer is points, and the arrows are drawn by the symbology. The preset is applied automatically. The arrow marker is rotated by the **az** field, so it shows the flow direction, and its size is scaled by the **grad** field, so the arrow is longer where the gradient is steeper. The size is set in millimetres and does not depend on the map scale. The symbology can be changed in the layer properties. If you need a classic quiver diagram, where the arrow length is laid out in map units, the marker is replaced with a geometry generator, the recipe is in the styles folder next to the preset.
-
-Fields of the flow-vector layer:
-
-| Field | Type | Holds |
-|---|---|---|
-| az | number | Flow-direction azimuth, degrees (0 = north, clockwise, down-gradient). |
-| grad | number | Magnitude of the hydraulic gradient \|∇h\| at the point, dimensionless. |
-
-## The learning cycle
-
-To walk the whole path without real data, switch on **Add a head field** in **Create sample wells (demo)**. A head field with a pronounced regional slope is added to the layer. Build a grid from it in **2D Kriging**, feed the raster here, and the arrows follow the head downhill. The same end-to-end scenario as for the other tools, only about hydrogeology.
-
 # Exceedance probability map
 
 The **Exceedance probability map** tool answers not "how much" but "how likely the value exceeds a threshold". From the kriging estimate raster and its standard-error raster it builds a probability raster from 0 to 1: in each cell the probability that the true value is above a given threshold.
@@ -720,6 +681,87 @@ Run **2D Kriging** (or **External Drift Kriging**) on your field and enable the 
 Cut-off grades: the threshold is the cut-off, and the map shows the probability that the grade is above the cut-off. This is more honest than a single line drawn on the estimate, because near the edge of the ore body the certainty drops and the probability map shows it. Risk zones for any threshold: thickness below a critical value, an elevation above or below a hazardous one. The probability map complements the estimate map where not only the value matters but the confidence in it.
 
 ![An exceedance probability map with a diverging colour ramp broken at 0.5. Red is where the value is confidently above the threshold, blue confidently below, and the white band along the P=0.5 line is the zone of uncertainty (contested values). The further from the wells, the wider the band.](images/prob_result.png){width=70%}
+
+# Hydraulic gradient and flow direction
+
+The **Hydraulic gradient and flow direction** tool works with the head field, that is the piezometric surface, and shows where and how steeply groundwater flows. The input is a head raster, usually the result of **2D Kriging** on borehole water levels. For a hydrogeologist this is as natural a step after building the head surface as isolines are after kriging.
+
+![Flow vectors over the head surface: the arrows go down-gradient, from high head (warm tones) to low (cool), on top of the head isolines. The arrow length grows with the steepness of the gradient.](images/flow_result.png){width=78%}
+
+There are three outputs. The **gradient-magnitude raster** shows the steepness of the head surface, the hydraulic gradient i equals the magnitude of ∇h and is dimensionless. The **azimuth raster** holds the flow direction in degrees, where zero is north and the count goes clockwise. The point layer of **flow vectors** is thinned over the grid and styled as arrows right away, so the flow pattern is visible without touching the symbology.
+
+The direction is computed strictly. Water flows down-gradient, from higher head to lower, so the arrow points towards the falling surface. On flat areas, where the head is almost constant, the direction is undefined and the azimuth there is left empty.
+
+## Without permeability
+
+The tool describes the geometry of the head field, not the flow velocity. The Darcy filtration velocity equals minus the hydraulic conductivity K times the gradient, and it needs K itself, which the tool neither asks for nor computes. In other words, the map answers where and how steeply, but not how fast. Once K (or transmissivity T) is available over the area, the specific discharge and the flow are computed by the neighbouring tool **Specific discharge (Darcy law)**, which multiplies this gradient by the aquifer properties.
+
+## Parameters and smoothing
+
+The input is the **head raster** and its **band**. The **flow vectors, thinning step** parameter sets how many cells apart to place an arrow so they do not merge, eight by default. The **smooth head before computing** parameter removes fine grid ripple, set in cells, off by default.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Head raster | The input piezometric surface (usually a "2D Kriging" result). | - |
+| Band (Adv.) | The band of the input raster. | 1 |
+| Smooth head before computing, cells | Damps grid noise before differentiation. 0 = none. | 0 |
+| Flow vectors: thinning step, cells | How many cells apart to place an arrow. | 8 |
+| Hydraulic gradient (magnitude) | The output \|∇h\| raster. | - |
+| Flow direction (azimuth) | The output azimuth raster (down-gradient). | created by default |
+| Flow vectors (points) | The point layer of arrows (fields az, grad). | created by default |
+
+Smoothing is switched on for substance, not for looks. Differentiation amplifies noise, so even a clean kriging grid can give a patchy gradient field with jittery arrows. A light smoothing brings the picture back to a readable form. The same effect can be had by smoothing the head itself back in **2D Kriging**.
+
+## Arrows from points
+
+The vector layer is points, and the arrows are drawn by the symbology. The preset is applied automatically. The arrow marker is rotated by the **az** field, so it shows the flow direction, and its size is scaled by the **grad** field, so the arrow is longer where the gradient is steeper. The size is set in millimetres and does not depend on the map scale. The symbology can be changed in the layer properties. If you need a classic quiver diagram, where the arrow length is laid out in map units, the marker is replaced with a geometry generator, the recipe is in the styles folder next to the preset.
+
+Fields of the flow-vector layer:
+
+| Field | Type | Holds |
+|---|---|---|
+| az | number | Flow-direction azimuth, degrees (0 = north, clockwise, down-gradient). |
+| grad | number | Magnitude of the hydraulic gradient \|∇h\| at the point, dimensionless. |
+
+## The learning cycle
+
+To walk the whole path without real data, switch on **Add a head field** in **Create sample wells (demo)**. A head field with a pronounced regional slope is added to the layer. Build a grid from it in **2D Kriging**, feed the raster here, and the arrows follow the head downhill. The same end-to-end scenario as for the other tools, only about hydrogeology.
+
+# Specific discharge (Darcy law)
+
+The **Specific discharge** tool adds permeability to the flow geometry. The hydraulic gradient shows where and how steeply the head falls, but not how much water flows. Darcy's law links these through the aquifer properties: the higher the permeability and the steeper the gradient, the larger the flux. From a head raster and aquifer-property rasters the tool builds a physical flux rather than a dimensionless gradient.
+
+The tool sits in the **Additional tools** group and works as a post-processing step. It runs no kriging of its own: the property rasters are prepared separately by kriging from test points.
+
+## What is computed
+
+The specific discharge (Darcy flux) equals the hydraulic conductivity times the hydraulic gradient: q = K·|∇h|, in metres per day. It is the volume of water through a unit cross-section area per unit time. If a transmissivity raster is supplied instead of conductivity, the tool computes the flow per unit width of the flow Q = T·|∇h|, in square metres per day. Transmissivity is conductivity times thickness, so the flow per width already accounts for the aquifer thickness and does not need it separately. The direction of both fluxes is the same as the gradient direction, down the head slope.
+
+The true water velocity is the specific discharge divided by the effective porosity, v = q/n. Porosity is usually absent from the data, so the tool does not ask for it and does not compute the true velocity: if needed, divide the q raster by the porosity in the raster calculator.
+
+## How to get the K and T rasters
+
+The aquifer properties are known at the test points (pumping, injection) but are needed everywhere. They are interpolated by kriging, like any field. An important subtlety: hydraulic conductivity and transmissivity are almost always log-normal, their values span orders of magnitude. Kriging the raw values distorts the result, so the logarithm is kriged. The simplest way is to enable the **ln** transform in **2D Kriging**: then ln is kriged and the raster is returned already in the original units, and the ln checkbox here is not needed. If instead you krige an already-logged field, tick **K and T rasters are given as ln** in this tool and the values are recovered by exponentiation. Confined and unconfined aquifers are better kriged separately, their thickness physics differs.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Head raster | The piezometric surface (a kriging result over the levels). | - |
+| Hydraulic conductivity raster K (m/day) | The aquifer property for the specific discharge. Optional, but at least one of K, T is needed. | - |
+| Transmissivity raster T (m²/day) | The aquifer property for the flow per width. | - |
+| K and T rasters are given as ln | Apply exp to the input rasters (for log-kriged K and T). | off |
+| Smooth head, cells | Damps head noise before differentiation. | 0 |
+| Flow vectors: thinning step | How many cells apart to place an arrow. | 8 |
+| Raster bands (Adv.) | Bands of the multiband head, K, T rasters. | 1 |
+| Specific discharge q (m/day) | The output raster q = K·\|∇h\|. | created if K is given |
+| Flow per width Q (m²/day) | The output raster Q = T·\|∇h\|. | created if T is given |
+| Flow direction (azimuth) | The output azimuth raster. | optional |
+| Flow vectors (points) | The arrow layer (rotated by az, sized by the specific discharge). | created by default |
+
+## Use
+
+Where water moves faster and where slower, estimating inflows to workings, zones of higher seepage along permeable beds. Together with the exceedance probability map you can show not only the expected flux but also the confidence in it where test points are sparse.
 
 # Typical situations and solutions
 
