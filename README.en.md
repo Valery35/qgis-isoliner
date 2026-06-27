@@ -7,6 +7,8 @@
 A Processing-provider plugin for interpolating point data and building isolines.
 The tools are split into three Processing groups — **"Grid and isolines"**, **"Additional analysis tools"** and **"Cross-sections"** — twenty in all:
 
+**Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) and include your QGIS version, what you did, and attach the data or project to reproduce it — that makes the bug easy to repeat and faster to fix.
+
 ### "Grid and isolines" group
 
 - **1.1 2D Kriging (points → raster)** — ordinary/simple kriging over a point layer, point or block, with trend removal and an optional log transform (for log-normal K, T). Core: GSLIB KB2D.
@@ -253,6 +255,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.19.1** — horizontal axis labels placed to the left of the line (robust anchoring).
 - **2.19.0** — Boreholes/Bed composition on the section take the scale from the section definition (vertical match); renamed to "on the section"; 3.5-3.7 marked "(beta)"; a schematic added to the manual.
 - **2.18.6** — horizontal axis labels placed to the left of the line.
 - **2.18.5** — corner table: cells between corners (borders under the verticals), rows for segment length and azimuth, white fill.
