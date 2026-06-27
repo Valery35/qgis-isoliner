@@ -1,0 +1,35 @@
+name: Bug report / Сообщить об ошибке
+description: Report a problem so it can be reproduced and fixed / Опишите проблему, чтобы её можно было воспроизвести и исправить
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за отчёт. Заполните три поля ниже - этого достаточно, чтобы повторить проблему.
+        Thanks for the report. Filling the three fields below is enough to reproduce the problem.
+  - type: input
+    id: versions
+    attributes:
+      label: Версии / Versions (QGIS + Isoliner)
+      description: Например / e.g. QGIS 4.0.3, Isoliner 2.19.0
+      placeholder: QGIS 4.0.3 · Isoliner 2.19.0
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Что делали / What you did
+      description: Какой инструмент, какие параметры, что ожидали и что получилось. Which tool, which parameters, what you expected and what happened.
+      placeholder: |
+        1. Инструмент 3.1 «Разрез по линии» / Tool 3.1
+        2. ...
+        3. Ожидал ... получил ... / Expected ... got ...
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: Данные или проект / Data or project
+      description: Приложите минимальный слой / geopackage / проект .qgz и текст ошибки из лога Python, если он был. Attach a minimal layer / geopackage / .qgz project and the Python log text if there was an error.
+    validations:
+      required: false
