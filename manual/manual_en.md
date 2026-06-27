@@ -6,7 +6,7 @@ toc-title: "Contents"
 
 # Introduction
 
-Isoliner is a Processing provider for interpolating point data and building isolines. The kriging core is the KB2D algorithm from GSLIB. The tools are split into two groups: **Grid and isolines** - seven tools of the main processing flow, and **Additional tools** - five specialised computations.
+Isoliner is a Processing provider for interpolating point data and building isolines. The kriging core is the KB2D algorithm from GSLIB. The tools are split into three groups: **Grid and isolines** - seven tools of the main processing flow, **Additional analysis tools** - five specialised computations, and **Cross-sections** - building geological sections.
 
 **2D Kriging (points → raster)** - ordinary or simple kriging over a point layer.
 
@@ -18,7 +18,7 @@ Isoliner is a Processing provider for interpolating point data and building isol
 
 **Create sample wells (demo)** - generates a training point layer with a spatial structure (roof, thickness, component grade) for learning and testing without real data.
 
-The **Additional tools** group holds three specialised computations.
+The **Additional analysis tools** group holds specialised computations, for example:
 
 **Categorical indicator kriging** - a class-probability map from a categorical field (mineral type, lithotype): an indicator is built per class and kriged separately, giving a probability raster, a zone map and a confidence raster.
 
@@ -32,11 +32,11 @@ A few terms used below. A variogram describes how much more strongly values diff
 
 The main way is from the official QGIS repository. Open Plugins → Manage and Install Plugins → the **All** tab, type "Isoliner" in the search, select the plugin and click **Install**. When installed from the repository, QGIS itself reports new versions and updates the plugin at the press of a button.
 
-![Module tools in the Processing panel: the Isoliner provider with two groups - "1. Grid and isolines" (1.1-1.7) and "2. Additional tools" (2.1-2.5).](images/ui_toolbox_en.png){width=55%}
+![Module tools in the Processing panel: the Isoliner provider with three groups - "1. Grid and isolines" (1.1-1.7), "2. Additional analysis tools" (2.1-2.5) and "3. Cross-sections" (3.1-3.2).](images/ui_toolbox_en.png){width=55%}
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
-After installation the tools appear in the **Processing** panel: provider **Isoliner**, groups **Grid and isolines** and **Additional tools**. Requirements: QGIS 3.16+. There are no external dependencies - only NumPy, GDAL and the built-in Processing algorithms shipped with QGIS are used.
+After installation the tools appear in the **Processing** panel: provider **Isoliner**, groups **Grid and isolines**, **Additional analysis tools** and **Cross-sections**. Requirements: QGIS 3.16+. There are no external dependencies - only NumPy, GDAL and the built-in Processing algorithms shipped with QGIS are used.
 
 ## Updating
 
@@ -58,7 +58,7 @@ Isolines from raster: from the resulting raster, isolines and, if needed, filled
 
 The steps are independent: **Isolines from raster** works with any raster, not only with a kriging result.
 
-The tools are grouped into two Processing groups. The "Grid and isolines" group is the main processing flow, from kriging to isolines. The "Additional tools" group holds the specialised computations, categorical indicator kriging, external drift kriging, the hydraulic gradient with flow direction, the exceedance probability map, and the Darcy specific discharge.
+The tools are grouped into three Processing groups. The "Grid and isolines" group is the main processing flow, from kriging to isolines. The "Additional analysis tools" group holds the specialised computations, categorical indicator kriging, external drift kriging, the hydraulic gradient with flow direction, the exceedance probability map, and the Darcy specific discharge. The "Cross-sections" group builds geological sections along a line and prepares demo data for them.
 
 ![The whole process on a generated example: wells with measurements (left) are turned into a continuous grid by kriging (centre), from which isolines and contour polygons are built (right).](images/schema_process.png){width=98%}
 
@@ -601,7 +601,7 @@ To learn the tool without real data, switch on **Add a categorical mineral-type 
 
 The **External Drift Kriging** tool estimates a field from points when that field is systematically related to a quantity already known everywhere as a raster. Such a raster is called the drift. It can be the structural surface of an adjacent seam, a coarse regional model, a surface built on a sparse grid, or a seismic attribute. Ordinary kriging sees only the wells themselves, whereas here knowledge of the shape of the field between them is added, and the estimate leans on that shape where there are no wells.
 
-The tool sits in the **Additional tools** group and rests on the same engine as **2D Kriging**. The kriging mathematics does not change. What changes is only what the regional component is removed against.
+The tool sits in the **Additional analysis tools** group and rests on the same engine as **2D Kriging**. The kriging mathematics does not change. What changes is only what the regional component is removed against.
 
 ![The **External Drift Kriging** tool window: the point layer, the Z field, the secondary-surface raster as the drift, and the drift degree. Search, anisotropy and clipping are under **Advanced**, as in **2D Kriging**.](images/ui_external_drift_en.png){width=82%}
 
@@ -651,7 +651,7 @@ A convenient way to fit the residual variogram without leaving the tool is not y
 
 The **Exceedance probability map** tool answers not "how much" but "how likely the value exceeds a threshold". From the kriging estimate raster and its standard-error raster it builds a probability raster from 0 to 1: in each cell the probability that the true value is above a given threshold.
 
-The tool sits in the **Additional tools** group and works as a post-processing step, like the hydraulic gradient. It runs no kriging of its own and does not touch the **2D Kriging** window, it takes ready rasters. So it works equally with the output of ordinary kriging and of external drift kriging.
+The tool sits in the **Additional analysis tools** group and works as a post-processing step, like the hydraulic gradient. It runs no kriging of its own and does not touch the **2D Kriging** window, it takes ready rasters. So it works equally with the output of ordinary kriging and of external drift kriging.
 
 ![The **Exceedance probability map** tool window: the kriging estimate raster, the standard-error raster of the same run, the side and the threshold. The raster bands are under **Advanced**.](images/ui_exceedance_en.png){width=82%}
 
@@ -731,7 +731,7 @@ To walk the whole path without real data, switch on **Add a head field** in **Cr
 
 The **Specific discharge** tool adds permeability to the flow geometry. The hydraulic gradient shows where and how steeply the head falls, but not how much water flows. Darcy's law links these through the aquifer properties: the higher the permeability and the steeper the gradient, the larger the flux. From a head raster and aquifer-property rasters the tool builds a physical flux rather than a dimensionless gradient.
 
-The tool sits in the **Additional tools** group and works as a post-processing step. It runs no kriging of its own: the property rasters are prepared separately by kriging from test points.
+The tool sits in the **Additional analysis tools** group and works as a post-processing step. It runs no kriging of its own: the property rasters are prepared separately by kriging from test points.
 
 ## What is computed
 
@@ -762,6 +762,150 @@ The aquifer properties are known at the test points (pumping, injection) but are
 ## Use
 
 Where water moves faster and where slower, estimating inflows to workings, zones of higher seepage along permeable beds. Together with the exceedance probability map you can show not only the expected flux but also the confidence in it where test points are sparse.
+
+# Cross-section along a line
+
+The **Cross-section along a line** tool builds a geological section from a set of surfaces. It is not just a profile curve but beds as filled bands between a roof and a floor. The surfaces are usually obtained by kriging, and the tool assembles them into a section along a given line.
+
+The tool sits in the **Cross-sections** group and works as a post-processing step over ready rasters. It runs no kriging of its own.
+
+## How beds are defined
+
+The surfaces are supplied as a list and ordered top to bottom: roof, floor, then the next roof, and so on. Beds are built as bands between adjacent surfaces, so N surfaces give N minus one beds. Two surfaces, a roof and a floor, are enough for one bed. For a sequence of beds, add the surfaces in stratigraphic order.
+
+## Two outputs
+
+The section drawing is polygons in axes of distance along the line and elevation. The elevation can be stretched by a vertical exaggeration so thin beds read well. This layer goes into a print layout as a ready section. Its coordinate system is conventional, with distance and elevation in map units.
+
+The 3D fence is the same bands but as vertical PolygonZ walls in real coordinates. They are viewed in the 3D Map View next to the kriging surfaces: the grid is set as terrain, and the section walls show the beds in space.
+
+## Vertical scale
+
+The horizontal extent of a section (the line length) and the vertical extent (tens of metres of beds) are not comparable, so without a vertical stretch the drawing looks flat. The scale is set in two ways. In the **H:V ratio** mode you set the desired width:height ratio of the drawing (say 10), and the tool computes the exaggeration itself from the line length and the elevation span. In the **exaggeration** mode the value is a direct vertical stretch factor.
+
+The effective exaggeration is printed to the log. For an exact overlay of layers it must match across the section, the boreholes and the composition. In H:V mode the section (3.1) and the boreholes (3.2) span the whole section in height and line up. The composition (3.3) computes the ratio over a single bed, so to overlay it take the exaggeration printed by 3.1 and set it in 3.3 in the **exaggeration** mode.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Section line | A line layer. The first line is used. | - |
+| Surfaces top to bottom | A list of surface rasters in stratigraphic order. At least two are needed. | - |
+| Sampling step along the line | How many map units between samples. 0 means by cell size. | 0 |
+| Vertical scale | Mode: H:V ratio or exaggeration. | H:V |
+| Scale value | Width:height ratio (e.g. 10) or exaggeration. | 10 |
+| Raster sampling (Adv.) | Bilinear or nearest. | bilinear |
+| Section drawing (distance × elevation) | The output polygon layer for a layout. | created |
+| 3D fence (PolygonZ) | The output layer of vertical walls in real coordinates. | created |
+
+Each bed gets attributes: a number, the roof and floor names, the mean thickness and the section length. Colour the layer by bed number or by thickness. Where a surface is undefined (nodata), the band breaks and the bed splits into several polygons.
+
+## Trying it on a demo
+
+The **Create a section example** tool (the **Cross-sections** group) prepares the data at once: six stacked surfaces with a dip and variable thickness, and a line across the area. Between the surfaces are five interbedded beds - three host and two industrial (the 2nd and 4th, thin). No kriging is needed, the surfaces are already rasters. It also outputs boreholes along the line with surface-elevation fields (h1...h6), and composition grids of the industrial beds - the content and the mineral type with a replacement zone. Run it, then feed the six surfaces top to bottom (1...6) and the line into **Cross-section along a line**, the boreholes with the h1...h6 fields and the line into **Boreholes on the section**, and the composition grid with the roof and floor of an industrial bed into **Bed composition on the section**.
+
+## Relation to QGIS
+
+A plain profile curve over a single grid is built by the native **Elevation Profile** panel, no separate tool is needed for that. The section instead shows the beds between surfaces, which the native tools do not do. A kriging surface can also be viewed in 3D without a section: set the grid as terrain in the 3D Map View.
+
+# Boreholes on the section
+
+The **Boreholes on the section** tool projects boreholes onto the section line and shows them as columns of bed intervals on top of the drawing from **Cross-section along a line**. It sits in the **Cross-sections** group.
+
+Each borehole is placed at the distance along the line where its projection falls. The bed boundaries are taken from the chosen elevation fields: on each borehole their values are sorted in descending order, and adjacent pairs give the bed intervals. So the order of field selection and gaps (NULL) do not matter. Each interval gets a bed number, and the column gets the borehole number from the label field.
+
+## Corridor and exaggeration
+
+The corridor is a buffer around the line: boreholes farther than it are not shown (0 shows all). Set the vertical scale the same as in **Cross-section along a line** - in H:V mode the columns line up with the bands automatically, or take the exaggeration printed by 3.1.
+
+## Parameters
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Section line | The same line as for the section. | - |
+| Boreholes | A borehole point layer. | - |
+| Bed-boundary elevation fields | Numeric roof and floor fields. At least two. | - |
+| Borehole number field | The column label. | no label |
+| Corridor from the line | A buffer, map units. 0 shows all. | 0 |
+| Vertical scale | Mode: H:V ratio or exaggeration. | H:V |
+| Scale value | H:V ratio or exaggeration. | 10 |
+| Borehole bed intervals | The output vertical segments (drawing). | created |
+| Borehole collars | Points at the top of the columns for labels. | created |
+
+Colour the intervals by bed number to match the section bands, and label the collars by borehole number.
+
+# Bed composition on the section
+
+The **Bed composition on the section** tool colours the band of one bed by a composition grid along the line. It takes a roof, a floor and a composition grid, runs no kriging of its own, and works one bed at a time. It sits in the **Cross-sections** group.
+
+This is how the lithological composition change inside an industrial bed is shown along the section. The composition grid is prepared separately: the content by ordinary kriging, the mineral type by indicator kriging (the **Categorical indicator kriging** tool).
+
+## Two modes
+
+Continuous content (KCl, insoluble residue): the band is cut into thin vertical slices, each with a mean value. Set a graduated style for the layer (by the **value** field), and a smooth content transition is visible along the band.
+
+Categorical mineral type or facies (sylvinite, replacement, halite): adjacent slices of the same class merge into facies zones. Set a categorized style (by the **class** field). Replacement zones show as a colour change along the line.
+
+## Parameters
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Section line | The same line as for the section. | - |
+| Bed roof | The roof raster. | - |
+| Bed floor | The floor raster. | - |
+| Composition grid | A content or class raster. | - |
+| Composition | Continuous or categorical. | continuous |
+| Sampling step along the line | How many units between samples. 0 means by cell. | 0 |
+| Vertical scale | Mode: H:V ratio or exaggeration. | H:V |
+| Scale value | H:V ratio or exaggeration. | 10 |
+| Raster sampling (Adv.) | Bilinear or nearest (always nearest for a class). | bilinear |
+| Bed composition (drawing) | Output polygons in distance × elevation axes. | created |
+| Bed composition (3D) | PolygonZ polygons in real coordinates. | on request |
+
+Run the tool for each industrial bed separately, with its own composition grid. Place the composition band on top of the section drawing. For an exact overlay take the exaggeration printed by **Cross-section along a line** and set it here in the **exaggeration** mode (the H:V ratio is computed over a single bed and is not suitable for overlay).
+
+# The section definition and shared parameters
+
+Geometrically a section is set by two things - a line in the real coordinate system and a vertical scale vex. The **Cross-section along a line** tool outputs them together as a **Section definition** layer: one line with vex and step fields. This is the shared source of truth.
+
+The intersect, project and unproject tools read the line and vex from this definition, so their results match the section without manual scale fitting. Build the section once, the definition travels with the project and feeds the other tools of the group.
+
+The **Boreholes on the section** and **Bed composition on the section** tools also accept the section definition as an optional input: when given, the vertical scale is taken from it, so the borehole columns and the composition band sit exactly on the beds by height.
+
+The section also clips pinch-outs: where the roof drops to the floor, the bed disappears and no band is built. In the demo the second industrial bed pinches out to the east.
+
+For a polyline the Cross-section along a line tool optionally outputs three helper layers in the drawing axes. Corner points are placed at every polyline node, at the top and at the bottom of the section. A point carries fields: number, name (УГ-1, УГ-2 ...), side (top or bottom), distance along the line, plan X and Y, segment azimuth and a ready label. The top is labelled with the name, the bottom with the plan coordinates X and Y, rounded to two decimals. The azimuth and distance stay as layer fields - handy to place into a layout table. A style is supplied: an upward triangle on top, a shelf at the bottom.
+
+A corner table is produced optionally - a polygon layer below the section. The cells lie between the corner verticals with borders under them, two rows: the length and azimuth of the segment between adjacent corners, with a centred label and a white fill. It renders on the canvas and travels into a layout with the section. Corner verticals are lines at the nodes spanning the full section height. Horizontal axes are equal-elevation lines with ticks (five by default, with nice rounding) for an elevation scale. The drawing margins are extended by five percent up and down, and the corner points sit on these edges.
+
+![Section decoration: the frame with corner verticals and triangles, horizontal axes with ticks on the left, and the corner table below.](images/section_frame.png)
+
+
+# Intersect surfaces with the section
+
+The **Intersect surfaces with the section** tool places surface grids onto the section as lines in distance-elevation axes. Each grid is sampled along the definition line, and its trace lies on the drawing next to the beds. The line and vex come from the section definition, so the match with the section is automatic.
+
+This is how water tables, marker surfaces, the salt roof and anomaly surfaces are placed on the section. The inputs are the section definition and a list of grids, the output is lines in the section axes (and optionally 3D lines in real coordinates).
+
+The object-projection, unprojection and shaft-unwrap tools are marked **(beta)**: they work, but their interface and example set are still being refined.
+
+# Project objects onto the section
+
+The **Project objects onto the section** tool projects points, lines and polygons onto the section line. For each vertex the horizontal coordinate is the distance along the line to its projection, the height is the elevation from the 3D geometry or from a chosen field. Distant objects are cut off by a corridor.
+
+This generalises the borehole projection to any objects: anomalies, sampling points, traces, outlines. The result is in the section axes, placed on top of the drawing.
+
+# Unproject from the section
+
+The **Unproject from the section** tool does the reverse: objects drawn on the section drawing are returned to real coordinates. The horizontal coordinate of a vertex is read as the distance along the line (giving the plan), the height as the elevation Z = height / vex. The line and vex come from the same definition the drawing was built with.
+
+So an object drawn by hand on the section - an ore outline, a fault, a boundary - gets back into the plan and into 3D with a Z elevation.
+
+# Unwrap a shaft wall
+
+The **Unwrap a shaft wall** tool builds a cylindrical section. Around the shaft axis at a given radius a circle is taken with an angular step (1 degree by default), and the surface grids are sampled along it. The unwrap lies in axes of arc length along the circle and elevation.
+
+Each marker surface gives the line of its intersection with the shaft wall - where the beds dip the lines are tilted and wavy. The axis is set by a collar point layer, the radius is in map units, the vertical scale is as in the section.
 
 # Typical situations and solutions
 

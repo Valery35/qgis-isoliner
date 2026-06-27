@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into two Processing groups — **"Grid and isolines"** and **"Additional tools"** — twelve in all:
+The tools are split into three Processing groups — **"Grid and isolines"**, **"Additional analysis tools"** and **"Cross-sections"** — twenty in all:
 
 ### "Grid and isolines" group
 
@@ -17,13 +17,24 @@ The tools are split into two Processing groups — **"Grid and isolines"** and *
 - **1.6 Create sample wells (demo)** — generates a training point layer with roof, thickness and a grade. Adds fields for the related tools: head, a categorical mineral type, and, as a separate output, a drift surface (raster) with a dz field.
 - **1.7 Processing profiles** — named sets of "variogram (Structure 1) + outlier removal" saved by Variogram and Cross-validation and applied by 2D Kriging. Global storage, list management.
 
-### "Additional tools" group
+### "Additional analysis tools" group
 
 - **2.1 Categorical indicator kriging** — for a categorical field (mineral type, lithotype) it builds a 0/1 indicator per class, krige each with the KB2D core and normalises the probabilities. Outputs: a multiband probability raster, a zone map and a confidence raster.
 - **2.2 External Drift Kriging** — estimation from points when the field is related to a secondary variable known everywhere as a raster (the structural surface of an adjacent seam, a coarse model, a seismic attribute). The drift is removed by regression, the residuals are kriged, and the drift is added back from the raster. The same regression-kriging scheme as trend removal, only here the drift is a function of the external value, not of the coordinates.
 - **2.3 Exceedance probability map** — from the kriging estimate and standard-error rasters it builds P(Z>threshold) = Φ((estimate−threshold)/error) under a normal local distribution. A post-processor, runs no kriging of its own. Cut-off grades, risk zones.
 - **2.4 Hydraulic gradient and flow direction** — from a head raster it builds the hydraulic gradient |∇h|, the flow-direction azimuth (down-gradient) and a point layer of flow vectors (styled as arrows automatically). Hydrogeology without permeability (with permeability — 2.5).
 - **2.5 Specific discharge (Darcy law)** — from a head raster and aquifer-property rasters (K, T) it computes the specific discharge q = K·|∇h| (m/day) and the flow per width Q = T·|∇h| (m²/day). A post-processor, runs no kriging of its own (krige K and T in log space).
+
+### "Cross-sections" group
+
+- **3.1 Cross-section along a line** — from a line and a top-to-bottom set of surfaces it builds a geological section: beds as bands between adjacent surfaces. Two outputs — a distance × elevation drawing (for a layout) and a 3D PolygonZ fence (for the 3D Map View). Several beds at once.
+- **3.2 Boreholes on the section** — projects boreholes onto the section line and draws them as columns of bed intervals on top of the drawing. Bed boundaries from chosen elevation fields, distant ones cut off by a corridor, labelled by borehole number.
+- **3.3 Bed composition on the section** — colours a bed band by a composition grid along the line. Continuous content (KCl, HO) is cut into slices for a gradient, categorical mineral type merges into facies zones (replacement zones visible). One bed at a time, 2D and 3D outputs.
+- **3.4 Intersect surfaces with the section** — places surface grids onto the section as lines (water tables, marker surfaces, anomalies). Line and vex from the section definition.
+- **3.5 Project objects onto the section (beta)** — projects points, lines and polygons onto the section line (elevation from 3D or a field), corridor filter. Generalises the borehole projection.
+- **3.6 Unproject from the section (beta)** — reverse projection: objects drawn on the drawing are returned to real coordinates with a Z elevation.
+- **3.7 Unwrap a shaft wall (beta)** — a cylindrical section: a circle around the axis with an angular step, surfaces give intersection lines with the wall in arc-elevation axes.
+- **3.8 Create a section example** — six stacked surfaces (five beds: three host and two industrial), a line and boreholes along it (h1...h6 elevation fields), to try the cross-section and boreholes on a section at once without kriging.
 
 Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
 and any numeric attribute.
@@ -242,6 +253,27 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.19.0** — Boreholes/Bed composition on the section take the scale from the section definition (vertical match); renamed to "on the section"; 3.5-3.7 marked "(beta)"; a schematic added to the manual.
+- **2.18.6** — horizontal axis labels placed to the left of the line.
+- **2.18.5** — corner table: cells between corners (borders under the verticals), rows for segment length and azimuth, white fill.
+- **2.18.4** — revert: the Advanced flag is not used on output layers (the stock Processing dialog does not move outputs there). Outputs are back in normal order.
+- **2.18.2** — new optional output: a corner table (azimuth and distance) as a polygon layer below the section, rendered on the canvas.
+- **2.18.1** — corner points: bottom label only X and Y (azimuth and distance kept as fields for a table), upward smaller triangle, symmetric shelf, axis tick count matches the request more closely.
+- **2.18.0** — corner points top and bottom (X, Y, distance, azimuth, name УГ-N, triangle/shelf style), horizontal axes with elevation ticks, drawing margins +5%, demo line is a polyline.
+- **2.17.0** — Cross-section along a line optionally outputs corner points and verticals at the polyline nodes (node number, segment azimuth).
+- **2.16.0** — raster outputs are created collapsed in the tree (grids no longer bloat the panel), each layer gets a creation history (version, tool, date).
+- **2.15.1** — multi-output tools place their layers into a fixed tree group (re-runs add into it); the section family goes into one "Section" group.
+- **2.15.0** — the section lineup on a shared **section definition** (line + vex, output by 3.1): intersect surfaces with the section (3.4), project objects (3.5), unproject (3.6), unwrap a shaft wall (3.7). The section clips pinch-outs, the demo has a pinching bed.
+- **2.14.1** — the "Additional analysis tools" group (renamed), tidy order in the "Cross-sections" group: section, boreholes, composition, example.
+- **2.14.0** — the section vertical scale can be set by an H:V ratio (width:height), the exaggeration is computed automatically and printed to the log. In all three section tools.
+- **2.13.2** — the section demo is more expressive (dip, fold, wedges), demo boreholes hug the line.
+- **2.13.1** — fixed the boreholes layer creation in the section demo.
+- **2.13.0** — a new tool **Bed composition on a section** (3.4): colours a bed band by a composition grid along the line (continuous content as a gradient, categorical mineral type as facies zones). The section demo now also outputs composition grids of the industrial beds.
+- **2.12.1** — the section demo was extended to six surfaces (five beds: three host and two industrial).
+- **2.12.0** — a new tool **Boreholes on a section** (3.3): projects boreholes onto the line and draws columns of bed intervals on top of the drawing. The section example generator now also outputs boreholes.
+- **2.11.1** — the section tools were moved to a new **"Cross-sections"** group: Cross-section along a line is now 3.1, Create a section example is 3.2.
+- **2.11.0** — a new tool **Create a section example** (1.8): prepares surfaces and a line for a quick try of the cross-section along a line.
+- **2.10.0** — a new tool **Cross-section along a line** (2.6): from a line and a set of surfaces it builds a geological section (beds between roof and floor). Two outputs: a distance × elevation drawing for a layout and a 3D fence for the 3D Map View.
 - **2.9.3** — the "Value transform" (ln) list in 2D Kriging was moved under the Z field, closer and more visible.
 - **2.9.2** — downhill hachures (the "hachures down" style): fixed direction on QGIS 4 (the line-offset sign convention changed there relative to QGIS 3). QGIS 3 unchanged.
 - **2.9.1** — the demo K generation was brought to a realistic range (≈ 0.006…4 m/day, tail clipped), without single spikes into the hundreds.
@@ -249,8 +281,8 @@ bilingual (EN/RU).
 - **2.8.0** — a new tool **Specific discharge (Darcy law)** (2.5): from a head raster and K/T rasters it computes the specific discharge (m/day) and flow per width (m²/day). Hydrogeology now with permeability.
 - **2.7.1** — illustrations for the exceedance probability map were added to the manual (the tool window and a sample map).
 - **2.7.0** — a new tool **Exceedance probability map** (2.4): from the kriging estimate and standard-error rasters it builds P(Z>threshold) under a normal local distribution. A separate post-processor, it does not change the "2D Kriging" window. Cut-off grades, risk zones for any threshold.
-- **2.6.1** — tool groups are numbered ("1. Grid and isolines", "2. Additional tools") so the group order in the Processing tree is the same in the Russian and English locales; illustrations were added to the manual (the External Drift Kriging window, the tool tree, and an ordinary-vs-external-drift comparison).
-- **2.6.0** — a new tool **External Drift Kriging**: regression kriging against an external raster known everywhere (an adjacent seam, a coarse model, a seismic attribute). The drift is removed by regression, the residuals are kriged, and the drift is added back from the raster. Degree 1 or 2; search, anisotropy, clipping and the standard error as in 2D Kriging. The demo generator can output a drift surface (raster) and a related dz field for an end-to-end check. Tools are renumbered per group: "Grid and isolines" 1.1-1.7, "Additional tools" 2.1-2.3 (the old flat 1-10 sorted as strings).
+- **2.6.1** — tool groups are numbered ("1. Grid and isolines", "2. Additional analysis tools") so the group order in the Processing tree is the same in the Russian and English locales; illustrations were added to the manual (the External Drift Kriging window, the tool tree, and an ordinary-vs-external-drift comparison).
+- **2.6.0** — a new tool **External Drift Kriging**: regression kriging against an external raster known everywhere (an adjacent seam, a coarse model, a seismic attribute). The drift is removed by regression, the residuals are kriged, and the drift is added back from the raster. Degree 1 or 2; search, anisotropy, clipping and the standard error as in 2D Kriging. The demo generator can output a drift surface (raster) and a related dz field for an end-to-end check. Tools are renumbered per group: "Grid and isolines" 1.1-1.7, "Additional analysis tools" 2.1-2.3 (the old flat 1-10 sorted as strings).
 - **2.5.0** — a new tool **Hydraulic gradient and flow direction**
   (hydrogeology): from a head raster it builds the gradient magnitude |∇h|, the
   flow-direction azimuth (down-gradient) and a point layer of flow vectors
