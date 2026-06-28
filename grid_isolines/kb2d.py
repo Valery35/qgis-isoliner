@@ -1052,3 +1052,129 @@ def exceedance_prob(estimate, stderr, threshold, above=True):
     if not above:
         p = 1.0 - p
     return p
+
+
+# ===========================================================================
+#  Последовательная гауссова симуляция (SGS). Ансамбль равновероятных
+#  реализаций вместо одной сглаженной оценки кригинга: даёт неопределённость
+#  (P10/P50/P90, разброс) и непараметрическую вероятность превышения. Чистый
+#  NumPy поверх простого кригинга _solve_point. Без scipy.
+# ===========================================================================
+def _norm_ppf(p):
+    """Обратная функция стандартного нормального распределения Φ⁻¹(p).
+
+    Векторная рациональная аппроксимация Acklam, погрешность < 1e-9. Без scipy.
+    """
+    a = (-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
+         1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00)
+    b = (-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
+         6.680131188771972e+01, -1.328068155288572e+01)
+    c = (-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
+         -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00)
+    d = (7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
+         3.754408661907416e+00)
+    pp = np.clip(np.asarray(p, float), 1e-12, 1.0 - 1e-12)
+    out = np.empty_like(pp)
+    plow, phigh = 0.02425, 1.0 - 0.02425
+    lo = pp < plow
+    hi = pp > phigh
+    mid = ~(lo | hi)
+    if lo.any():
+        q = np.sqrt(-2.0 * np.log(pp[lo]))
+        out[lo] = (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q
+                   + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
+    if hi.any():
+        q = np.sqrt(-2.0 * np.log(1.0 - pp[hi]))
+        out[hi] = -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q
+                    + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
+    if mid.any():
+        q = pp[mid] - 0.5
+        r = q * q
+        out[mid] = (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r
+                    + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r
+                                    + b[4]) * r + 1.0)
+    return out
+
+
+def nscore_transform(v):
+    """Нормально-оценочное преобразование (normal score).
+
+    Значения переводятся в стандартные нормальные баллы через эмпирическую
+    функцию распределения: ранг -> вероятность (ранг + 0.5)/n -> Φ⁻¹. Связки
+    разводятся стабильной сортировкой. Возвращает (баллы, таблица_значений,
+    таблица_баллов); две последних - для обратного преобразования."""
+    v = np.asarray(v, float)
+    n = v.size
+    order = np.argsort(v, kind="mergesort")
+    ranks = np.empty(n, float)
+    ranks[order] = np.arange(n, dtype=float)
+    ns = _norm_ppf((ranks + 0.5) / n)
+    return ns, v[order], ns[order]
+
+
+def nscore_back(y, sv, sns):
+    """Обратное normal-score преобразование: балл -> значение интерполяцией в
+    таблице (sns -> sv). За пределами таблицы зажимается к min/max данных."""
+    return np.interp(np.asarray(y, float), sns, sv)
+
+
+def sgsim(xd, yd, vrd, vg, xmn, ymn, cell, nx, ny, nreal,
+          ndmin, ndmax, rad2, seed=None, progress=None):
+    """Последовательная гауссова симуляция на регулярном гриде.
+
+    Возвращает float32 (nreal, ny, nx) реализаций в ИСХОДНЫХ единицах (row 0 =
+    север, как build_grid). Данные переводятся в нормальные баллы, симуляция
+    идёт в гауссовом пространстве простым кригингом (среднее 0) по случайному
+    пути; каждый узел розыгрывается из N(оценка, дисперсия) и сразу становится
+    обуславливающим. Жёсткие данные привязываются к ближайшим узлам и фиксируются
+    во всех реализациях. Соседи берутся окном по гриду и решаются _solve_point.
+    vg - модель вариограммы НОРМАЛЬНЫХ БАЛЛОВ (порог около 1)."""
+    rng = np.random.default_rng(seed)
+    xd = np.asarray(xd, float)
+    yd = np.asarray(yd, float)
+    ns, sv, sns = nscore_transform(np.asarray(vrd, float))
+    fix_ix = np.clip(np.round((xd - xmn) / cell).astype(int), 0, nx - 1)
+    fix_iy = np.clip(np.round((yd - ymn) / cell).astype(int), 0, ny - 1)
+    frozen = np.zeros((ny, nx), bool)
+    fval = np.zeros((ny, nx), float)
+    for k in range(ns.size):
+        frozen[fix_iy[k], fix_ix[k]] = True
+        fval[fix_iy[k], fix_ix[k]] = ns[k]
+    free_idx = np.argwhere(~frozen)
+    radius = math.sqrt(rad2)
+    half = min(max(1, int(math.ceil(radius / cell))), 25)
+    xs_node = xmn + np.arange(nx) * cell
+    ys_node = ymn + np.arange(ny) * cell
+    maxcand = max(4 * int(ndmax), 8)
+    out = np.empty((nreal, ny, nx), np.float32)
+    for r in range(nreal):
+        sim = np.full((ny, nx), np.nan)
+        sim[frozen] = fval[frozen]
+        path = free_idx.copy()
+        rng.shuffle(path)
+        for iy, ix in path:
+            x0 = max(0, ix - half); x1 = min(nx, ix + half + 1)
+            y0 = max(0, iy - half); y1 = min(ny, iy + half + 1)
+            sub = sim[y0:y1, x0:x1]
+            m = ~np.isnan(sub)
+            e = var = float("nan")
+            if m.any():
+                jy, jx = np.nonzero(m)
+                ddx = (x0 + jx) - ix
+                ddy = (y0 + jy) - iy
+                d2 = ddx * ddx + ddy * ddy
+                if d2.size > maxcand:
+                    keep = np.argpartition(d2, maxcand)[:maxcand]
+                    jy = jy[keep]; jx = jx[keep]
+                e, var = _solve_point(
+                    xs_node[ix], ys_node[iy], xs_node[x0 + jx], ys_node[y0 + jy],
+                    sub[jy, jx], vg, 0, 0.0, 1, ndmax, rad2, float("nan"))
+            if e != e:                           # nan: соседей нет -> априор
+                val = rng.standard_normal()
+            else:
+                val = e + math.sqrt(max(var, 0.0)) * rng.standard_normal()
+            sim[iy, ix] = val
+        out[r] = np.flipud(nscore_back(sim, sv, sns).astype(np.float32))
+        if progress is not None:
+            progress(r + 1, nreal)
+    return out

@@ -170,6 +170,7 @@ GRP_DRIFT = _tr("Кригинг с внешним дрейфом")
 GRP_ISOLINES = _tr("Изолинии")
 GRP_FLOW = _tr("Гидравлический градиент")
 GRP_DARCY = _tr("Удельный расход")
+GRP_SIM = _tr("Гауссова симуляция")
 GRP_WELLS_DEMO = _tr("Пример скважин")
 GRP_SECTION = _tr("Разрез")
 GRP_SECTION_DEMO = _tr("Пример разреза")
@@ -2558,7 +2559,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Область (экстент)")))
         self.addParameter(QgsProcessingParameterNumber(
-            self.N_POINTS, self.tr("Число скважин"),
+            self.N_POINTS, self.tr("Количество скважин"),
             QgsProcessingParameterNumber.Integer, defaultValue=300,
             minValue=5, maxValue=200000))
         self.addParameter(QgsProcessingParameterNumber(
@@ -3063,7 +3064,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
             defaultValue=_dv(self, self.MIN_GROUP_PCT, 2.0),
             minValue=0.0, maxValue=100.0)))
         self.addParameter(QgsProcessingParameterNumber(
-            self.N_LAGS, self.tr("Число лагов"),
+            self.N_LAGS, self.tr("Количество лагов"),
             QgsProcessingParameterNumber.Integer,
             defaultValue=_dv(self, self.N_LAGS, 15), minValue=3, maxValue=100))
         self.addParameter(QgsProcessingParameterNumber(
@@ -3304,7 +3305,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
         if html_path:
             meta = [(_tr("Поле Z"), zfield), (_tr("Точек"), "%d" % len(xs)),
                     (_tr("Дисперсия данных"), "%.4g" % data_var),
-                    (_tr("Число лагов"), "%d" % n_lags),
+                    (_tr("Количество лагов"), "%d" % n_lags),
                     (_tr("Максимальное расстояние"), "%.4g" % ev["maxlag"]),
                     (_tr("Оценка"), _tr("Кресси-Хокинса") if robust else _tr("Матерона"))]
             if ev["subsampled"]:
@@ -4818,7 +4819,7 @@ class SectionAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessing.TypeVectorPolygon, optional=True,
             createByDefault=False))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.NAXES, self.tr("Число отметок высоты на осях"),
+            self.NAXES, self.tr("Количество отметок высоты на осях"),
             QgsProcessingParameterNumber.Integer,
             defaultValue=_dv(self, self.NAXES, 5), minValue=2, maxValue=50)))
 
@@ -6036,6 +6037,213 @@ class ShaftUnwrapAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: dest}
 
 
+class SequentialGaussianSimAlgorithm(QgsProcessingAlgorithm):
+    INPUT, FIELD = "INPUT", "FIELD"
+    CELL_SIZE, EXTENT = "CELL_SIZE", "EXTENT"
+    NREAL, MODEL = "NREAL", "MODEL"
+    MAX_POINTS, RADIUS, SEED = "MAX_POINTS", "RADIUS", "SEED"
+    THRESHOLD, ABOVE = "THRESHOLD", "ABOVE"
+    OUT_MEAN, OUT_STD = "OUT_MEAN", "OUT_STD"
+    OUT_P10, OUT_P50, OUT_P90 = "OUT_P10", "OUT_P50", "OUT_P90"
+    OUT_PROB = "OUT_PROB"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return SequentialGaussianSimAlgorithm()
+    def name(self): return "sgsim"
+    def displayName(self): return self.tr("2.6 Гауссова симуляция (SGS)")
+    def group(self): return self.tr(GROUP2)
+    def groupId(self): return GROUP2_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Последовательная гауссова симуляция: ансамбль равновероятных "
+            "реализаций вместо одной сглаженной оценки кригинга. Каждая "
+            "реализация воспроизводит гистограмму и вариограмму данных и проходит "
+            "через скважины, поэтому по набору реализаций видна "
+            "НЕОПРЕДЕЛЁННОСТЬ - разброс, квантили P10/P50/P90, вероятность "
+            "превышения отсечки. Там, где реализации расходятся, оценка слабая.\n\n"
+            "Вариограмма нормальных баллов подбирается автоматически. Выходы - "
+            "растры: среднее по ансамблю (E-type), стандартное отклонение "
+            "(неопределённость), квантили P10/P50/P90 и при заданном пороге карта "
+            "вероятности превышения. Время растёт с размером грида и числом "
+            "реализаций - начинайте с грубой ячейки и 50-100 реализаций."))
+
+    def initAlgorithm(self, config=None):
+        _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Точки (скважины)"),
+            types=[QgsProcessing.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            self.FIELD, self.tr("Поле значения"), parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELL_SIZE, self.tr("Размер ячейки (0 = авто, min(охват)/50)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.CELL_SIZE, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.NREAL, self.tr("Количество реализаций"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.NREAL, 60), minValue=1, maxValue=1000))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.THRESHOLD, self.tr("Порог отсечки для вероятности (опционально)"),
+            QgsProcessingParameterNumber.Double, optional=True))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.ABOVE, self.tr("Вероятность ВЫШЕ порога (иначе ниже)"),
+            defaultValue=True))
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Охват растра (по умолчанию - по слою)"),
+            optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterEnum(
+            self.MODEL, self.tr("Модель вариограммы баллов"),
+            options=[self.tr("авто"), self.tr("сферическая"),
+                     self.tr("экспоненциальная"), self.tr("гауссова")],
+            defaultValue=_dv(self, self.MODEL, 0))))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MAX_POINTS, self.tr("Макс. число соседей на узел"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.MAX_POINTS, 16), minValue=2, maxValue=64)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.RADIUS, self.tr("Радиус поиска (0 = авто, 3 радиуса вариограммы)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.RADIUS, 0.0), minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SEED, self.tr("Зерно ГСЧ (0 = случайное)"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.SEED, 0), minValue=0)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_MEAN, self.tr("Среднее по ансамблю (E-type)")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_STD, self.tr("Стандартное отклонение (неопределённость)")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_P10, self.tr("Квантиль P10")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_P50, self.tr("Медиана P50")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_P90, self.tr("Квантиль P90")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_PROB, self.tr("Вероятность превышения порога"),
+            optional=True, createByDefault=False))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        source = self.parameterAsSource(parameters, self.INPUT, context)
+        field = self.parameterAsString(parameters, self.FIELD, context)
+        if source is None:
+            raise QgsProcessingException(self.tr("Не задан точечный слой."))
+        xd, yd, vrd = _read_points(source, field, feedback)
+        if len(xd) < 8:
+            raise QgsProcessingException(self.tr(
+                "Слишком мало точек для симуляции (нужно хотя бы 8)."))
+        xd = np.asarray(xd); yd = np.asarray(yd); vrd = np.asarray(vrd)
+
+        crs = source.sourceCrs()
+        rect = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        if rect is None or rect.isEmpty():
+            rect = source.sourceExtent()
+        xmin, ymin = rect.xMinimum(), rect.yMinimum()
+        width, height = rect.xMaximum() - xmin, rect.yMaximum() - ymin
+        cell = self.parameterAsDouble(parameters, self.CELL_SIZE, context)
+        if cell <= 0:
+            cell = (min(width, height) / 50.0) or 1.0
+        nx = max(int(math.ceil(width / cell)), 1)
+        ny = max(int(math.ceil(height / cell)), 1)
+        xmn, ymn = xmin + 0.5 * cell, ymin + 0.5 * cell
+        nreal = self.parameterAsInt(parameters, self.NREAL, context)
+        ndmax = self.parameterAsInt(parameters, self.MAX_POINTS, context)
+        seed = self.parameterAsInt(parameters, self.SEED, context)
+        seed = None if seed <= 0 else int(seed)
+        feedback.pushInfo(_tr("Сетка %d x %d, ячейка %.4g, реализаций %d.")
+                          % (nx, ny, cell, nreal))
+        if nreal * nx * ny * 4 > 400 * 2 ** 20:
+            feedback.pushWarning(_tr(
+                "Ансамбль крупный (>400 МБ в памяти). Уменьшите число реализаций "
+                "или огрубите ячейку, если не хватит памяти."))
+
+        from .kb2d import (nscore_transform, experimental_variogram,
+                           fit_variogram, Variogram, sgsim)
+        ns, _sv, _sns = nscore_transform(vrd)
+        ev = experimental_variogram(xd, yd, ns, n_lags=15)
+        mchoice = self.parameterAsEnum(parameters, self.MODEL, context)
+        marg = "auto" if mchoice == 0 else (mchoice - 1)
+        fit = fit_variogram(ev["lag"], ev["gamma"], ev["npairs"],
+                            model=marg, sill_cap=1.2)
+        if fit is None:
+            raise QgsProcessingException(self.tr(
+                "Не удалось подобрать вариограмму нормальных баллов "
+                "(мало точек или нет структуры)."))
+        vg = Variogram(fit["nugget"], [{
+            "it": fit["model"] + 1, "cc": fit["sill"], "aa": fit["range"],
+            "ang": 0.0, "anis": 1.0}])
+        feedback.pushInfo(_tr(
+            "Вариограмма баллов: %s, наггет %.3f, порог %.3f, радиус %.4g (R2=%.2f).")
+            % (MODEL_LABELS[fit["model"]], fit["nugget"], fit["sill"],
+               fit["range"], fit["r2"]))
+        radius = self.parameterAsDouble(parameters, self.RADIUS, context)
+        if radius <= 0:
+            radius = min(3.0 * fit["range"], math.hypot(width, height) or 1e12)
+        rad2 = radius * radius
+
+        def prog(done, total):
+            if feedback.isCanceled():
+                raise QgsProcessingException(_tr("Прервано пользователем."))
+            feedback.setProgress(int(92.0 * done / max(total, 1)))
+
+        real = sgsim(xd, yd, vrd, vg, xmn, ymn, cell, nx, ny, nreal,
+                     ndmin=1, ndmax=ndmax, rad2=rad2, seed=seed, progress=prog)
+
+        mean = real.mean(axis=0).astype(np.float32)
+        std = real.std(axis=0).astype(np.float32)
+        p10, p50, p90 = np.quantile(real, [0.1, 0.5, 0.9], axis=0).astype(np.float32)
+        thr_raw = parameters.get(self.THRESHOLD)
+        prob = None
+        if thr_raw is not None:
+            thr = self.parameterAsDouble(parameters, self.THRESHOLD, context)
+            above = self.parameterAsBoolean(parameters, self.ABOVE, context)
+            ind = (real > thr) if above else (real < thr)
+            prob = ind.mean(axis=0).astype(np.float32)
+
+        geotr = (xmin, cell, 0.0, ymin + ny * cell, 0.0, -cell)
+        wkt = None
+        if crs is not None and crs.isValid():
+            srs = osr.SpatialReference(); srs.ImportFromWkt(crs.toWkt())
+            wkt = srs.ExportToWkt()
+        drv = gdal.GetDriverByName("GTiff")
+        opt = ["COMPRESS=LZW", "TILED=YES"]
+
+        def _write(path, arr):
+            ds = drv.Create(path, nx, ny, 1, gdal.GDT_Float32, options=opt)
+            ds.SetGeoTransform(geotr)
+            if wkt:
+                ds.SetProjection(wkt)
+            b = ds.GetRasterBand(1)
+            b.WriteArray(arr); b.FlushCache()
+            ds = None
+
+        res = {}
+        outs = [(self.OUT_MEAN, mean, _tr("SGS среднее (E-type)")),
+                (self.OUT_STD, std, _tr("SGS стандартное отклонение")),
+                (self.OUT_P10, p10, _tr("SGS P10")),
+                (self.OUT_P50, p50, _tr("SGS медиана P50")),
+                (self.OUT_P90, p90, _tr("SGS P90"))]
+        for key, arr, label in outs:
+            path = self.parameterAsOutputLayer(parameters, key, context)
+            _write(path, arr)
+            _set_output_name(context, path, label)
+            res[key] = path
+        if prob is not None:
+            path = self.parameterAsOutputLayer(parameters, self.OUT_PROB, context)
+            _write(path, prob)
+            _set_output_name(context, path, _tr("SGS вероятность превышения"))
+            res[self.OUT_PROB] = path
+
+        _save_values(self, _saved)
+        feedback.setProgress(100)
+        _set_group(context, GRP_SIM, list(res.values()),
+                   history=_provenance(self, parameters))
+        return res
+
+
 ALGORITHMS = [
     Kriging2DAlgorithm,
     CategoricalIndicatorAlgorithm,
@@ -6050,6 +6258,7 @@ ALGORITHMS = [
     ExternalDriftKrigingAlgorithm,
     ExceedanceProbabilityAlgorithm,
     DarcyFluxAlgorithm,
+    SequentialGaussianSimAlgorithm,
     SectionAlgorithm,
     BoreholesOnSectionAlgorithm,
     CompositionOnSectionAlgorithm,
