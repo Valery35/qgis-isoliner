@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into three Processing groups — **"Grid and isolines"**, **"Additional analysis tools"** and **"Cross-sections"** — twenty in all:
+The tools are split into three Processing groups — **"Grid and isolines"**, **"Additional analysis tools"** and **"Cross-sections"** — twenty-one in all:
 
 **Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) and include your QGIS version, what you did, and attach the data or project to reproduce it — that makes the bug easy to repeat and faster to fix.
 
@@ -26,6 +26,7 @@ The tools are split into three Processing groups — **"Grid and isolines"**, **
 - **2.3 Exceedance probability map** — from the kriging estimate and standard-error rasters it builds P(Z>threshold) = Φ((estimate−threshold)/error) under a normal local distribution. A post-processor, runs no kriging of its own. Cut-off grades, risk zones.
 - **2.4 Hydraulic gradient and flow direction** — from a head raster it builds the hydraulic gradient |∇h|, the flow-direction azimuth (down-gradient) and a point layer of flow vectors (styled as arrows automatically). Hydrogeology without permeability (with permeability — 2.5).
 - **2.5 Specific discharge (Darcy law)** — from a head raster and aquifer-property rasters (K, T) it computes the specific discharge q = K·|∇h| (m/day) and the flow per width Q = T·|∇h| (m²/day). A post-processor, runs no kriging of its own (krige K and T in log space).
+- **2.6 Gaussian simulation (SGS)** — sequential Gaussian simulation: an ensemble of equally probable realizations instead of a single smoothed estimate. Mean (E-type), standard deviation, P10/P50/P90 quantiles and an exceedance-probability map — uncertainty, not just the mean. Pure NumPy on top of the kriging core.
 
 ### "Cross-sections" group
 
@@ -255,6 +256,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.20.0** — new tool "2.6 Gaussian simulation (SGS)": an ensemble of equally probable realizations instead of a single smoothed estimate. Mean (E-type), standard deviation, P10/P50/P90 quantiles and an exceedance-probability map — uncertainty, not just the estimate. The score variogram is fitted automatically; pure NumPy on top of the kriging core. The "Number of …" labels were reworded in Russian.
 - **2.19.1** — horizontal axis labels placed to the left of the line (robust anchoring).
 - **2.19.0** — Boreholes/Bed composition on the section take the scale from the section definition (vertical match); renamed to "on the section"; 3.5-3.7 marked "(beta)"; a schematic added to the manual.
 - **2.18.6** — horizontal axis labels placed to the left of the line.
