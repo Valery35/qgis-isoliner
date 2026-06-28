@@ -32,7 +32,7 @@ QGIS-плагин Isoliner. Группа инструментов Processing д�
 | `site/isoliner_landing.html` | лендинг (9 карточек) |
 | `tests/` | pytest smoke/покрытие |
 
-## Инструменты (21, канонический порядок = `ALGORITHMS` в algorithms.py)
+## Инструменты (23, канонический порядок = `ALGORITHMS` в algorithms.py)
 
 Три группы Processing. Номер в скобках - префикс в displayName (он и задаёт
 порядок внутри группы); имя класса не меняется при переименовании.
@@ -58,13 +58,15 @@ QGIS-плагин Isoliner. Группа инструментов Processing д�
 1. `SectionAlgorithm` - разрез по линии (выдаёт определение разреза + рамку/таблицу углов)
 2. `BoreholesOnSectionAlgorithm` - скважины на разрезе (опц. вход определения для общего vex)
 3. `CompositionOnSectionAlgorithm` - состав пласта на разрезе (то же)
-4. `SectionGridIntersectAlgorithm` - пересечение поверхностей с разрезом
-5. `SectionProjectAlgorithm` - проекция объектов на разрез (бета)
-6. `SectionUnprojectAlgorithm` - спроецировать с разреза (бета)
-7. `ShaftUnwrapAlgorithm` - развёртка стенки ствола (бета)
-8. `SectionDemoAlgorithm` - создать пример для разреза
+4. `SectionGridIntersectAlgorithm` - пересечение поверхностей (гридов) с разрезом
+5. `SectionVectorIntersectAlgorithm` - пересечение векторов (мультислои) с разрезом: линия без Z -> вертикаль на всю высоту, линия с Z -> точка на отметке, полигон -> полоса; высота рамки из определения разреза (поля zmin/zmax от 3.01), иначе чертёж/Z-диапазон; пустые выходы не создаются; стили section_vlines/vpoints/vbands; поле src
+6. `SectionTinIntersectAlgorithm` - пересечение TIN (3D-граней PolygonZ и/или меша) с разрезом: ядро `tin_section_trace` в kb2d.py (треугольник × вертикальная штора), нависание/опрокинутое воспроизводится (многозначно по высоте); 2D-трасса + опц. 3D; стиль section_tin
+7. `SectionProjectAlgorithm` - проекция объектов на разрез (бета)
+8. `SectionUnprojectAlgorithm` - спроецировать с разреза (бета)
+9. `ShaftUnwrapAlgorithm` - развёртка стенки ствола (бета)
+10. `SectionDemoAlgorithm` - создать пример для разреза (демо-векторы: разлом, маркер с Z, зона; опрокинутая TIN-складка PolygonZ)
 
-Канонический счётчик версий и changelog - в `grid_isolines/metadata.txt`.
+Номера в displayName группы 3 двузначные (3.01..3.10), чтобы тулбокс QGIS не сортировал «3.10» перед «3.2». Канонический счётчик версий и changelog - в `grid_isolines/metadata.txt`.
 
 ## Сборка и релиз
 

@@ -1178,3 +1178,76 @@ def sgsim(xd, yd, vrd, vg, xmn, ymn, cell, nx, ny, nreal,
         if progress is not None:
             progress(r + 1, nreal)
     return out
+
+
+# ===========================================================================
+#  Пересечение TIN (3D-треугольников) с вертикальной шторой разреза. В отличие
+#  от растрового грида (z = f(x,y), одно значение на точку) TIN из настоящих
+#  3D-граней может нависать и опрокидываться: над одной станцией оказывается
+#  несколько отметок, и трасса на разрезе заворачивается. Чистая геометрия в
+#  3D (треугольник × вертикальная плоскость сегмента), без QGIS.
+# ===========================================================================
+def tin_section_trace(poly_xy, triangles, eps=1e-9):
+    """Трасса TIN на разрезе вдоль ломаной poly_xy.
+
+    poly_xy:   [(x, y), ...] вершины линии разреза.
+    triangles: итерируемое из ((x0,y0,z0),(x1,y1,z1),(x2,y2,z2)).
+    Возвращает список сегментов (d0, z0, d1, z1) в осях расстояние-высота
+    (без множителя vex - его накладывает вызывающий). Корректно для нависающих
+    поверхностей: один треугольник даёт один сегмент, перекрытие по расстоянию
+    с разной высотой образует заворот трассы."""
+    P = [(float(x), float(y)) for x, y in poly_xy]
+    if len(P) < 2:
+        return []
+    dv = [0.0]
+    for i in range(1, len(P)):
+        dv.append(dv[-1] + math.hypot(P[i][0] - P[i - 1][0],
+                                      P[i][1] - P[i - 1][1]))
+    tris = [np.asarray(t, float) for t in triangles]
+    out = []
+    for k in range(len(P) - 1):
+        ax, ay = P[k]; bx, by = P[k + 1]
+        dA, dB = dv[k], dv[k + 1]
+        abx, aby = bx - ax, by - ay
+        L2 = abx * abx + aby * aby
+        if L2 <= eps:
+            continue
+        nx, ny = -aby, abx                  # горизонтальная нормаль к сегменту
+        for T in tris:
+            fx = nx * (T[:, 0] - ax) + ny * (T[:, 1] - ay)
+            cross = []
+            for i, j in ((0, 1), (1, 2), (2, 0)):
+                fi, fj = fx[i], fx[j]
+                if abs(fi) <= eps and abs(fj) <= eps:
+                    cross.append(T[i]); cross.append(T[j])
+                elif (fi <= 0.0 <= fj) or (fj <= 0.0 <= fi):
+                    if abs(fi - fj) <= eps:
+                        continue
+                    t = fi / (fi - fj)
+                    cross.append(T[i] + t * (T[j] - T[i]))
+            if len(cross) < 2:
+                continue
+            ss = [((q[0] - ax) * abx + (q[1] - ay) * aby) / L2 for q in cross]
+            i0 = int(np.argmin(ss)); i1 = int(np.argmax(ss))
+            s0, s1 = ss[i0], ss[i1]
+            z0, z1 = cross[i0][2], cross[i1][2]
+            if s1 - s0 <= eps:
+                continue
+            lo, hi = max(s0, 0.0), min(s1, 1.0)
+            if hi - lo <= eps:
+                continue
+            ds = s1 - s0
+            zl = z0 + (lo - s0) / ds * (z1 - z0)
+            zh = z0 + (hi - s0) / ds * (z1 - z0)
+            out.append((dA + lo * (dB - dA), zl, dA + hi * (dB - dA), zh))
+    return out
+
+
+def fan_triangulate(ring):
+    """Веерная триангуляция плоского кольца [(x,y,z), ...] (без замыкающей
+    повторной вершины) в список треугольников от вершины 0. Для граней TIN с
+    числом вершин больше трёх."""
+    pts = list(ring)
+    if len(pts) >= 2 and pts[0] == pts[-1]:
+        pts = pts[:-1]
+    return [(pts[0], pts[i], pts[i + 1]) for i in range(1, len(pts) - 1)]

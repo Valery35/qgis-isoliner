@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into three Processing groups — **"Grid and isolines"**, **"Additional analysis tools"** and **"Cross-sections"** — twenty-one in all:
+The tools are split into three Processing groups — **"Grid and isolines"**, **"Additional analysis tools"** and **"Cross-sections"** — twenty-three in all:
 
 **Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) and include your QGIS version, what you did, and attach the data or project to reproduce it — that makes the bug easy to repeat and faster to fix.
 
@@ -30,14 +30,16 @@ The tools are split into three Processing groups — **"Grid and isolines"**, **
 
 ### "Cross-sections" group
 
-- **3.1 Cross-section along a line** — from a line and a top-to-bottom set of surfaces it builds a geological section: beds as bands between adjacent surfaces. Two outputs — a distance × elevation drawing (for a layout) and a 3D PolygonZ fence (for the 3D Map View). Several beds at once.
-- **3.2 Boreholes on the section** — projects boreholes onto the section line and draws them as columns of bed intervals on top of the drawing. Bed boundaries from chosen elevation fields, distant ones cut off by a corridor, labelled by borehole number.
-- **3.3 Bed composition on the section** — colours a bed band by a composition grid along the line. Continuous content (KCl, HO) is cut into slices for a gradient, categorical mineral type merges into facies zones (replacement zones visible). One bed at a time, 2D and 3D outputs.
-- **3.4 Intersect surfaces with the section** — places surface grids onto the section as lines (water tables, marker surfaces, anomalies). Line and vex from the section definition.
-- **3.5 Project objects onto the section (beta)** — projects points, lines and polygons onto the section line (elevation from 3D or a field), corridor filter. Generalises the borehole projection.
-- **3.6 Unproject from the section (beta)** — reverse projection: objects drawn on the drawing are returned to real coordinates with a Z elevation.
-- **3.7 Unwrap a shaft wall (beta)** — a cylindrical section: a circle around the axis with an angular step, surfaces give intersection lines with the wall in arc-elevation axes.
-- **3.8 Create a section example** — six stacked surfaces (five beds: three host and two industrial), a line and boreholes along it (h1...h6 elevation fields), to try the cross-section and boreholes on a section at once without kriging.
+- **3.01 Cross-section along a line** — from a line and a top-to-bottom set of surfaces it builds a geological section: beds as bands between adjacent surfaces. Two outputs — a distance × elevation drawing (for a layout) and a 3D PolygonZ fence (for the 3D Map View). Several beds at once.
+- **3.02 Boreholes on the section** — projects boreholes onto the section line and draws them as columns of bed intervals on top of the drawing. Bed boundaries from chosen elevation fields, distant ones cut off by a corridor, labelled by borehole number.
+- **3.03 Bed composition on the section** — colours a bed band by a composition grid along the line. Continuous content (KCl, HO) is cut into slices for a gradient, categorical mineral type merges into facies zones (replacement zones visible). One bed at a time, 2D and 3D outputs.
+- **3.04 Intersect surfaces with the section** — places surface grids onto the section as lines (water tables, marker surfaces, anomalies). Line and vex from the section definition.
+- **3.05 Vector intersection with the section** — lines and polygons onto the section by exact intersection: a line without Z gives a full-height vertical, a line with Z a point at the elevation, a polygon a band over the zone interval.
+- **3.06 Intersect a TIN with the section** — cuts the section through a surface of 3D faces (PolygonZ) and/or a mesh. Unlike a grid it takes overhangs and overturning: several elevations above one station, the trace folds.
+- **3.07 Project objects onto the section (beta)** — projects points, lines and polygons onto the section line (elevation from 3D or a field), corridor filter. Generalises the borehole projection.
+- **3.08 Unproject from the section (beta)** — reverse projection: objects drawn on the drawing are returned to real coordinates with a Z elevation.
+- **3.09 Unwrap a shaft wall (beta)** — a cylindrical section: a circle around the axis with an angular step, surfaces give intersection lines with the wall in arc-elevation axes.
+- **3.10 Create a section example** — six stacked surfaces (five beds: three host and two industrial), a line and boreholes along it (h1...h6 elevation fields), to try the cross-section and boreholes on a section at once without kriging.
 
 Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
 and any numeric attribute.
@@ -256,6 +258,13 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.22.1** — the demo TIN reshaped into a realistic recumbent overturned fold (was a narrow coiled ribbon).
+- **2.22.x** — the demo TIN refined into a compact smooth recumbent overturned fold following bed dip (shape and size iterations).
+- **2.22.0** — new tool "3.06 Intersect a TIN with the section": a TIN of 3D faces is cut by the section, overturned folds are reproduced (a grid cannot). Section tool numbers became two-digit (3.01-3.10); the demo gained an overturned TIN.
+- **2.21.2** — "3.5 Vector intersection" accepts a list of layers in one run; the src field keeps the source layer.
+- **2.21.1** — "3.5 Vector intersection": the frame height is now stored in the section definition (no need to supply the drawing for 2D objects); empty outputs are not created.
+- **2.21.0** — new tool "3.5 Vector intersection with the section" (lines and polygons onto the section by exact intersection). Section betas shifted to 3.6-3.8, demo to 3.9; the demo gained a fault, a Z marker and a replacement zone.
+- **2.20.1** — restored the Help button in the "2.6 Gaussian simulation (SGS)" dialog.
 - **2.20.0** — new tool "2.6 Gaussian simulation (SGS)": an ensemble of equally probable realizations instead of a single smoothed estimate. Mean (E-type), standard deviation, P10/P50/P90 quantiles and an exceedance-probability map — uncertainty, not just the estimate. The score variogram is fitted automatically; pure NumPy on top of the kriging core. The "Number of …" labels were reworded in Russian.
 - **2.19.1** — horizontal axis labels placed to the left of the line (robust anchoring).
 - **2.19.0** — Boreholes/Bed composition on the section take the scale from the section definition (vertical match); renamed to "on the section"; 3.5-3.7 marked "(beta)"; a schematic added to the manual.
