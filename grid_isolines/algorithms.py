@@ -6053,6 +6053,7 @@ class SequentialGaussianSimAlgorithm(QgsProcessingAlgorithm):
     def displayName(self): return self.tr("2.6 Гауссова симуляция (SGS)")
     def group(self): return self.tr(GROUP2)
     def groupId(self): return GROUP2_ID
+    def helpUrl(self): return _help_url()
 
     def shortHelpString(self):
         return _help_version(self.tr(
