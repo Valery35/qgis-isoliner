@@ -32,7 +32,7 @@ A few terms used below. A variogram describes how much more strongly values diff
 
 The main way is from the official QGIS repository. Open Plugins → Manage and Install Plugins → the **All** tab, type "Isoliner" in the search, select the plugin and click **Install**. When installed from the repository, QGIS itself reports new versions and updates the plugin at the press of a button.
 
-![Module tools in the Processing panel: the Isoliner provider with three groups - "1. Grid and isolines" (1.1-1.7), "2. Additional analysis tools" (2.1-2.5) and "3. Cross-sections" (3.1-3.2).](images/ui_toolbox_en.png){width=55%}
+![Module tools in the Processing panel: the Isoliner provider with three groups - "1. Grid and isolines" (1.1-1.7), "2. Additional analysis tools" (2.1-2.6) and "3. Cross-sections" (3.01-3.10).](images/ui_toolbox_en.png){width=55%}
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
@@ -62,7 +62,7 @@ The tools are grouped into three Processing groups. The "Grid and isolines" grou
 
 ![The whole process on a generated example: wells with measurements (left) are turned into a continuous grid by kriging (centre), from which isolines and contour polygons are built (right).](images/schema_process.png){width=98%}
 
-# 2D Kriging (points → raster)
+# 1.1 2D Kriging (points → raster)
 
 Ordinary (OK) or simple (SK) kriging over a point layer. Coincident points (the same XY) are averaged over Z. At grid nodes the values of the source points are reproduced exactly (with a zero nugget).
 
@@ -222,7 +222,7 @@ A 4×4 discretization is almost always enough. A larger N takes longer to comput
 Block kriging combines with trend removal. The residuals are kriged over the block and the trend is added back to the estimate. It also combines with grid smoothing, but block averaging alone is usually enough and extra smoothing is not needed.
 
 
-# Isolines from raster
+# 1.2 Isolines from raster
 
 Builds isolines (lines) and, by default, contour polygons. Levels are set by a uniform step or by an explicit list. Parameters:
 
@@ -273,7 +273,7 @@ Polygons are created with a single symbol. For range fills set graduated symbolo
 
 The isoline layer is automatically placed above the polygon layer so the lines show over the fill.
 
-# Variogram (experimental)
+# 1.3 Variogram (experimental)
 
 The tool builds an experimental semivariogram from points, fits a model to it if needed, and produces an HTML report with a chart. It does not compute a grid and is not part of the kriging computation chain directly. Its job is diagnostic: to show the structure of the data's spatial variability and to help set the variogram parameters deliberately, by the look of the cloud rather than by eye.
 
@@ -364,7 +364,7 @@ After scaling, the full sill may turn out above the data variance. On a clustere
 
 The finished and validated model then only needs to be carried into **2D Kriging** to compute the grid, and after that, if needed, into **Isolines from raster**.
 
-# Variogram map (anisotropy)
+# 1.4 Variogram map (anisotropy)
 
 The tool builds a variogram map - the semivariance surface γ as a function of the two-dimensional separation vector (h_x, h_y). An ordinary variogram averages all directions into one curve and loses directionality; the map, by contrast, shows how the continuity of the parameter depends on direction. From it you can see whether there is anisotropy in the data and where the axis of maximum continuity points. The tool is diagnostic: it does not compute a grid but helps to set the azimuth and anisotropy in the 2D Kriging variogram structure deliberately.
 
@@ -418,7 +418,7 @@ In this case the range a cannot be carried into kriging as is: the real correlat
 
 If desired, the map is also saved as a raster (the **Surface raster** field). It is the same γ surface but in lag coordinates: the origin at (0, 0), the pixel size equal to the lag cell. The raster is not georeferenced - it lies in the separation space, not in the deposit plan - and is meant for those who want to spin the map on the QGIS canvas, apply their own colour scale or measure a lag with a ruler. The HTML report is enough for the anisotropy estimate itself.
 
-# Variogram cross-validation
+# 1.5 Variogram cross-validation
 
 ![The idea of cross-validation: the kriging estimate from the remaining points (vertical) is compared with the actual value (horizontal). The tighter the cloud lies on the estimate = actual diagonal, the more accurate the prediction.](images/crossval.png){width=70%}
 
@@ -490,7 +490,7 @@ In sum: this tool is the last step before the final kriging. First you calibrate
 
 A note on speed: the check solves kriging as many times as there are points, so on large sets (tens of thousands of wells) it runs noticeably longer. Reduce the sample if needed.
 
-# Create sample wells (demo)
+# 1.6 Create sample wells (demo)
 
 The **Create sample wells (demo)** tool builds a point layer with random coordinates and three structured fields: the absolute roof elevation (roof), the thickness (thick) and the grade of an abstract component X (%). The roof and thickness ranges are set after the model of an industrial seam (KrII). The tool is meant for learning and testing kriging, isolines and cross-validation without real data.
 
@@ -531,7 +531,7 @@ Result fields:
 | mintype | text | Mineral type (silvinite, partial replacement, rock salt). Only with the mineral-type checkbox. |
 | dz | number | A value linearly related to the drift surface. Only when the drift-surface output is enabled. |
 
-# Processing profiles
+# 1.7 Processing profiles
 
 A profile is a named set of processing settings for one parameter: the variogram (nugget C0, model type, contribution C, range a, azimuth and anisotropy axes) plus outlier removal (percentile, bounds, capping mode). Profiles are handy when a project has several seams or zones of different variability: you fit a model for a seam once and reuse it in kriging without re-entering the numbers.
 
@@ -564,7 +564,7 @@ Saving under an existing name overwrites the profile. The profile lists in the d
 
 Below the profile drop-down, in the line beneath it, the parameters of the chosen profile are shown (nugget, type, contribution, range, azimuth, axes, outliers). In **2D Kriging** and **Cross-validation** a reminder is shown there as well that the computation will use the profile rather than the dialog fields. On QGIS builds without the old widget API the caption does not appear - an ordinary list remains (this does not affect the work).
 
-# Categorical indicator kriging
+# 2.1 Categorical indicator kriging
 
 The **Categorical indicator kriging** tool builds a probability map from a categorical field: mineral type, lithotype, any text class. Unlike ordinary kriging, which interpolates a number, here it estimates how likely each class is at every point of the area. This is what you need where the type matters rather than the magnitude: where to expect replacement, where the seam composition changes, where the boundary between varieties runs.
 
@@ -597,7 +597,7 @@ The categorical approach is convenient because it needs no boundary drawn in adv
 
 To learn the tool without real data, switch on **Add a categorical mineral-type field** in **Create sample wells (demo)**. A mintype field is added to the layer with a silvinite background and replacement spots after a mine, ready to run the tool on.
 
-# External Drift Kriging
+# 2.2 External Drift Kriging
 
 The **External Drift Kriging** tool estimates a field from points when that field is systematically related to a quantity already known everywhere as a raster. Such a raster is called the drift. It can be the structural surface of an adjacent seam, a coarse regional model, a surface built on a sparse grid, or a seismic attribute. Ordinary kriging sees only the wells themselves, whereas here knowledge of the shape of the field between them is added, and the estimate leans on that shape where there are no wells.
 
@@ -647,7 +647,7 @@ As with trend removal, the variogram here is fitted on the regression residuals,
 
 A convenient way to fit the residual variogram without leaving the tool is not yet provided, so the residuals are judged by the share of variance removed, which the tool prints to the Log. If the drift took out a noticeable part of the spread, the relation with the external surface is real and the drift is appropriate. If it took out almost nothing, the field is not related to that raster, and plain **2D Kriging** will give the same result more simply.
 
-# Exceedance probability map
+# 2.3 Exceedance probability map
 
 The **Exceedance probability map** tool answers not "how much" but "how likely the value exceeds a threshold". From the kriging estimate raster and its standard-error raster it builds a probability raster from 0 to 1: in each cell the probability that the true value is above a given threshold.
 
@@ -682,7 +682,7 @@ Cut-off grades: the threshold is the cut-off, and the map shows the probability 
 
 ![An exceedance probability map with a diverging colour ramp broken at 0.5. Red is where the value is confidently above the threshold, blue confidently below, and the white band along the P=0.5 line is the zone of uncertainty (contested values). The further from the wells, the wider the band.](images/prob_result.png){width=70%}
 
-# Hydraulic gradient and flow direction
+# 2.4 Hydraulic gradient and flow direction
 
 The **Hydraulic gradient and flow direction** tool works with the head field, that is the piezometric surface, and shows where and how steeply groundwater flows. The input is a head raster, usually the result of **2D Kriging** on borehole water levels. For a hydrogeologist this is as natural a step after building the head surface as isolines are after kriging.
 
@@ -727,9 +727,11 @@ Fields of the flow-vector layer:
 
 To walk the whole path without real data, switch on **Add a head field** in **Create sample wells (demo)**. A head field with a pronounced regional slope is added to the layer. Build a grid from it in **2D Kriging**, feed the raster here, and the arrows follow the head downhill. The same end-to-end scenario as for the other tools, only about hydrogeology.
 
-# Specific discharge (Darcy law)
+# 2.5 Specific discharge (Darcy law)
 
 The **Specific discharge** tool adds permeability to the flow geometry. The hydraulic gradient shows where and how steeply the head falls, but not how much water flows. Darcy's law links these through the aquifer properties: the higher the permeability and the steeper the gradient, the larger the flux. From a head raster and aquifer-property rasters the tool builds a physical flux rather than a dimensionless gradient.
+
+![The 2.5 dialog: the head raster, the K/T property rasters and the discharge, flux and direction outputs.](images/ui_darcy_en.png){width=55%}
 
 The tool sits in the **Additional analysis tools** group and works as a post-processing step. It runs no kriging of its own: the property rasters are prepared separately by kriging from test points.
 
@@ -763,7 +765,7 @@ The aquifer properties are known at the test points (pumping, injection) but are
 
 Where water moves faster and where slower, estimating inflows to workings, zones of higher seepage along permeable beds. Together with the exceedance probability map you can show not only the expected flux but also the confidence in it where test points are sparse.
 
-# Gaussian simulation (SGS)
+# 2.6 Gaussian simulation (SGS)
 
 Kriging gives a single smoothed surface and an estimation variance. Sequential Gaussian simulation answers a different question - how large is the uncertainty. It builds an ensemble of equally probable realizations: each one reproduces the data histogram and variogram, passes through the boreholes and therefore stays rough rather than smoothed. Across the realizations every node accumulates a distribution of values, which shows where the estimate is reliable and where the data are silent.
 
@@ -771,13 +773,31 @@ Kriging gives a single smoothed surface and an estimation variance. Sequential G
 
 How it works. The values are mapped to normal scores and the simulation runs in Gaussian space. The grid nodes are visited in random order; at each node simple kriging on the neighbours and already-simulated points gives a local mean and variance, a value is drawn from that normal distribution and immediately becomes conditioning for the next nodes. Boreholes are snapped to the nearest nodes and frozen across all realizations. At the end each realization is back-transformed to the original units. The normal-score variogram is fitted automatically with a sill close to one.
 
-Parameters. **Value field** is the numeric attribute. **Number of realizations** sets how many runs to average, a sensible start is 50-100. **Cut-off threshold** enables the exceedance-probability map, and **Probability above the threshold** sets the direction. The advanced section holds the score variogram model, the neighbour count, the search radius and the RNG seed for reproducibility.
+![The 2.6 dialog: the points, value field, number of realizations and advanced simulation parameters.](images/ui_sgs_en.png){width=52%}
+
+## Parameters
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Points (boreholes) | The point layer with the data. | - |
+| Value field | The numeric attribute to simulate. | - |
+| Cell size | The grid step. 0 means auto, min(extent)/50. | 0 |
+| Number of realizations | How many runs to average. | 60 (50-100) |
+| Cut-off threshold | Enables the exceedance-probability map. | not set |
+| Probability ABOVE the threshold | The probability direction. | yes |
+| Raster extent | The output rectangle. | by layer |
+| Score variogram model (Adv.) | The model for the normal scores. | auto |
+| Max neighbours per node (Adv.) | How many points in the node's simple kriging. | 16 |
+| Search radius (Adv.) | 0 means auto, 3 variogram ranges. | 0 |
+| RNG seed (Adv.) | For reproducibility. 0 means random. | 0 |
 
 The outputs are ensemble rasters. **Mean (E-type)** resembles kriging. **Standard deviation** shows the uncertainty, small at the boreholes and large away from them. The **P10**, **P50**, **P90** quantiles outline the likely range, and **Exceedance probability** for a given threshold offers a non-parametric alternative to the map from the probability tool. Runtime grows with grid size and the number of realizations, so start with a coarse cell.
 
-# Cross-section along a line
+# 3.01 Cross-section along a line
 
 The **Cross-section along a line** tool builds a geological section from a set of surfaces. It is not just a profile curve but beds as filled bands between a roof and a floor. The surfaces are usually obtained by kriging, and the tool assembles them into a section along a given line.
+
+![The 3.01 dialog: the section line, surfaces top to bottom, the vertical scale and the drawing outputs.](images/ui_section_line_en.png){width=52%}
 
 The tool sits in the **Cross-sections** group and works as a post-processing step over ready rasters. It runs no kriging of its own.
 
@@ -814,15 +834,17 @@ Each bed gets attributes: a number, the roof and floor names, the mean thickness
 
 ## Trying it on a demo
 
-The **Create a section example** tool (the **Cross-sections** group) prepares the data at once: six stacked surfaces with a dip and variable thickness, and a line across the area. Between the surfaces are five interbedded beds - three host and two industrial (the 2nd and 4th, thin). No kriging is needed, the surfaces are already rasters. It also outputs boreholes along the line with surface-elevation fields (h1...h6), and composition grids of the industrial beds - the content and the mineral type with a replacement zone. Run it, then feed the six surfaces top to bottom (1...6) and the line into **Cross-section along a line**, the boreholes with the h1...h6 fields and the line into **Boreholes on the section**, and the composition grid with the roof and floor of an industrial bed into **Bed composition on the section**.
+A ready training set is produced by the **Create a section example** tool (3.10): six surfaces top to bottom, the line, boreholes with the h1...h6 fields, and composition grids of the industrial beds. Run it, then feed the surfaces and the line here, the boreholes into **Boreholes on the section**, and the composition grid into **Bed composition on the section**. The full contents of the set are in section 3.10.
 
 ## Relation to QGIS
 
 A plain profile curve over a single grid is built by the native **Elevation Profile** panel, no separate tool is needed for that. The section instead shows the beds between surfaces, which the native tools do not do. A kriging surface can also be viewed in 3D without a section: set the grid as terrain in the 3D Map View.
 
-# Boreholes on the section
+# 3.02 Boreholes on the section
 
 The **Boreholes on the section** tool projects boreholes onto the section line and shows them as columns of bed intervals on top of the drawing from **Cross-section along a line**. It sits in the **Cross-sections** group.
+
+![The 3.02 dialog: the line, section definition, boreholes, bed-boundary fields and the corridor.](images/ui_section_wells_en.png){width=58%}
 
 Each borehole is placed at the distance along the line where its projection falls. The bed boundaries are taken from the chosen elevation fields: on each borehole their values are sorted in descending order, and adjacent pairs give the bed intervals. So the order of field selection and gaps (NULL) do not matter. Each interval gets a bed number, and the column gets the borehole number from the label field.
 
@@ -846,9 +868,11 @@ The corridor is a buffer around the line: boreholes farther than it are not show
 
 Colour the intervals by bed number to match the section bands, and label the collars by borehole number.
 
-# Bed composition on the section
+# 3.03 Bed composition on the section
 
 The **Bed composition on the section** tool colours the band of one bed by a composition grid along the line. It takes a roof, a floor and a composition grid, runs no kriging of its own, and works one bed at a time. It sits in the **Cross-sections** group.
+
+![The 3.03 dialog: the line, the bed roof and floor, the composition grid and the mode (content or class).](images/ui_section_comp_en.png){width=55%}
 
 This is how the lithological composition change inside an industrial bed is shown along the section. The composition grid is prepared separately: the content by ordinary kriging, the mineral type by indicator kriging (the **Categorical indicator kriging** tool).
 
@@ -893,27 +917,59 @@ A corner table is produced optionally - a polygon layer below the section. The c
 ![Section decoration: the frame with corner verticals and triangles, horizontal axes with ticks on the left, and the corner table below.](images/section_frame.png)
 
 
-# Intersect surfaces with the section
+# 3.04 Intersect surfaces with the section
 
 The **Intersect surfaces with the section** tool places surface grids onto the section as lines in distance-elevation axes. Each grid is sampled along the definition line, and its trace lies on the drawing next to the beds. The line and vex come from the section definition, so the match with the section is automatic.
+
+![The 3.04 dialog: the section definition and the list of surface grids.](images/ui_section_surfaces_en.png){width=58%}
 
 This is how water tables, marker surfaces, the salt roof and anomaly surfaces are placed on the section. The inputs are the section definition and a list of grids, the output is lines in the section axes (and optionally 3D lines in real coordinates).
 
 The object-projection, unprojection and shaft-unwrap tools are marked **(beta)**: they work, but their interface and example set are still being refined.
 
-# Intersect vectors with the section
+## Parameters
 
-While 3.4 places surfaces as grids, this tool places **vector** objects on the section by exact intersection with the section line. The result type depends on the object.
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Section definition | The definition layer from 3.01: a line with vex and step fields. Sets the line, the scale and the frame height. | - |
+| Surface grids | The list of rasters whose traces are drawn on the section as lines. | - |
+| Sampling step along the line (Adv.) | How many map units between samples. 0 means by cell size. | 0 |
+| Raster sampling (Adv.) | Bilinear or nearest. | bilinear |
+| Surface lines on the section (drawing) | The output lines in distance × elevation axes. | created |
+| Surface lines (3D) | The output 3D lines in real coordinates. | on request |
+
+# 3.05 Vector intersection with the section
+
+While 3.04 places surfaces as grids, this tool places **vector** objects on the section by exact intersection with the section line. The result type depends on the object.
+
+![The 3.05 dialog: the layers to intersect, the section drawing and three outputs (verticals, points, zone bands).](images/ui_section_vectors_en.png){width=58%}
 
 A line **without an elevation** (flat in plan - a fault, a boundary, a contour) gives a **full-height vertical** at the crossing station. Where the section crosses it horizontally is known, the depth is not, so the mark spans the whole frame. A line **with a Z elevation** (a 3D object, an inclined one, a surface contour) gives a **point** at the real elevation of the crossing - a roof contour with an elevation, for instance, lands as a point exactly on the bed. A polygon (a plan zone - replacement, a mine field, a licence) gives a **vertical band** over the interval where the section runs through the zone.
 
 The line, vex and frame height come from the section definition - written by **Cross-section along a line**, which now stores the vertical extent. So nothing needs to be supplied for objects without Z. For older definitions without the height a fallback remains: the **section drawing** as the optional input, or a Z range in the advanced parameters. When the object has Z, no height is needed - the point is placed at the elevation. Empty outputs are not created: a fault yields only verticals, a marker only points, a zone only bands.
 
-Unlike **Project objects onto the section** (approximate, corridor-based) this is an exact intersection - a mark appears only where the geometry truly cuts the section line. Several layers can be fed at once (lines and polygons mixed) - all are processed in a single run, like the list of surfaces in 3.4, and in the outputs the **src** field keeps the source layer of each mark. The demo generator outputs a fault, a Z marker and a replacement zone that cross the demo section, so the tool can be tried at once.
+Unlike **Project objects onto the section** (approximate, corridor-based) this is an exact intersection - a mark appears only where the geometry truly cuts the section line. Several layers can be fed at once (lines and polygons mixed) - all are processed in a single run, like the list of surfaces in 3.04, and in the outputs the **src** field keeps the source layer of each mark. The demo generator outputs a fault, a Z marker and a replacement zone that cross the demo section, so the tool can be tried at once.
 
-# Intersect a TIN with the section
+## Parameters
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Section definition | The definition layer from 3.01: the line, vex and frame height. Enough for objects without Z. | - |
+| Layers to intersect | Lines and polygons mixed, in a single run. The src field in the outputs keeps the source layer. | - |
+| Section drawing | A fallback source of frame height for older definitions without zmin/zmax. | optional |
+| Bottom of Z range (Adv.) | The lower frame elevation when neither a definition with height nor a drawing is given. | 0 |
+| Top of Z range (Adv.) | The upper frame elevation in the same case. | 0 |
+| Verticals on the section | Output for lines without Z (a fault, a boundary): a full-height vertical. | created |
+| Intersection points | Output for lines with Z (a contour with elevation): a point at the real elevation. | created |
+| Zone bands on the section | Output for polygons (a plan zone): a vertical band over the interval. | created |
+
+Empty outputs are not created: each object type goes only into its own layer.
+
+# 3.06 Intersect a TIN with the section
 
 A raster grid (3.04) is `z = f(x, y)`, one elevation per plan point. It cannot represent an overturned fold at all: above one point such a fold has several elevations of the same surface. This tool cuts the section through a **TIN** - a surface of true 3D triangles that can overhang.
+
+![The 3.06 dialog: TIN faces from PolygonZ and an optional mesh layer.](images/ui_section_tin_en.png){width=58%}
 
 The mechanics are pure geometry. The section is a vertical curtain along the polyline. Each TIN triangle is intersected with the vertical plane of its segment, giving a segment (station along the line, real elevation), and all segments are assembled into the surface trace. Overhang comes out naturally: several segments at different elevations above one station, and the trace folds - the limbs of an overturned fold come out as they are.
 
@@ -921,23 +977,59 @@ The inputs are layers of **3D polygons** (PolygonZ, TIN faces; non-triangles are
 
 An important limit: **a QGIS mesh is 2.5D**, its height is a scalar per vertex, one value above a point again, so overturning is not preserved in a mesh. Overhangs therefore come only from true 3D faces from a geomodeller (Leapfrog, Micromine and the like). A mesh is accepted for generality, on single-valued surfaces. The demo generator outputs an overturned TIN fold - the folding trace is visible on it at once.
 
-# Project objects onto the section
+## Parameters
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Section definition | The definition layer from 3.01: the line and vex. The height comes from the faces themselves. | - |
+| TIN faces (PolygonZ) | Layers of 3D polygons - TIN faces from a geomodeller. Overhang and overturning are reproduced. | optional |
+| Mesh layer (2.5D) | A QGIS mesh, for generality. One value above a point, overturning is not preserved in a mesh. | optional |
+| TIN trace on the section (drawing) | The output 2D trace in the section axes, may fold. | created |
+| TIN trace (3D) | The output trace in real 3D coordinates. | on request |
+
+Supply at least one of the two inputs - TIN faces or a mesh.
+
+# 3.07 Project objects onto the section (beta)
 
 The **Project objects onto the section** tool projects points, lines and polygons onto the section line. For each vertex the horizontal coordinate is the distance along the line to its projection, the height is the elevation from the 3D geometry or from a chosen field. Distant objects are cut off by a corridor.
 
 This generalises the borehole projection to any objects: anomalies, sampling points, traces, outlines. The result is in the section axes, placed on top of the drawing.
 
-# Unproject from the section
+# 3.08 Unproject from the section (beta)
 
 The **Unproject from the section** tool does the reverse: objects drawn on the section drawing are returned to real coordinates. The horizontal coordinate of a vertex is read as the distance along the line (giving the plan), the height as the elevation Z = height / vex. The line and vex come from the same definition the drawing was built with.
 
 So an object drawn by hand on the section - an ore outline, a fault, a boundary - gets back into the plan and into 3D with a Z elevation.
 
-# Unwrap a shaft wall
+# 3.09 Shaft wall unwrap (beta)
 
-The **Unwrap a shaft wall** tool builds a cylindrical section. Around the shaft axis at a given radius a circle is taken with an angular step (1 degree by default), and the surface grids are sampled along it. The unwrap lies in axes of arc length along the circle and elevation.
+The **Shaft wall unwrap** tool builds a cylindrical section. Around the shaft axis at a given radius a circle is taken with an angular step (1 degree by default), and the surface grids are sampled along it. The unwrap lies in axes of arc length along the circle and elevation.
 
 Each marker surface gives the line of its intersection with the shaft wall - where the beds dip the lines are tilted and wavy. The axis is set by a collar point layer, the radius is in map units, the vertical scale is as in the section.
+
+# 3.10 Create a section example
+
+The **Create a section example** tool prepares a complete training set for the **Cross-sections** group, so its tools can be tried without kriging real data. In the panel it stands last in the **Cross-sections** group.
+
+![The 3.10 dialog: the extent, six surfaces labelled roof/floor, the line, boreholes and composition grids.](images/ui_section_demo_en.png){width=52%}
+
+A single run outputs six stacked surfaces with a dip and variable thickness (five interbedded beds, the 2nd and 4th industrial and thin), a polyline section line across the area, boreholes along the line with surface-elevation fields h1...h6, and composition grids of the industrial beds (the content and the mineral type with a replacement zone). For the intersection tools it adds demo vectors: a fault without an elevation, a marker contour with Z, a replacement zone, and an overturned TIN fold from PolygonZ 3D faces.
+
+The workflow is shown in section 3.01: the surfaces go into **Cross-section along a line**, the boreholes into **Boreholes on the section**, the composition grid into **Bed composition on the section**, and the demo vectors and TIN into the intersection tools 3.05 and 3.06. The whole cross-section group then runs on consistent data.
+
+## Parameters
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Area (extent) | The rectangle in which the set is generated. | set per project |
+| Generator seed (Adv.) | The RNG seed for reproducibility. 0 means random on each run. | 0 |
+| Surface 1...6 | Six rasters top to bottom: the roofs and floors of the host beds and the two industrial beds. | created |
+| Section line | A polyline across the area to feed into 3.01. | created |
+| Boreholes along the line | Points with surface-elevation fields h1...h6 for 3.02. | on request |
+| Composition: content | A content grid of the industrial beds for 3.03. | on request |
+| Composition: type/facies | A mineral-type grid (1 sylvinite, 2 replacement) for 3.03. | on request |
+| Fault, Z marker, zone | Demo vectors for 3.05: a line without Z, a contour with Z, a zone polygon. | on request |
+| Overturned TIN | 3D faces of an overturned fold for 3.06. | on request |
 
 # Typical situations and solutions
 
