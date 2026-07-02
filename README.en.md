@@ -70,7 +70,7 @@ The full reference for every parameter is shipped with the plugin:
 `doc/Isoliner.pdf` (Russian) and `doc/Isoliner_en.pdf` (English). The interface
 is bilingual (EN/RU) and follows the QGIS locale; in each tool's dialog the
 **"Help"** button opens the PDF in the language of the interface. The right-hand
-panel shows a short hint.
+panel shows a short hint. The manual and the changelog are also reachable from the **Plugins → Isoliner** menu (**About** and **Manual (PDF)**).
 
 ## Quick start
 
@@ -258,6 +258,8 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.23.0** — a "Plugins → Isoliner" menu: "About" (version, links, changelog from metadata.txt) and "Manual (PDF)" by interface language.
+- **2.22.7** — manual: panel numbers in the tool headings, tool-dialog screenshots and field tables for the cross-section tools (3.04-3.06, 3.10) and the Gaussian simulation (2.6); both PDFs (EN/RU) rebuilt.
 - **2.22.1** — the demo TIN reshaped into a realistic recumbent overturned fold (was a narrow coiled ribbon).
 - **2.22.x** — the demo TIN refined into a compact smooth recumbent overturned fold following bed dip (shape and size iterations).
 - **2.22.0** — new tool "3.06 Intersect a TIN with the section": a TIN of 3D faces is cut by the section, overturned folds are reproduced (a grid cannot). Section tool numbers became two-digit (3.01-3.10); the demo gained an overturned TIN.

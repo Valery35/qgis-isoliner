@@ -888,4 +888,12 @@ TRANSLATIONS = {
     'Опрокинутая TIN (3D-грани для пересечения)': 'Overturned TIN (3D faces for intersection)',
     'Опрокинутая TIN (демо)': 'Overturned TIN (demo)',
     'Складка (опрокинутая)': 'Fold (overturned)',
+    'О плагине…': 'About…',
+    'О плагине': 'About',
+    'Руководство (PDF)': 'Manual (PDF)',
+    'История изменений': 'Changelog',
+    'Версия %s': 'Version %s',
+    'Исходный код': 'Source code',
+    'Сообщить об ошибке': 'Report an issue',
+    'Руководство не найдено.': 'Manual not found.',
 }

@@ -27,6 +27,7 @@ QGIS-плагин Isoliner. Группа инструментов Processing д�
 | `hydro.py` | гидравлический градиент и направление потока (`head_gradient`, `flow_samples`) |
 | `i18n.py` | словарь RU/EN (~385 записей), `tr()`, `init_from_qgis()` |
 | `widgets.py` | кастомные виджеты диалогов (живой показ размера грида и пр.) |
+| `about.py` | меню «Модули - Isoliner»: диалог «О плагине» (версия и changelog из metadata.txt) и открытие руководства по локали; Qt лениво, headless-тест tests/test_about.py |
 | `styles/` | `iso_structure.qml`, `iso_depression.qml`, `flow_arrows.qml` |
 | `doc/` | `Isoliner.pdf` (RU), `Isoliner_en.pdf` (EN) - собранные, уходят в плагин. Исходник - в `/manual` (см. ниже) |
 | `site/isoliner_landing.html` | лендинг (9 карточек) |
@@ -80,6 +81,8 @@ QGIS-плагин Isoliner. Группа инструментов Processing д�
 - Скрипт кладёт результат в `grid_isolines/doc/Isoliner.pdf` и `…/Isoliner_en.pdf` -
   только эти PDF уходят в плагин.
 - Лендинг (`site/isoliner_landing.html`): держать число карточек = числу инструментов.
+- При бампе версии дописывать строку в changelog **обоих** README (`README.md`
+  RU и `README.en.md` EN), не только в `metadata.txt`. Разделитель в RU ` - `, в EN ` — `.
 - Структура репозитория: в корне `README.md`, `README.en.md`, `AGENTS.md`,
   папки `grid_isolines/` (плагин), `manual/` (исходник руководства) и
   `site/` (лендинг `isoliner_landing.html`, в плагин не входит).

@@ -51,8 +51,36 @@ class GridIsolinesPlugin:
 
     def initGui(self):
         self.initProcessing()
+        # Пункты меню «Модули -> Isoliner»: «О плагине», «Руководство (PDF)».
+        self.actions = []
+        try:
+            from qgis.PyQt.QtGui import QIcon
+            try:
+                from qgis.PyQt.QtGui import QAction  # Qt6 (QGIS 4)
+            except ImportError:
+                from qgis.PyQt.QtWidgets import QAction  # Qt5 (QGIS 3)
+            from .i18n import tr, init_from_qgis
+            from . import about
+            import os
+            init_from_qgis()
+            icon = QIcon(os.path.join(os.path.dirname(__file__), "icon.svg"))
+            a1 = QAction(icon, tr("О плагине…"), self.iface.mainWindow())
+            a1.triggered.connect(lambda: about.show_about(self.iface.mainWindow()))
+            a2 = QAction(tr("Руководство (PDF)"), self.iface.mainWindow())
+            a2.triggered.connect(lambda: about.open_manual(self.iface.mainWindow()))
+            for a in (a1, a2):
+                self.iface.addPluginToMenu("Isoliner", a)
+                self.actions.append(a)
+        except Exception as e:
+            _log("Меню плагина не создано: %s" % e)
 
     def unload(self):
+        for a in getattr(self, "actions", []):
+            try:
+                self.iface.removePluginMenu("Isoliner", a)
+            except Exception:
+                pass
+        self.actions = []
         reg = QgsApplication.processingRegistry()
         prov = self.provider or reg.providerById(PROVIDER_ID)
         if prov is not None:
