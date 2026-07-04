@@ -64,10 +64,15 @@ class GridIsolinesPlugin:
             import os
             init_from_qgis()
             icon = QIcon(os.path.join(os.path.dirname(__file__), "icon.svg"))
-            a1 = QAction(icon, tr("О плагине…"), self.iface.mainWindow())
-            a1.triggered.connect(lambda: about.show_about(self.iface.mainWindow()))
-            a2 = QAction(tr("Руководство (PDF)"), self.iface.mainWindow())
-            a2.triggered.connect(lambda: about.open_manual(self.iface.mainWindow()))
+            a1 = QAction(tr("3D-просмотр поверхностей (бета)…"),
+                         self.iface.mainWindow())
+
+            def _open_viewer():
+                from . import viewer3d
+                viewer3d.show_viewer(self.iface)
+            a1.triggered.connect(_open_viewer)
+            a2 = QAction(icon, tr("О плагине…"), self.iface.mainWindow())
+            a2.triggered.connect(lambda: about.show_about(self.iface.mainWindow()))
             for a in (a1, a2):
                 self.iface.addPluginToMenu("Isoliner", a)
                 self.actions.append(a)

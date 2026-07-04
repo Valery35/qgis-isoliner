@@ -62,7 +62,10 @@ from qgis.core import (
     QgsProcessingParameterVectorDestination,
     QgsProcessingParameterFeatureSink,
     QgsProcessingParameterFileDestination,
+    QgsProcessingParameterFolderDestination,
     QgsProcessingParameterDefinition,
+    QgsProcessingContext,
+    QgsMeshLayer,
     QgsFields,
     QgsField,
     QgsFeature,
@@ -85,6 +88,7 @@ from .isolines import (
     isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD,
     _gaussian_nodata)
 from . import hydro
+from .mesh3d import grid_to_2dm
 
 GROUP = _tr("1. Грид и изолинии")
 GROUP_ID = "grid_isolines"
@@ -176,6 +180,7 @@ GRP_SIM = _tr("Гауссова симуляция")
 GRP_WELLS_DEMO = _tr("Пример скважин")
 GRP_SECTION = _tr("Разрез")
 GRP_SECTION_DEMO = _tr("Пример разреза")
+GRP_MESH3D = _tr("Поверхности 3D")
 
 
 # держим пост-процессоры живыми (иначе их соберёт сборщик мусора Python)
@@ -6818,6 +6823,163 @@ class SequentialGaussianSimAlgorithm(QgsProcessingAlgorithm):
         return res
 
 
+class _Mesh3DPostProcessor(QgsProcessingLayerPostProcessorInterface):
+    """Включает mesh-слою 3D-отображение, если сборка QGIS поддерживает 3D.
+    Qt и qgis._3d лениво и под защитой: в headless и в сборках без 3D просто
+    ничего не делает."""
+    def postProcessLayer(self, layer, context, feedback):
+        try:
+            from qgis._3d import QgsMeshLayer3DRenderer, QgsMesh3DSymbol
+            sym = QgsMesh3DSymbol()
+            try:
+                sym.setSmoothedTriangles(True)
+            except Exception:
+                pass
+            r = QgsMeshLayer3DRenderer(sym)
+            r.setLayer(layer)
+            layer.set3DRenderer(r)
+        except Exception:
+            pass
+        _finalize_layer(layer, getattr(self, "history", None) or [])
+
+
+def _safe_filename(s, used):
+    s = (s or "mesh").strip()
+    for ch in '<>:"/\\|?*':
+        s = s.replace(ch, "_")
+    s = s.strip(". ") or "mesh"
+    base, k = s, 2
+    while s.lower() in used:
+        s = "%s_%d" % (base, k)
+        k += 1
+    used.add(s.lower())
+    return s
+
+
+class SectionSurfacesToMeshAlgorithm(QgsProcessingAlgorithm):
+    """Гриды поверхностей -> mesh-слои 2DM для штатного 3D-вида QGIS. Растровых
+    поверхностей в 3D-сцене может быть только одна (террейн), а mesh-слоёв -
+    сколько угодно, каждый на своих абсолютных Z. Инструмент пишет каждый грид
+    отдельным 2DM и загружает mesh-слои в проект, применяя вертикальное
+    преобразование Z' = Z * масштаб + смещение."""
+
+    GRIDS, ZSCALE, ZOFFSET, STEP = "GRIDS", "ZSCALE", "ZOFFSET", "STEP"
+    SPACING = "SPACING"
+    FOLDER = "FOLDER"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return SectionSurfacesToMeshAlgorithm()
+    def name(self): return "surfaces_to_mesh3d"
+    def displayName(self): return self.tr("3.11 Поверхности в 3D (меши)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP3)
+    def groupId(self): return GROUP3_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Экспортирует гриды поверхностей в mesh-слои стандартного формата "
+            "2DM (MDAL). Такие слои понимают профильный инструмент QGIS, "
+            "mesh-калькулятор, штатный 3D-вид и сторонние программы, а пачка "
+            "горизонтов кровля-подошва уходит в меши без ручных "
+            "конвертаций.\n\nК отметкам при записи "
+            "применяется вертикальное преобразование Z' = Z * масштаб + смещение: "
+            "масштаб даёт вертикальное преувеличение, смещение разносит горизонты "
+            "по высоте. Разнос по Z сдвигает каждый следующий грид на шаг вниз, "
+            "превращая слипшуюся стопку в читаемую этажерку. Прореживание "
+            "уменьшает число узлов на крупных гридах.\n\n"
+            "Слои загружаются в проект и получают 3D-отображение автоматически. "
+            "Если сцена уже открыта, включите новые слои в её списке. Ячейки без "
+            "данных пропускаются.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterMultipleLayers(
+            self.GRIDS, self.tr("Поверхности-гриды"),
+            layerType=QgsProcessing.TypeRaster))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.ZSCALE, self.tr("Масштаб Z (вертикальное преувеличение)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.ZSCALE, 1.0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.ZOFFSET, self.tr("Смещение Z"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.ZOFFSET, 0.0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.SPACING, self.tr("Разнос по Z (шаг на каждый следующий грид)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.SPACING, 0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.STEP, self.tr("Прореживание узлов (каждый N-й)"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.STEP, 1), minValue=1)))
+        self.addParameter(QgsProcessingParameterFolderDestination(
+            self.FOLDER, self.tr("Папка для мешей (2DM)")))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        grids = self.parameterAsLayerList(parameters, self.GRIDS, context)
+        if not grids:
+            raise QgsProcessingException(self.tr("Нужен хотя бы один грид."))
+        zscale = self.parameterAsDouble(parameters, self.ZSCALE, context)
+        zoffset = self.parameterAsDouble(parameters, self.ZOFFSET, context)
+        spacing = self.parameterAsDouble(parameters, self.SPACING, context)
+        step = self.parameterAsInt(parameters, self.STEP, context)
+        folder = self.parameterAsString(parameters, self.FOLDER, context)
+        os.makedirs(folder, exist_ok=True)
+
+        used, written = set(), 0
+        for k, lyr in enumerate(grids):
+            if feedback.isCanceled():
+                break
+            ds = gdal.Open(lyr.source())
+            if ds is None:
+                feedback.pushWarning(_tr("Грид не открылся: %s") % lyr.name())
+                continue
+            b = ds.GetRasterBand(1)
+            arr = b.ReadAsArray().astype(float)
+            nd = b.GetNoDataValue()
+            if nd is not None:
+                arr = np.where(arr == nd, np.nan, arr)
+            gt = ds.GetGeoTransform()
+            ds = None
+            fn = os.path.join(folder,
+                              _safe_filename(lyr.name(), used) + ".2dm")
+            try:
+                nv, nt = grid_to_2dm(arr, gt, fn, zscale,
+                                     zoffset - spacing * k, step)
+            except ValueError:
+                feedback.pushWarning(
+                    _tr("Грид пропущен (мал или пуст): %s") % lyr.name())
+                continue
+            feedback.pushInfo(
+                _tr("Меш записан: %s (узлов %d, треугольников %d).")
+                % (os.path.basename(fn), nv, nt))
+            written += 1
+            ml = QgsMeshLayer(fn, lyr.name(), "mdal")
+            if not ml.isValid():
+                feedback.pushWarning(
+                    _tr("Слой меша не загрузился: %s") % os.path.basename(fn))
+                continue
+            try:
+                ml.setCrs(lyr.crs())
+            except Exception:
+                pass
+            context.temporaryLayerStore().addMapLayer(ml)
+            det = QgsProcessingContext.LayerDetails(
+                lyr.name(), context.project(), self.FOLDER)
+            det.groupName = GRP_MESH3D
+            pp = _Mesh3DPostProcessor()
+            pp.history = _provenance(self, parameters)
+            _KEEP_ALIVE.append(pp)
+            det.setPostProcessor(pp)
+            context.addLayerToLoadOnCompletion(ml.id(), det)
+        if written == 0:
+            raise QgsProcessingException(self.tr("Гриды не открылись."))
+        _save_values(self, _saved)
+        return {self.FOLDER: folder}
+
+
 ALGORITHMS = [
     Kriging2DAlgorithm,
     CategoricalIndicatorAlgorithm,
@@ -6842,4 +7004,5 @@ ALGORITHMS = [
     SectionProjectAlgorithm,
     SectionUnprojectAlgorithm,
     ShaftUnwrapAlgorithm,
+    SectionSurfacesToMeshAlgorithm,
 ]

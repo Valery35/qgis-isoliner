@@ -842,6 +842,74 @@ TRANSLATIONS = {
     '3.08 Спроецировать с разреза (бета)': '3.08 Unproject from the section (beta)',
     '3.09 Развёртка стенки ствола (бета)': '3.09 Shaft wall unwrap (beta)',
     '3.10 Создать пример для разреза': '3.10 Create a section example',
+    '3.11 Поверхности в 3D (меши)': '3.11 Surfaces to 3D (meshes)',
+    'Экспортирует гриды поверхностей в mesh-слои стандартного формата '
+    '2DM (MDAL). Такие слои понимают профильный инструмент QGIS, '
+    'mesh-калькулятор, штатный 3D-вид и сторонние программы, а пачка '
+    'горизонтов кровля-подошва уходит в меши без ручных '
+    'конвертаций.\n\nК отметкам при записи '
+    'применяется вертикальное преобразование Z\' = Z * масштаб + смещение: '
+    'масштаб даёт вертикальное преувеличение, смещение разносит горизонты '
+    'по высоте. Разнос по Z сдвигает каждый следующий грид на шаг вниз, '
+    'превращая слипшуюся стопку в читаемую этажерку. Прореживание '
+    'уменьшает число узлов на крупных гридах.\n\n'
+    'Слои загружаются в проект и получают 3D-отображение автоматически. '
+    'Если сцена уже открыта, включите новые слои в её списке. Ячейки без '
+    'данных пропускаются.':
+        'Exports surface grids into mesh layers of the standard 2DM '
+        'format (MDAL). Such layers are understood by the QGIS profile '
+        'tool, the mesh calculator, the built-in 3D view and third-party '
+        'software, and a stack of top-bottom horizons goes to meshes '
+        'without manual conversions.\n\nA vertical transform Z\' = Z * scale + offset is '
+        'applied on write: the scale gives vertical exaggeration, the offset '
+        'separates horizons in height. The Z spacing shifts every next grid '
+        'one step down, turning a collapsed stack into a readable shelf. '
+        'Thinning reduces the node count on '
+        'large grids.\n\nThe layers are loaded into the project and get 3D '
+        'rendering automatically. If a scene is already open, enable the new '
+        'layers in its layer list. Cells without data are skipped.',
+    'Масштаб Z (вертикальное преувеличение)': 'Z scale (vertical exaggeration)',
+    'Смещение Z': 'Z offset',
+    'Разнос по Z (шаг на каждый следующий грид)': 'Z spacing (step per next grid)',
+    'Прореживание узлов (каждый N-й)': 'Node thinning (every Nth)',
+    'Папка для мешей (2DM)': 'Folder for meshes (2DM)',
+    'Нужен хотя бы один грид.': 'At least one grid is required.',
+    'Грид не открылся: %s': 'Grid could not be opened: %s',
+    'Грид пропущен (мал или пуст): %s': 'Grid skipped (too small or empty): %s',
+    'Меш записан: %s (узлов %d, треугольников %d).':
+        'Mesh written: %s (%d nodes, %d triangles).',
+    'Слой меша не загрузился: %s': 'Mesh layer failed to load: %s',
+    'Поверхности 3D': '3D surfaces',
+    '3D-просмотр поверхностей (бета)…': '3D surface viewer (beta)…',
+    '3D-просмотр поверхностей': '3D surface viewer',
+    'Не удалось загрузить pyqtgraph/PyOpenGL, в том числе из '
+    'комплекта плагина.\n\nРучная установка (OSGeo4W Shell):\n'
+    '    pip install pyqtgraph PyOpenGL\n\n'
+    'После установки перезапустите QGIS.':
+        'Failed to load pyqtgraph/PyOpenGL, including the copies bundled '
+        'with the plugin.\n\nManual install (OSGeo4W Shell):\n'
+        '    pip install pyqtgraph PyOpenGL\n\n'
+        'Restart QGIS after the installation.',
+    'Isoliner - 3D-просмотр поверхностей (бета)': 'Isoliner - 3D surface viewer (beta)',
+    'Обновить сцену': 'Update the scene',
+    'Вертикальное преувеличение': 'Vertical exaggeration',
+    'Разнос по Z (шаг вниз)': 'Z spacing (step down)',
+    'Поверхности (растры проекта):': 'Surfaces (project rasters):',
+    'Отметьте хотя бы один растр.': 'Check at least one raster.',
+    'Показано поверхностей: %d.': 'Surfaces shown: %d.',
+    'Пропущено: %s': 'Skipped: %s',
+    'Скважины (точки)': 'Boreholes (points)',
+    'Поля отметок': 'Elevation fields',
+    '(нет)': '(none)',
+    'Скважин: %d.': 'Boreholes: %d.',
+    'Окраска атрибутом (растр)': 'Colour by attribute (raster)',
+    'Применить окраску к': 'Apply colouring to',
+    '(все поверхности)': '(all surfaces)',
+
+    'Окраска: %s [%.4g … %.4g].': 'Colour: %s [%.4g … %.4g].',
+
+
+
     'Слой для пересечения (линии или полигоны)': 'Layer to intersect (lines or polygons)',
     'Поле подписи (необязательно)': 'Label field (optional)',
     'Чертёж разреза (для высоты рамки, необязательно)': 'Section drawing (for frame height, optional)',
