@@ -32,7 +32,7 @@ A few terms used below. A variogram describes how much more strongly values diff
 
 The main way is from the official QGIS repository. Open Plugins → Manage and Install Plugins → the **All** tab, type "Isoliner" in the search, select the plugin and click **Install**. When installed from the repository, QGIS itself reports new versions and updates the plugin at the press of a button.
 
-![Module tools in the Processing panel: the Isoliner provider with three groups - "1. Grid and isolines" (1.1-1.7), "2. Additional analysis tools" (2.1-2.6) and "3. Cross-sections" (3.01-3.10).](images/ui_toolbox_en.png){width=55%}
+![Module tools in the Processing panel: the Isoliner provider with three groups - "1. Grid and isolines" (1.1-1.7), "2. Additional analysis tools" (2.1-2.6) and "3. Cross-sections" (3.01-3.11).](images/ui_toolbox_en.png){width=55%}
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
@@ -834,7 +834,7 @@ Each bed gets attributes: a number, the roof and floor names, the mean thickness
 
 ## Trying it on a demo
 
-A ready training set is produced by the **Create a section example** tool (3.10): six surfaces top to bottom, the line, boreholes with the h1...h6 fields, and composition grids of the industrial beds. Run it, then feed the surfaces and the line here, the boreholes into **Boreholes on the section**, and the composition grid into **Bed composition on the section**. The full contents of the set are in section 3.10.
+A ready training set is produced by the **Create a section example** tool (3.10): six surfaces top to bottom, the line, boreholes with the h1...h6 fields, and multiband bed grids. Run it, then feed the surfaces and the line here, the boreholes into **Boreholes on the section**, and the bed grid (bands 1/2/3) into **Bed composition on the section**. The full contents of the set are in section 3.10.
 
 ## Relation to QGIS
 
@@ -889,8 +889,8 @@ Categorical mineral type or facies (sylvinite, replacement, halite): adjacent sl
 | Section line | The same line as for the section. | - |
 | Bed roof | The roof raster. | - |
 | Bed floor | The floor raster. | - |
-| Composition grid | A content or class raster. | - |
-| Composition | Continuous or categorical. | continuous |
+| 1st industrial bed | A multiband grid: roof, bottom, content, mineral type. | on request |
+| 2nd industrial bed | The same for the second industrial bed, independent fields. | on request |
 | Sampling step along the line | How many units between samples. 0 means by cell. | 0 |
 | Vertical scale | Mode: H:V ratio or exaggeration. | H:V |
 | Scale value | H:V ratio or exaggeration. | 10 |
@@ -1013,7 +1013,9 @@ The **Create a section example** tool prepares a complete training set for the *
 
 ![The 3.10 dialog: the extent, six surfaces labelled roof/floor, the line, boreholes and composition grids.](images/ui_section_demo_en.png){width=52%}
 
-A single run outputs six stacked surfaces with a dip and variable thickness (five interbedded beds, the 2nd and 4th industrial and thin), a polyline section line across the area, boreholes along the line with surface-elevation fields h1...h6, and composition grids of the industrial beds (the content and the mineral type with a replacement zone). For the intersection tools it adds demo vectors: a fault without an elevation, a marker contour with Z, a replacement zone, and an overturned TIN fold from PolygonZ 3D faces.
+A single run outputs six stacked surfaces with a dip and variable thickness (five interbedded beds, the 2nd and 4th industrial and thin), a polyline section line across the area, boreholes along the line with surface-elevation fields h1...h6, and a multiband grid per industrial bed. The bed-grid band convention: band 1 - the roof, band 2 - the bottom, bands 3 and further - parameters (here the content and the mineral type with a replacement zone; the content fields of the beds are independent, stochastic). One file describes the whole bed - like a block model where new parameters are added as bands. For the intersection tools it adds demo vectors: a fault without an elevation, a marker contour with Z, a replacement zone, and an overturned TIN fold from PolygonZ 3D faces.
+
+![The multiband bed-grid convention: bands 1-2 carry the geometry (roof and bottom), bands 3+ the parameters; one file feeds 3.03, the 3D viewer and 3.11.](images/bed_grid_scheme_en.png){width=70%}
 
 The workflow is shown in section 3.01: the surfaces go into **Cross-section along a line**, the boreholes into **Boreholes on the section**, the composition grid into **Bed composition on the section**, and the demo vectors and TIN into the intersection tools 3.05 and 3.06. The whole cross-section group then runs on consistent data.
 
@@ -1030,6 +1032,56 @@ The workflow is shown in section 3.01: the surfaces go into **Cross-section alon
 | Composition: type/facies | A mineral-type grid (1 sylvinite, 2 replacement) for 3.03. | on request |
 | Fault, Z marker, zone | Demo vectors for 3.05: a line without Z, a contour with Z, a zone polygon. | on request |
 | Overturned TIN | 3D faces of an overturned fold for 3.06. | on request |
+
+# 3.11 Surfaces to 3D (meshes)
+
+The **Surfaces to 3D (meshes)** tool exports a batch of grids into mesh layers of the standard 2DM format (MDAL). Such layers are understood by the QGIS profile tool, the mesh calculator, the built-in 3D view and third-party software, so a stack of horizons goes to meshes in a single run, without manual conversions.
+
+A vertical transform is applied to the elevations on write: Z' = Z × scale + offset. The scale gives vertical exaggeration, the offset and the Z spacing unfold a collapsed stack into a readable shelf. Cells without data are skipped: no node is written and triangles are built only over quads whose four corners are valid.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Surface grids | A batch of rasters, each becomes a separate 2DM. | - |
+| Z scale | Vertical exaggeration of the elevations on write. | 1 |
+| Z offset | A common vertical shift. | 0 |
+| Z spacing | Every next grid shifts one step down. | 0 |
+| Node thinning (Adv.) | Every Nth node - for large grids. | 1 |
+| Elevation band (Adv.) | The band with elevations, for multiband grids. | 1 |
+| Folder for meshes (2DM) | Where to write the files; the layers are loaded into the project. | - |
+
+# 3D surface viewer (beta)
+
+The plugin's own 3D window: **Plugins - Isoliner - 3D surface viewer (beta)…** It does not depend on the built-in QGIS 3D view; the renderer runs on pyqtgraph and PyOpenGL bundled with the plugin - nothing needs to be installed.
+
+On the left is a list of the project rasters with checkboxes and the settings, on the right is the scene: rotate with the mouse, zoom with the wheel. Vertical exaggeration, Z spacing and transparency apply instantly with the **Update the scene** button, without recomputing files. Large grids are automatically thinned to about 60 thousand nodes.
+
+![A shelf of surfaces coloured by an attribute grid; the scale bar with the range is under the buttons.](images/viewer_surfaces_stack.png){width=78%}
+
+## Bed bodies
+
+The **Bed bodies** checkbox turns on the volumetric mode for multiband grids: band 1 is read as the roof, band 2 as the bottom, and the volume is closed with a side skirt along the data boundary - a watertight bed body. Single-band rasters in the same list remain ordinary surfaces, so the shelf and the bodies live in one scene.
+
+![Two bed bodies, each coloured by its own content field; the boreholes stitch the stack.](images/viewer_bodies_grade.png){width=78%}
+
+## Colouring
+
+A bed body is coloured by its own parameter band: the **Bed parameter band** field, 3 by default (the content); the value 4 in the demo gives a mineral-type map, 0 returns the palette. A single-band surface carries no parameters - for it there is **Colour surfaces by attribute**: an external raster with a band selector, the classic case of "a kriged roof plus a kriged content grid". One scale per scene, a bar with the value range appears under the buttons; cells without data are grey.
+
+## Boreholes
+
+Pick a point layer and check the numeric elevation fields - fields like h1...h6 are checked automatically. Each borehole is a vertical rod from the lowest elevation to the highest with a collar ball on a mast: the mast lifts the collar above the roof by two percent of the scene span, so a borehole stays visible even when the rod goes entirely inside an opaque body. Surface transparency helps to look inside.
+
+## Section plane
+
+The **Section plane (line)** field accepts any line layer. The most convenient input is the **Section definition** from tool 3.01: the ribbon takes the height range from its zmin and zmax fields. For an arbitrary line without these fields the ribbon stretches over the scene span with a margin. Polylines and multiple lines are supported, the bends follow the vertices.
+
+![Bed bodies, boreholes and the section plane in one scene: the block model stitched with the section.](images/viewer_ribbon_wells.png){width=78%}
+
+## Miscellaneous
+
+The **Top view** and **Side view** buttons set orthogonal views, **PNG snapshot…** saves a frame of the scene to a file - handy for reports and presentations.
 
 # Typical situations and solutions
 

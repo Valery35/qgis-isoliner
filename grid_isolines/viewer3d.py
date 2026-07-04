@@ -17,7 +17,7 @@ Qt и pyqtgraph импортируются лениво: модуль импор
 import os
 
 from .i18n import tr
-from .mesh3d import grid_to_mesh_arrays, sample_bilinear
+from .mesh3d import grid_to_mesh_arrays, bed_to_mesh_arrays, sample_bilinear
 
 # опорные цвета шкалы (тёмно-синий -> бирюза -> жёлтый, а-ля viridis)
 _CMAP = [(0.267, 0.005, 0.329), (0.229, 0.322, 0.546),
@@ -98,14 +98,14 @@ def _auto_step(arr):
     return int(math.ceil(math.sqrt(total / float(MAX_VERTS))))
 
 
-def _read_raster(source):
-    """Читает первый канал растра как массив с NaN и geotransform."""
+def _read_raster(source, band=1):
+    """Читает канал растра как массив с NaN и geotransform."""
     import numpy as np
     from osgeo import gdal
     ds = gdal.Open(source)
-    if ds is None:
+    if ds is None or band > ds.RasterCount:
         return None, None
-    b = ds.GetRasterBand(1)
+    b = ds.GetRasterBand(band)
     arr = b.ReadAsArray().astype(float)
     nd = b.GetNoDataValue()
     if nd is not None:
@@ -113,6 +113,16 @@ def _read_raster(source):
     gt = ds.GetGeoTransform()
     ds = None
     return arr, gt
+
+
+def _band_count(source):
+    from osgeo import gdal
+    ds = gdal.Open(source)
+    if ds is None:
+        return 0
+    n = ds.RasterCount
+    ds = None
+    return n
 
 
 def show_viewer(iface):
@@ -138,17 +148,19 @@ def _build_dialog(parent):
     import numpy as np
     gl = _import_gl()
     from qgis.core import QgsProject, QgsRasterLayer, QgsVectorLayer
-    try:  # QGIS 3.30+/4: Qgis.GeometryType.Point
+    try:  # QGIS 3.30+/4: Qgis.GeometryType.*
         from qgis.core import Qgis
         _POINT_GT = Qgis.GeometryType.Point
+        _LINE_GT = Qgis.GeometryType.Line
     except Exception:  # старые QGIS 3
         from qgis.core import QgsWkbTypes
         _POINT_GT = QgsWkbTypes.PointGeometry
+        _LINE_GT = QgsWkbTypes.LineGeometry
     from qgis.PyQt.QtCore import Qt
     from qgis.PyQt.QtWidgets import (
         QDialog, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
         QDoubleSpinBox, QPushButton, QLabel, QFormLayout, QSplitter, QWidget,
-        QComboBox)
+        QComboBox, QCheckBox)
 
     # Qt5/Qt6: enum'ы либо плоские, либо в scoped-подклассах
     _CHECKED = getattr(getattr(Qt, "CheckState", Qt), "Checked")
@@ -179,21 +191,60 @@ def _build_dialog(parent):
             self.spacing.setDecimals(1)
             self.btn = QPushButton(tr("Обновить сцену"))
             self.btn.clicked.connect(self.rebuild)
+            btn_top = QPushButton(tr("Сверху"))
+            btn_top.clicked.connect(lambda: self._set_view(90, -90))
+            btn_side = QPushButton(tr("Сбоку"))
+            btn_side.clicked.connect(lambda: self._set_view(8, -90))
+            btn_png = QPushButton(tr("Снимок PNG…"))
+            btn_png.clicked.connect(self._save_png)
+            views = QHBoxLayout()
+            views.addWidget(btn_top)
+            views.addWidget(btn_side)
+            views.addWidget(btn_png)
+            self.legend_pix = QLabel()
+            self.legend_txt = QLabel("")
+            self.legend_pix.hide()
+            self.legend_txt.hide()
             self.info = QLabel("")
             self.info.setWordWrap(True)
 
+            self.plane_combo = QComboBox()
             self.wells_combo = QComboBox()
             self.wells_combo.currentIndexChanged.connect(self._wells_changed)
             self.wells_fields = QListWidget()
             self.wells_fields.setMaximumHeight(110)
             self.attr_combo = QComboBox()
-            self.attr_target = QComboBox()
+            self.pband = QDoubleSpinBox()
+            self.pband.setRange(0, 99)
+            self.pband.setValue(3)
+            self.pband.setDecimals(0)
+            self.opacity = QDoubleSpinBox()
+            self.opacity.setRange(0.0, 95.0)
+            self.opacity.setValue(0.0)
+            self.opacity.setDecimals(0)
+            self.zband = QDoubleSpinBox()
+            self.zband.setRange(1, 99)
+            self.zband.setValue(1)
+            self.zband.setDecimals(0)
+            self.aband = QDoubleSpinBox()
+            self.aband.setRange(1, 99)
+            self.aband.setValue(1)
+            self.aband.setDecimals(0)
 
             form = QFormLayout()
             form.addRow(tr("Вертикальное преувеличение"), self.vex)
             form.addRow(tr("Разнос по Z (шаг вниз)"), self.spacing)
-            form.addRow(tr("Окраска атрибутом (растр)"), self.attr_combo)
-            form.addRow(tr("Применить окраску к"), self.attr_target)
+            form.addRow(tr("Прозрачность поверхностей (процентов)"),
+                        self.opacity)
+            self.beds_chk = QCheckBox(
+                tr("Тела пластов (канал 1 кровля, канал 2 подошва)"))
+            form.addRow(self.beds_chk)
+            form.addRow(tr("Канал параметра пласта (0 - палитра)"), self.pband)
+            form.addRow(tr("Канал высот (Z)"), self.zband)
+            form.addRow(tr("Окраска поверхностей атрибутом (растр)"),
+                        self.attr_combo)
+            form.addRow(tr("Канал атрибута"), self.aband)
+            form.addRow(tr("Плоскость разреза (линия)"), self.plane_combo)
             form.addRow(tr("Скважины (точки)"), self.wells_combo)
             form.addRow(tr("Поля отметок"), self.wells_fields)
 
@@ -202,7 +253,10 @@ def _build_dialog(parent):
             lv.addWidget(QLabel(tr("Поверхности (растры проекта):")))
             lv.addWidget(self.layer_list, 1)
             lv.addLayout(form)
+            lv.addLayout(views)
             lv.addWidget(self.btn)
+            lv.addWidget(self.legend_pix)
+            lv.addWidget(self.legend_txt)
             lv.addWidget(self.info)
 
             self.view = gl.GLViewWidget()
@@ -215,6 +269,43 @@ def _build_dialog(parent):
             root = QHBoxLayout(self)
             root.addWidget(split)
             self._items = []
+
+        def _set_view(self, elevation, azimuth):
+            self.view.opts['elevation'] = elevation
+            self.view.opts['azimuth'] = azimuth
+            self.view.update()
+
+        def _save_png(self):
+            from qgis.PyQt.QtWidgets import QFileDialog
+            fn, _ = QFileDialog.getSaveFileName(
+                self, tr("Сохранить снимок"), "isoliner_3d.png",
+                "PNG (*.png)")
+            if not fn:
+                return
+            img = self.view.grabFramebuffer()
+            img.save(fn, "PNG")
+            self.info.setText(tr("Снимок сохранён: %s") % os.path.basename(fn))
+
+        def _show_legend(self, vmin, vmax):
+            import numpy as np
+            from qgis.PyQt.QtGui import QImage, QPixmap
+            w, h = 220, 14
+            rgba = (colormap(np.tile(np.linspace(0, 1, w), (h, 1)))
+                    * 255).astype(np.uint8)
+            self._legend_bytes = rgba.tobytes()  # держим буфер живым
+            img = QImage(self._legend_bytes, w, h, w * 4,
+                         QImage.Format.Format_RGBA8888
+                         if hasattr(QImage, "Format")
+                         and hasattr(QImage.Format, "Format_RGBA8888")
+                         else QImage.Format_RGBA8888)
+            self.legend_pix.setPixmap(QPixmap.fromImage(img))
+            self.legend_txt.setText("%.4g … %.4g" % (vmin, vmax))
+            self.legend_pix.show()
+            self.legend_txt.show()
+
+        def _hide_legend(self):
+            self.legend_pix.hide()
+            self.legend_txt.hide()
 
         def refresh_layers(self):
             """Пересобирает списки слоёв, сохраняя отметки и выбор."""
@@ -232,23 +323,28 @@ def _build_dialog(parent):
                                  else _UNCHECKED)
                 self.layer_list.addItem(it)
             prev_attr = self.attr_combo.currentData()
-            prev_tgt = self.attr_target.currentData()
             self.attr_combo.blockSignals(True)
-            self.attr_target.blockSignals(True)
             self.attr_combo.clear()
-            self.attr_target.clear()
             self.attr_combo.addItem(tr("(нет)"), None)
-            self.attr_target.addItem(tr("(все поверхности)"), None)
             for lyr in QgsProject.instance().mapLayers().values():
                 if isinstance(lyr, QgsRasterLayer):
                     self.attr_combo.addItem(lyr.name(), lyr.id())
-                    self.attr_target.addItem(lyr.name(), lyr.id())
             ia = self.attr_combo.findData(prev_attr)
             self.attr_combo.setCurrentIndex(max(ia, 0))
-            it_ = self.attr_target.findData(prev_tgt)
-            self.attr_target.setCurrentIndex(max(it_, 0))
             self.attr_combo.blockSignals(False)
-            self.attr_target.blockSignals(False)
+            prev_pl = self.plane_combo.currentData()
+            self.plane_combo.blockSignals(True)
+            self.plane_combo.clear()
+            self.plane_combo.addItem(tr("(нет)"), None)
+            for lyr in QgsProject.instance().mapLayers().values():
+                if not isinstance(lyr, QgsVectorLayer):
+                    continue
+                gt_ = lyr.geometryType()
+                if gt_ == _LINE_GT or getattr(gt_, "name", "") == "Line":
+                    self.plane_combo.addItem(lyr.name(), lyr.id())
+            ip = self.plane_combo.findData(prev_pl)
+            self.plane_combo.setCurrentIndex(max(ip, 0))
+            self.plane_combo.blockSignals(False)
             prev = self.wells_combo.currentData()
             self.wells_combo.blockSignals(True)
             self.wells_combo.clear()
@@ -322,6 +418,41 @@ def _build_dialog(parent):
                     out.append(lyr)
             return out
 
+        def _plane_lines(self):
+            """Полилинии выбранного определения разреза + zmin/zmax из полей
+            (None, если полей нет)."""
+            lyr = QgsProject.instance().mapLayer(
+                self.plane_combo.currentData() or "")
+            if lyr is None:
+                return []
+            names = {f.name().lower() for f in lyr.fields()}
+            has_z = "zmin" in names and "zmax" in names
+            out = []
+            for ft in lyr.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                try:  # QGIS 4: на одиночной LineString бросает TypeError
+                    polys = g.asMultiPolyline()
+                except Exception:
+                    polys = []
+                if not polys:
+                    try:
+                        pl = g.asPolyline()
+                    except Exception:
+                        pl = []
+                    polys = [pl] if pl else []
+                zlo = zhi = None
+                if has_z:
+                    try:
+                        zlo, zhi = float(ft["zmin"]), float(ft["zmax"])
+                    except (TypeError, ValueError, KeyError):
+                        zlo = zhi = None
+                for pl in polys:
+                    if len(pl) >= 2:
+                        out.append(([(p.x(), p.y()) for p in pl], zlo, zhi))
+            return out
+
         def rebuild(self):
             for m in self._items:
                 self.view.removeItem(m)
@@ -333,55 +464,86 @@ def _build_dialog(parent):
             vex = float(self.vex.value())
             spacing = float(self.spacing.value())
             meshes, skipped = [], []
+            zb = int(self.zband.value())
+            beds_mode = self.beds_chk.isChecked()
+            nbeds = 0
             for k, lyr in enumerate(layers):
-                arr, gt = _read_raster(lyr.source())
-                if arr is None:
-                    skipped.append(lyr.name())
-                    continue
+                as_bed = beds_mode and _band_count(lyr.source()) >= 2
                 try:
-                    verts, faces = grid_to_mesh_arrays(
-                        arr, gt, zscale=1.0, zoffset=-spacing * k,
-                        step=_auto_step(arr))
+                    if as_bed:
+                        top, gt = _read_raster(lyr.source(), 1)
+                        bot, _g = _read_raster(lyr.source(), 2)
+                        if top is None or bot is None:
+                            raise ValueError
+                        verts, faces = bed_to_mesh_arrays(
+                            top, bot, gt, zscale=1.0,
+                            zoffset=-spacing * k, step=_auto_step(top))
+                        nbeds += 1
+                    else:
+                        arr, gt = _read_raster(lyr.source(), zb)
+                        if arr is None:
+                            raise ValueError
+                        verts, faces = grid_to_mesh_arrays(
+                            arr, gt, zscale=1.0, zoffset=-spacing * k,
+                            step=_auto_step(arr))
                 except ValueError:
                     skipped.append(lyr.name())
                     continue
+                if not len(faces):
+                    skipped.append(lyr.name())
+                    continue
                 meshes.append((verts, faces, PALETTE[k % len(PALETTE)],
-                               lyr.id()))
+                               lyr.id(), as_bed, lyr.source()))
             if not meshes:
                 self.info.setText(tr("Гриды не открылись."))
                 return
             wells = self._well_points()
+            planes = self._plane_lines()
             allv = np.vstack([m[0] for m in meshes])
             xs = [allv[:, 0].min(), allv[:, 0].max()]
             ys = [allv[:, 1].min(), allv[:, 1].max()]
             zs_ = [allv[:, 2].min(), allv[:, 2].max()]
             for x, y, zw in wells:
                 xs += [x]; ys += [y]; zs_ += [min(zw), max(zw)]
+            for pts, zlo, zhi in planes:
+                xs += [p[0] for p in pts]; ys += [p[1] for p in pts]
+                if zlo is not None:
+                    zs_ += [zlo, zhi]
             cx = 0.5 * (min(xs) + max(xs))
             cy = 0.5 * (min(ys) + max(ys))
             cz = 0.5 * (min(zs_) + max(zs_))
-            attr = None
-            target_id = self.attr_target.currentData()
+            # окраска: тело пласта - собственным каналом параметра;
+            # одноканальная поверхность - внешним атрибутным растром
+            vals = {}
+            pband = int(self.pband.value())
             alayer = QgsProject.instance().mapLayer(
                 self.attr_combo.currentData() or "")
+            aarr = agt = None
             if alayer is not None:
-                aarr, agt = _read_raster(alayer.source())
-                if aarr is not None:
-                    vals = {}
-                    for m in meshes:
-                        if target_id is not None and m[3] != target_id:
-                            continue
-                        vals[m[3]] = sample_bilinear(
-                            aarr, agt, m[0][:, 0], m[0][:, 1])
-                    fins = [v[np.isfinite(v)] for v in vals.values()
-                            if np.isfinite(v).any()]
-                    if fins:
-                        fin = np.concatenate(fins)
-                        vmin, vmax = float(fin.min()), float(fin.max())
-                        rng = (vmax - vmin) or 1.0
-                        attr = (vals, vmin, vmax, rng)
+                aarr, agt = _read_raster(alayer.source(),
+                                         int(self.aband.value()))
+            for m in meshes:
+                verts_m, lid, as_bed, src = m[0], m[3], m[4], m[5]
+                if as_bed and pband > 0:
+                    parr, pgt = _read_raster(src, pband)
+                    if parr is not None:
+                        vals[lid] = sample_bilinear(
+                            parr, pgt, verts_m[:, 0], verts_m[:, 1])
+                elif not as_bed and aarr is not None:
+                    vals[lid] = sample_bilinear(
+                        aarr, agt, verts_m[:, 0], verts_m[:, 1])
+            attr = None
+            fins = [v[np.isfinite(v)] for v in vals.values()
+                    if np.isfinite(v).any()]
+            if fins:
+                fin = np.concatenate(fins)
+                vmin, vmax = float(fin.min()), float(fin.max())
+                rng = (vmax - vmin) or 1.0
+                attr = (vals, vmin, vmax, rng)
 
-            for k, (verts, faces, color, lid) in enumerate(meshes):
+            alpha = 1.0 - float(self.opacity.value()) / 100.0
+            gopt = 'opaque' if alpha >= 0.999 else 'translucent'
+            for k, (verts, faces, color, lid, as_bed, src) in enumerate(meshes):
                 v = verts.copy()
                 v[:, 0] -= cx
                 v[:, 1] -= cy
@@ -389,23 +551,64 @@ def _build_dialog(parent):
                 md = gl.MeshData(vertexes=v.astype('float32'), faces=faces)
                 if attr is not None and lid in attr[0]:
                     vals, vmin, vmax, rng = attr
-                    md.setVertexColors(
-                        colormap((vals[lid] - vmin) / rng).astype('float32'))
+                    vc = colormap((vals[lid] - vmin) / rng)
+                    vc[:, 3] = alpha
+                    md.setVertexColors(vc.astype('float32'))
                     item = gl.GLMeshItem(meshdata=md, smooth=True,
-                                         glOptions='opaque')
+                                         glOptions=gopt)
                 else:
                     item = gl.GLMeshItem(meshdata=md, smooth=True,
-                                         shader='shaded', color=color,
-                                         glOptions='opaque')
+                                         shader='shaded',
+                                         color=color[:3] + (alpha,),
+                                         glOptions=gopt)
                 self.view.addItem(item)
                 self._items.append(item)
+            if attr is not None:
+                self._show_legend(attr[1], attr[2])
+            else:
+                self._hide_legend()
             span = max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
 
+            if planes:
+                pad = 0.05 * (max(zs_) - min(zs_) or 1.0)
+                dlo, dhi = min(zs_) - pad, max(zs_) + pad
+                for pts, zlo, zhi in planes:
+                    lo = zlo if zlo is not None else dlo
+                    hi = zhi if zhi is not None else dhi
+                    zl = (lo - cz) * vex
+                    zh = (hi - cz) * vex
+                    npt = len(pts)
+                    pv = np.empty((2 * npt, 3), dtype='float32')
+                    for i, (px, py) in enumerate(pts):
+                        pv[2 * i] = (px - cx, py - cy, zl)
+                        pv[2 * i + 1] = (px - cx, py - cy, zh)
+                    fidx = []
+                    for i in range(npt - 1):
+                        a, b, c_, d = 2 * i, 2 * i + 1, 2 * i + 2, 2 * i + 3
+                        fidx += [[a, c_, d], [a, d, b]]
+                    md = gl.MeshData(vertexes=pv,
+                                     faces=np.array(fidx, dtype=np.int64))
+                    itm = gl.GLMeshItem(meshdata=md, smooth=False,
+                                        color=(0.30, 0.35, 0.50, 0.30),
+                                        glOptions='translucent')
+                    self.view.addItem(itm)
+                    self._items.append(itm)
+                    # контур: низ -> верх в обратном порядке -> замыкание
+                    frame = np.vstack([pv[0::2], pv[1::2][::-1], pv[0:1]])
+                    ln = gl.GLLinePlotItem(pos=frame, mode='line_strip',
+                                           width=1.5, antialias=True,
+                                           color=(0.20, 0.24, 0.38, 0.9),
+                                           glOptions='translucent')
+                    self.view.addItem(ln)
+                    self._items.append(ln)
+
             if wells:
+                mast = span * 0.02  # мачта над устьем: скважина видна всегда,
+                # даже когда штанга целиком внутри непрозрачного тела
                 segs, tops = [], []
                 for x, y, zs in wells:
                     zlo = (min(zs) - cz) * vex
-                    zhi = (max(zs) - cz) * vex
+                    zhi = (max(zs) - cz) * vex + mast
                     segs.append([x - cx, y - cy, zlo])
                     segs.append([x - cx, y - cy, zhi])
                     tops.append([x - cx, y - cy, zhi])
@@ -441,9 +644,18 @@ def _build_dialog(parent):
             self.view.opts['center'].setZ(0)
             self.view.update()
             msg = tr("Показано поверхностей: %d.") % len(meshes)
+            if nbeds:
+                msg += " " + tr("Тел пластов: %d.") % nbeds
+            if planes:
+                msg += " " + tr("Плоскостей разреза: %d.") % len(planes)
             if attr is not None:
+                parts = []
+                if nbeds and pband > 0:
+                    parts.append(tr("канал %d пласта") % pband)
+                if alayer is not None and aarr is not None:
+                    parts.append(alayer.name())
                 msg += " " + tr("Окраска: %s [%.4g … %.4g].") % (
-                    alayer.name(), attr[1], attr[2])
+                    ", ".join(parts), attr[1], attr[2])
             if wells:
                 msg += " " + tr("Скважин: %d.") % len(wells)
             if skipped:

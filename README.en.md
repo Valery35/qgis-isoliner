@@ -259,6 +259,18 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.33.0** — the manual: chapters on the 3D viewer and 3.11, a bed-grid scheme, fresh screenshots; the PDFs rebuilt.
+- **2.32.4** — 3D viewer: a mast above the borehole collar, the rod stays visible inside bodies.
+- **2.32.3** — 3D viewer: fixed a section-plane crash on QGIS 4 (asMultiPolyline).
+- **2.32.2** — 3.01: the polyline vertices are forced into the stationing, bends are no longer cut by a chord on the profile, the bands and the 3D fence.
+- **2.32.1** — demo: the fault moved off the section-line bend (it visually masqueraded as the definition).
+- **2.32.1** — demo: the fault moved off the section-line bend.
+- **2.32.0** — 3D viewer: the section plane from a 3.01 definition as a vertical translucent ribbon (zmin/zmax from the fields).
+- **2.31.0** — 3D viewer: a bed body is coloured by its own parameter band, an external attribute applies to single-band surfaces only.
+- **2.30.0** — 3D viewer: a "Bed bodies" mode — the roof and bottom from bands 1 and 2 are closed with a skirt into a watertight body; a step towards wireframe and block models.
+- **2.29.1** — the bed-grid convention: band 1 roof, 2 bottom, 3+ parameters; the demo outputs 4-band bed grids.
+- **2.29.0** — multiband bed grids: the demo outputs a 3-band grid per industrial bed (roof, content, mineral type), 3.03/3.11/the 3D viewer gained band selection.
+- **2.28.0** — demo 3.10: independent stochastic composition per industrial bed; 3D viewer: a colour-scale legend, transparency, top/side views, a PNG snapshot.
 - **2.27.5** — released to the main channel, the experimental flag removed; functionally identical to 2.27.4.
 - **2.27.4** — the pyqtgraph/PyOpenGL bundle sanitised for the scanner (console/flowchart/multiprocess/exporters removed, .ui loading and pickle-restore disabled), the 3D viewer is back in the published package.
 - **2.27.3** — without pyqtgraph/PyOpenGL the 3D viewer menu item is hidden, the pip hint removed.

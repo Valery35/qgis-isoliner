@@ -53,6 +53,78 @@ def grid_to_mesh_arrays(arr, gt, zscale=1.0, zoffset=0.0, step=1):
     return verts, faces
 
 
+def bed_to_mesh_arrays(top, bot, gt, zscale=1.0, zoffset=0.0, step=1):
+    """Замкнутое тело пласта из пары гридов: кровля (top), подошва (bot) и
+    боковая юбка по границе области, где валидны обе. Возвращает
+    (verts, faces): первые n вершин - кровля, следующие n - подошва."""
+    a = np.asarray(top, dtype=float)
+    b = np.asarray(bot, dtype=float)
+    if a.shape != b.shape:
+        raise ValueError("top/bottom shape mismatch")
+    step = max(1, int(step))
+    rows = np.arange(0, a.shape[0], step)
+    cols = np.arange(0, a.shape[1], step)
+    a = a[np.ix_(rows, cols)]
+    b = b[np.ix_(rows, cols)]
+    ny, nx = a.shape
+    if ny < 2 or nx < 2:
+        raise ValueError("grid too small")
+    xs = gt[0] + (cols + 0.5) * gt[1]
+    ys = gt[3] + (rows + 0.5) * gt[5]
+    valid = np.isfinite(a) & np.isfinite(b)
+    n = int(valid.sum())
+    if n == 0:
+        raise ValueError("no data")
+    idx = np.full(a.shape, -1, dtype=np.int64)
+    idx[valid] = np.arange(n)
+    za = a * float(zscale) + float(zoffset)
+    zb = b * float(zscale) + float(zoffset)
+
+    q = valid[:-1, :-1] & valid[:-1, 1:] & valid[1:, :-1] & valid[1:, 1:]
+    n00 = idx[:-1, :-1][q]
+    n01 = idx[:-1, 1:][q]
+    n10 = idx[1:, :-1][q]
+    n11 = idx[1:, 1:][q]
+    if len(n00):
+        roof = np.vstack([np.column_stack([n00, n01, n11]),
+                          np.column_stack([n00, n11, n10])])
+    else:
+        roof = np.empty((0, 3), dtype=np.int64)
+    floor = roof[:, ::-1] + n  # обратная ориентация, индексы подошвы
+
+    # граница области: ребро принадлежит ровно одному валидному квадрату
+    qp = np.zeros((ny + 1, nx + 1), dtype=bool)
+    qp[1:ny, 1:nx] = q
+    edges = []
+    # горизонтальные рёбра (i,j)-(i,j+1): квадраты сверху qp[i,j+1] и снизу qp[i+1,j+1]
+    hb = qp[:-1, 1:] ^ qp[1:, 1:]
+    for i, j in np.argwhere(hb):
+        p1, p2 = idx[i, j], idx[i, j + 1]
+        if p1 >= 0 and p2 >= 0:
+            edges.append((p1, p2))
+    # вертикальные рёбра (i,j)-(i+1,j): квадраты слева qp[i+1,j] и справа qp[i+1,j+1]
+    vb = qp[1:, :-1] ^ qp[1:, 1:]
+    for i, j in np.argwhere(vb):
+        p1, p2 = idx[i, j], idx[i + 1, j]
+        if p1 >= 0 and p2 >= 0:
+            edges.append((p1, p2))
+    if edges:
+        e = np.array(edges, dtype=np.int64)
+        sk1 = np.column_stack([e[:, 0], e[:, 1], e[:, 1] + n])
+        sk2 = np.column_stack([e[:, 0], e[:, 1] + n, e[:, 0] + n])
+        skirt = np.vstack([sk1, sk2])
+    else:
+        skirt = np.empty((0, 3), dtype=np.int64)
+
+    ij = np.argwhere(valid)
+    vx = xs[ij[:, 1]]
+    vy = ys[ij[:, 0]]
+    verts = np.vstack([np.column_stack([vx, vy, za[valid]]),
+                       np.column_stack([vx, vy, zb[valid]])])
+    faces = np.vstack([roof, floor, skirt])
+    return verts, faces
+
+
 def sample_bilinear(arr, gt, x, y):
     """Билинейная выборка грида в точках (x, y). arr - 2D массив (NaN =
     нет данных), gt - GDAL geotransform. Вне грида и на NaN-углах - NaN.

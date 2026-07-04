@@ -92,6 +92,28 @@ def test_sample_bilinear():
     assert v[3] != v[3]                    # вне грида - NaN
 
 
+def test_bed_body_watertight():
+    from collections import Counter
+    from grid_isolines.mesh3d import bed_to_mesh_arrays
+    top = np.arange(9, dtype=float).reshape(3, 3) + 50.0
+    verts, faces = bed_to_mesh_arrays(top, top - 3.0, GT)
+    assert verts.shape == (18, 3) and len(faces) == 32
+    c = Counter()
+    for tri in faces:
+        for a, b in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
+            c[frozenset((int(a), int(b)))] += 1
+    # замкнутое тело: каждое ребро ровно в двух гранях
+    assert set(c.values()) == {2}
+
+
+def test_bed_body_zoffset():
+    from grid_isolines.mesh3d import bed_to_mesh_arrays
+    top = np.full((2, 2), 10.0)
+    verts, _ = bed_to_mesh_arrays(top, top - 4.0, GT, zscale=2.0,
+                                  zoffset=-1.0)
+    assert sorted(set(np.round(verts[:, 2], 6))) == [11.0, 19.0]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

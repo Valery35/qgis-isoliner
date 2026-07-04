@@ -3,10 +3,10 @@ name=Isoliner - грид и изолинии
 qgisMinimumVersion=3.16
 qgisMaximumVersion=4.99
 description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in QGIS. Кригинг 2D (GSLIB KB2D) и построение изолиний/контурных полигонов в QGIS.
-about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Developed with the support of Inform++ LLC (www.informpp.ru).
+about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Includes a standalone 3D viewer (surfaces, watertight bed bodies from multiband grids, boreholes with collar masts, a section plane; pyqtgraph/PyOpenGL are bundled) and a 2DM mesh export. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=2.27.5
+version=2.33.0
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,58 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=2.27.5
+changelog=2.33.0
+    - Руководство (RU/EN): главы «3.11 Поверхности в 3D (меши)» и «3D-просмотр
+      поверхностей» со скриншотами сцены, схема конвенции многоканального
+      грида пласта, обновлён раздел 3.10; PDF пересобраны. Описание плагина
+      дополнено 3D-просмотром и экспортом 2DM.
+    2.32.4
+    - 3D-просмотр: мачта над устьем скважины (2 процента размаха сцены) -
+      штанга видна всегда, даже когда целиком уходит внутрь тела пласта.
+    2.32.3
+    - 3D-просмотр: плоскость разреза падала на QGIS 4 (asMultiPolyline
+      бросает TypeError на одиночной LineString); чтение линии с fallback.
+    2.32.2
+    - 3.01: вершины ломаной принудительно включаются в пикетаж. Раньше
+      равномерная сетка пикетов не попадала в изломы, и профиль, полосы
+      чертежа и 3D-забор срезали каждый угол хордой до полушага.
+    2.32.1
+    - Демо 3.10: разлом смещён с середины створа (0.62 длины) - раньше он
+      рождался на изломе линии и выглядел как срезанный угол определения.
+    2.32.0
+    - 3D-просмотр: плоскость разреза. Линия определения из 3.01 рисуется
+      вертикальной полупрозрачной лентой с контуром между zmin и zmax из
+      полей определения (без полей - по размаху сцены); ломаные и несколько
+      линий поддерживаются.
+    2.31.0
+    - 3D-просмотр: логика окраски по природе слоя. Тело пласта красится
+      собственным каналом параметра (по умолчанию 3; 0 - палитра), внешний
+      атрибутный растр применяется только к одноканальным поверхностям;
+      выбор «Применить окраску к» упразднён, шкала общая.
+    2.30.0
+    - 3D-просмотр: режим «Тела пластов» - для многоканальных гридов канал 1
+      и канал 2 рисуются кровлей и подошвой, объём замыкается боковой юбкой
+      по границе данных (водонепроницаемое тело). Одноканальные гриды в том
+      же списке остаются поверхностями. Первый шаг к каркасной и блочной
+      моделям массива.
+    2.29.1
+    - Конвенция грида пласта: канал 1 кровля, канал 2 подошва, каналы 3+
+      параметры (пласт как блочная модель, поверхности первичны). Демо 3.10
+      выдаёт четырёхканальные гриды пластов; один файл кормит 3.03
+      (каналы 1/2/3) и 3D-просмотр.
+    2.29.0
+    - Многоканальные гриды пластов. Демо 3.10 выдаёт по трёхканальному
+      гриду на промышленный пласт (кровля, содержание, минтип - независимые
+      стохастические поля с подписями каналов); отдельные плоские гриды
+      состава убраны. 3.03 получил выбор канала кровли/подошвы/состава,
+      3.11 - канал высот, 3D-просмотр - канал высот и канал атрибута.
+    2.28.0
+    - Демо 3.10: у каждого промышленного пласта свой состав - независимые
+      стохастические поля содержания (крупное + мелкая пятнистость, свои
+      тренды) и свой минтип; выходы «Состав 1-го/2-го пром.».
+    - 3D-просмотр: легенда цветовой шкалы с диапазоном, прозрачность
+      поверхностей, кнопки «Сверху»/«Сбоку», снимок сцены в PNG.
+    2.27.5
     - Релиз в основной канал: снят флаг experimental. Функционально
       идентична 2.27.4.
     2.27.4

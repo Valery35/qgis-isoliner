@@ -3784,18 +3784,25 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
 # ===========================================================================
 #  9. Гидравлический градиент и направление потока (гидрогеология)
 # ===========================================================================
-def _write_grid_tiff(path, array, geotr, crs_wkt, nodata, nx, ny):
-    """Пишет одноканальный Float32 GeoTIFF с геопривязкой и nodata."""
+def _write_grid_tiff(path, array, geotr, crs_wkt, nodata, nx, ny,
+                     band_names=None):
+    """Пишет Float32 GeoTIFF с геопривязкой и nodata. array - один 2D-массив
+    (один канал) или список массивов (многоканальный грид); band_names -
+    подписи каналов той же длины."""
+    arrs = list(array) if isinstance(array, (list, tuple)) else [array]
     driver = gdal.GetDriverByName("GTiff")
-    ds = driver.Create(path, nx, ny, 1, gdal.GDT_Float32,
+    ds = driver.Create(path, nx, ny, len(arrs), gdal.GDT_Float32,
                        options=["COMPRESS=LZW", "TILED=YES"])
     ds.SetGeoTransform(geotr)
     if crs_wkt:
         ds.SetProjection(crs_wkt)
-    band = ds.GetRasterBand(1)
-    band.SetNoDataValue(nodata)
-    band.WriteArray(array)
-    band.FlushCache()
+    for i, a in enumerate(arrs, 1):
+        band = ds.GetRasterBand(i)
+        band.SetNoDataValue(nodata)
+        band.WriteArray(a)
+        if band_names:
+            band.SetDescription(band_names[i - 1])
+        band.FlushCache()
     ds = None
 
 
@@ -4457,7 +4464,7 @@ class SectionDemoAlgorithm(QgsProcessingAlgorithm):
     SURF1, SURF2, SURF3 = "SURF1", "SURF2", "SURF3"
     SURF4, SURF5, SURF6 = "SURF4", "SURF5", "SURF6"
     LINE, WELLS = "LINE", "WELLS"
-    GRADE, MINTYPE = "GRADE", "MINTYPE"
+    BED1, BED2 = "BED1", "BED2"
     FAULT, MARKER, ZONE = "FAULT", "MARKER", "ZONE"
     TIN = "TIN"
 
@@ -4479,9 +4486,11 @@ class SectionDemoAlgorithm(QgsProcessingAlgorithm):
             "Получите пять пластов на чертеже и 3D-забор. Кригинг для демо не "
             "нужен, поверхности уже растровые. Заодно выдаются скважины вдоль "
             "линии с отметками поверхностей (h1...h6) для инструмента «Скважины "
-            "на разрез», а также гриды состава промышленных пластов (содержание "
-            "и минтип с зоной замещения) для инструмента «Состав пласта на "
-            "разрез».") + _credit())
+            "на разрез», а также по многоканальному гриду на каждый "
+            "промышленный пласт. Конвенция каналов: 1 кровля, 2 подошва, "
+            "3+ параметры (здесь содержание и минтип, независимые "
+            "стохастические поля). Пласт как блочная модель: один файл кормит "
+            "«Состав пласта на разрез» (каналы 1/2/3) и 3D-просмотр.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -4511,10 +4520,10 @@ class SectionDemoAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessing.TypeVectorPoint, optional=True,
             createByDefault=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
-            self.GRADE, self.tr("Состав: содержание (для промышленных пластов)"),
+            self.BED1, self.tr("Пласт 1-й пром. (каналы: кровля, подошва, содержание, минтип)"),
             optional=True, createByDefault=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
-            self.MINTYPE, self.tr("Состав: минтип/фации (1 сильвинит, 2 замещение)"),
+            self.BED2, self.tr("Пласт 2-й пром. (каналы: кровля, подошва, содержание, минтип)"),
             optional=True, createByDefault=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.FAULT, self.tr("Разлом для пересечения (2D-линия)"),
@@ -4583,19 +4592,37 @@ class SectionDemoAlgorithm(QgsProcessingAlgorithm):
             _set_output_name(context, path, name)
             results[key] = path
 
-        # состав промышленных пластов (демо): содержание с латеральным трендом
-        # (богаче на западе, беднее на востоке) и пятнами; минтип порогом по
-        # содержанию - замещение там, где бедно. Один грид на оба пром. пласта.
-        gf = _demo_field(rng, G, max(1, int(0.22 * G)))
-        grade = np.clip(24.0 + 7.0 * gf - 16.0 * (cx - 0.45), 6.0, 40.0)
-        mintype = np.where(grade >= 18.0, 1.0, 2.0)
-        for key, grid, nm, nd in (
-                (self.GRADE, grade, self.tr("Состав · содержание (демо)"), -9999.0),
-                (self.MINTYPE, mintype, self.tr("Состав · минтип (демо)"), 0.0)):
+        # состав промышленных пластов (демо): у каждого пласта свой грид.
+        # Содержание = независимое крупное поле + мелкая пятнистость + свой
+        # латеральный тренд (1-й пром. богаче на западе, 2-й на юге и чуть
+        # беднее в среднем); минтип порогом по содержанию своего пласта.
+        cy = (np.arange(G) / (G - 1.0))[:, None]   # 0..1 вдоль Y (юг->север)
+
+        def bed_grade(trend, base):
+            big = _demo_field(rng, G, max(1, int(0.22 * G)))
+            fine = _demo_field(rng, G, max(1, int(0.07 * G)))
+            return np.clip(base + 6.0 * big + 3.5 * fine + trend, 6.0, 40.0)
+
+        grade1 = bed_grade(-16.0 * (cx - 0.45), 24.0)
+        grade2 = bed_grade(-12.0 * (cy - 0.55), 22.0)
+        mintype1 = np.where(grade1 >= 18.0, 1.0, 2.0)
+        mintype2 = np.where(grade2 >= 17.0, 1.0, 2.0)
+        # конвенция многоканального грида пласта: канал 1 - кровля, канал 2 -
+        # подошва, каналы 3+ - параметры (содержание, минтип, ...). Пласт как
+        # блочная модель: параметры добавляются каналами без смены формата.
+        bnames = [self.tr("кровля"), self.tr("подошва"),
+                  self.tr("содержание"), self.tr("минтип")]
+        for key, roof, bot, grd, mtp, nm in (
+                (self.BED1, surf[1], surf[2], grade1, mintype1,
+                 self.tr("Пласт 1-й пром. (демо)")),
+                (self.BED2, surf[3], surf[4], grade2, mintype2,
+                 self.tr("Пласт 2-й пром. (демо)"))):
             path = self.parameterAsOutputLayer(parameters, key, context)
             if path:
-                _write_grid_tiff(path, np.flipud(grid).astype(np.float32),
-                                 geotr, crs_wkt, nd, G, G)
+                stack = [np.flipud(a).astype(np.float32)
+                         for a in (roof, bot, grd, mtp)]
+                _write_grid_tiff(path, stack, geotr, crs_wkt, -9999.0,
+                                 G, G, band_names=bnames)
                 _set_output_name(context, path, nm)
                 results[key] = path
         # линия разреза: ломаная с двумя внутренними изломами (поперёк падения)
@@ -4657,7 +4684,9 @@ class SectionDemoAlgorithm(QgsProcessingAlgorithm):
         # (2D-линия без Z) -> вертикаль; маркер (3D-линия с Z) -> точка;
         # зона замещения (полигон) -> полоса. Все пересекают линию разреза.
         md = min(W, H)
-        bpf = lg.interpolate(0.5 * L).asPoint()
+        # центр разлома смещён с середины створа (там излом линии), чтобы
+        # разлом не выглядел «определением, срезавшим угол»
+        bpf = lg.interpolate(0.62 * L).asPoint()
         ff = QgsFields(); ff.append(QgsField("name", QVariant.String))
         fsink, fdest = self.parameterAsSink(
             parameters, self.FAULT, context, ff, QgsWkbTypes.LineString, crs)
@@ -5015,6 +5044,20 @@ class SectionAlgorithm(QgsProcessingAlgorithm):
             step = min(cells)
         nseg = max(2, int(math.ceil(length / step)))
         d = np.linspace(0.0, length, nseg + 1)
+        # вершины ломаной обязаны быть пикетами: равномерная сетка почти
+        # никогда не попадает в излом, и профиль с 3D-забором срезали бы
+        # угол хордой до полушага
+        vpts = [(v.x(), v.y()) for v in line_geom.vertices()]
+        if len(vpts) > 2:
+            vd = [0.0]
+            for i in range(1, len(vpts)):
+                vd.append(vd[-1] + math.hypot(vpts[i][0] - vpts[i - 1][0],
+                                              vpts[i][1] - vpts[i - 1][1]))
+            d = np.unique(np.concatenate([d, np.array(vd)]))
+            d = d[(d >= 0.0) & (d <= length)]
+            tol = max(length * 1e-9, 1e-9)
+            keep = np.concatenate([[True], np.diff(d) > tol])
+            d = d[keep]
         xs = np.empty(len(d)); ys = np.empty(len(d))
         for i, di in enumerate(d):
             p = line_geom.interpolate(float(di))
@@ -5454,6 +5497,7 @@ class CompositionOnSectionAlgorithm(QgsProcessingAlgorithm):
     состава. Свой кригинг не делает."""
 
     LINE, TOP, BOTTOM, COMP = "LINE", "TOP", "BOTTOM", "COMP"
+    TOP_BAND, BOTTOM_BAND, COMP_BAND = "TOP_BAND", "BOTTOM_BAND", "COMP_BAND"
     MODE, STEP, VMODE, VEXAG, SAMPLING = ("MODE", "STEP", "VMODE",
                                           "VEXAG", "SAMPLING")
     DEF = "DEF"
@@ -5495,6 +5539,18 @@ class CompositionOnSectionAlgorithm(QgsProcessingAlgorithm):
             self.BOTTOM, self.tr("Подошва пласта (растр)")))
         self.addParameter(QgsProcessingParameterRasterLayer(
             self.COMP, self.tr("Грид состава (содержание или класс)")))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.TOP_BAND, self.tr("Канал кровли"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.TOP_BAND, 1), minValue=1)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BOTTOM_BAND, self.tr("Канал подошвы"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.BOTTOM_BAND, 1), minValue=1)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.COMP_BAND, self.tr("Канал состава"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.COMP_BAND, 1), minValue=1)))
         self.addParameter(QgsProcessingParameterEnum(
             self.MODE, self.tr("Состав"),
             options=[self.tr("непрерывное (содержание)"),
@@ -5526,11 +5582,11 @@ class CompositionOnSectionAlgorithm(QgsProcessingAlgorithm):
             createByDefault=False))
 
     @staticmethod
-    def _read(path):
+    def _read(path, band=1):
         ds = gdal.Open(path)
-        if ds is None:
+        if ds is None or band > ds.RasterCount:
             return None, None
-        b = ds.GetRasterBand(1)
+        b = ds.GetRasterBand(band)
         a = b.ReadAsArray().astype(float)
         nd = b.GetNoDataValue()
         if nd is not None:
@@ -5568,9 +5624,12 @@ class CompositionOnSectionAlgorithm(QgsProcessingAlgorithm):
         if length <= 0:
             raise QgsProcessingException(self.tr("Длина линии равна нулю."))
 
-        at, gtt = self._read(top_l.source())
-        ab, gtb = self._read(bot_l.source())
-        ac, gtc = self._read(cmp_l.source())
+        at, gtt = self._read(top_l.source(),
+                             self.parameterAsInt(parameters, self.TOP_BAND, context))
+        ab, gtb = self._read(bot_l.source(),
+                             self.parameterAsInt(parameters, self.BOTTOM_BAND, context))
+        ac, gtc = self._read(cmp_l.source(),
+                             self.parameterAsInt(parameters, self.COMP_BAND, context))
         if at is None or ab is None or ac is None:
             raise QgsProcessingException(self.tr("Не удалось открыть растр."))
 
@@ -6864,6 +6923,7 @@ class SectionSurfacesToMeshAlgorithm(QgsProcessingAlgorithm):
     преобразование Z' = Z * масштаб + смещение."""
 
     GRIDS, ZSCALE, ZOFFSET, STEP = "GRIDS", "ZSCALE", "ZOFFSET", "STEP"
+    ZBAND = "ZBAND"
     SPACING = "SPACING"
     FOLDER = "FOLDER"
 
@@ -6912,6 +6972,10 @@ class SectionSurfacesToMeshAlgorithm(QgsProcessingAlgorithm):
             self.STEP, self.tr("Прореживание узлов (каждый N-й)"),
             QgsProcessingParameterNumber.Integer,
             defaultValue=_dv(self, self.STEP, 1), minValue=1)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.ZBAND, self.tr("Канал высот (Z)"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.ZBAND, 1), minValue=1)))
         self.addParameter(QgsProcessingParameterFolderDestination(
             self.FOLDER, self.tr("Папка для мешей (2DM)")))
 
@@ -6933,10 +6997,11 @@ class SectionSurfacesToMeshAlgorithm(QgsProcessingAlgorithm):
             if feedback.isCanceled():
                 break
             ds = gdal.Open(lyr.source())
-            if ds is None:
+            zband = self.parameterAsInt(parameters, self.ZBAND, context)
+            if ds is None or zband > ds.RasterCount:
                 feedback.pushWarning(_tr("Грид не открылся: %s") % lyr.name())
                 continue
-            b = ds.GetRasterBand(1)
+            b = ds.GetRasterBand(zband)
             arr = b.ReadAsArray().astype(float)
             nd = b.GetNoDataValue()
             if nd is not None:
