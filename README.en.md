@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into three Processing groups — **"Grid and isolines"**, **"Additional analysis tools"** and **"Cross-sections"** — twenty-three in all:
+The tools are split into three Processing groups — **"Grid and isolines"**, **"Additional analysis tools"** and **"Cross-sections"** — twenty-four in all:
 
 **Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) and include your QGIS version, what you did, and attach the data or project to reproduce it — that makes the bug easy to repeat and faster to fix.
 
@@ -40,6 +40,7 @@ The tools are split into three Processing groups — **"Grid and isolines"**, **
 - **3.08 Unproject from the section (beta)** — reverse projection: objects drawn on the drawing are returned to real coordinates with a Z elevation.
 - **3.09 Unwrap a shaft wall (beta)** — a cylindrical section: a circle around the axis with an angular step, surfaces give intersection lines with the wall in arc-elevation axes.
 - **3.10 Create a section example** — six stacked surfaces (five beds: three host and two industrial), a line and boreholes along it (h1...h6 elevation fields), to try the cross-section and boreholes on a section at once without kriging.
+- **3.11 Surfaces to 3D (meshes)** — surface grids to 2DM mesh layers for the built-in QGIS 3D view (a scene holds one raster terrain but any number of meshes), with a vertical Z transform (scale and offset) and node thinning.
 
 Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
 and any numeric attribute.
@@ -258,6 +259,22 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.27.5** — released to the main channel, the experimental flag removed; functionally identical to 2.27.4.
+- **2.27.4** — the pyqtgraph/PyOpenGL bundle sanitised for the scanner (console/flowchart/multiprocess/exporters removed, .ui loading and pickle-restore disabled), the 3D viewer is back in the published package.
+- **2.27.3** — without pyqtgraph/PyOpenGL the 3D viewer menu item is hidden, the pip hint removed.
+- **2.27.2** — the published ZIP ships without bundled pyqtgraph/PyOpenGL (plugins.qgis.org scanner requirement); the branch is marked experimental.
+- **2.27.1** — 3D viewer: "Apply colouring to" — the attribute paints one surface or all of them.
+- **2.27.0** — 3D viewer: surfaces coloured by an attribute grid (grade, thickness, error) on a shared colour scale.
+- **2.26.4** — menu: the 3D viewer is the first item, the "Manual (PDF)" item removed (the button in "About" remains).
+- **2.26.3** — 3D viewer: borehole collars as round balls instead of square sprites.
+- **2.26.2** — 3D viewer: the camera fits both surfaces and boreholes.
+- **2.26.1** — 3D viewer: an empty borehole list on QGIS 4 fixed (Qgis.GeometryType with a fallback).
+- **2.26.0** — 3D viewer: boreholes as vertical rods from numeric elevation fields (h1...h6 auto-checked); 3.11 reframed as an export to the 2DM mesh format (MDAL).
+- **2.25.2** — 3D viewer: fixed a crash on Qt6 (QGIS 4), Qt enum names now with a Qt5/Qt6 fallback.
+- **2.25.1** — pyqtgraph and PyOpenGL are bundled with the plugin (libs), the 3D viewer works without pip; system copies take priority.
+- **2.25.0** — a built-in "3D surface viewer (beta)" in the "Plugins → Isoliner" menu on pyqtgraph.opengl: horizons as coloured meshes, exaggeration and Z spacing in the window, independent of the stock 3D view (Qt3D); needs pyqtgraph and PyOpenGL.
+- **2.24.1** — 3.11: a "Z spacing" parameter, every next grid shifts one step down, the horizon stack unfolds into a shelf.
+- **2.24.0** — new tool "3.11 Surfaces to 3D (meshes)": grids to 2DM mesh layers for the built-in QGIS 3D view, vertical Z transform (scale and offset), node thinning.
 - **2.23.0** — a "Plugins → Isoliner" menu: "About" (version, links, changelog from metadata.txt) and "Manual (PDF)" by interface language.
 - **2.22.7** — manual: panel numbers in the tool headings, tool-dialog screenshots and field tables for the cross-section tools (3.04-3.06, 3.10) and the Gaussian simulation (2.6); both PDFs (EN/RU) rebuilt.
 - **2.22.1** — the demo TIN reshaped into a realistic recumbent overturned fold (was a narrow coiled ribbon).

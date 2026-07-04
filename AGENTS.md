@@ -71,6 +71,17 @@ QGIS-плагин Isoliner. Группа инструментов Processing д�
 
 ## Сборка и релиз
 
+- **Вложенные pyqtgraph/PyOpenGL (`grid_isolines/libs/`) зачищены под сканер
+  plugins.qgis.org** и входят в публикуемый ZIP. Зачистка (не откатывать при
+  обновлении библиотек): удалены pyqtgraph/{console,flowchart,multiprocess,
+  exporters,configfile.py,widgets/RemoteGraphicsView.py} (+ строка импорта
+  RemoteGraphicsView в pyqtgraph/__init__.py), pyqtgraph/examples,
+  OpenGL/{DLLS,GLES1,GLES2,GLES3,EGL,AGL,GLE} и те же в OpenGL/raw;
+  заглушены `_loadUiType` (pyqtgraph/Qt/__init__.py), pickle-тест в
+  OpenGL/constant.py и `MeshData.restore`. Проверка: Bandit по libs даёт
+  только LOW, `import pyqtgraph.opengl` живой.
+- Ветка 2.27.x выпущена в основной канал (experimental=False). Для будущих бет флаг ставить на время обкатки и снимать на стабилизации.
+
 - **ZIP всегда `grid_isolines.zip`**, без суффикса версии.
 - Перед упаковкой вычистить `__pycache__/` и `*.pyc`.
 - Исходник руководства - в корневой папке `manual/`: `manual.md` (RU),
@@ -104,6 +115,9 @@ QGIS-плагин Isoliner. Группа инструментов Processing д�
 - Разделители в README: RU использует ` - ` (дефис), EN ` — ` (тире).
 
 ## Журнал решённых багов (НЕ возвращать)
+
+- Qt6 (QGIS 4): плоские enum'ы Qt местами недоступны (`Qt.WindowMinMaxButtonsHint` и т.п., шим QGIS покрывает не всё). Использовать `getattr(getattr(Qt, "WindowType", Qt), "…")` - работает в Qt5 и Qt6 (viewer3d.py).
+- QGIS 4: `QgsWkbTypes.PointGeometry` заменён на `Qgis.GeometryType.Point`; сравнение со старой константой молча не совпадает. Импортировать с fallback (viewer3d.py).
 
 - Полигонизация поясов: только GEOS `unaryUnion` + `polygonize`. НЕ `native:splitwithlines` - на густой сети терял грани, покрытие падало вдвое.
 - Гауссова модель вариограммы: принудительный минимальный наггет (устойчивость, без отрицательных весов).
