@@ -432,9 +432,10 @@ class MeshData(object):
         return pickle.dumps(state)
         
     def restore(self, state):
-        """Restore the state of a mesh previously saved using save()"""
-        import pickle
-        state = pickle.loads(state)
+        """Stripped in this bundle: pickle-based restore is not used."""
+        raise NotImplementedError(
+            "MeshData.restore is disabled in this bundled copy")
+        state = {}  # unreachable
         for k in state:
             if isinstance(state[k], list):
                 if isinstance(state[k][0], QtGui.QVector3D):

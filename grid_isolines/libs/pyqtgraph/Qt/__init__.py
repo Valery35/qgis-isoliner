@@ -85,58 +85,8 @@ class _StringIO(object):
 
     
 def _loadUiType(uiFile):
-    """
-    PySide lacks a "loadUiType" command like PyQt4's, so we have to convert
-    the ui file to py code in-memory first and then execute it in a
-    special frame to retrieve the form_class.
-
-    from stackoverflow: http://stackoverflow.com/a/14195313/3781327
-
-    seems like this might also be a legitimate solution, but I'm not sure
-    how to make PyQt4 and pyside look the same...
-        http://stackoverflow.com/a/8717832
-    """
-
-    pyside2uic = None
-    if QT_LIB == PYSIDE2:
-        try:
-            import pyside2uic
-        except ImportError:
-            # later versions of pyside2 have dropped pyside2uic; use the uic binary instead.
-            pyside2uic = None
-
-        if pyside2uic is None:
-            pyside2version = tuple(map(int, PySide2.__version__.split(".")))
-            if (5, 14) <= pyside2version < (5, 14, 2, 2):
-                warnings.warn('For UI compilation, it is recommended to upgrade to PySide >= 5.15', RuntimeWarning, stacklevel=2)
-
-    # get class names from ui file
-    import xml.etree.ElementTree as xml
-    parsed = xml.parse(uiFile)
-    widget_class = parsed.find('widget').get('class')
-    form_class = parsed.find('class').text
-
-    # convert ui file to python code
-    if pyside2uic is None:
-        uic_executable = QT_LIB.lower() + '-uic'
-        uipy = subprocess.check_output([uic_executable, uiFile])
-    else:
-        o = _StringIO()
-        with open(uiFile, 'r') as f:
-            pyside2uic.compileUi(f, o, indent=0)
-        uipy = o.getvalue()
-
-    # execute python code
-    pyc = compile(uipy, '<string>', 'exec')
-    frame = {}
-    exec(pyc, frame)
-
-    # fetch the base_class and form class based on their type in the xml from designer
-    form_class = frame['Ui_%s'%form_class]
-    base_class = eval('QtWidgets.%s'%widget_class)
-
-    return form_class, base_class
-
+    """Stripped in this bundle: .ui loading is not used by the plugin."""
+    raise NotImplementedError("loadUiType is disabled in this bundled copy")
 
 # For historical reasons, pyqtgraph maintains a Qt4-ish interface back when
 # there wasn't a QtWidgets module. This _was_ done by monkey-patching all of

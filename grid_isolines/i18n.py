@@ -882,14 +882,8 @@ TRANSLATIONS = {
     'Поверхности 3D': '3D surfaces',
     '3D-просмотр поверхностей (бета)…': '3D surface viewer (beta)…',
     '3D-просмотр поверхностей': '3D surface viewer',
-    'Не удалось загрузить pyqtgraph/PyOpenGL, в том числе из '
-    'комплекта плагина.\n\nРучная установка (OSGeo4W Shell):\n'
-    '    pip install pyqtgraph PyOpenGL\n\n'
-    'После установки перезапустите QGIS.':
-        'Failed to load pyqtgraph/PyOpenGL, including the copies bundled '
-        'with the plugin.\n\nManual install (OSGeo4W Shell):\n'
-        '    pip install pyqtgraph PyOpenGL\n\n'
-        'Restart QGIS after the installation.',
+    '3D-просмотр недоступен в этой установке плагина.':
+        'The 3D viewer is not available in this plugin installation.',
     'Isoliner - 3D-просмотр поверхностей (бета)': 'Isoliner - 3D surface viewer (beta)',
     'Обновить сцену': 'Update the scene',
     'Вертикальное преувеличение': 'Vertical exaggeration',

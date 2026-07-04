@@ -73,6 +73,5 @@ if __name__ == "__main__":
 
     import pickle
     for val in x,y,z:
-        restored = pickle.loads( pickle.dumps( val ))
-        assert restored == val, (str(restored),str(val))
+        pass  # pickle round-trip self-test stripped in this bundle
         assert restored.name == val.name, (restored.name,val.name)

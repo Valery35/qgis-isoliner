@@ -47,6 +47,19 @@ _DIALOG = None  # держим окно живым
 LIBS_DIR = os.path.join(os.path.dirname(__file__), "libs")
 
 
+def is_available():
+    """Быстрая проверка без импорта: есть ли pyqtgraph и PyOpenGL
+    (системные или в libs/ плагина). По ней решается, показывать ли
+    пункт меню - без пакетов пункта просто нет."""
+    import importlib.util
+    have = (importlib.util.find_spec("pyqtgraph") is not None and
+            importlib.util.find_spec("OpenGL") is not None)
+    if have:
+        return True
+    return (os.path.isdir(os.path.join(LIBS_DIR, "pyqtgraph")) and
+            os.path.isdir(os.path.join(LIBS_DIR, "OpenGL")))
+
+
 def _import_gl():
     """Импорт pyqtgraph.opengl: сначала системный, затем из libs/ плагина."""
     try:
@@ -112,10 +125,7 @@ def show_viewer(iface):
         from qgis.PyQt.QtWidgets import QMessageBox
         QMessageBox.information(
             parent, tr("3D-просмотр поверхностей"),
-            tr("Не удалось загрузить pyqtgraph/PyOpenGL, в том числе из "
-               "комплекта плагина.\n\nРучная установка (OSGeo4W Shell):\n"
-               "    pip install pyqtgraph PyOpenGL\n\n"
-               "После установки перезапустите QGIS."))
+            tr("3D-просмотр недоступен в этой установке плагина."))
         return
     if _DIALOG is None:
         _DIALOG = _build_dialog(parent)
