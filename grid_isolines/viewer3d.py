@@ -125,6 +125,20 @@ def _band_count(source):
     return n
 
 
+def _band_items(source):
+    """[(номер, подпись)] по описаниям каналов растра."""
+    from osgeo import gdal
+    ds = gdal.Open(source)
+    if ds is None:
+        return []
+    out = []
+    for i in range(1, ds.RasterCount + 1):
+        d = ds.GetRasterBand(i).GetDescription()
+        out.append((i, "%d - %s" % (i, d) if d else str(i)))
+    ds = None
+    return out
+
+
 def show_viewer(iface):
     """Открывает (или поднимает) окно 3D-просмотра."""
     global _DIALOG
@@ -160,7 +174,7 @@ def _build_dialog(parent):
     from qgis.PyQt.QtWidgets import (
         QDialog, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
         QDoubleSpinBox, QPushButton, QLabel, QFormLayout, QSplitter, QWidget,
-        QComboBox, QCheckBox)
+        QComboBox, QCheckBox, QLineEdit, QTabWidget, QGroupBox)
 
     # Qt5/Qt6: enum'ы либо плоские, либо в scoped-подклассах
     _CHECKED = getattr(getattr(Qt, "CheckState", Qt), "Checked")
@@ -168,11 +182,32 @@ def _build_dialog(parent):
     _USER_ROLE = getattr(getattr(Qt, "ItemDataRole", Qt), "UserRole")
     _CHECKABLE = getattr(getattr(Qt, "ItemFlag", Qt), "ItemIsUserCheckable")
 
+    class _PickView(gl.GLViewWidget):
+        """GLViewWidget с колбэком на клик без перетаскивания."""
+        pick_cb = None
+
+        def mousePressEvent(self, ev):
+            self._press = self._evpos(ev)
+            super().mousePressEvent(ev)
+
+        def mouseReleaseEvent(self, ev):
+            pos = self._evpos(ev)
+            pr = getattr(self, "_press", None)
+            super().mouseReleaseEvent(ev)
+            if (self.pick_cb is not None and pr is not None and
+                    abs(pos[0] - pr[0]) < 3 and abs(pos[1] - pr[1]) < 3):
+                self.pick_cb(pos[0], pos[1])
+
+        @staticmethod
+        def _evpos(ev):
+            p = ev.position() if hasattr(ev, "position") else ev.pos()
+            return (float(p.x()), float(p.y()))
+
     class ViewerDialog(QDialog):
         def __init__(self, parent=None):
             super().__init__(parent)
             self.setWindowTitle(tr("Isoliner - 3D-просмотр поверхностей (бета)"))
-            self.resize(1000, 640)
+            self.resize(1060, 660)
             try:  # Qt6: scoped enum, Qt5: плоский; без кнопок тоже не беда
                 flag = getattr(getattr(Qt, "WindowType", Qt),
                                "WindowMinMaxButtonsHint")
@@ -180,7 +215,10 @@ def _build_dialog(parent):
             except Exception:
                 pass
 
-            self.layer_list = QListWidget()
+            self._opts = {}          # id слоя -> персональные настройки
+            self._loading_opts = False
+
+            # --- общие настройки сцены
             self.vex = QDoubleSpinBox()
             self.vex.setRange(0.01, 10000.0)
             self.vex.setValue(5.0)
@@ -189,6 +227,10 @@ def _build_dialog(parent):
             self.spacing.setRange(0.0, 1e9)
             self.spacing.setValue(0.0)
             self.spacing.setDecimals(1)
+            self.opacity = QDoubleSpinBox()
+            self.opacity.setRange(0.0, 95.0)
+            self.opacity.setValue(0.0)
+            self.opacity.setDecimals(0)
             self.btn = QPushButton(tr("Обновить сцену"))
             self.btn.clicked.connect(self.rebuild)
             btn_top = QPushButton(tr("Сверху"))
@@ -208,59 +250,87 @@ def _build_dialog(parent):
             self.info = QLabel("")
             self.info.setWordWrap(True)
 
+            # --- вкладка «Слои»: список + редактор параметров слоя
+            self.layer_list = QListWidget()
+            self.filter_edit = QLineEdit()
+            self.filter_edit.setPlaceholderText(tr("Фильтр слоёв…"))
+            self.filter_edit.textChanged.connect(self._apply_filter)
+            fl = QHBoxLayout()
+            fl.addWidget(self.filter_edit, 1)
+            b_all = QPushButton(tr("Все"))
+            b_none = QPushButton(tr("Ничего"))
+            b_all.clicked.connect(lambda: self._check_visible(True))
+            b_none.clicked.connect(lambda: self._check_visible(False))
+            fl.addWidget(b_all)
+            fl.addWidget(b_none)
+
+            self.opt_box = QGroupBox(tr("Параметры слоя"))
+            self.mode_combo = QComboBox()
+            for label, key in ((tr("Авто"), "auto"),
+                               (tr("Поверхность"), "surface"),
+                               (tr("Тело пласта"), "body")):
+                self.mode_combo.addItem(label, key)
+            self.zband = QComboBox()
+            self.color_combo = QComboBox()
+            self.aband = QComboBox()
+            of = QFormLayout(self.opt_box)
+            of.addRow(tr("Режим"), self.mode_combo)
+            of.addRow(tr("Канал высот (Z)"), self.zband)
+            of.addRow(tr("Окраска"), self.color_combo)
+            of.addRow(tr("Канал атрибута"), self.aband)
+            for w in (self.mode_combo, self.zband, self.aband):
+                w.currentIndexChanged.connect(self._save_opts)
+            self.color_combo.currentIndexChanged.connect(self._color_changed)
+
+            tab_layers = QWidget()
+            tl = QVBoxLayout(tab_layers)
+            tl.addLayout(fl)
+            tl.addWidget(self.layer_list, 1)
+            tl.addWidget(self.opt_box)
+            self.layer_list.itemChanged.connect(self._item_toggled)
+            self.layer_list.currentItemChanged.connect(self._load_opts)
+
+            # --- вкладка «Векторы»
             self.plane_combo = QComboBox()
             self.wells_combo = QComboBox()
             self.wells_combo.currentIndexChanged.connect(self._wells_changed)
             self.wells_fields = QListWidget()
-            self.wells_fields.setMaximumHeight(110)
-            self.attr_combo = QComboBox()
-            self.pband = QDoubleSpinBox()
-            self.pband.setRange(0, 99)
-            self.pband.setValue(3)
-            self.pband.setDecimals(0)
-            self.opacity = QDoubleSpinBox()
-            self.opacity.setRange(0.0, 95.0)
-            self.opacity.setValue(0.0)
-            self.opacity.setDecimals(0)
-            self.zband = QDoubleSpinBox()
-            self.zband.setRange(1, 99)
-            self.zband.setValue(1)
-            self.zband.setDecimals(0)
-            self.aband = QDoubleSpinBox()
-            self.aband.setRange(1, 99)
-            self.aband.setValue(1)
-            self.aband.setDecimals(0)
+            self.wells_label = QComboBox()
+            vform = QFormLayout()
+            vform.addRow(tr("Плоскость разреза (линия)"), self.plane_combo)
+            vform.addRow(tr("Скважины (точки)"), self.wells_combo)
+            vform.addRow(tr("Поле подписи скважин"), self.wells_label)
+            vform.addRow(tr("Поля отметок"), self.wells_fields)
+            tab_vec = QWidget()
+            tv = QVBoxLayout(tab_vec)
+            tv.addLayout(vform)
+            tv.addStretch(1)
 
-            form = QFormLayout()
-            form.addRow(tr("Вертикальное преувеличение"), self.vex)
-            form.addRow(tr("Разнос по Z (шаг вниз)"), self.spacing)
-            form.addRow(tr("Прозрачность поверхностей (процентов)"),
-                        self.opacity)
-            self.beds_chk = QCheckBox(
-                tr("Тела пластов (канал 1 кровля, канал 2 подошва)"))
-            form.addRow(self.beds_chk)
-            form.addRow(tr("Канал параметра пласта (0 - палитра)"), self.pband)
-            form.addRow(tr("Канал высот (Z)"), self.zband)
-            form.addRow(tr("Окраска поверхностей атрибутом (растр)"),
-                        self.attr_combo)
-            form.addRow(tr("Канал атрибута"), self.aband)
-            form.addRow(tr("Плоскость разреза (линия)"), self.plane_combo)
-            form.addRow(tr("Скважины (точки)"), self.wells_combo)
-            form.addRow(tr("Поля отметок"), self.wells_fields)
+            tabs = QTabWidget()
+            tabs.addTab(tab_layers, tr("Слои"))
+            tabs.addTab(tab_vec, tr("Векторы"))
+
+            gform = QFormLayout()
+            gform.addRow(tr("Вертикальное преувеличение"), self.vex)
+            gform.addRow(tr("Разнос по Z (шаг вниз)"), self.spacing)
+            gform.addRow(tr("Прозрачность поверхностей (процентов)"),
+                         self.opacity)
 
             left = QWidget()
             lv = QVBoxLayout(left)
-            lv.addWidget(QLabel(tr("Поверхности (растры проекта):")))
-            lv.addWidget(self.layer_list, 1)
-            lv.addLayout(form)
+            lv.addWidget(tabs, 1)
+            lv.addLayout(gform)
             lv.addLayout(views)
             lv.addWidget(self.btn)
             lv.addWidget(self.legend_pix)
             lv.addWidget(self.legend_txt)
             lv.addWidget(self.info)
 
-            self.view = gl.GLViewWidget()
+            self.view = _PickView()
             self.view.setBackgroundColor((250, 250, 248))
+            self.view.pick_cb = self._pick_at
+            self._pick = None
+            self._pick_marker = None
 
             split = QSplitter()
             split.addWidget(left)
@@ -322,16 +392,6 @@ def _build_dialog(parent):
                 it.setCheckState(_CHECKED if lyr.id() in checked
                                  else _UNCHECKED)
                 self.layer_list.addItem(it)
-            prev_attr = self.attr_combo.currentData()
-            self.attr_combo.blockSignals(True)
-            self.attr_combo.clear()
-            self.attr_combo.addItem(tr("(нет)"), None)
-            for lyr in QgsProject.instance().mapLayers().values():
-                if isinstance(lyr, QgsRasterLayer):
-                    self.attr_combo.addItem(lyr.name(), lyr.id())
-            ia = self.attr_combo.findData(prev_attr)
-            self.attr_combo.setCurrentIndex(max(ia, 0))
-            self.attr_combo.blockSignals(False)
             prev_pl = self.plane_combo.currentData()
             self.plane_combo.blockSignals(True)
             self.plane_combo.clear()
@@ -359,15 +419,28 @@ def _build_dialog(parent):
             self.wells_combo.setCurrentIndex(max(i, 0))
             self.wells_combo.blockSignals(False)
             self._wells_changed()
+            self._load_opts(self.layer_list.currentItem())
 
         def _wells_changed(self):
             """Заполняет список числовых полей отметок, h* отмечены сразу."""
             import re
             self.wells_fields.clear()
+            self.wells_label.blockSignals(True)
+            self.wells_label.clear()
+            self.wells_label.addItem(tr("(нет)"), None)
             lyr = QgsProject.instance().mapLayer(
                 self.wells_combo.currentData() or "")
             if lyr is None:
+                self.wells_label.blockSignals(False)
                 return
+            guess = -1
+            for f in lyr.fields():
+                self.wells_label.addItem(f.name(), f.name())
+                if guess < 0 and f.name().lower() in ("name", "well",
+                                                      "скв", "имя"):
+                    guess = self.wells_label.count() - 1
+            self.wells_label.setCurrentIndex(max(guess, 0))
+            self.wells_label.blockSignals(False)
             for f in lyr.fields():
                 if not f.isNumeric():
                     continue
@@ -388,6 +461,7 @@ def _build_dialog(parent):
                      if self.wells_fields.item(i).checkState() == _CHECKED]
             if not names:
                 return []
+            lab = self.wells_label.currentData()
             out = []
             for ft in lyr.getFeatures():
                 g = ft.geometry()
@@ -403,7 +477,11 @@ def _build_dialog(parent):
                     if v == v:  # не NaN
                         zs.append(v)
                 if zs:
-                    out.append((p.x(), p.y(), zs))
+                    txt = ""
+                    if lab:
+                        val = ft[lab]
+                        txt = "" if val is None else str(val)
+                    out.append((p.x(), p.y(), zs, txt))
             return out
 
         def _checked_layers(self):
@@ -417,6 +495,126 @@ def _build_dialog(parent):
                 if lyr is not None:
                     out.append(lyr)
             return out
+
+        def _apply_filter(self, text):
+            low = (text or "").lower()
+            for i in range(self.layer_list.count()):
+                it = self.layer_list.item(i)
+                it.setHidden(bool(low) and low not in it.text().lower())
+
+        def _check_visible(self, state):
+            self.layer_list.blockSignals(True)
+            for i in range(self.layer_list.count()):
+                it = self.layer_list.item(i)
+                if not it.isHidden():
+                    it.setCheckState(_CHECKED if state else _UNCHECKED)
+            self.layer_list.blockSignals(False)
+
+        @staticmethod
+        def _fill_band_combo(combo, items, keep, zero_label=None):
+            combo.blockSignals(True)
+            combo.clear()
+            if zero_label:
+                combo.addItem(zero_label, 0)
+            for num, label in items:
+                combo.addItem(label, num)
+            i = combo.findData(keep)
+            combo.setCurrentIndex(i if i >= 0 else 0)
+            combo.blockSignals(False)
+
+        def _combo_band(self, combo, default):
+            v = combo.currentData()
+            return int(v) if v is not None else default
+
+        def _default_opts(self, source):
+            n = _band_count(source)
+            return dict(mode="auto", zband=1,
+                        cband=3 if n >= 3 else 0,
+                        attr_id=None, aband=1)
+
+        def _item_toggled(self, *_a):
+            pass  # отметки читаются при перестройке сцены
+
+        def _load_opts(self, item, *_a):
+            """Показывает настройки выбранного в списке слоя."""
+            self._loading_opts = True
+            try:
+                if item is None:
+                    self.opt_box.setEnabled(False)
+                    return
+                lyr = QgsProject.instance().mapLayer(item.data(_USER_ROLE))
+                if lyr is None:
+                    self.opt_box.setEnabled(False)
+                    return
+                self.opt_box.setEnabled(True)
+                self.opt_box.setTitle(tr("Параметры слоя") + ": " + lyr.name())
+                o = self._opts.setdefault(lyr.id(),
+                                          self._default_opts(lyr.source()))
+                i = self.mode_combo.findData(o["mode"])
+                self.mode_combo.setCurrentIndex(max(i, 0))
+                items = _band_items(lyr.source()) or [(1, "1")]
+                self._fill_band_combo(self.zband, items, o["zband"])
+                cc = self.color_combo
+                cc.blockSignals(True)
+                cc.clear()
+                cc.addItem(tr("Палитра"), ("palette", None))
+                for num, label in items:
+                    cc.addItem(label, ("band", num))
+                proj = QgsProject.instance()
+                first_r = True
+                for rl in proj.mapLayers().values():
+                    if not isinstance(rl, QgsRasterLayer) or \
+                            rl.id() == lyr.id():
+                        continue
+                    if first_r:
+                        cc.insertSeparator(cc.count())
+                        first_r = False
+                    cc.addItem(rl.name(), ("raster", rl.id()))
+                want = ("raster", o["attr_id"]) if o.get("attr_id") else \
+                       (("band", o["cband"]) if o.get("cband") else
+                        ("palette", None))
+                i = cc.findData(want)
+                cc.setCurrentIndex(i if i >= 0 else 0)
+                cc.blockSignals(False)
+                self._sync_aband(o.get("aband", 1))
+            finally:
+                self._loading_opts = False
+
+        def _sync_aband(self, keep):
+            """Канал атрибута активен только при окраске внешним растром."""
+            d = self.color_combo.currentData()
+            if d and d[0] == "raster":
+                lyr = QgsProject.instance().mapLayer(d[1] or "")
+                items = _band_items(lyr.source()) if lyr is not None \
+                    else [(1, "1")]
+                self._fill_band_combo(self.aband, items or [(1, "1")], keep)
+                self.aband.setEnabled(True)
+            else:
+                self.aband.blockSignals(True)
+                self.aband.clear()
+                self.aband.blockSignals(False)
+                self.aband.setEnabled(False)
+
+        def _color_changed(self, *_a):
+            if self._loading_opts:
+                return
+            self._sync_aband(1)
+            self._save_opts()
+
+        def _save_opts(self, *_a):
+            if self._loading_opts:
+                return
+            item = self.layer_list.currentItem()
+            if item is None:
+                return
+            lid = item.data(_USER_ROLE)
+            d = self.color_combo.currentData() or ("palette", None)
+            self._opts[lid] = dict(
+                mode=self.mode_combo.currentData() or "auto",
+                zband=self._combo_band(self.zband, 1),
+                cband=d[1] if d[0] == "band" else 0,
+                attr_id=d[1] if d[0] == "raster" else None,
+                aband=self._combo_band(self.aband, 1))
 
         def _plane_lines(self):
             """Полилинии выбранного определения разреза + zmin/zmax из полей
@@ -453,10 +651,107 @@ def _build_dialog(parent):
                         out.append(([(p.x(), p.y()) for p in pl], zlo, zhi))
             return out
 
+        def _pick_at(self, px, py):
+            """Клик по сцене: луч, пересечение с рельефом, каналы в точке."""
+            import numpy as np
+            pk = self._pick
+            if not pk or not pk["layers"]:
+                return
+            from qgis.PyQt.QtGui import QVector3D
+            w = max(self.view.width(), 1)
+            h = max(self.view.height(), 1)
+            m = self.view.projectionMatrix() * self.view.viewMatrix()
+            inv, ok = m.inverted()
+            if not ok:
+                return
+            xn = 2.0 * px / w - 1.0
+            yn = 1.0 - 2.0 * py / h
+            p0 = inv.map(QVector3D(xn, yn, -1.0))
+            p1 = inv.map(QVector3D(xn, yn, 1.0))
+            a = np.array([p0.x(), p0.y(), p0.z()], float)
+            d = np.array([p1.x(), p1.y(), p1.z()], float) - a
+            ts = np.linspace(0.0, 1.0, 512)
+            pts = a[None, :] + ts[:, None] * d[None, :]
+            cx, cy, cz, vex = pk["cx"], pk["cy"], pk["cz"], pk["vex"]
+            X = pts[:, 0] + cx
+            Y = pts[:, 1] + cy
+            best = None  # (t, layer, X, Y, z_scene)
+            for L in pk["layers"]:
+                arr, gt = _read_raster(L["source"], L["zband"])
+                if arr is None:
+                    continue
+                zs = sample_bilinear(arr, gt, X, Y)
+                surf = (zs + L["zoff"] - cz) * vex
+                diff = pts[:, 2] - surf
+                okm = np.isfinite(diff)
+                sgn = np.where(okm, np.sign(diff), 0.0)
+                cross = np.where((sgn[:-1] * sgn[1:] < 0) &
+                                 okm[:-1] & okm[1:])[0]
+                if not len(cross):
+                    continue
+                i = int(cross[0])
+                f = abs(diff[i]) / (abs(diff[i]) + abs(diff[i + 1]) + 1e-12)
+                tt = ts[i] + (ts[i + 1] - ts[i]) * f
+                if best is None or tt < best[0]:
+                    xh = X[i] + (X[i + 1] - X[i]) * f
+                    yh = Y[i] + (Y[i + 1] - Y[i]) * f
+                    zh = pts[i, 2] + (pts[i + 1, 2] - pts[i, 2]) * f
+                    best = (tt, L, xh, yh, zh)
+            if best is None:
+                return
+            _t, L, xh, yh, zh = best
+            from osgeo import gdal
+            ds = gdal.Open(L["source"])
+            vals = []
+            if ds is not None:
+                j = int((xh - ds.GetGeoTransform()[0]) /
+                        ds.GetGeoTransform()[1])
+                i = int((yh - ds.GetGeoTransform()[3]) /
+                        ds.GetGeoTransform()[5])
+                if 0 <= i < ds.RasterYSize and 0 <= j < ds.RasterXSize:
+                    for b in range(1, ds.RasterCount + 1):
+                        bd = ds.GetRasterBand(b)
+                        v = bd.ReadAsArray(j, i, 1, 1)
+                        v = float(v[0, 0]) if v is not None else float("nan")
+                        nd = bd.GetNoDataValue()
+                        if nd is not None and v == nd:
+                            v = float("nan")
+                        nm = bd.GetDescription() or str(b)
+                        vals.append((nm, v))
+                ds = None
+            parts = ["%s=%.4g" % (nm, v) for nm, v in vals
+                     if v == v]
+            if len(vals) >= 2 and vals[0][1] == vals[0][1] and \
+                    vals[1][1] == vals[1][1]:
+                parts.append(tr("мощность") + "=%.4g" %
+                             (vals[0][1] - vals[1][1]))
+            self.info.setText("%s @ (%.1f, %.1f): %s" %
+                              (L["name"], xh, yh, "; ".join(parts)))
+            # маркер попадания
+            if self._pick_marker is not None:
+                try:
+                    self.view.removeItem(self._pick_marker)
+                except Exception:
+                    pass
+            r = pk["span"] * 0.006
+            sph = gl.MeshData.sphere(rows=8, cols=8, radius=r)
+            mk = gl.GLMeshItem(meshdata=sph, smooth=True, shader='shaded',
+                               color=(0.85, 0.15, 0.15, 1.0),
+                               glOptions='opaque')
+            mk.translate(xh - cx, yh - cy, zh)
+            self.view.addItem(mk)
+            self._pick_marker = mk
+
         def rebuild(self):
             for m in self._items:
                 self.view.removeItem(m)
             self._items = []
+            if self._pick_marker is not None:
+                try:
+                    self.view.removeItem(self._pick_marker)
+                except Exception:
+                    pass
+                self._pick_marker = None
             layers = self._checked_layers()
             if not layers:
                 self.info.setText(tr("Отметьте хотя бы один растр."))
@@ -464,11 +759,14 @@ def _build_dialog(parent):
             vex = float(self.vex.value())
             spacing = float(self.spacing.value())
             meshes, skipped = [], []
-            zb = int(self.zband.value())
-            beds_mode = self.beds_chk.isChecked()
             nbeds = 0
             for k, lyr in enumerate(layers):
-                as_bed = beds_mode and _band_count(lyr.source()) >= 2
+                o = self._opts.get(lyr.id()) or \
+                    self._default_opts(lyr.source())
+                mode = o.get("mode", "auto")
+                as_bed = (mode == "body" or
+                          (mode == "auto" and
+                           _band_count(lyr.source()) >= 2))
                 try:
                     if as_bed:
                         top, gt = _read_raster(lyr.source(), 1)
@@ -480,7 +778,8 @@ def _build_dialog(parent):
                             zoffset=-spacing * k, step=_auto_step(top))
                         nbeds += 1
                     else:
-                        arr, gt = _read_raster(lyr.source(), zb)
+                        arr, gt = _read_raster(lyr.source(),
+                                               o.get("zband", 1))
                         if arr is None:
                             raise ValueError
                         verts, faces = grid_to_mesh_arrays(
@@ -493,7 +792,7 @@ def _build_dialog(parent):
                     skipped.append(lyr.name())
                     continue
                 meshes.append((verts, faces, PALETTE[k % len(PALETTE)],
-                               lyr.id(), as_bed, lyr.source()))
+                               lyr.id(), as_bed, lyr.source(), o))
             if not meshes:
                 self.info.setText(tr("Гриды не открылись."))
                 return
@@ -503,7 +802,7 @@ def _build_dialog(parent):
             xs = [allv[:, 0].min(), allv[:, 0].max()]
             ys = [allv[:, 1].min(), allv[:, 1].max()]
             zs_ = [allv[:, 2].min(), allv[:, 2].max()]
-            for x, y, zw in wells:
+            for x, y, zw, _txt in wells:
                 xs += [x]; ys += [y]; zs_ += [min(zw), max(zw)]
             for pts, zlo, zhi in planes:
                 xs += [p[0] for p in pts]; ys += [p[1] for p in pts]
@@ -512,26 +811,30 @@ def _build_dialog(parent):
             cx = 0.5 * (min(xs) + max(xs))
             cy = 0.5 * (min(ys) + max(ys))
             cz = 0.5 * (min(zs_) + max(zs_))
-            # окраска: тело пласта - собственным каналом параметра;
-            # одноканальная поверхность - внешним атрибутным растром
+            # окраска пер-слойно: свой канал cband; если 0 - внешний
+            # атрибутный растр слоя; иначе палитра
             vals = {}
-            pband = int(self.pband.value())
-            alayer = QgsProject.instance().mapLayer(
-                self.attr_combo.currentData() or "")
-            aarr = agt = None
-            if alayer is not None:
-                aarr, agt = _read_raster(alayer.source(),
-                                         int(self.aband.value()))
+            src_names = []
             for m in meshes:
-                verts_m, lid, as_bed, src = m[0], m[3], m[4], m[5]
-                if as_bed and pband > 0:
-                    parr, pgt = _read_raster(src, pband)
+                verts_m, lid, as_bed, src, o = (m[0], m[3], m[4],
+                                                m[5], m[6])
+                cband = int(o.get("cband", 0) or 0)
+                if cband > 0:
+                    parr, pgt = _read_raster(src, cband)
                     if parr is not None:
                         vals[lid] = sample_bilinear(
                             parr, pgt, verts_m[:, 0], verts_m[:, 1])
-                elif not as_bed and aarr is not None:
-                    vals[lid] = sample_bilinear(
-                        aarr, agt, verts_m[:, 0], verts_m[:, 1])
+                        src_names.append(tr("канал %d") % cband)
+                    continue
+                alayer = QgsProject.instance().mapLayer(
+                    o.get("attr_id") or "")
+                if alayer is not None:
+                    aarr, agt = _read_raster(alayer.source(),
+                                             int(o.get("aband", 1)))
+                    if aarr is not None:
+                        vals[lid] = sample_bilinear(
+                            aarr, agt, verts_m[:, 0], verts_m[:, 1])
+                        src_names.append(alayer.name())
             attr = None
             fins = [v[np.isfinite(v)] for v in vals.values()
                     if np.isfinite(v).any()]
@@ -543,7 +846,7 @@ def _build_dialog(parent):
 
             alpha = 1.0 - float(self.opacity.value()) / 100.0
             gopt = 'opaque' if alpha >= 0.999 else 'translucent'
-            for k, (verts, faces, color, lid, as_bed, src) in enumerate(meshes):
+            for k, (verts, faces, color, lid, as_bed, src, o) in enumerate(meshes):
                 v = verts.copy()
                 v[:, 0] -= cx
                 v[:, 1] -= cy
@@ -568,6 +871,17 @@ def _build_dialog(parent):
             else:
                 self._hide_legend()
             span = max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
+
+            self._pick_marker = None
+            self._pick = dict(cx=cx, cy=cy, cz=cz, vex=vex, span=span,
+                              layers=[])
+            for k, (verts, faces, color, lid, as_bed, src, o) in \
+                    enumerate(meshes):
+                zb = 1 if as_bed else int(o.get("zband", 1))
+                lyr = QgsProject.instance().mapLayer(lid)
+                self._pick["layers"].append(dict(
+                    name=lyr.name() if lyr else "?", source=src,
+                    zband=zb, zoff=-spacing * k))
 
             if planes:
                 pad = 0.05 * (max(zs_) - min(zs_) or 1.0)
@@ -605,13 +919,14 @@ def _build_dialog(parent):
             if wells:
                 mast = span * 0.02  # мачта над устьем: скважина видна всегда,
                 # даже когда штанга целиком внутри непрозрачного тела
-                segs, tops = [], []
-                for x, y, zs in wells:
+                segs, tops, labels = [], [], []
+                for x, y, zs, txt in wells:
                     zlo = (min(zs) - cz) * vex
                     zhi = (max(zs) - cz) * vex + mast
                     segs.append([x - cx, y - cy, zlo])
                     segs.append([x - cx, y - cy, zhi])
                     tops.append([x - cx, y - cy, zhi])
+                    labels.append((x - cx, y - cy, zhi + mast * 0.3, txt))
                 seg = np.array(segs, dtype='float32')
                 line = gl.GLLinePlotItem(pos=seg, mode='lines', width=2.0,
                                          color=(0.15, 0.15, 0.15, 1.0),
@@ -637,6 +952,18 @@ def _build_dialog(parent):
                         glOptions='translucent')
                     self.view.addItem(dots)
                     self._items.append(dots)
+                TextItem = getattr(gl, "GLTextItem", None)
+                if TextItem is not None and len(labels) <= 500:
+                    from qgis.PyQt.QtGui import QFont
+                    fnt = QFont()
+                    fnt.setPointSize(8)
+                    for lx, ly, lz, txt in labels:
+                        if not txt:
+                            continue
+                        ti = TextItem(pos=(lx, ly, lz), text=txt,
+                                      color=(30, 30, 30, 255), font=fnt)
+                        self.view.addItem(ti)
+                        self._items.append(ti)
 
             self.view.opts['distance'] = span * 1.5
             self.view.opts['center'].setX(0)
@@ -649,13 +976,9 @@ def _build_dialog(parent):
             if planes:
                 msg += " " + tr("Плоскостей разреза: %d.") % len(planes)
             if attr is not None:
-                parts = []
-                if nbeds and pband > 0:
-                    parts.append(tr("канал %d пласта") % pband)
-                if alayer is not None and aarr is not None:
-                    parts.append(alayer.name())
+                uniq = list(dict.fromkeys(src_names))
                 msg += " " + tr("Окраска: %s [%.4g … %.4g].") % (
-                    ", ".join(parts), attr[1], attr[2])
+                    ", ".join(uniq), attr[1], attr[2])
             if wells:
                 msg += " " + tr("Скважин: %d.") % len(wells)
             if skipped:

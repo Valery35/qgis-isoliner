@@ -32,7 +32,7 @@ A few terms used below. A variogram describes how much more strongly values diff
 
 The main way is from the official QGIS repository. Open Plugins → Manage and Install Plugins → the **All** tab, type "Isoliner" in the search, select the plugin and click **Install**. When installed from the repository, QGIS itself reports new versions and updates the plugin at the press of a button.
 
-![Module tools in the Processing panel: the Isoliner provider with three groups - "1. Grid and isolines" (1.1-1.7), "2. Additional analysis tools" (2.1-2.6) and "3. Cross-sections" (3.01-3.11).](images/ui_toolbox_en.png){width=55%}
+![Module tools in the Processing panel: the Isoliner provider with three groups - "1. Grid and isolines" (1.1-1.7), "2. Additional analysis tools" (2.1-2.6) and "3. Cross-sections" (3.01-3.10) and **"4. Bed and block model"** (4.01-4.04).](images/ui_toolbox_en.png){width=55%}
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
@@ -490,7 +490,39 @@ In sum: this tool is the last step before the final kriging. First you calibrate
 
 A note on speed: the check solves kriging as many times as there are points, so on large sets (tens of thousands of wells) it runs noticeably longer. Reduce the sample if needed.
 
-# 1.6 Create sample wells (demo)
+# 1.6 Processing profiles
+
+A profile is a named set of processing settings for one parameter: the variogram (nugget C0, model type, contribution C, range a, azimuth and anisotropy axes) plus outlier removal (percentile, bounds, capping mode). Profiles are handy when a project has several seams or zones of different variability: you fit a model for a seam once and reuse it in kriging without re-entering the numbers.
+
+Profiles are stored globally in the QGIS settings, so they are available across all projects: build a seam's model once - apply it anywhere. A profile describes one variogram structure - exactly as much as kriging uses.
+
+![The Processing profiles dialog: the action, the choice of profile with its parameters in the line below and the manual-entry fields in the Advanced Parameters section.](images/ui_profiles.png){width=82%}
+
+## Where profiles come from
+
+- **Variogram** - the **Save profile as** field. The fitted model is saved. The curve is built isotropic, so the azimuth and axes are written as neutral (0 and 1) - anisotropy is set later.
+- **Cross-validation** - the **Save profile as** field. The validated model is saved together with the set anisotropy. This is the main way to get a profile with an azimuth and axes.
+- **Processing profiles** - the **Save manually** action: all profile values are entered in the fields of the **Advanced Parameters** section.
+
+## Application
+
+In the **2D Kriging** and **Cross-validation** tools the **Load processing profile** field substitutes the chosen profile over the dialog fields. What exactly is substituted is printed to the Log.
+
+## Management
+
+The **Processing profiles** tool itself manages the storage via the **Action** parameter:
+
+| Action | What it does |
+|----------|-----------|
+| Show list | Outputs all profiles with their parameters to the Log. |
+| Save manually | Saves a profile with the name from the **Profile name** field by the values of the fields in **Advanced**. |
+| Delete selected | Deletes the profile chosen in the **Profile** field. |
+| Clear all | Deletes all profiles. |
+
+Saving under an existing name overwrites the profile. The profile lists in the drop-down fields (the choice for deletion, the load in kriging) refresh when the tool window opens: after saving a profile, reopen the tool so it appears in the list.
+
+Below the profile drop-down, in the line beneath it, the parameters of the chosen profile are shown (nugget, type, contribution, range, azimuth, axes, outliers). In **2D Kriging** and **Cross-validation** a reminder is shown there as well that the computation will use the profile rather than the dialog fields. On QGIS builds without the old widget API the caption does not appear - an ordinary list remains (this does not affect the work).
+# 1.7 Create sample wells (demo)
 
 The **Create sample wells (demo)** tool builds a point layer with random coordinates and three structured fields: the absolute roof elevation (roof), the thickness (thick) and the grade of an abstract component X (%). The roof and thickness ranges are set after the model of an industrial seam (KrII). The tool is meant for learning and testing kriging, isolines and cross-validation without real data.
 
@@ -531,38 +563,6 @@ Result fields:
 | mintype | text | Mineral type (silvinite, partial replacement, rock salt). Only with the mineral-type checkbox. |
 | dz | number | A value linearly related to the drift surface. Only when the drift-surface output is enabled. |
 
-# 1.7 Processing profiles
-
-A profile is a named set of processing settings for one parameter: the variogram (nugget C0, model type, contribution C, range a, azimuth and anisotropy axes) plus outlier removal (percentile, bounds, capping mode). Profiles are handy when a project has several seams or zones of different variability: you fit a model for a seam once and reuse it in kriging without re-entering the numbers.
-
-Profiles are stored globally in the QGIS settings, so they are available across all projects: build a seam's model once - apply it anywhere. A profile describes one variogram structure - exactly as much as kriging uses.
-
-![The Processing profiles dialog: the action, the choice of profile with its parameters in the line below and the manual-entry fields in the Advanced Parameters section.](images/ui_profiles.png){width=82%}
-
-## Where profiles come from
-
-- **Variogram** - the **Save profile as** field. The fitted model is saved. The curve is built isotropic, so the azimuth and axes are written as neutral (0 and 1) - anisotropy is set later.
-- **Cross-validation** - the **Save profile as** field. The validated model is saved together with the set anisotropy. This is the main way to get a profile with an azimuth and axes.
-- **Processing profiles** - the **Save manually** action: all profile values are entered in the fields of the **Advanced Parameters** section.
-
-## Application
-
-In the **2D Kriging** and **Cross-validation** tools the **Load processing profile** field substitutes the chosen profile over the dialog fields. What exactly is substituted is printed to the Log.
-
-## Management
-
-The **Processing profiles** tool itself manages the storage via the **Action** parameter:
-
-| Action | What it does |
-|----------|-----------|
-| Show list | Outputs all profiles with their parameters to the Log. |
-| Save manually | Saves a profile with the name from the **Profile name** field by the values of the fields in **Advanced**. |
-| Delete selected | Deletes the profile chosen in the **Profile** field. |
-| Clear all | Deletes all profiles. |
-
-Saving under an existing name overwrites the profile. The profile lists in the drop-down fields (the choice for deletion, the load in kriging) refresh when the tool window opens: after saving a profile, reopen the tool so it appears in the list.
-
-Below the profile drop-down, in the line beneath it, the parameters of the chosen profile are shown (nugget, type, contribution, range, azimuth, axes, outliers). In **2D Kriging** and **Cross-validation** a reminder is shown there as well that the computation will use the profile rather than the dialog fields. On QGIS builds without the old widget API the caption does not appear - an ordinary list remains (this does not affect the work).
 
 # 2.1 Categorical indicator kriging
 
@@ -634,6 +634,22 @@ Next the regression residuals are kriged, exactly like an ordinary field in **2D
 ![External drift kriging on sparse wells (computed with the Isoliner core). Left - the external surface s (drift). In the centre, ordinary kriging of dz relaxes to the mean in the data void. On the right, external drift kriging of dz follows the shape of the external surface where there are no wells. The dashed box marks the data void.](images/edk_result_en.png){width=98%}
 
 Wells that fall outside the drift raster do not enter the fit, and the tool reports to the Log how many were dropped. Grid cells not covered by the drift raster cannot be completed, so they are left empty together with the standard error in them.
+
+## Attributes of the generated layer
+
+| Field | Type | What it holds |
+|---|---|---|
+| well | text | Borehole name. |
+| roof | number | Roof elevation, m. |
+| thick | number | Bed thickness, m. |
+| X | number | Useful-component content, percent. |
+| head | number | Head (the hydrogeological data variant), m. |
+| K | number | Hydraulic conductivity, m/day. |
+| T | number | Transmissivity, m²/day. |
+| mintype | text | Mineral type (a class for indicator kriging). |
+| dz | number | Elevation error - for weighting and experiments. |
+
+The field set covers all the plugin tools: interpolate roof and thick with ordinary kriging, X with a trend, mintype with indicator kriging, head/K/T with the hydrogeology tools.
 
 ## Parameters
 
@@ -816,6 +832,27 @@ The 3D fence is the same bands but as vertical PolygonZ walls in real coordinate
 The horizontal extent of a section (the line length) and the vertical extent (tens of metres of beds) are not comparable, so without a vertical stretch the drawing looks flat. The scale is set in two ways. In the **H:V ratio** mode you set the desired width:height ratio of the drawing (say 10), and the tool computes the exaggeration itself from the line length and the elevation span. In the **exaggeration** mode the value is a direct vertical stretch factor.
 
 The effective exaggeration is printed to the log. For an exact overlay of layers it must match across the section, the boreholes and the composition. In H:V mode the section (3.1) and the boreholes (3.2) span the whole section in height and line up. The composition (3.3) computes the ratio over a single bed, so to overlay it take the exaggeration printed by 3.1 and set it in 3.3 in the **exaggeration** mode.
+
+## Attributes of the output layers
+
+**Section definition** - a single line with the original trace geometry and the fields read by all the downstream tools of the group:
+
+| Field | What it holds |
+|---|---|
+| vex | Vertical exaggeration of the drawing. |
+| step | Stationing step, m (the polyline vertices are always included). |
+| zmin, zmax | The elevation range of the drawing - the section plane in the 3D viewer uses it too. |
+
+**Section (3D fence)** - vertical PolygonZ polygons along the trace, one per bed:
+
+| Field | What it holds |
+|---|---|
+| bed | Bed number from top to bottom. |
+| top, bot | Names of the roof and bottom surfaces. |
+| t_mean | Mean bed thickness along the trace, m. |
+| seclen | Trace length, m. |
+
+**Section corner points**: num (corner number), name (УГ-1, УГ-2, …), pos (top or bottom), d (station, m), x and y (map coordinates), az (azimuth of the next leg), label (a ready-made label). **Horizontal axes**: elev (axis elevation, m) and label. **Corner table**: kind (row type) and text (cell content).
 
 ## Parameters
 
@@ -1017,6 +1054,19 @@ A single run outputs six stacked surfaces with a dip and variable thickness (fiv
 
 ![The multiband bed-grid convention: bands 1-2 carry the geometry (roof and bottom), bands 3+ the parameters; one file feeds 3.03, the 3D viewer and 3.11.](images/bed_grid_scheme_en.png){width=70%}
 
+## Demo layers and their attributes
+
+| Layer | Geometry | Attributes |
+|---|---|---|
+| Section line (demo) | line | name. A polyline with two bends - the vertices test the stationing. |
+| Boreholes (demo) | points | name; h1…h6 - elevations of the six surfaces at the borehole. |
+| Zone (demo, polygon) | polygon | name. For the vector-intersection tool 3.05. |
+| Fault (demo, 2D) | line | name. Crosses the trace, moved off the line bend. |
+| Marker with Z (demo, 3D) | line Z | name. Tests 3D geometries in 3.05. |
+| Overturned TIN (demo) | polygons Z | name. An overturned fold for 3.06. |
+| Surface 1…6 | raster | A single elevation band. |
+| 1st/2nd industrial bed | raster | Bands: 1 roof, 2 bottom, 3 content, 4 mineral type. |
+
 The workflow is shown in section 3.01: the surfaces go into **Cross-section along a line**, the boreholes into **Boreholes on the section**, the composition grid into **Bed composition on the section**, and the demo vectors and TIN into the intersection tools 3.05 and 3.06. The whole cross-section group then runs on consistent data.
 
 ## Parameters
@@ -1033,7 +1083,55 @@ The workflow is shown in section 3.01: the surfaces go into **Cross-section alon
 | Fault, Z marker, zone | Demo vectors for 3.05: a line without Z, a contour with Z, a zone polygon. | on request |
 | Overturned TIN | 3D faces of an overturned fold for 3.06. | on request |
 
-# 3.11 Surfaces to 3D (meshes)
+# 4.01 Assemble a bed grid (beta)
+
+A production bridge to the multiband-grid convention: the tool assembles a bed from separate rasters that usually come out of kriging one by one - the roof, the bottom, the content, the mineral type. The roof sets the output grid, the bottom and the parameters are resampled to it bilinearly, so the input grids may have different grids and resolutions. The band names are written into the descriptions: roof, bottom, then the names of the parameter layers - the band drop-downs in the 3D viewer will show them by name.
+
+One assembled file feeds **Bed composition on the section** (bands 1/2/3), the **3D viewer** (bed bodies, colouring by an own band) and the mesh export.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Roof (raster) | Sets the output grid and band 1. | - |
+| Bottom (raster) | Band 2; resampled to the roof grid. | - |
+| Parameters | A batch of rasters - bands 3 and further, band 1 of each is taken. | empty |
+| Roof / bottom band (Adv.) | The band number in the input rasters. | 1 |
+| Bed grid | A multiband GeoTIFF by the convention. | - |
+
+# 4.02 Bed calculator (beta)
+
+The reserve tool of the block model: over a bed grid it computes the thickness (band 1 minus band 2), the volume, the ore tonnage via the density and, if a content band is set, the thickness-weighted mean content and the metal tonnage. The summary covers the whole bed area or the inside of a contour - polygons of a reserve block or a domain, holes are honoured.
+
+The result is twofold: a bed grid with the appended bands "thickness" and "ore, t/cell" (ready for colouring in the 3D viewer) and an HTML report with the summary; the same numbers are printed to the log. Cells with a negative thickness (crossing surfaces) are zeroed and reported as a separate row - an indicator of interpolation problems.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Bed grid | A multiband grid by the convention. | - |
+| Content band | The band with the content; 0 - compute without metal. | 3 |
+| Ore density | t/m³ to convert the volume into tonnage. | 2.1 |
+| Reserve contour | Polygons of a block or a domain, optional. | empty |
+| Bed grid with thickness and reserves | The output grid with two new bands. | - |
+| Report (HTML) | The summary file. | on request |
+
+# 4.03 Bed grid to a block model (beta)
+
+A bridge from the raster form to the vector one: every valid cell of a bed grid becomes a centroid point. The attributes: bid, row and col, the x and y coordinates, top, bot, thick, vol, ore_t (via the density) and all the parameter bands under their names from the band descriptions.
+
+From there the standard QGIS vector machinery works: expression filters (say, "content > 20 AND mintype = 1"), joins of tables from external databases, the field calculator - the model grows by attributes without rebuilding, and the schema with top and bot is ready for a future split of a column into several vertical blocks. The reserve contour limits the export to a block or a domain.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Bed grid | A multiband grid by the convention. | - |
+| Ore density | t/m³ for the ore_t attribute. | 2.1 |
+| Reserve contour | Polygons, optional. | empty |
+| Block model (centroids) | A point layer with the block attributes. | - |
+
+# 4.04 Surfaces to 3D (meshes) (beta)
 
 The **Surfaces to 3D (meshes)** tool exports a batch of grids into mesh layers of the standard 2DM format (MDAL). Such layers are understood by the QGIS profile tool, the mesh calculator, the built-in 3D view and third-party software, so a stack of horizons goes to meshes in a single run, without manual conversions.
 
@@ -1082,6 +1180,8 @@ The **Section plane (line)** field accepts any line layer. The most convenient i
 ## Miscellaneous
 
 The **Top view** and **Side view** buttons set orthogonal views, **PNG snapshot…** saves a frame of the scene to a file - handy for reports and presentations.
+
+A **click on a surface** (without dragging) queries the block model: the status line shows the layer name, the point coordinates and the values of all the bands, plus the thickness for a bed; the hit is marked with a red ball. Works on bodies and surfaces alike.
 
 # Typical situations and solutions
 

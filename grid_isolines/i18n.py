@@ -86,9 +86,9 @@ TRANSLATIONS = {
     '1.5 Кросс-валидация вариограммы': '1.5 Variogram cross-validation',
     'Грид и изолинии': 'Grid and isolines',
     'Дополнительные инструменты': 'Additional tools',
-    '1.6 Создать пример скважин (демо)': '1.6 Create sample wells (demo)',
+    '1.7 Создать пример скважин (демо)': '1.7 Create sample wells (demo)',
     '1.3 Вариограмма (экспериментальная)': '1.3 Variogram (experimental)',
-    '1.7 Профили обработки': '1.7 Processing profiles',
+    '1.6 Профили обработки': '1.6 Processing profiles',
     '1.4 Вариограммная карта (анизотропия)': '1.4 Variogram map (anisotropy)',
     'Тип кригинга': 'Kriging type',
     'Радиус поиска (0 = вся выборка)': 'Search radius (0 = whole sample)',
@@ -671,6 +671,7 @@ TRANSLATIONS = {
     'Поверхность 3 · подошва (демо)': 'Surface 3 · floor (demo)',
     'Разрез 1': 'Section 1',
     '3. Разрез': '3. Cross-sections',
+    '4. Пласт и блочная модель': '4. Bed and block model',
     '3.01 Разрез по линии': '3.01 Cross-section along a line',
     '3.2 Создать пример для разреза': '3.2 Create a section example',
     '3.3 Скважины на разрез': '3.3 Boreholes on a section',
@@ -838,7 +839,7 @@ TRANSLATIONS = {
     '3.08 Спроецировать с разреза (бета)': '3.08 Unproject from the section (beta)',
     '3.09 Развёртка стенки ствола (бета)': '3.09 Shaft wall unwrap (beta)',
     '3.10 Создать пример для разреза': '3.10 Create a section example',
-    '3.11 Поверхности в 3D (меши)': '3.11 Surfaces to 3D (meshes)',
+    '4.04 Поверхности в 3D (меши) (бета)': '4.04 Surfaces to 3D (meshes) (beta)',
     'Экспортирует гриды поверхностей в mesh-слои стандартного формата '
     '2DM (MDAL). Такие слои понимают профильный инструмент QGIS, '
     'mesh-калькулятор, штатный 3D-вид и сторонние программы, а пачка '
@@ -915,6 +916,115 @@ TRANSLATIONS = {
     'Окраска поверхностей атрибутом (растр)': 'Colour surfaces by attribute (raster)',
     'Канал параметра пласта (0 - палитра)': 'Bed parameter band (0 - palette)',
     'канал %d пласта': "bed's band %d",
+    '4.01 Собрать грид пласта (бета)': '4.01 Assemble a bed grid (beta)',
+    'Собирает многоканальный грид пласта по конвенции плагина: '
+    'канал 1 - кровля, канал 2 - подошва, каналы 3 и далее - '
+    'параметры (содержание, минтип и любые другие). Кровля задаёт '
+    'сетку результата; подошва и параметры билинейно приводятся к '
+    'ней, поэтому исходные гриды могут иметь разные сетки. Имена '
+    'каналов записываются в описания: «кровля», «подошва», далее '
+    'имена слоёв параметров.\n\nОдин собранный файл кормит '
+    '«Состав пласта на разрез» (каналы 1/2/3), 3D-просмотр (тела '
+    'пластов) и экспорт в меши - это шаг к блочной модели, где '
+    'новые параметры добавляются каналами.':
+        'Assembles a multiband bed grid by the plugin convention: '
+        'band 1 - the roof, band 2 - the bottom, bands 3 and further - '
+        'parameters (content, mineral type and any others). The roof sets '
+        'the output grid; the bottom and the parameters are resampled to it '
+        'bilinearly, so the input grids may have different grids. The band '
+        'names are written into the descriptions: roof, bottom, then the '
+        'names of the parameter layers.\n\nOne assembled file feeds Bed '
+        'composition on a section (bands 1/2/3), the 3D viewer (bed bodies) '
+        'and the mesh export - a step towards a block model where new '
+        'parameters are added as bands.',
+    'Кровля (растр)': 'Roof (raster)',
+    'Подошва (растр)': 'Bottom (raster)',
+    'Параметры (растры, берётся канал 1)': 'Parameters (rasters, band 1 is taken)',
+    'Грид пласта': 'Bed grid',
+    'Грид пласта записан: каналов %d.': 'Bed grid written: %d bands.',
+    '4.02 Калькулятор пласта (бета)': '4.02 Bed calculator (beta)',
+    'Считает по многоканальному гриду пласта (канал 1 - кровля, '
+    'канал 2 - подошва): мощность, объём, тоннаж руды через '
+    'плотность и, если задан канал содержания, средневзвешенное по '
+    'мощности содержание и тоннаж металла. Сводка - по всей площади '
+    'пласта или внутри контура (полигоны подсчётного блока, '
+    'домена).\n\nРезультат - грид пласта с дописанными каналами '
+    '«мощность» и «запасы руды, т/ячейку» и HTML-отчёт со сводкой. '
+    'Ячейки с мощностью меньше нуля (пересечение поверхностей) '
+    'обнуляются и считаются отдельно.':
+        'Computes over a multiband bed grid (band 1 - the roof, band 2 - '
+        'the bottom): the thickness, the volume, the ore tonnage via the '
+        'density and, if a content band is set, the thickness-weighted '
+        'mean content and the metal tonnage. The summary covers the whole '
+        'bed area or the inside of a contour (polygons of a reserve block '
+        'or a domain).\n\nThe result is a bed grid with the appended '
+        'bands "thickness" and "ore, t/cell" plus an HTML report. Cells '
+        'with a negative thickness (crossing surfaces) are zeroed and '
+        'counted separately.',
+    'Грид пласта (канал 1 кровля, канал 2 подошва)': 'Bed grid (band 1 roof, band 2 bottom)',
+    'Канал содержания (0 - без содержания)': 'Content band (0 - no content)',
+    'Плотность руды, т/м³': 'Ore density, t/m³',
+    'Контур подсчёта (полигоны, необязательно)': 'Reserve contour (polygons, optional)',
+    'Грид пласта с мощностью и запасами': 'Bed grid with thickness and reserves',
+    'Отчёт (HTML)': 'Report (HTML)',
+    'HTML-файлы (*.html)': 'HTML files (*.html)',
+    'Нужен многоканальный грид пласта (каналы 1 и 2).': 'A multiband bed grid is required (bands 1 and 2).',
+    'Канал содержания вне грида.': 'The content band is outside the grid.',
+    'мощность': 'thickness',
+    'запасы руды, т/ячейку': 'ore, t/cell',
+    'Площадь подсчёта': 'Computed area',
+    'Мощность средняя / мин / макс': 'Thickness mean / min / max',
+    'Объём': 'Volume',
+    'Плотность': 'Density',
+    'Запасы руды': 'Ore reserves',
+    'Содержание (взвешенное по мощности)': 'Content (thickness-weighted)',
+    'Запасы металла': 'Metal reserves',
+    'Ячеек с отрицательной мощностью': 'Cells with a negative thickness',
+    'Калькулятор пласта': 'Bed calculator',
+    '4.03 Грид пласта в блочную модель (бета)': '4.03 Bed grid to a block model (beta)',
+    'Переводит многоканальный грид пласта в блочную модель: точку-'
+    'центроид на каждую валидную ячейку. Атрибуты: строка и столбец '
+    'ячейки, координаты, верх (top), низ (bot), мощность (thick), '
+    'объём (vol), тоннаж руды (ore_t) через плотность и все каналы '
+    'параметров под их именами из описаний.\n\nДальше работает '
+    'векторный аппарат QGIS: фильтры выражениями, join внешних '
+    'таблиц, калькулятор полей - модель наращивается атрибутами без '
+    'пересоздания. Контур ограничивает выгрузку подсчётным блоком '
+    'или доменом.':
+        'Converts a multiband bed grid into a block model: a centroid point '
+        'per valid cell. The attributes: the cell row and column, the '
+        'coordinates, top, bot, thick, vol, the ore tonnage (ore_t) via the '
+        'density and all the parameter bands under their names from the '
+        'descriptions.\n\nFrom there the QGIS vector machinery works: '
+        'expression filters, joins of external tables, the field calculator '
+        '- the model grows by attributes without rebuilding. A contour '
+        'limits the export to a reserve block or a domain.',
+    'Блочная модель (центроиды)': 'Block model (centroids)',
+    'Блочная модель: %s': 'Block model: %s',
+    'Блоков выгружено: %d.': 'Blocks exported: %d.',
+
+
+    'Фильтр слоёв…': 'Filter layers…',
+    'Все': 'All',
+    'Ничего': 'None',
+    '0 - палитра': '0 - palette',
+    'Слои': 'Layers',
+    'Векторы': 'Vectors',
+    'Параметры слоя': 'Layer settings',
+    'Режим': 'Mode',
+    'Авто': 'Auto',
+    'Поверхность': 'Surface',
+    'Тело пласта': 'Bed body',
+    'Канал окраски (0 - палитра)': 'Colour band (0 - palette)',
+    'Внешний атрибут (растр)': 'External attribute (raster)',
+    'канал %d': 'band %d',
+    'Окраска': 'Colouring',
+    'Палитра': 'Palette',
+    'Поле подписи скважин': 'Borehole label field',
+
+
+
+
 
     'Тела пластов (канал 1 кровля, канал 2 подошва)': 'Bed bodies (band 1 roof, band 2 bottom)',
     'Тел пластов: %d.': 'Bed bodies: %d.',

@@ -125,6 +125,33 @@ def bed_to_mesh_arrays(top, bot, gt, zscale=1.0, zoffset=0.0, step=1):
     return verts, faces
 
 
+def polygon_mask(rings, gt, shape):
+    """Маска ячеек грида внутри полигонов (правило чёт-нечет, дырки
+    учитываются, если переданы своими кольцами). rings - список колец,
+    каждое - список (x, y); gt - GDAL geotransform; shape - (ny, nx).
+    Возвращает булев массив по центрам ячеек."""
+    ny, nx = shape
+    xs = gt[0] + (np.arange(nx) + 0.5) * gt[1]
+    ys = gt[3] + (np.arange(ny) + 0.5) * gt[5]
+    XX, YY = np.meshgrid(xs, ys)
+    inside = np.zeros(shape, dtype=bool)
+    for ring in rings:
+        pts = list(ring)
+        if len(pts) < 3:
+            continue
+        if pts[0] != pts[-1]:
+            pts = pts + [pts[0]]
+        for i in range(len(pts) - 1):
+            x1, y1 = pts[i]
+            x2, y2 = pts[i + 1]
+            if y1 == y2:
+                continue
+            cond = ((y1 > YY) != (y2 > YY)) & \
+                   (XX < (x2 - x1) * (YY - y1) / (y2 - y1) + x1)
+            inside ^= cond
+    return inside
+
+
 def sample_bilinear(arr, gt, x, y):
     """Билинейная выборка грида в точках (x, y). arr - 2D массив (NaN =
     нет данных), gt - GDAL geotransform. Вне грида и на NaN-углах - NaN.

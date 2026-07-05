@@ -88,7 +88,7 @@ from .isolines import (
     isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD,
     _gaussian_nodata)
 from . import hydro
-from .mesh3d import grid_to_2dm
+from .mesh3d import grid_to_2dm, sample_bilinear, polygon_mask
 
 GROUP = _tr("1. Грид и изолинии")
 GROUP_ID = "grid_isolines"
@@ -96,6 +96,8 @@ GROUP2 = _tr("2. Дополнительные инструменты анали�
 GROUP2_ID = "extra_tools"
 GROUP3 = _tr("3. Разрез")
 GROUP3_ID = "section"
+GROUP4 = _tr("4. Пласт и блочная модель")
+GROUP4_ID = "bed_block_model"
 
 MODEL_LABELS = [_tr("Сферическая"), _tr("Экспоненциальная"), _tr("Гауссова"), _tr("Степенная")]
 KTYPE_LABELS = [_tr("Ординарный (OK)"), _tr("Простой (SK)")]
@@ -959,7 +961,7 @@ def _sample_raster_bilinear(src, xd, yd, band=1):
     Используется кригингом с внешним дрейфом: снимает значение s растра дрейфа
     в каждой скважине. Возвращает массив длины len(xd) с np.nan там, где точка
     вне растра либо все четыре соседних пикселя - nodata. Веса соседей с nodata
-    обнуляются и нормируются, поэтому у края покрытия выборка остаётся честной.
+    обнуляются и нормируются, поэтому у края покрытия выборка остаётся корректной.
     Координаты точек считаются в той же системе, что и растр (CRS совмещены
     вызывающей стороной). Растр предполагается осеориентированным (gt[2]=gt[4]=0).
     """
@@ -2529,7 +2531,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         return "examplewells"
 
     def displayName(self):
-        return self.tr("1.6 Создать пример скважин (демо)")
+        return self.tr("1.7 Создать пример скважин (демо)")
 
     def group(self): return self.tr(GROUP)
 
@@ -3359,7 +3361,7 @@ class ProfilesAlgorithm(QgsProcessingAlgorithm):
 
     def name(self): return "profiles"
 
-    def displayName(self): return self.tr("1.7 Профили обработки")
+    def displayName(self): return self.tr("1.6 Профили обработки")
 
     def group(self): return self.tr(GROUP)
 
@@ -6930,10 +6932,10 @@ class SectionSurfacesToMeshAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionSurfacesToMeshAlgorithm()
     def name(self): return "surfaces_to_mesh3d"
-    def displayName(self): return self.tr("3.11 Поверхности в 3D (меши)")
+    def displayName(self): return self.tr("4.04 Поверхности в 3D (меши) (бета)")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP3)
-    def groupId(self): return GROUP3_ID
+    def group(self): return self.tr(GROUP4)
+    def groupId(self): return GROUP4_ID
 
     def shortHelpString(self):
         return _help_version(self.tr(
@@ -7045,6 +7047,462 @@ class SectionSurfacesToMeshAlgorithm(QgsProcessingAlgorithm):
         return {self.FOLDER: folder}
 
 
+class BedAssembleAlgorithm(QgsProcessingAlgorithm):
+    """Собирает многоканальный грид пласта из горизонтов и параметров:
+    канал 1 - кровля, канал 2 - подошва, каналы 3+ - параметры. Все входы
+    приводятся к сетке кровли билинейной выборкой; имена каналов пишутся
+    в описания (у параметров - имена слоёв)."""
+
+    ROOF, BOTTOM = "ROOF", "BOTTOM"
+    ROOF_BAND, BOTTOM_BAND = "ROOF_BAND", "BOTTOM_BAND"
+    PARAMS = "PARAMS"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return BedAssembleAlgorithm()
+    def name(self): return "assemble_bed_grid"
+    def displayName(self): return self.tr("4.01 Собрать грид пласта (бета)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP4)
+    def groupId(self): return GROUP4_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Собирает многоканальный грид пласта по конвенции плагина: "
+            "канал 1 - кровля, канал 2 - подошва, каналы 3 и далее - "
+            "параметры (содержание, минтип и любые другие). Кровля задаёт "
+            "сетку результата; подошва и параметры билинейно приводятся к "
+            "ней, поэтому исходные гриды могут иметь разные сетки. Имена "
+            "каналов записываются в описания: «кровля», «подошва», далее "
+            "имена слоёв параметров.\n\nОдин собранный файл кормит "
+            "«Состав пласта на разрез» (каналы 1/2/3), 3D-просмотр (тела "
+            "пластов) и экспорт в меши - это шаг к блочной модели, где "
+            "новые параметры добавляются каналами.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.ROOF, self.tr("Кровля (растр)")))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.BOTTOM, self.tr("Подошва (растр)")))
+        self.addParameter(QgsProcessingParameterMultipleLayers(
+            self.PARAMS, self.tr("Параметры (растры, берётся канал 1)"),
+            layerType=QgsProcessing.TypeRaster, optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.ROOF_BAND, self.tr("Канал кровли"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.ROOF_BAND, 1), minValue=1)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BOTTOM_BAND, self.tr("Канал подошвы"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.BOTTOM_BAND, 1), minValue=1)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Грид пласта")))
+
+    @staticmethod
+    def _read_band(path, band):
+        ds = gdal.Open(path)
+        if ds is None or band > ds.RasterCount:
+            return None, None
+        b = ds.GetRasterBand(band)
+        arr = b.ReadAsArray().astype(float)
+        nd = b.GetNoDataValue()
+        if nd is not None:
+            arr = np.where(arr == nd, np.nan, arr)
+        gt = ds.GetGeoTransform()
+        ds = None
+        return arr, gt
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        roof_l = self.parameterAsRasterLayer(parameters, self.ROOF, context)
+        bot_l = self.parameterAsRasterLayer(parameters, self.BOTTOM, context)
+        params = self.parameterAsLayerList(parameters, self.PARAMS, context) or []
+        rb = self.parameterAsInt(parameters, self.ROOF_BAND, context)
+        bb = self.parameterAsInt(parameters, self.BOTTOM_BAND, context)
+        out = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+
+        roof, gt = self._read_band(roof_l.source(), rb)
+        if roof is None:
+            raise QgsProcessingException(self.tr("Гриды не открылись."))
+        ny, nx = roof.shape
+        xs = gt[0] + (np.arange(nx) + 0.5) * gt[1]
+        ys = gt[3] + (np.arange(ny) + 0.5) * gt[5]
+        XX, YY = np.meshgrid(xs, ys)
+
+        def to_frame(lyr, band):
+            arr, g2 = self._read_band(lyr.source(), band)
+            if arr is None:
+                return None
+            if arr.shape == roof.shape and np.allclose(g2, gt):
+                return arr
+            return sample_bilinear(arr, g2, XX.ravel(), YY.ravel()) \
+                .reshape(roof.shape)
+
+        bot = to_frame(bot_l, bb)
+        if bot is None:
+            raise QgsProcessingException(self.tr("Гриды не открылись."))
+        stack = [roof, bot]
+        bnames = [self.tr("кровля"), self.tr("подошва")]
+        for lyr in params:
+            a = to_frame(lyr, 1)
+            if a is None:
+                feedback.pushWarning(
+                    _tr("Грид не открылся: %s") % lyr.name())
+                continue
+            stack.append(a)
+            bnames.append(lyr.name())
+        nod = -9999.0
+        stack = [np.where(np.isfinite(a), a, nod).astype(np.float32)
+                 for a in stack]
+        crs_wkt = roof_l.crs().toWkt() if roof_l.crs().isValid() else ""
+        _write_grid_tiff(out, stack, gt, crs_wkt, nod, nx, ny,
+                         band_names=bnames)
+        feedback.pushInfo(
+            _tr("Грид пласта записан: каналов %d.") % len(stack))
+        _save_values(self, _saved)
+        return {self.OUTPUT: out}
+
+
+class BedCalculatorAlgorithm(QgsProcessingAlgorithm):
+    """Подсчёт по гриду пласта: мощность из каналов кровли и подошвы,
+    объём, тоннаж руды и металла, средневзвешенное содержание; сводка по
+    всей площади или внутри контура. Мощность и запасы дописываются
+    каналами в новый грид пласта."""
+
+    BED = "BED"
+    CONTENT_BAND = "CONTENT_BAND"
+    DENSITY = "DENSITY"
+    CONTOUR = "CONTOUR"
+    OUTPUT, REPORT = "OUTPUT", "REPORT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return BedCalculatorAlgorithm()
+    def name(self): return "bed_calculator"
+    def displayName(self): return self.tr("4.02 Калькулятор пласта (бета)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP4)
+    def groupId(self): return GROUP4_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Считает по многоканальному гриду пласта (канал 1 - кровля, "
+            "канал 2 - подошва): мощность, объём, тоннаж руды через "
+            "плотность и, если задан канал содержания, средневзвешенное по "
+            "мощности содержание и тоннаж металла. Сводка - по всей площади "
+            "пласта или внутри контура (полигоны подсчётного блока, "
+            "домена).\n\nРезультат - грид пласта с дописанными каналами "
+            "«мощность» и «запасы руды, т/ячейку» и HTML-отчёт со сводкой. "
+            "Ячейки с мощностью меньше нуля (пересечение поверхностей) "
+            "обнуляются и считаются отдельно.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.BED, self.tr("Грид пласта (канал 1 кровля, канал 2 подошва)")))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CONTENT_BAND,
+            self.tr("Канал содержания (0 - без содержания)"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.CONTENT_BAND, 3), minValue=0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.DENSITY, self.tr("Плотность руды, т/м³"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.DENSITY, 2.1), minValue=0.01))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.CONTOUR, self.tr("Контур подсчёта (полигоны, необязательно)"),
+            [QgsProcessing.TypeVectorPolygon], optional=True))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Грид пласта с мощностью и запасами")))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            self.REPORT, self.tr("Отчёт (HTML)"),
+            self.tr("HTML-файлы (*.html)"), optional=True,
+            createByDefault=True))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        bed_l = self.parameterAsRasterLayer(parameters, self.BED, context)
+        cband = self.parameterAsInt(parameters, self.CONTENT_BAND, context)
+        dens = self.parameterAsDouble(parameters, self.DENSITY, context)
+        contour = self.parameterAsSource(parameters, self.CONTOUR, context)
+        out = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+        report = self.parameterAsFileOutput(parameters, self.REPORT, context)
+
+        ds = gdal.Open(bed_l.source())
+        if ds is None or ds.RasterCount < 2:
+            raise QgsProcessingException(
+                self.tr("Нужен многоканальный грид пласта (каналы 1 и 2)."))
+        gt = ds.GetGeoTransform()
+        ny, nx = ds.RasterYSize, ds.RasterXSize
+
+        def band(i):
+            b = ds.GetRasterBand(i)
+            a = b.ReadAsArray().astype(float)
+            nd = b.GetNoDataValue()
+            if nd is not None:
+                a = np.where(a == nd, np.nan, a)
+            return a, (b.GetDescription() or "")
+
+        stack, names = [], []
+        for i in range(1, ds.RasterCount + 1):
+            a, nm = band(i)
+            stack.append(a)
+            names.append(nm or str(i))
+        ds = None
+        roof, bot = stack[0], stack[1]
+        thick = roof - bot
+        neg = int(np.nansum(thick < 0))
+        thick = np.where(np.isfinite(thick), np.maximum(thick, 0.0), np.nan)
+
+        cell = abs(gt[1] * gt[5])
+        mask = np.isfinite(thick)
+        if contour is not None:
+            rings = []
+            for ft in contour.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                try:
+                    polys = g.asMultiPolygon()
+                except Exception:
+                    polys = []
+                if not polys:
+                    try:
+                        p1 = g.asPolygon()
+                    except Exception:
+                        p1 = []
+                    polys = [p1] if p1 else []
+                for poly in polys:
+                    for ring in poly:
+                        rings.append([(p.x(), p.y()) for p in ring])
+            if rings:
+                mask &= polygon_mask(rings, gt, (ny, nx))
+
+        area = float(mask.sum()) * cell
+        vol = float(np.nansum(np.where(mask, thick, 0.0))) * cell
+        ore_t = vol * dens
+        t_valid = thick[mask]
+        t_mean = float(np.nanmean(t_valid)) if t_valid.size else 0.0
+        t_min = float(np.nanmin(t_valid)) if t_valid.size else 0.0
+        t_max = float(np.nanmax(t_valid)) if t_valid.size else 0.0
+
+        grade_mean = metal_t = None
+        if cband > 0:
+            if cband > len(stack):
+                raise QgsProcessingException(
+                    self.tr("Канал содержания вне грида."))
+            grade = stack[cband - 1]
+            w = np.where(mask & np.isfinite(grade), thick, 0.0)
+            sw = float(np.nansum(w))
+            if sw > 0:
+                grade_mean = float(np.nansum(
+                    np.where(mask & np.isfinite(grade),
+                             thick * grade, 0.0))) / sw
+                metal_t = ore_t * grade_mean / 100.0
+
+        ore_cell = np.where(mask, thick * cell * dens, np.nan)
+        out_stack = stack + [thick, ore_cell]
+        out_names = names + [self.tr("мощность"),
+                             self.tr("запасы руды, т/ячейку")]
+        nod = -9999.0
+        out_stack = [np.where(np.isfinite(a), a, nod).astype(np.float32)
+                     for a in out_stack]
+        crs_wkt = bed_l.crs().toWkt() if bed_l.crs().isValid() else ""
+        _write_grid_tiff(out, out_stack, gt, crs_wkt, nod, nx, ny,
+                         band_names=out_names)
+
+        rows = [
+            (self.tr("Площадь подсчёта"), "%.4g м²" % area),
+            (self.tr("Мощность средняя / мин / макс"),
+             "%.2f / %.2f / %.2f м" % (t_mean, t_min, t_max)),
+            (self.tr("Объём"), "%.4g м³" % vol),
+            (self.tr("Плотность"), "%.3g т/м³" % dens),
+            (self.tr("Запасы руды"), "%.4g т" % ore_t),
+        ]
+        if grade_mean is not None:
+            rows.append((self.tr("Содержание (взвешенное по мощности)"),
+                         "%.3f" % grade_mean))
+            rows.append((self.tr("Запасы металла"), "%.4g т" % metal_t))
+        if neg:
+            rows.append((self.tr("Ячеек с отрицательной мощностью"),
+                         str(neg)))
+        for k, v in rows:
+            feedback.pushInfo("%s: %s" % (k, v))
+        if report:
+            html = ["<html><head><meta charset='utf-8'><style>",
+                    "body{font-family:sans-serif;margin:2em}",
+                    "table{border-collapse:collapse}",
+                    "td{border:1px solid #999;padding:6px 12px}",
+                    "</style></head><body>",
+                    "<h2>%s</h2>" % self.tr("Калькулятор пласта"),
+                    "<p>%s</p>" % bed_l.name(), "<table>"]
+            for k, v in rows:
+                html.append("<tr><td>%s</td><td>%s</td></tr>" % (k, v))
+            html.append("</table></body></html>")
+            with open(report, "w", encoding="utf-8") as f:
+                f.write("\n".join(html))
+        _save_values(self, _saved)
+        res = {self.OUTPUT: out}
+        if report:
+            res[self.REPORT] = report
+        return res
+
+
+class BedToBlockModelAlgorithm(QgsProcessingAlgorithm):
+    """Грид пласта -> блочная модель: точка-центроид на каждую валидную
+    ячейку с атрибутами верха, низа, мощности, объёма, тоннажа и всех
+    каналов параметров по их именам. Схема наращивается атрибутами
+    (join, калькулятор полей) и готова к делению колонок по вертикали."""
+
+    BED = "BED"
+    DENSITY = "DENSITY"
+    CONTOUR = "CONTOUR"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return BedToBlockModelAlgorithm()
+    def name(self): return "bed_to_block_model"
+    def displayName(self): return self.tr("4.03 Грид пласта в блочную модель (бета)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP4)
+    def groupId(self): return GROUP4_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Переводит многоканальный грид пласта в блочную модель: точку-"
+            "центроид на каждую валидную ячейку. Атрибуты: строка и столбец "
+            "ячейки, координаты, верх (top), низ (bot), мощность (thick), "
+            "объём (vol), тоннаж руды (ore_t) через плотность и все каналы "
+            "параметров под их именами из описаний.\n\nДальше работает "
+            "векторный аппарат QGIS: фильтры выражениями, join внешних "
+            "таблиц, калькулятор полей - модель наращивается атрибутами без "
+            "пересоздания. Контур ограничивает выгрузку подсчётным блоком "
+            "или доменом.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.BED, self.tr("Грид пласта (канал 1 кровля, канал 2 подошва)")))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.DENSITY, self.tr("Плотность руды, т/м³"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.DENSITY, 2.1), minValue=0.01))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.CONTOUR, self.tr("Контур подсчёта (полигоны, необязательно)"),
+            [QgsProcessing.TypeVectorPolygon], optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Блочная модель (центроиды)"),
+            QgsProcessing.TypeVectorPoint))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        bed_l = self.parameterAsRasterLayer(parameters, self.BED, context)
+        dens = self.parameterAsDouble(parameters, self.DENSITY, context)
+        contour = self.parameterAsSource(parameters, self.CONTOUR, context)
+
+        ds = gdal.Open(bed_l.source())
+        if ds is None or ds.RasterCount < 2:
+            raise QgsProcessingException(
+                self.tr("Нужен многоканальный грид пласта (каналы 1 и 2)."))
+        gt = ds.GetGeoTransform()
+        ny, nx = ds.RasterYSize, ds.RasterXSize
+        stack, names = [], []
+        for i in range(1, ds.RasterCount + 1):
+            b = ds.GetRasterBand(i)
+            a = b.ReadAsArray().astype(float)
+            nd = b.GetNoDataValue()
+            if nd is not None:
+                a = np.where(a == nd, np.nan, a)
+            stack.append(a)
+            names.append(b.GetDescription() or ("band%d" % i))
+        ds = None
+        roof, bot = stack[0], stack[1]
+        thick = np.where(np.isfinite(roof - bot),
+                         np.maximum(roof - bot, 0.0), np.nan)
+        cell = abs(gt[1] * gt[5])
+        mask = np.isfinite(thick)
+        if contour is not None:
+            rings = []
+            for ft in contour.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                try:
+                    polys = g.asMultiPolygon()
+                except Exception:
+                    polys = []
+                if not polys:
+                    try:
+                        p1 = g.asPolygon()
+                    except Exception:
+                        p1 = []
+                    polys = [p1] if p1 else []
+                for poly in polys:
+                    for ring in poly:
+                        rings.append([(p.x(), p.y()) for p in ring])
+            if rings:
+                mask &= polygon_mask(rings, gt, (ny, nx))
+
+        def _safe(nm, used):
+            s = nm.strip() or "band"
+            for ch in ' ,;:/\\()"\'':
+                s = s.replace(ch, "_")
+            base, k = s, 2
+            while s in used:
+                s = "%s_%d" % (base, k)
+                k += 1
+            used.add(s)
+            return s
+
+        used = {"bid", "row", "col", "x", "y", "top", "bot",
+                "thick", "vol", "ore_t"}
+        pnames = [_safe(nm, used) for nm in names[2:]]
+        fields = QgsFields()
+        for nm, tp in (("bid", QVariant.Int), ("row", QVariant.Int),
+                       ("col", QVariant.Int), ("x", QVariant.Double),
+                       ("y", QVariant.Double), ("top", QVariant.Double),
+                       ("bot", QVariant.Double), ("thick", QVariant.Double),
+                       ("vol", QVariant.Double), ("ore_t", QVariant.Double)):
+            fields.append(QgsField(nm, tp))
+        for nm in pnames:
+            fields.append(QgsField(nm, QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Point, bed_l.crs())
+
+        idx = np.argwhere(mask)
+        total = len(idx)
+        bid = 0
+        for n, (i, j) in enumerate(idx):
+            if feedback.isCanceled():
+                break
+            if total and n % 5000 == 0:
+                feedback.setProgress(100.0 * n / total)
+            x = gt[0] + (j + 0.5) * gt[1]
+            y = gt[3] + (i + 0.5) * gt[5]
+            bid += 1
+            th = float(thick[i, j])
+            vol = th * cell
+            f = QgsFeature(fields)
+            f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
+            attrs = [bid, int(i), int(j), float(x), float(y),
+                     float(roof[i, j]), float(bot[i, j]), th, vol,
+                     vol * dens]
+            for a in stack[2:]:
+                v = a[i, j]
+                attrs.append(float(v) if v == v else None)
+            f.setAttributes(attrs)
+            sink.addFeature(f)
+        _set_output_name(context, dest,
+                         self.tr("Блочная модель: %s") % bed_l.name())
+        feedback.pushInfo(_tr("Блоков выгружено: %d.") % bid)
+        _save_values(self, _saved)
+        return {self.OUTPUT: dest}
+
+
 ALGORITHMS = [
     Kriging2DAlgorithm,
     CategoricalIndicatorAlgorithm,
@@ -7070,4 +7528,7 @@ ALGORITHMS = [
     SectionUnprojectAlgorithm,
     ShaftUnwrapAlgorithm,
     SectionSurfacesToMeshAlgorithm,
+    BedAssembleAlgorithm,
+    BedCalculatorAlgorithm,
+    BedToBlockModelAlgorithm,
 ]

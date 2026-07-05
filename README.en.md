@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into three Processing groups — **"Grid and isolines"**, **"Additional analysis tools"** and **"Cross-sections"** — twenty-four in all:
+The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — twenty-seven in all:
 
 **Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) and include your QGIS version, what you did, and attach the data or project to reproduce it — that makes the bug easy to repeat and faster to fix.
 
@@ -16,8 +16,8 @@ The tools are split into three Processing groups — **"Grid and isolines"**, **
 - **1.3 Variogram (experimental)** — isotropic experimental variogram from points with model fitting (nugget, sill, range) and an HTML report. Lets you set the variogram from the shape of the cloud rather than by eye.
 - **1.4 Variogram map (anisotropy)** — γ(h_x, h_y) surface: anisotropy shows as an ellipse. Estimates the major-axis azimuth, anisotropy ratio and range to feed into kriging.
 - **1.5 Variogram cross-validation** — leave-one-out check: validate and tune kriging parameters by error, not by eye.
-- **1.6 Create sample wells (demo)** — generates a training point layer with roof, thickness and a grade. Adds fields for the related tools: head, a categorical mineral type, and, as a separate output, a drift surface (raster) with a dz field.
-- **1.7 Processing profiles** — named sets of "variogram (Structure 1) + outlier removal" saved by Variogram and Cross-validation and applied by 2D Kriging. Global storage, list management.
+- **1.7 Create sample wells (demo)** — generates a training point layer with roof, thickness and a grade. Adds fields for the related tools: head, a categorical mineral type, and, as a separate output, a drift surface (raster) with a dz field.
+- **1.6 Processing profiles** — named sets of "variogram (Structure 1) + outlier removal" saved by Variogram and Cross-validation and applied by 2D Kriging. Global storage, list management.
 
 ### "Additional analysis tools" group
 
@@ -40,7 +40,10 @@ The tools are split into three Processing groups — **"Grid and isolines"**, **
 - **3.08 Unproject from the section (beta)** — reverse projection: objects drawn on the drawing are returned to real coordinates with a Z elevation.
 - **3.09 Unwrap a shaft wall (beta)** — a cylindrical section: a circle around the axis with an angular step, surfaces give intersection lines with the wall in arc-elevation axes.
 - **3.10 Create a section example** — six stacked surfaces (five beds: three host and two industrial), a line and boreholes along it (h1...h6 elevation fields), to try the cross-section and boreholes on a section at once without kriging.
-- **3.11 Surfaces to 3D (meshes)** — surface grids to 2DM mesh layers for the built-in QGIS 3D view (a scene holds one raster terrain but any number of meshes), with a vertical Z transform (scale and offset) and node thinning.
+- **4.04 Surfaces to 3D (meshes) (beta)** — surface grids to 2DM mesh layers for the built-in QGIS 3D view (a scene holds one raster terrain but any number of meshes), with a vertical Z transform (scale and offset) and node thinning.
+- **4.01 Assemble a bed grid (beta)** — a multiband grid by the convention (roof, bottom, parameters) from separate rasters; the inputs are resampled to the roof grid, the band names go into the descriptions.
+- **4.02 Bed calculator (beta)** — the thickness, the volume, the ore and metal tonnage, the thickness-weighted content over a bed grid; a contour summary, an HTML report, the "thickness" and "reserves" bands are appended to the grid.
+- **4.03 Bed grid to a block model (beta)** — a centroid per cell with top/bot/thick/vol/ore_t and all the parameter bands by name; filters, joins and the field calculator grow the model without rebuilding.
 
 Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
 and any numeric attribute.
@@ -259,6 +262,16 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.40.0** — tool ordering: a "4. Bed and block model" group (4.01-4.04, beta), the demo generators last in their groups; the manual renumbered.
+- **2.39.0** — a new tool 3.14 "Bed grid to a block model": centroids with attributes, a contour-limited export.
+- **2.38.0** — 3D viewer: click to query the block model - all bands and the thickness at the point, a hit marker.
+- **2.37.0** — a new tool 3.13 "Bed calculator": thickness, volume, ore and metal reserves, a contour summary, an HTML report.
+- **2.36.1** — 3D viewer: borehole labels above the masts.
+- **2.36.0** — 3D viewer: a single "Colouring" field per layer (palette / own band / external raster).
+- **2.35.1** — 3D viewer: fixed the "All"/"None" buttons crash.
+- **2.35.0** — 3D viewer: per-layer settings (mode, bands, external attribute), "Layers"/"Vectors" tabs.
+- **2.34.0** — a new tool 3.12 "Assemble a bed grid"; 3D viewer: a layer-set filter, band drop-downs with names.
+- **2.33.1** — the manual: attribute tables of the generated layers (demos 1.6 and 3.10, the 3.01 outputs).
 - **2.33.0** — the manual: chapters on the 3D viewer and 3.11, a bed-grid scheme, fresh screenshots; the PDFs rebuilt.
 - **2.32.4** — 3D viewer: a mast above the borehole collar, the rod stays visible inside bodies.
 - **2.32.3** — 3D viewer: fixed a section-plane crash on QGIS 4 (asMultiPolyline).

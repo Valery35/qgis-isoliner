@@ -114,6 +114,22 @@ def test_bed_body_zoffset():
     assert sorted(set(np.round(verts[:, 2], 6))) == [11.0, 19.0]
 
 
+def test_polygon_mask():
+    from grid_isolines.mesh3d import polygon_mask
+    # грид 4x4, ячейка 10, центры 5..35; квадрат покрывает центры (15,85)-(25,75)
+    ring = [(10.0, 90.0), (30.0, 90.0), (30.0, 70.0), (10.0, 70.0)]
+    m = polygon_mask([ring], GT, (4, 4))
+    assert m.sum() == 4
+    assert m[1, 1] and m[1, 2] and m[2, 1] and m[2, 2]
+    # дырка вторым кольцом выключает центр
+    hole = [(18.0, 88.0), (22.0, 88.0), (22.0, 82.0), (18.0, 82.0)]
+    m2 = polygon_mask([ring, hole], GT, (4, 4))
+    assert m2.sum() == 4  # дырка мала, центры не задевает
+    hole2 = [(12.0, 88.0), (28.0, 88.0), (28.0, 82.0), (12.0, 82.0)]
+    m3 = polygon_mask([ring, hole2], GT, (4, 4))
+    assert m3.sum() == 2 and not m3[1, 1] and not m3[1, 2]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
