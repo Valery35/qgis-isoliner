@@ -5,7 +5,9 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — twenty-seven in all:
+The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty in all:
+
+> Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [www.informpp.ru](https://www.informpp.ru/).
 
 **Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) and include your QGIS version, what you did, and attach the data or project to reproduce it — that makes the bug easy to repeat and faster to fix.
 
@@ -27,6 +29,9 @@ The tools are split into four Processing groups — **"Grid and isolines"**, **"
 - **2.4 Hydraulic gradient and flow direction** — from a head raster it builds the hydraulic gradient |∇h|, the flow-direction azimuth (down-gradient) and a point layer of flow vectors (styled as arrows automatically). Hydrogeology without permeability (with permeability — 2.5).
 - **2.5 Specific discharge (Darcy law)** — from a head raster and aquifer-property rasters (K, T) it computes the specific discharge q = K·|∇h| (m/day) and the flow per width Q = T·|∇h| (m²/day). A post-processor, runs no kriging of its own (krige K and T in log space).
 - **2.6 Gaussian simulation (SGS)** — sequential Gaussian simulation: an ensemble of equally probable realizations instead of a single smoothed estimate. Mean (E-type), standard deviation, P10/P50/P90 quantiles and an exceedance-probability map — uncertainty, not just the mean. Pure NumPy on top of the kriging core.
+- **2.7 Fractal dimension** — a D = 3 - H map by the variogram method in a sliding window; smooth tends to 2, rugged to 3, the steps highlight disturbances and block boundaries.
+- **2.8 Mask box-counting** — one dimension D per binary mask (a raster threshold); replacement and workings outlines compared by a number.
+- **2.9 Line dimension** — D of every line by the divider method; an oversmoothing diagnostic for isolines.
 
 ### "Cross-sections" group
 
@@ -262,6 +267,12 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.43.0** — the fractal tools 2.7-2.9 left beta; the manual chapters extended with workflows.
+- **2.42.1** — 2.7: a single-band D grid by default, ready for dimension isolines; H by a checkbox.
+- **2.42.0** — a fractal pair: 2.8 mask box-counting and 2.9 line dimension by the divider method.
+- **2.41.0** — a new tool 2.7 "Fractal dimension": a D and H map by the variogram method.
+- **2.40.2** — the manual: an overview chapter "Kriging kinds: which one to pick" with a cheat sheet.
+- **2.40.1** — a custom-development invitation in the tool-help footer.
 - **2.40.0** — tool ordering: a "4. Bed and block model" group (4.01-4.04, beta), the demo generators last in their groups; the manual renumbered.
 - **2.39.0** — a new tool 3.14 "Bed grid to a block model": centroids with attributes, a contour-limited export.
 - **2.38.0** — 3D viewer: click to query the block model - all bands and the thickness at the point, a hit marker.

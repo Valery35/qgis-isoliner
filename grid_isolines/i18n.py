@@ -1002,6 +1002,100 @@ TRANSLATIONS = {
     'Блочная модель (центроиды)': 'Block model (centroids)',
     'Блочная модель: %s': 'Block model: %s',
     'Блоков выгружено: %d.': 'Blocks exported: %d.',
+    '2.7 Фрактальная размерность': '2.7 Fractal dimension',
+    'Считает карту фрактальной размерности поверхности '
+    'вариограммным методом: в скользящем окне строится лог-лог '
+    'вариограмма по лагам 1..N ячеек, её наклон даёт показатель '
+    'Хёрста H, размерность D = 3 - H. Гладкие дифференцируемые '
+    'участки дают D около 2, изрезанные и шумные - ближе к 3; '
+    'перепады D подчёркивают зоны тектонических нарушений, границы '
+    'блоков и смену характера рельефа кровли.\n\nВыход - грид D, '
+    'готовый для «1.2 Изолинии из растра» (галка в дополнительных '
+    'добавит H вторым каналом); глобальные D и '
+    'H по всей поверхности печатаются в журнал. Малое окно (5-8 '
+    'ячеек) показывает микроструктуру, большое (12-20) - '
+    'региональные зоны. Растр должен быть в метрической системе '
+    'координат.':
+        'Computes a fractal-dimension map of a surface by the variogram '
+        'method: a log-log variogram over lags of 1..N cells is built in a '
+        'sliding window, its slope gives the Hurst exponent H, the '
+        'dimension D = 3 - H. Smooth differentiable areas give D near 2, '
+        'rugged and noisy ones tend to 3; the steps of D highlight zones '
+        'of tectonic disturbance, block boundaries and changes of the roof '
+        'relief character.\n\nThe output is a D grid ready for "1.2 '
+        'Isolines from a raster" (an advanced checkbox adds H as band 2); '
+        'the global D and H over the whole surface are '
+        'printed to the log. A small window (5-8 cells) shows the '
+        'microstructure, a large one (12-20) - regional zones. The raster '
+        'must be in a metric CRS.',
+    'Поверхность (растр)': 'Surface (raster)',
+    'Канал высот': 'Elevation band',
+    'Полурадиус окна, ячеек': 'Window half-radius, cells',
+    'Число лагов вариограммы': 'Number of variogram lags',
+    'Фрактальная размерность (D)': 'Fractal dimension (D)',
+    'Записать H вторым каналом': 'Write H as band 2',
+    'Изолинии по карте D: «1.2 Изолинии из растра», канал 1.': 'Isolines over the D map: "1.2 Isolines from a raster", band 1.',
+    'Окно или лаги велики для этого грида.': 'The window or the lags are too large for this grid.',
+    'Глобально: D = %.3f, H = %.3f.': 'Globally: D = %.3f, H = %.3f.',
+    '2.8 Box-counting маски': '2.8 Mask box-counting',
+    'Классический box-counting: растр бинаризуется порогом '
+    '(объект - значения больше порога), маска покрывается ячейками '
+    'убывающего размера, наклон log N от log(1/размер) даёт одну '
+    'размерность D на всю маску. Линейный объект даёт D около 1, '
+    'пятно - около 2, изрезанные контуры замещения или выработок - '
+    'между. Точность метода на конечных масках порядка ±0.1 - '
+    'используйте его для сравнения масок между собой, а не как '
+    'абсолютную меру.\n\nРезультат печатается в журнал вместе с '
+    'таблицей размеров и счётов и возвращается числом D.':
+        'Classic box-counting: the raster is binarised by a threshold '
+        '(the object - values above it), the mask is covered by cells of '
+        'a decreasing size, the slope of log N versus log(1/size) gives '
+        'one dimension D for the whole mask. A linear object gives D near '
+        '1, a blob - near 2, rugged replacement or workings outlines - in '
+        'between. The accuracy on finite masks is about ±0.1 - use it to '
+        'compare masks with each other rather than as an absolute '
+        'measure.\n\nThe result is printed to the log with a table of '
+        'sizes and counts and returned as the number D.',
+    'Растр маски': 'Mask raster',
+    'Порог (объект: значение > порога)': 'Threshold (object: value > threshold)',
+    'Канал': 'Band',
+    'Размерность D': 'Dimension D',
+    'Маска пуста: нет значений выше порога.': 'The mask is empty: no values above the threshold.',
+    'Пикселей в маске: %d.': 'Pixels in the mask: %d.',
+    'Box-counting: D = %.3f.': 'Box-counting: D = %.3f.',
+    '2.9 Размерность линий': '2.9 Line dimension',
+    'Считает размерность каждой линии методом циркуля (Ричардсона):'
+    ' линия проходится хордами убывающего раствора, наклон log N '
+    'от log r даёт D. Прямая даёт 1, изрезанная линия - больше; '
+    'для изолиний это диагностика сглаживания: пересглаженные '
+    'изолинии теряют изрезанность и D падает к единице, а сравнение'
+    ' D до и после сглаживания показывает, сколько геометрии '
+    'съедено.\n\nВыход - те же линии с полями D и steps (число '
+    'шагов минимального циркуля); среднее D печатается в журнал. '
+    'Короткие линии (меньше 30 вершин или очень малой длины) '
+    'получают пустое D.':
+        'Computes the dimension of every line by the divider (Richardson) '
+        'method: the line is walked with chords of a decreasing span, the '
+        'slope of log N versus log r gives D. A straight line gives 1, a '
+        'rugged one - more; for isolines this is a smoothing diagnostic: '
+        'oversmoothed isolines lose their ruggedness and D drops towards '
+        'one, and comparing D before and after smoothing shows how much '
+        'geometry was eaten.\n\nThe output is the same lines with the D '
+        'and steps fields (the step count of the smallest divider); the '
+        'mean D is printed to the log. Short lines (fewer than 30 vertices '
+        'or of a very small length) get an empty D.',
+    'Линии': 'Lines',
+    'Линии с размерностью': 'Lines with the dimension',
+    'Среднее D по %d линиям: %.3f.': 'Mean D over %d lines: %.3f.',
+
+
+    'Isoliner развивается на задачах реальных предприятий. '
+    'Если вашему производству не хватает функции - напишите '
+    'нам: https://www.informpp.ru/':
+        'Isoliner grows on the tasks of real mining operations. '
+        'If your production is missing a feature - contact us: '
+        'https://www.informpp.ru/',
+
 
 
     'Фильтр слоёв…': 'Filter layers…',

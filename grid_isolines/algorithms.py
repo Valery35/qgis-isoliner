@@ -59,6 +59,7 @@ from qgis.core import (
     QgsProcessingParameterMultipleLayers,
     QgsProcessingParameterMeshLayer,
     QgsProcessingParameterRasterDestination,
+    QgsProcessingOutputNumber,
     QgsProcessingParameterVectorDestination,
     QgsProcessingParameterFeatureSink,
     QgsProcessingParameterFileDestination,
@@ -89,6 +90,8 @@ from .isolines import (
     _gaussian_nodata)
 from . import hydro
 from .mesh3d import grid_to_2dm, sample_bilinear, polygon_mask
+from .fractal import (fractal_dimension_map, fractal_dimension_global,
+                      box_count_dimension, divider_dimension)
 
 GROUP = _tr("1. Грид и изолинии")
 GROUP_ID = "grid_isolines"
@@ -543,10 +546,14 @@ def _version_footer():
 
 
 def _help_version(text):
-    """Дописать версию в конец справки инструмента."""
+    """Дописать версию и приглашение в конец справки инструмента."""
     v = _plugin_version()
     text = "" if text is None else str(text)
-    return (text + "\n\nIsoliner v" + v) if v else text
+    invite = _tr("Isoliner развивается на задачах реальных предприятий. "
+                 "Если вашему производству не хватает функции - напишите "
+                 "нам: https://www.informpp.ru/")
+    tail = ("\n\nIsoliner v" + v) if v else ""
+    return text + tail + "\n" + invite
 
 
 def _load_profiles():
@@ -7503,6 +7510,266 @@ class BedToBlockModelAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: dest}
 
 
+class FractalDimensionAlgorithm(QgsProcessingAlgorithm):
+    """Карта фрактальной размерности поверхности вариограммным методом:
+    локальный наклон лог-лог вариограммы в скользящем окне даёт H,
+    D = 3 - H. Гладкие участки - около 2, изрезанные - к 3."""
+
+    RASTER, BAND = "RASTER", "BAND"
+    WINDOW, MAX_LAG = "WINDOW", "MAX_LAG"
+    WITH_H = "WITH_H"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return FractalDimensionAlgorithm()
+    def name(self): return "fractal_dimension"
+    def displayName(self): return self.tr("2.7 Фрактальная размерность")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP2)
+    def groupId(self): return GROUP2_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Считает карту фрактальной размерности поверхности "
+            "вариограммным методом: в скользящем окне строится лог-лог "
+            "вариограмма по лагам 1..N ячеек, её наклон даёт показатель "
+            "Хёрста H, размерность D = 3 - H. Гладкие дифференцируемые "
+            "участки дают D около 2, изрезанные и шумные - ближе к 3; "
+            "перепады D подчёркивают зоны тектонических нарушений, границы "
+            "блоков и смену характера рельефа кровли.\n\nВыход - грид D, "
+            "готовый для «1.2 Изолинии из растра» (галка в дополнительных "
+            "добавит H вторым каналом); глобальные D и "
+            "H по всей поверхности печатаются в журнал. Малое окно (5-8 "
+            "ячеек) показывает микроструктуру, большое (12-20) - "
+            "региональные зоны. Растр должен быть в метрической системе "
+            "координат.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.RASTER, self.tr("Поверхность (растр)")))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.WINDOW, self.tr("Полурадиус окна, ячеек"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.WINDOW, 8), minValue=2))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MAX_LAG, self.tr("Число лагов вариограммы"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.MAX_LAG, 4), minValue=2,
+            maxValue=12)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BAND, self.tr("Канал высот"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.BAND, 1), minValue=1)))
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.WITH_H, self.tr("Записать H вторым каналом"),
+            defaultValue=bool(_dv(self, self.WITH_H, False)))))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Фрактальная размерность (D)")))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        lyr = self.parameterAsRasterLayer(parameters, self.RASTER, context)
+        band = self.parameterAsInt(parameters, self.BAND, context)
+        window = self.parameterAsInt(parameters, self.WINDOW, context)
+        max_lag = self.parameterAsInt(parameters, self.MAX_LAG, context)
+        out = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+
+        ds = gdal.Open(lyr.source())
+        if ds is None or band > ds.RasterCount:
+            raise QgsProcessingException(self.tr("Гриды не открылись."))
+        b = ds.GetRasterBand(band)
+        arr = b.ReadAsArray().astype(float)
+        nd = b.GetNoDataValue()
+        if nd is not None:
+            arr = np.where(arr == nd, np.nan, arr)
+        gt = ds.GetGeoTransform()
+        ny, nx = arr.shape
+        ds = None
+
+        if max_lag >= min(ny, nx) // 4 or 2 * window >= min(ny, nx):
+            raise QgsProcessingException(
+                self.tr("Окно или лаги велики для этого грида."))
+        feedback.setProgress(5)
+        D, H = fractal_dimension_map(arr, window=window, max_lag=max_lag)
+        feedback.setProgress(80)
+        Dg, Hg = fractal_dimension_global(arr, max_lag=max_lag)
+        feedback.pushInfo(
+            _tr("Глобально: D = %.3f, H = %.3f.") % (Dg, Hg))
+        with_h = self.parameterAsBool(parameters, self.WITH_H, context)
+        nodv = -9999.0
+        stack = [np.where(np.isfinite(D), D, nodv).astype(np.float32)]
+        bnames = ["D"]
+        if with_h:
+            stack.append(np.where(np.isfinite(H), H, nodv)
+                         .astype(np.float32))
+            bnames.append("H")
+        crs_wkt = lyr.crs().toWkt() if lyr.crs().isValid() else ""
+        _write_grid_tiff(out, stack, gt, crs_wkt, nodv, nx, ny,
+                         band_names=bnames)
+        feedback.pushInfo(_tr(
+            "Изолинии по карте D: «1.2 Изолинии из растра», канал 1."))
+        _save_values(self, _saved)
+        return {self.OUTPUT: out}
+
+
+class BoxCountingAlgorithm(QgsProcessingAlgorithm):
+    """Box-counting: одна размерность D на бинарную маску растра."""
+
+    RASTER, BAND, THRESHOLD = "RASTER", "BAND", "THRESHOLD"
+    OUT_D = "OUT_D"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return BoxCountingAlgorithm()
+    def name(self): return "box_counting"
+    def displayName(self): return self.tr("2.8 Box-counting маски")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP2)
+    def groupId(self): return GROUP2_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Классический box-counting: растр бинаризуется порогом "
+            "(объект - значения больше порога), маска покрывается ячейками "
+            "убывающего размера, наклон log N от log(1/размер) даёт одну "
+            "размерность D на всю маску. Линейный объект даёт D около 1, "
+            "пятно - около 2, изрезанные контуры замещения или выработок - "
+            "между. Точность метода на конечных масках порядка ±0.1 - "
+            "используйте его для сравнения масок между собой, а не как "
+            "абсолютную меру.\n\nРезультат печатается в журнал вместе с "
+            "таблицей размеров и счётов и возвращается числом D.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.RASTER, self.tr("Растр маски")))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.THRESHOLD, self.tr("Порог (объект: значение > порога)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.THRESHOLD, 0.5)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BAND, self.tr("Канал"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.BAND, 1), minValue=1)))
+        self.addOutput(QgsProcessingOutputNumber(
+            self.OUT_D, self.tr("Размерность D")))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        lyr = self.parameterAsRasterLayer(parameters, self.RASTER, context)
+        thr = self.parameterAsDouble(parameters, self.THRESHOLD, context)
+        band = self.parameterAsInt(parameters, self.BAND, context)
+        ds = gdal.Open(lyr.source())
+        if ds is None or band > ds.RasterCount:
+            raise QgsProcessingException(self.tr("Гриды не открылись."))
+        b = ds.GetRasterBand(band)
+        arr = b.ReadAsArray().astype(float)
+        nd = b.GetNoDataValue()
+        if nd is not None:
+            arr = np.where(arr == nd, np.nan, arr)
+        ds = None
+        mask = np.isfinite(arr) & (arr > thr)
+        npx = int(mask.sum())
+        if npx == 0:
+            raise QgsProcessingException(
+                self.tr("Маска пуста: нет значений выше порога."))
+        D, sizes, counts = box_count_dimension(mask)
+        feedback.pushInfo(_tr("Пикселей в маске: %d.") % npx)
+        for s, c in zip(sizes, counts):
+            feedback.pushInfo("  %4d px -> N = %d" % (s, c))
+        feedback.pushInfo(_tr("Box-counting: D = %.3f.") % D)
+        _save_values(self, _saved)
+        return {self.OUT_D: float(D)}
+
+
+class LineDimensionAlgorithm(QgsProcessingAlgorithm):
+    """Размерность линий методом циркуля: D каждой линии атрибутом."""
+
+    LINES = "LINES"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return LineDimensionAlgorithm()
+    def name(self): return "line_dimension"
+    def displayName(self): return self.tr("2.9 Размерность линий")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP2)
+    def groupId(self): return GROUP2_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Считает размерность каждой линии методом циркуля (Ричардсона):"
+            " линия проходится хордами убывающего раствора, наклон log N "
+            "от log r даёт D. Прямая даёт 1, изрезанная линия - больше; "
+            "для изолиний это диагностика сглаживания: пересглаженные "
+            "изолинии теряют изрезанность и D падает к единице, а сравнение"
+            " D до и после сглаживания показывает, сколько геометрии "
+            "съедено.\n\nВыход - те же линии с полями D и steps (число "
+            "шагов минимального циркуля); среднее D печатается в журнал. "
+            "Короткие линии (меньше 30 вершин или очень малой длины) "
+            "получают пустое D.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.LINES, self.tr("Линии"),
+            [QgsProcessing.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Линии с размерностью"),
+            QgsProcessing.TypeVectorLine))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        src = self.parameterAsSource(parameters, self.LINES, context)
+        fields = QgsFields(src.fields())
+        fields.append(QgsField("D", QVariant.Double))
+        fields.append(QgsField("steps", QVariant.Int))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            src.wkbType(), src.sourceCrs())
+        total = src.featureCount() or 1
+        dsum, dcnt = 0.0, 0
+        for k, ft in enumerate(src.getFeatures()):
+            if feedback.isCanceled():
+                break
+            feedback.setProgress(100.0 * k / total)
+            g = ft.geometry()
+            pts = []
+            if g is not None and not g.isEmpty():
+                try:
+                    polys = g.asMultiPolyline()
+                except Exception:
+                    polys = []
+                if not polys:
+                    try:
+                        pl = g.asPolyline()
+                    except Exception:
+                        pl = []
+                    polys = [pl] if pl else []
+                best = max(polys, key=len) if polys else []
+                pts = [(p.x(), p.y()) for p in best]
+            D = float("nan"); steps = 0
+            if len(pts) >= 3:
+                D, _r, ss = divider_dimension(np.array(pts))
+                steps = int(ss[-1]) if ss else 0
+            f = QgsFeature(fields)
+            f.setGeometry(g)
+            f.setAttributes(list(ft.attributes()) +
+                            [None if D != D else round(D, 4), steps])
+            sink.addFeature(f)
+            if D == D:
+                dsum += D; dcnt += 1
+        if dcnt:
+            feedback.pushInfo(
+                _tr("Среднее D по %d линиям: %.3f.") % (dcnt, dsum / dcnt))
+        _set_output_name(context, dest, self.tr("Линии с размерностью"))
+        _save_values(self, _saved)
+        return {self.OUTPUT: dest}
+
+
 ALGORITHMS = [
     Kriging2DAlgorithm,
     CategoricalIndicatorAlgorithm,
@@ -7531,4 +7798,7 @@ ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
     BedToBlockModelAlgorithm,
+    FractalDimensionAlgorithm,
+    BoxCountingAlgorithm,
+    LineDimensionAlgorithm,
 ]

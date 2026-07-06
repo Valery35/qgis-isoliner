@@ -809,6 +809,98 @@ How it works. The values are mapped to normal scores and the simulation runs in 
 
 The outputs are ensemble rasters. **Mean (E-type)** resembles kriging. **Standard deviation** shows the uncertainty, small at the boreholes and large away from them. The **P10**, **P50**, **P90** quantiles outline the likely range, and **Exceedance probability** for a given threshold offers a non-parametric alternative to the map from the probability tool. Runtime grows with grid size and the number of realizations, so start with a coarse cell.
 
+# 2.7 Fractal dimension
+
+The tool computes a fractal-dimension map of a surface by the variogram method, native to the plugin: a log-log variogram over lags of one to N cells is built in a sliding window, its slope gives the Hurst exponent H, and the dimension D = 3 - H. Smooth differentiable areas give D near 2, rugged and noisy ones tend to 3; the values themselves matter less than their steps - they highlight zones of tectonic disturbance, block boundaries and changes of the roof relief character.
+
+The output is a D grid that feeds straight into **1.2 Isolines from a raster** for dimension isolines; an advanced checkbox adds H as band 2. The global D and H over the whole surface are printed to the log.
+
+## Reading the map
+
+The absolute D values matter less than their steps: a linear step across the area is a lineament, a candidate tectonic disturbance; a patch of a raised D is a zone of intense folding or a rugged roof relief; wide even fields of a low D are quiet blocks. For reading, apply a singleband pseudocolour symbology with a contrast palette and quantile classification, and for a report plan build isolines with belts over the D grid with tool 1.2 - the disturbance zones get outlined like contour lines.
+
+## Picking the window and the lags
+
+A small window (5-8 cells) reveals the microstructure and local disturbances, a large one (12-20) - regional zones; in doubt compute both and compare. Four lags fit almost always: more lags - a steadier slope but a coarser minimal scale the method can resolve. The window and the lags are limited by the grid size, the tool checks that itself.
+
+## Workflow
+
+A bed roof from kriging → **2.7** with a window of 8 → the D grid → **1.2 Isolines from a raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS; the demo surfaces fit as they are.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Surface (raster) | A relief grid or any surface. | - |
+| Window half-radius, cells | The sliding-window size. | 8 |
+| Number of lags (Adv.) | Variogram lags 1..N cells. | 4 |
+| Elevation band (Adv.) | The band with elevations. | 1 |
+| Write H (Adv.) | Add H as band 2. | off |
+| Fractal dimension | A D grid (and H if checked). | - |
+
+# 2.8 Mask box-counting
+
+Classic box-counting for binary masks: the raster is binarised by a threshold (the object - values above it), the mask is covered by cells of a decreasing size, the slope of log N versus log(1/size) gives one dimension D for the whole mask. A linear object gives D near 1, a blob - near 2, rugged outlines of replacement zones or mined-out areas fall in between. The accuracy on finite masks is about ±0.1, so the method is good for comparing masks with each other rather than as an absolute measure. The result is printed to the log with a table of sizes and counts and returned as the number D - usable further in Processing models.
+
+## Where the mask comes from
+
+The mineral-type band of a bed grid with a threshold between the class codes; an indicator-kriging probability grid with a 0.5 threshold; an exceedance-probability map with a cut-off threshold; vector outlines of workings or zones - rasterised beforehand with the standard "Rasterize (vector to raster)". Compare the D of masks of the same nature on the same grid: a growth of the replacement-outline ruggedness from bed to bed or from year to year is a meaningful signal.
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Mask raster | Any raster; the mask - values above the threshold. | - |
+| Threshold | The object/background boundary. | 0.5 |
+| Band (Adv.) | The raster band. | 1 |
+
+# 2.9 Line dimension
+
+The dimension of every line by the divider (Richardson) method: the line is walked with chords of a decreasing span, the slope of log N versus log r gives D. A straight line gives one, a rugged line - more. The output is the same lines with the D and steps fields, the mean D is printed to the log; short lines get an empty D. The method is checked on references: the Koch curve gives 1.262 against the theoretical 1.2619.
+
+## An isoline-smoothing diagnostic
+
+Oversmoothed isolines lose their ruggedness and D drops towards one. The workflow: build the isolines twice - without smoothing and with the working parameters, run both layers through the tool and compare the mean D from the log. A drop by hundredths is cosmetics, the shape is kept; a drop by tenths means the smoothing eats the field geometry - weaken the rounding or keep the densification only. The D field in the attributes lets you find the specific lines that suffered most.
+
+## Other uses
+
+The ruggedness of zone outlines in plan, comparing the digitising detail of boundaries from different sources, generalisation control when preparing small-scale plans - anywhere "how winding the line is" must become a number.
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Lines | A line layer (isolines, outlines). | - |
+| Lines with the dimension | The same lines with the D and steps fields. | - |
+
+# Kriging kinds: which one to pick
+
+Behind the word "kriging" the plugin hosts a family of methods, and the choice between them affects the result more than fine-tuning the variogram. All the kinds solve the same system of equations with covariances from the variogram; they differ in what is assumed known about the field mean and in what exactly is estimated - a point, a block or a probability. This chapter is a navigator; the parameters of each tool live in their own chapters.
+
+**Simple kriging (SK)** assumes the mean of the field is known in advance and constant over the area. Near the wells the estimate follows the data, away from them it is pulled to the given mean. Take it when the mean is backed by statistics over a representative sample of the same domain; an eyeballed mean drags all the underdrilled margins towards the error. Switched by the type in **2D Kriging**.
+
+**Ordinary kriging (OK)** does not know the mean and estimates it locally in every neighbourhood - an extra equation with the "weights sum to one" condition takes care of that. Away from the wells the estimate tends to the mean of the nearest neighbourhood, not to the global one. This is the default choice: if unsure where to start - start with OK.
+
+**Kriging with a trend** (the detrend checkbox in **2D Kriging**) is for fields with a regular regional slope: a roof on a monocline, a fold limb. A 1st- or 2nd-degree polynomial is removed by least squares, the residuals are kriged, the trend is added back. Two rules: define the variogram over the residuals (the plugin prints the share of the removed variance - if it is small, the trend is not needed), and do not extrapolate a quadratic trend far beyond the well cloud.
+
+**Kriging with an external drift** (chapter 2.2) - when the trend is known not as a formula but as a field: a structural surface of a neighbouring bed, a regional model, a seismic attribute. The scheme is the same - a regression on the drift, kriging of the residuals, the regression returned.
+
+**Block kriging** (the discretisation parameter in **2D Kriging**) estimates the mean over a block rather than a point value: the right-hand side of the system is averaged over the discretisation, the error variance drops, outliers are damped. Take it for reserves over a block grid and mind the support effect: a block-kriging grid is regularly smoother than a point one, a sample grade and a block grade cannot be compared directly.
+
+**Indicator kriging** (chapter 2.1) is for categories: mineral type, facies, a replacement zone. The category becomes a 0/1 indicator, it is kriged with plain OK, the result is the class probability at a point; domains are cut from it by a threshold. The indicator variogram is its own and usually shorter than the grade one.
+
+**Gaussian simulation** (chapter 2.6) is not kriging but its complement: instead of one smooth surface, an ensemble of equally probable rough realisations from which the uncertainty is seen directly.
+
+## Cheat sheet
+
+| Task | Kind | Where it lives |
+|---|---|---|
+| The universal case, the start of any task | Ordinary (OK) | 2D Kriging, the default type |
+| Plenty of data, the domain mean is justified | Simple (SK) | 2D Kriging, the SK type + mean |
+| A roof or a bottom with a regional slope | With a trend | 2D Kriging, detrend |
+| The trend is known as a raster | With an external drift | chapter 2.2 |
+| Reserves over a block grid | Block | 2D Kriging, discretisation |
+| Mineral type, replacement, categories | Indicator | chapter 2.1 |
+| Uncertainty assessment | SGS simulation | chapter 2.6 |
+
+The search neighbourhood is common to all the kinds, and three rules remove most problems: the radius of the order of the variogram range, 12-16 neighbours at most, the neighbourhood anisotropy consistent with the variogram anisotropy from the variogram map.
+
 # 3.01 Cross-section along a line
 
 The **Cross-section along a line** tool builds a geological section from a set of surfaces. It is not just a profile curve but beds as filled bands between a roof and a floor. The surfaces are usually obtained by kriging, and the tool assembles them into a section along a given line.
