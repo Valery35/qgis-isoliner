@@ -32,7 +32,7 @@ A few terms used below. A variogram describes how much more strongly values diff
 
 The main way is from the official QGIS repository. Open Plugins → Manage and Install Plugins → the **All** tab, type "Isoliner" in the search, select the plugin and click **Install**. When installed from the repository, QGIS itself reports new versions and updates the plugin at the press of a button.
 
-![Module tools in the Processing panel: the Isoliner provider with three groups - "1. Grid and isolines" (1.1-1.7), "2. Additional analysis tools" (2.1-2.6) and "3. Cross-sections" (3.01-3.10) and **"4. Bed and block model"** (4.01-4.04).](images/ui_toolbox_en.png){width=55%}
+![Module tools in the Processing panel: the Isoliner provider with three groups - "1. Grid and isolines" (1.1-1.7), "2. Additional analysis tools" (2.1-2.6) and "3. Cross-sections" (3.01-3.10) and **"4. Bed and block model"** (4.01-4.04). Raster band choice in all the tools is a drop-down with band names: a bed assembled by tool 4.01 shows roof, bottom and the parameter layer names in the lists.](images/ui_toolbox_en.png){width=55%}
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
@@ -1265,37 +1265,53 @@ A vertical transform is applied to the elevations on write: Z' = Z × scale + of
 
 # 3D surface viewer (beta)
 
-The plugin's own 3D window: **Plugins - Isoliner - 3D surface viewer (beta)…** It does not depend on the built-in QGIS 3D view; the renderer runs on pyqtgraph and PyOpenGL bundled with the plugin - nothing needs to be installed.
+The plugin has its own 3D window: **Plugins - Isoliner - 3D surface viewer (beta)…** It does not depend on the built-in QGIS 3D view: the render runs on pyqtgraph and PyOpenGL bundled with the plugin, nothing to install.
 
-On the left is a list of the project rasters with checkboxes and the settings, on the right is the scene: rotate with the mouse, zoom with the wheel. Vertical exaggeration, Z spacing and transparency apply instantly with the **Update the scene** button, without recomputing files. Large grids are automatically thinned to about 60 thousand nodes.
+The left panel has two tabs. **Layers** - the project rasters and the per-layer settings. **Vectors** - the section plane and the boreholes. Below the tabs live the scene-wide settings: the vertical exaggeration, the Z spacing, the opacity, the **Top view** and **Side view** buttons, **PNG snapshot…** and **Update the scene**. On the right is the scene: rotate with the mouse, zoom with the wheel. Large grids are automatically thinned to about 60 thousand nodes.
 
-![A shelf of surfaces coloured by an attribute grid; the scale bar with the range is under the buttons.](images/viewer_surfaces_stack.png){width=78%}
+![A stack of surfaces coloured by an attribute grid; the scale bar with the range sits under the buttons.](images/viewer_surfaces_stack.png){width=78%}
+
+## The Layers tab: the set and the layer settings
+
+The list shows all the project rasters. The **Filter layers…** line narrows the list by a substring, the **All** and **None** buttons check and uncheck the rows visible after the filter - the scene set is assembled by hand in seconds even in a project with dozens of rasters. The checks survive a list refresh.
+
+Under the list is the **Layer settings** panel for the selected row, individual per layer:
+
+- **Mode**: Auto (a multiband grid is drawn as a body, a singleband one as a surface), Surface (forced, any band as heights), Bed body.
+- **Elevation band (Z)** - a drop-down of this raster's bands with their names.
+- **Colouring** - a single list: Palette, then the layer's own bands by name, then the project rasters. Picking an external raster enables the **Attribute band**.
+
+The colouring priority: the own band, then the external raster, then the palette. The scale is one per scene, the bar with the range appears under the buttons, no-data cells are grey.
+
+<!-- SCREENSHOT: viewer_layers_tab.png | The Layers tab: the filter with text, All/None, a list with two beds, below it the "Layer settings: Bed 1" panel with the Colouring list open -->
 
 ## Bed bodies
 
-The **Bed bodies** checkbox turns on the volumetric mode for multiband grids: band 1 is read as the roof, band 2 as the bottom, and the volume is closed with a side skirt along the data boundary - a watertight bed body. Single-band rasters in the same list remain ordinary surfaces, so the shelf and the bodies live in one scene.
+In the Auto mode a multiband grid by the convention is read as a body: band 1 - the roof, band 2 - the bottom, the volume is closed by a side skirt along the data boundary, a watertight body results. Beds assembled by tool **4.01** show their band names in the lists: roof, bottom, then the names of the parameter layers. Bodies and plain surfaces live in one scene.
 
-![Two bed bodies, each coloured by its own content field; the boreholes stitch the stack.](images/viewer_bodies_grade.png){width=78%}
+![Two bed bodies, each coloured by its own grade band; boreholes pierce the stack.](images/viewer_bodies_grade.png){width=78%}
 
-## Colouring
+## The Vectors tab: boreholes and the section
 
-A bed body is coloured by its own parameter band: the **Bed parameter band** field, 3 by default (the content); the value 4 in the demo gives a mineral-type map, 0 returns the palette. A single-band surface carries no parameters - for it there is **Colour surfaces by attribute**: an external raster with a band selector, the classic case of "a kriged roof plus a kriged content grid". One scale per scene, a bar with the value range appears under the buttons; cells without data are grey.
+**Boreholes (points)**: pick a layer and check the numeric elevation fields, fields like h1…h6 are checked automatically. Every borehole is a vertical rod from the minimal elevation to the maximal one with a collar ball on a mast: the mast lifts the collar above the roof by two percent of the scene span, the borehole stays visible even where the rod goes inside an opaque body.
 
-## Boreholes
+**Borehole label field** adds text above the masts: fields like name and well are guessed automatically, "(none)" switches the labels off. The cap is 500 labels so that large well stocks do not turn the scene into a mess.
 
-Pick a point layer and check the numeric elevation fields - fields like h1...h6 are checked automatically. Each borehole is a vertical rod from the lowest elevation to the highest with a collar ball on a mast: the mast lifts the collar above the roof by two percent of the scene span, so a borehole stays visible even when the rod goes entirely inside an opaque body. Surface transparency helps to look inside.
+<!-- SCREENSHOT: viewer_well_labels.png | A scene with a bed body and boreholes: labels above the masts; the Vectors tab with the label field visible -->
 
-## Section plane
-
-The **Section plane (line)** field accepts any line layer. The most convenient input is the **Section definition** from tool 3.01: the ribbon takes the height range from its zmin and zmax fields. For an arbitrary line without these fields the ribbon stretches over the scene span with a margin. Polylines and multiple lines are supported, the bends follow the vertices.
+**Section plane (line)** accepts any line layer. The best input is the **Section definition** from tool 3.01: the ribbon takes the height range from its zmin and zmax fields. For an arbitrary line the ribbon stretches over the scene span with a margin. Polylines and multiple lines are supported, the bends are drawn by the vertices.
 
 ![Bed bodies, boreholes and the section plane in one scene: the block model stitched with the section.](images/viewer_ribbon_wells.png){width=78%}
 
-## Miscellaneous
+## Querying the scene by a click
 
-The **Top view** and **Side view** buttons set orthogonal views, **PNG snapshot…** saves a frame of the scene to a file - handy for reports and presentations.
+A click on a surface or a body (without dragging - the rotation is unaffected) queries the block model: a ray is cast from the camera through the cursor, the nearest intersection with the relief is found, and the status line prints the layer name, the point coordinates and the values of all the bands by name, plus the thickness for a bed. The hit is marked with a red ball until the next click or a scene rebuild.
 
-A **click on a surface** (without dragging) queries the block model: the status line shows the layer name, the point coordinates and the values of all the bands, plus the thickness for a bed; the hit is marked with a red ball. Works on bodies and surfaces alike.
+<!-- SCREENSHOT: viewer_pick.png | A click on a bed body: the red ball on the surface, the status line reads the full band readout -->
+
+## The rest
+
+**Top view** and **Side view** set orthogonal views, **PNG snapshot…** saves a frame of the scene to a file for reports and presentations. The Z spacing spreads the surfaces into a stack, the opacity helps to look inside the bodies.
 
 # Typical situations and solutions
 
@@ -1306,6 +1322,10 @@ A **click on a surface** (without dragging) queries the block model: the status 
 | Radial/fan lines in empty corners | Extrapolation beyond the data. | Enable **Clip to well hull** or set a clip mask. |
 | Isolines cross in dense areas | Formerly - a consequence of smoothing each line. | Smoothing is done over the field (in **2D Kriging**). Increase the grid-smoothing radius there. |
 | Polygons of one colour | By default the layer is created with a single symbol. | Set graduated symbology by ELEV_MIN. |
+
+# For enterprises
+
+Isoliner grows on the tasks of real mining operations. We implement custom features to match production regulations, provide guaranteed technical support contracts and integrate the module into the production cycle, including corporate database connections. Details: https://www.informpp.ru/главная-страница/предприятиям
 
 # License and support
 

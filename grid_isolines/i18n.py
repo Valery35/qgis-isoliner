@@ -1138,10 +1138,11 @@ TRANSLATIONS = {
 
     'Isoliner развивается на задачах реальных предприятий. '
     'Если вашему производству не хватает функции - напишите '
-    'нам: https://www.informpp.ru/':
+    'нам: https://www.informpp.ru/главная-страница/'
+    'предприятиям':
         'Isoliner grows on the tasks of real mining operations. '
         'If your production is missing a feature - contact us: '
-        'https://www.informpp.ru/',
+        'https://www.informpp.ru/главная-страница/предприятиям',
 
 
 

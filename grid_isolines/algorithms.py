@@ -553,7 +553,8 @@ def _help_version(text):
     text = "" if text is None else str(text)
     invite = _tr("Isoliner развивается на задачах реальных предприятий. "
                  "Если вашему производству не хватает функции - напишите "
-                 "нам: https://www.informpp.ru/")
+                 "нам: https://www.informpp.ru/главная-страница/"
+                 "предприятиям")
     tail = ("\n\nIsoliner v" + v) if v else ""
     return text + tail + "\n" + invite
 

@@ -7,7 +7,7 @@
 A Processing-provider plugin for interpolating point data and building isolines.
 The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-two in all:
 
-> Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [www.informpp.ru](https://www.informpp.ru/).
+> Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
 **Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) and include your QGIS version, what you did, and attach the data or project to reproduce it — that makes the bug easy to repeat and faster to fix.
 
@@ -269,6 +269,8 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.47.2** — the manual: the 3D viewer chapter rewritten for the current UI, a "For enterprises" section.
+- **2.47.1** — the help-footer invitation links to the "For enterprises" page.
 - **2.47.0** — 2.10: K, grid offsets, a densify factor and D_r2 - the fit quality per feature.
 - **2.46.1** — terminology: consistent count wording in the Russian parameter labels.
 - **2.46.0** — group 2 renumbered to 2.01-2.11: proper ordering in the toolbox.
