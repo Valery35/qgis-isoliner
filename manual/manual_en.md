@@ -564,7 +564,7 @@ Result fields:
 | dz | number | A value linearly related to the drift surface. Only when the drift-surface output is enabled. |
 
 
-# 2.1 Categorical indicator kriging
+# 2.01 Categorical indicator kriging
 
 The **Categorical indicator kriging** tool builds a probability map from a categorical field: mineral type, lithotype, any text class. Unlike ordinary kriging, which interpolates a number, here it estimates how likely each class is at every point of the area. This is what you need where the type matters rather than the magnitude: where to expect replacement, where the seam composition changes, where the boundary between varieties runs.
 
@@ -597,7 +597,7 @@ The categorical approach is convenient because it needs no boundary drawn in adv
 
 To learn the tool without real data, switch on **Add a categorical mineral-type field** in **Create sample wells (demo)**. A mintype field is added to the layer with a silvinite background and replacement spots after a mine, ready to run the tool on.
 
-# 2.2 External Drift Kriging
+# 2.02 External Drift Kriging
 
 The **External Drift Kriging** tool estimates a field from points when that field is systematically related to a quantity already known everywhere as a raster. Such a raster is called the drift. It can be the structural surface of an adjacent seam, a coarse regional model, a surface built on a sparse grid, or a seismic attribute. Ordinary kriging sees only the wells themselves, whereas here knowledge of the shape of the field between them is added, and the estimate leans on that shape where there are no wells.
 
@@ -663,7 +663,7 @@ As with trend removal, the variogram here is fitted on the regression residuals,
 
 A convenient way to fit the residual variogram without leaving the tool is not yet provided, so the residuals are judged by the share of variance removed, which the tool prints to the Log. If the drift took out a noticeable part of the spread, the relation with the external surface is real and the drift is appropriate. If it took out almost nothing, the field is not related to that raster, and plain **2D Kriging** will give the same result more simply.
 
-# 2.3 Exceedance probability map
+# 2.03 Exceedance probability map
 
 The **Exceedance probability map** tool answers not "how much" but "how likely the value exceeds a threshold". From the kriging estimate raster and its standard-error raster it builds a probability raster from 0 to 1: in each cell the probability that the true value is above a given threshold.
 
@@ -698,7 +698,7 @@ Cut-off grades: the threshold is the cut-off, and the map shows the probability 
 
 ![An exceedance probability map with a diverging colour ramp broken at 0.5. Red is where the value is confidently above the threshold, blue confidently below, and the white band along the P=0.5 line is the zone of uncertainty (contested values). The further from the wells, the wider the band.](images/prob_result.png){width=70%}
 
-# 2.4 Hydraulic gradient and flow direction
+# 2.04 Hydraulic gradient and flow direction
 
 The **Hydraulic gradient and flow direction** tool works with the head field, that is the piezometric surface, and shows where and how steeply groundwater flows. The input is a head raster, usually the result of **2D Kriging** on borehole water levels. For a hydrogeologist this is as natural a step after building the head surface as isolines are after kriging.
 
@@ -743,7 +743,7 @@ Fields of the flow-vector layer:
 
 To walk the whole path without real data, switch on **Add a head field** in **Create sample wells (demo)**. A head field with a pronounced regional slope is added to the layer. Build a grid from it in **2D Kriging**, feed the raster here, and the arrows follow the head downhill. The same end-to-end scenario as for the other tools, only about hydrogeology.
 
-# 2.5 Specific discharge (Darcy law)
+# 2.05 Specific discharge (Darcy law)
 
 The **Specific discharge** tool adds permeability to the flow geometry. The hydraulic gradient shows where and how steeply the head falls, but not how much water flows. Darcy's law links these through the aquifer properties: the higher the permeability and the steeper the gradient, the larger the flux. From a head raster and aquifer-property rasters the tool builds a physical flux rather than a dimensionless gradient.
 
@@ -781,7 +781,7 @@ The aquifer properties are known at the test points (pumping, injection) but are
 
 Where water moves faster and where slower, estimating inflows to workings, zones of higher seepage along permeable beds. Together with the exceedance probability map you can show not only the expected flux but also the confidence in it where test points are sparse.
 
-# 2.6 Gaussian simulation (SGS)
+# 2.06 Gaussian simulation (SGS)
 
 Kriging gives a single smoothed surface and an estimation variance. Sequential Gaussian simulation answers a different question - how large is the uncertainty. It builds an ensemble of equally probable realizations: each one reproduces the data histogram and variogram, passes through the boreholes and therefore stays rough rather than smoothed. Across the realizations every node accumulates a distribution of values, which shows where the estimate is reliable and where the data are silent.
 
@@ -809,7 +809,7 @@ How it works. The values are mapped to normal scores and the simulation runs in 
 
 The outputs are ensemble rasters. **Mean (E-type)** resembles kriging. **Standard deviation** shows the uncertainty, small at the boreholes and large away from them. The **P10**, **P50**, **P90** quantiles outline the likely range, and **Exceedance probability** for a given threshold offers a non-parametric alternative to the map from the probability tool. Runtime grows with grid size and the number of realizations, so start with a coarse cell.
 
-# 2.7 Fractal dimension
+# 2.07 Fractal dimension
 
 The tool computes a fractal-dimension map of a surface by the variogram method, native to the plugin: a log-log variogram over lags of one to N cells is built in a sliding window, its slope gives the Hurst exponent H, and the dimension D = 3 - H. Smooth differentiable areas give D near 2, rugged and noisy ones tend to 3; the values themselves matter less than their steps - they highlight zones of tectonic disturbance, block boundaries and changes of the roof relief character.
 
@@ -838,7 +838,7 @@ A bed roof from kriging → **2.7** with a window of 8 → the D grid → **1.2 
 | Write H (Adv.) | Add H as band 2. | off |
 | Fractal dimension | A D grid (and H if checked). | - |
 
-# 2.8 Mask box-counting
+# 2.08 Mask box-counting
 
 Classic box-counting for binary masks: the raster is binarised by a threshold (the object - values above it), the mask is covered by cells of a decreasing size, the slope of log N versus log(1/size) gives one dimension D for the whole mask. A linear object gives D near 1, a blob - near 2, rugged outlines of replacement zones or mined-out areas fall in between. The accuracy on finite masks is about ±0.1, so the method is good for comparing masks with each other rather than as an absolute measure. The result is printed to the log with a table of sizes and counts and returned as the number D - usable further in Processing models.
 
@@ -852,9 +852,9 @@ The mineral-type band of a bed grid with a threshold between the class codes; an
 | Threshold | The object/background boundary. | 0.5 |
 | Band (Adv.) | The raster band. | 1 |
 
-# 2.9 Line dimension
+# 2.09 Line and boundary dimension
 
-The dimension of every line by the divider (Richardson) method: the line is walked with chords of a decreasing span, the slope of log N versus log r gives D. A straight line gives one, a rugged line - more. The output is the same lines with the D and steps fields, the mean D is printed to the log; short lines get an empty D. The method is checked on references: the Koch curve gives 1.262 against the theoretical 1.2619.
+The dimension of every line by the divider (Richardson) method: the line is walked with chords of a decreasing span, the slope of log N versus log r gives D. A straight line gives one, a rugged line - more. Polygons are accepted alongside lines - the exterior ring of the boundary is measured, so the ruggedness of zone and basin outlines is computed without a prior conversion. The output is the same features with the D and steps fields, the mean D is printed to the log; short lines get an empty D. The method is checked on references: the Koch curve gives 1.262 against the theoretical 1.2619.
 
 ## An isoline-smoothing diagnostic
 
@@ -869,6 +869,28 @@ The ruggedness of zone outlines in plan, comparing the digitising detail of boun
 | Lines | A line layer (isolines, outlines). | - |
 | Lines with the dimension | The same lines with the D and steps fields. | - |
 
+# 2.10 Minkowski dimension (vectors)
+
+Box-counting directly over vectors, no rasterisation: lines and polygon boundaries are covered by a grid of a decreasing size, the slope of log N versus log(1/size) gives the Minkowski dimension. A straight line and a smooth boundary give D near one, a river network - 1.1-1.5, a heavily rugged coastline - up to 1.3 and above. Every feature gets the D_mink and D_r2 fields (the log-log fit quality: below 0.85 the estimate cannot be trusted), and separately the D of the layer as one set is computed and printed to the log: for a river network that is the dimension of the network as a whole, regularly higher than that of the individual branches.
+
+The method complements the divider of 2.09: the divider measures the sinuosity of one line, Minkowski - the plane filling by a set of features. The dimension is also returned as a number output for Processing models.
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Lines or polygons | A vector layer; for polygons the boundary rings are taken. | - |
+| Number of grid sizes, K (Adv.) | Ladder steps; a too large K takes the cells below the line detail and lowers D. | 8 |
+| Grid offsets per size (Adv.) | Random shifts, the minimal cover is taken - removes the grid alignment. | 3 |
+| Densify factor (Adv.) | The sampling step along segments as a cell fraction; 0 - vertices only. | 0.5 |
+
+# 2.11 Create a fractal example (demo)
+
+A generator of study features for the whole fractal five: a branching river network with an order field (the tributary order), a basin polygon with a rugged boundary and a separate coastline built by midpoint displacements. Feed the rivers into 2.10 - you get the network dimension; the coast and the basin boundary - into 2.09 and 2.10 and compare the divider with Minkowski; rasterise the basin with the standard tool - and it doubles as an example for 2.08.
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Extent | The generation area. | - |
+| Seed (Adv.) | The example repeatability. | 1 |
+
 # Kriging kinds: which one to pick
 
 Behind the word "kriging" the plugin hosts a family of methods, and the choice between them affects the result more than fine-tuning the variogram. All the kinds solve the same system of equations with covariances from the variogram; they differ in what is assumed known about the field mean and in what exactly is estimated - a point, a block or a probability. This chapter is a navigator; the parameters of each tool live in their own chapters.
@@ -879,13 +901,13 @@ Behind the word "kriging" the plugin hosts a family of methods, and the choice b
 
 **Kriging with a trend** (the detrend checkbox in **2D Kriging**) is for fields with a regular regional slope: a roof on a monocline, a fold limb. A 1st- or 2nd-degree polynomial is removed by least squares, the residuals are kriged, the trend is added back. Two rules: define the variogram over the residuals (the plugin prints the share of the removed variance - if it is small, the trend is not needed), and do not extrapolate a quadratic trend far beyond the well cloud.
 
-**Kriging with an external drift** (chapter 2.2) - when the trend is known not as a formula but as a field: a structural surface of a neighbouring bed, a regional model, a seismic attribute. The scheme is the same - a regression on the drift, kriging of the residuals, the regression returned.
+**Kriging with an external drift** (chapter 2.02) - when the trend is known not as a formula but as a field: a structural surface of a neighbouring bed, a regional model, a seismic attribute. The scheme is the same - a regression on the drift, kriging of the residuals, the regression returned.
 
 **Block kriging** (the discretisation parameter in **2D Kriging**) estimates the mean over a block rather than a point value: the right-hand side of the system is averaged over the discretisation, the error variance drops, outliers are damped. Take it for reserves over a block grid and mind the support effect: a block-kriging grid is regularly smoother than a point one, a sample grade and a block grade cannot be compared directly.
 
-**Indicator kriging** (chapter 2.1) is for categories: mineral type, facies, a replacement zone. The category becomes a 0/1 indicator, it is kriged with plain OK, the result is the class probability at a point; domains are cut from it by a threshold. The indicator variogram is its own and usually shorter than the grade one.
+**Indicator kriging** (chapter 2.01) is for categories: mineral type, facies, a replacement zone. The category becomes a 0/1 indicator, it is kriged with plain OK, the result is the class probability at a point; domains are cut from it by a threshold. The indicator variogram is its own and usually shorter than the grade one.
 
-**Gaussian simulation** (chapter 2.6) is not kriging but its complement: instead of one smooth surface, an ensemble of equally probable rough realisations from which the uncertainty is seen directly.
+**Gaussian simulation** (chapter 2.06) is not kriging but its complement: instead of one smooth surface, an ensemble of equally probable rough realisations from which the uncertainty is seen directly.
 
 ## Cheat sheet
 
@@ -894,10 +916,10 @@ Behind the word "kriging" the plugin hosts a family of methods, and the choice b
 | The universal case, the start of any task | Ordinary (OK) | 2D Kriging, the default type |
 | Plenty of data, the domain mean is justified | Simple (SK) | 2D Kriging, the SK type + mean |
 | A roof or a bottom with a regional slope | With a trend | 2D Kriging, detrend |
-| The trend is known as a raster | With an external drift | chapter 2.2 |
+| The trend is known as a raster | With an external drift | chapter 2.02 |
 | Reserves over a block grid | Block | 2D Kriging, discretisation |
-| Mineral type, replacement, categories | Indicator | chapter 2.1 |
-| Uncertainty assessment | SGS simulation | chapter 2.6 |
+| Mineral type, replacement, categories | Indicator | chapter 2.01 |
+| Uncertainty assessment | SGS simulation | chapter 2.06 |
 
 The search neighbourhood is common to all the kinds, and three rules remove most problems: the radius of the order of the variogram range, 12-16 neighbours at most, the neighbourhood anisotropy consistent with the variogram anisotropy from the variogram map.
 
@@ -1202,7 +1224,7 @@ The result is twofold: a bed grid with the appended bands "thickness" and "ore, 
 | Parameter | What it sets | Default / advice |
 |---|---|---|
 | Bed grid | A multiband grid by the convention. | - |
-| Content band | The band with the content; 0 - compute without metal. | 3 |
+| Content band | The band with the content; empty - compute without metal. | 3 |
 | Ore density | t/m³ to convert the volume into tonnage. | 2.1 |
 | Reserve contour | Polygons of a block or a domain, optional. | empty |
 | Bed grid with thickness and reserves | The output grid with two new bands. | - |

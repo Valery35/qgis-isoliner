@@ -92,8 +92,8 @@ TRANSLATIONS = {
     '1.4 Вариограммная карта (анизотропия)': '1.4 Variogram map (anisotropy)',
     'Тип кригинга': 'Kriging type',
     'Радиус поиска (0 = вся выборка)': 'Search radius (0 = whole sample)',
-    'Мин. число точек': 'Min. number of points',
-    'Макс. число точек': 'Max. number of points',
+    'Мин. количество точек': 'Min. number of points',
+    'Макс. количество точек': 'Max. number of points',
     'Охват растра (по умолчанию - по слою)': 'Raster extent (default - by layer)',
     'Обрезать по контуру скважин (выпуклая оболочка)': 'Clip to well hull (convex hull)',
     'Буфер оболочки, ед. карты': 'Hull buffer, map units',
@@ -115,7 +115,7 @@ TRANSLATIONS = {
     'Создаёт точечный слой «скважин» со случайными координатами в пределах области и значением абстрактного компонента (X, %), имеющим пространственную структуру. Предназначен для обучения и проверки инструментов без реальных данных.\n\nОбласть задаётся экстентом (можно по слою, по холсту карты, вручную координатами или рисованием). «Гладкость» задаёт радиус корреляции как долю охвата (больше - крупнее «пятна»). «Доля наггета» задаёт долю дисперсии, приходящуюся на короткомасштабный шум (чем больше, тем меньше предсказуемость). В Журнал выводится стартовая вариограмма - её уточняют кросс-валидацией.\n\nПоля результата: номер скважины, абсолютная отметка кровли (roof), мощность (thick) и содержание X. Диапазоны кровли и мощности по умолчанию близки к реальным калийным данным; их можно изменить в разделе «Дополнительно».\n\nНеобязательные галки добавляют поля для смежных инструментов: напор (head) для градиента потока и категориальный минтип для индикаторного кригинга. Галка K и T добавляет напор и лог-нормальные поля K (коэф. фильтрации) и T = K·мощность для «Удельного расхода (Дарси)». Включённый вывод «Поверхность дрейфа» даёт растр сторонней поверхности и поле dz, линейно с ней связанное, для кригинга с внешним дрейфом.': 'Creates a point "wells" layer with random coordinates within an area and a value of an abstract component (X, %), with a spatial structure. Intended for learning and testing the tools without real data.\n\nThe area is set by an extent (by layer, by map canvas, manually by coordinates or by drawing). "Smoothness" sets the correlation range as a fraction of the extent (larger - bigger "patches"). "Nugget fraction" sets the share of variance due to short-range noise (larger - less predictable). The Log prints the starting variogram - refine it with cross-validation.\n\nResult fields: well number, absolute roof elevation (roof), thickness (thick) and grade X. The default roof and thickness ranges are close to real potash data; you can change them under "Advanced".\n\nOptional checkboxes add fields for the neighbouring tools: head for the flow gradient and a categorical mineral type for indicator kriging. The K and T checkbox adds head and log-normal K (conductivity) and T = K·thickness fields for the \'Specific discharge (Darcy law)\' tool. Enabling the "Drift surface" output gives a raster of a secondary surface and a dz field linearly related to it, for external drift kriging.',
     'Доля наггета (от дисперсии)': 'Nugget fraction (of variance)',
     'Зерно ГСЧ (0 = случайно)': 'RNG seed (0 = random)',
-    'Строит изотропную экспериментальную полувариограмму по точкам: облако пар усредняется по интервалам расстояния (лагам). Помогает увидеть структуру данных и подобрать вариограмму глазом, а не угадывать наггет/радиус.\n\nПоле группировки (необязательно): для каждого значения поля строится своя кривая - удобно сравнить совокупности разной плотности (поверхностная и подземная разведка) и проверить, общая ли у них структура.\n\nПодбор модели (по умолчанию) даёт наггет C0, вклад C, радиус a и модель. Сохраните их в профиль (поле «Сохранить профиль под именем») и подставьте в «2D Kriging». Можно наложить уже заданную модель, чтобы сравнить её с облаком.\n\nHTML-отчёт открывается в просмотрщике результатов: точки по лагам, модель и подобранная кривая, линия дисперсии данных. Слой-таблица (опц.) содержит лаг, γ(h) и число пар для построения в QGIS.': 'Builds an isotropic experimental semivariogram from points: the pair cloud is averaged over distance intervals (lags). Helps reveal the structure of the data and set the variogram by eye, instead of guessing the nugget/range.\n\nGrouping field (optional): a separate curve is built for each field value - handy to compare populations of different density (surface vs underground survey) and check whether they share a structure.\n\nModel fitting (default) gives nugget C0, contribution C, range a and the model. Save them to a profile (the "Save profile as" field) and apply them in "2D Kriging". You can overlay an already-set model to compare it with the cloud.\n\nThe HTML report opens in the result viewer: points by lag, the model and the fitted curve, the data-variance line. The table layer (opt.) holds lag, γ(h) and the number of pairs for plotting in QGIS.',
+    'Строит изотропную экспериментальную полувариограмму по точкам: облако пар усредняется по интервалам расстояния (лагам). Помогает увидеть структуру данных и подобрать вариограмму глазом, а не угадывать наггет/радиус.\n\nПоле группировки (необязательно): для каждого значения поля строится своя кривая - удобно сравнить совокупности разной плотности (поверхностная и подземная разведка) и проверить, общая ли у них структура.\n\nПодбор модели (по умолчанию) даёт наггет C0, вклад C, радиус a и модель. Сохраните их в профиль (поле «Сохранить профиль под именем») и подставьте в «2D Kriging». Можно наложить уже заданную модель, чтобы сравнить её с облаком.\n\nHTML-отчёт открывается в просмотрщике результатов: точки по лагам, модель и подобранная кривая, линия дисперсии данных. Слой-таблица (опц.) содержит лаг, γ(h) и количество пар для построения в QGIS.': 'Builds an isotropic experimental semivariogram from points: the pair cloud is averaged over distance intervals (lags). Helps reveal the structure of the data and set the variogram by eye, instead of guessing the nugget/range.\n\nGrouping field (optional): a separate curve is built for each field value - handy to compare populations of different density (surface vs underground survey) and check whether they share a structure.\n\nModel fitting (default) gives nugget C0, contribution C, range a and the model. Save them to a profile (the "Save profile as" field) and apply them in "2D Kriging". You can overlay an already-set model to compare it with the cloud.\n\nThe HTML report opens in the result viewer: points by lag, the model and the fitted curve, the data-variance line. The table layer (opt.) holds lag, γ(h) and the number of pairs for plotting in QGIS.',
     'Управление профилями обработки. Профиль - это именованный набор «вариограмма (Структура 1: наггет, тип, порог, радиус, азимут, оси) + отсев ураганных проб». Профили сохраняют «Вариограмма» и «Кросс-валидация», а подставляет «2D Kriging».\n\nДействие: Показать список (в Журнал), Сохранить вручную (по полям в «Дополнительно»), Удалить выбранный, Очистить все.\n\nСписки профилей в выпадающих полях обновляются при открытии окна: сохранили профиль - переоткройте инструмент, чтобы он появился.': 'Manage processing profiles. A profile is a named set of "variogram (Structure 1: nugget, type, sill, range, azimuth, axes) + outlier removal". Profiles are saved by "Variogram" and "Cross-validation", and applied by "2D Kriging".\n\nAction: Show list (to the Log), Save manually (from the fields under "Advanced"), Delete selected, Clear all.\n\nProfile drop-down lists refresh when the window opens: after saving a profile, reopen the tool so it appears.',
     'Среднее для простого кригинга': 'Mean for simple kriging',
     'Наггет C0': 'Nugget C0',
@@ -141,7 +141,7 @@ TRANSLATIONS = {
     'Оценивает СРЕДНЕЕ по ячейке грида, а не значение в её центре: каждая ячейка разбивается на N×N точек дискретизации, ковариации усредняются по блоку. Поверхность глаже, стандартная ошибка ниже точечной - подходит для оценки запасов и содержаний по блоку. Пробы при этом не воспроизводятся точно (среднее блока ≠ значение в точке). Выключено - обычный точечный кригинг.': 'Estimates the AVERAGE over the grid cell rather than the value at its centre: each cell is split into N×N discretization points and the covariances are averaged over the block. The surface is smoother and the standard error is lower than for point kriging - suitable for estimating reserves and grades over a block. Samples are then not reproduced exactly (the block average ≠ the value at a point). Off - ordinary point kriging.',
     'Сколько точек на сторону ячейки берётся для усреднения по блоку (всего N×N). 4×4 достаточно почти всегда; больше - точнее, но медленнее. Действует только при включённом блочном кригинге.': 'How many points per cell side are used to average over the block (N×N in total). 4×4 is almost always enough; more is more accurate but slower. Active only when block kriging is on.',
     'Блочный кригинг: дискретизация %d×%d на ячейку. Оценка - среднее по блоку, стандартная ошибка блочная (ниже точечной). Значения в узлах-пробах точно не воспроизводятся.': 'Block kriging: %d×%d discretization per cell. The estimate is the block average, the standard error is the block error (lower than point). Values at sample nodes are not reproduced exactly.',
-    '2.3 Гидравлический градиент и направление потока': '2.3 Hydraulic gradient and flow direction',
+    '2.03 Гидравлический градиент и направление потока': '2.03 Hydraulic gradient and flow direction',
     'Добавить поле напора (для градиента потока)': 'Add a head field (for flow gradient)',
     'Поле напора (head): региональный уклон + локальная вариация. Кригуйте head, затем подайте растр в «Гидравлический градиент и направление потока».': 'Head field (head): a regional slope plus local variation. Krige head, then feed the raster to "Hydraulic gradient and flow direction".',
     'Растр напора': 'Head raster',
@@ -184,7 +184,7 @@ TRANSLATIONS = {
     'Количество лагов': 'Number of lags',
     'Максимальное расстояние, в единицах слоя (0 = пол-диагонали)': 'Maximum distance, in layer units (0 = half-diagonal)',
     'Подобрать модель (рекомендация)': 'Fit model (recommendation)',
-    'Таблица вариограммы (лаг, γ, число пар)': 'Variogram table (lag, γ, number of pairs)',
+    'Таблица вариограммы (лаг, γ, количество пар)': 'Variogram table (lag, γ, number of pairs)',
     'Отчёт (HTML)': 'Report (HTML)',
     'Действие': 'Action',
     'Имя профиля (для «Сохранить вручную»)': 'Profile name (for "Save manually")',
@@ -208,7 +208,7 @@ TRANSLATIONS = {
     'Отсев: нижняя граница (пусто = нет)': 'Outliers: lower bound (empty = none)',
     'Отсев: верхняя граница (пусто = нет)': 'Outliers: upper bound (empty = none)',
     'Отсев: срезать к границе вместо удаления': 'Outliers: cap to bound instead of removing',
-    'Мин. число пар в ячейке': 'Min. number of pairs per cell',
+    'Мин. количество пар в ячейке': 'Min. number of pairs per cell',
     'модель': 'model',
     'радиус корреляции a (0=авто)': 'correlation range a (0=auto)',
     'азимут, °': 'azimuth, °',
@@ -253,7 +253,7 @@ TRANSLATIONS = {
     'Дисперсия (силл)': 'Variance (sill)',
     'лаг по северу h_y': 'north lag h_y',
     'Радиус главной оси': 'Major-axis range',
-    '2.1 Категориальный индикаторный кригинг': '2.1 Categorical indicator kriging',
+    '2.01 Категориальный индикаторный кригинг': '2.01 Categorical indicator kriging',
     'Вероятности минтипа': 'Mineral-type probabilities',
     'Вероятности по классам (многополосный)': 'Class probabilities (multiband)',
     'Добавить категориальное поле минтипа (демо замещения)': 'Add a categorical mineral-type field (replacement demo)',
@@ -307,7 +307,7 @@ TRANSLATIONS = {
     'Анизотропия: азимут главной оси %.0f° (геогр.), коэффициент %.2f (малая/главная), радиус главной оси %.4g.': 'Anisotropy: major-axis azimuth %.0f° (geographic), ratio %.2f (minor/major), major-axis range %.4g.',
     'В «2D Kriging» подставьте азимут=%.0f и анизотропию≈%.2f (как ориентир); радиус a задайте больше %.4g по смыслу данных.': 'In "2D Kriging" use azimuth=%.0f and anisotropy≈%.2f (as a guide); set range a larger than %.4g per the data.',
     'Если γ не выходит на полку даже при широком окне - в данных тренд: его убирают до интерполяции либо учитывают видом кригинга.': 'If γ does not reach a plateau even in a wide window - the data has a trend: remove it before interpolation or account for it with the kriging type.',
-    'Анизотропия не выражена (структура близка к изотропной или радиус меньше ячейки). Можно уменьшить макс. лаг или увеличить число бинов.': 'Anisotropy not expressed (the structure is near-isotropic or the range is smaller than a cell). You can reduce the max lag or increase the number of bins.',
+    'Анизотропия не выражена (структура близка к изотропной или радиус меньше ячейки). Можно уменьшить макс. лаг или увеличить количество бинов.': 'Anisotropy not expressed (the structure is near-isotropic or the range is smaller than a cell). You can reduce the max lag or increase the number of bins.',
     'В «2D Kriging» задайте азимут=%.0f и анизотропию≈%.2f как ориентир, радиус a возьмите больше %.4g по смыслу данных. Чтобы измерить радиус - увеличьте «Макс. лаг».': 'In "2D Kriging" set azimuth=%.0f and anisotropy≈%.2f as a guide, and take range a larger than %.4g per the data. To measure the range - increase "Max. lag".',
     'Радиус главной оси упёрся в макс. лаг (%.4g): вдоль простирания вариограмма на полку не вышла - радиус считайте нижней оценкой, а анизотропию (%.2f) - заниженной по выраженности.': 'The major-axis range is capped at the max lag (%.4g): along the strike the variogram did not reach a plateau - treat the range as a lower bound and the anisotropy (%.2f) as understated.',
     'Радиус главной оси упёрся в макс. лаг (%.4g): вдоль простирания вариограмма на полку не вышла. Радиус - нижняя оценка, анизотропия (%.2f) занижена по выраженности. Увеличьте «Макс. лаг», либо это признак тренда / очень сильной непрерывности.': 'The major-axis range is capped at the max lag (%.4g): along the strike the variogram did not reach a plateau. The range is a lower bound and the anisotropy (%.2f) is understated. Increase "Max. lag", or this signals a trend / very strong continuity.',
@@ -446,7 +446,7 @@ TRANSLATIONS = {
     'Точек много - для расчёта пар использована случайная подвыборка %d точек.': 'Many points - a random subsample of %d points was used for pair computation.',
     'Точек оценено': 'Points estimated',
     'Точек оценено: %d из %d': 'Points estimated: %d of %d',
-    'Точек экспериментальной вариограммы мало для подбора. Увеличьте число лагов или максимальное расстояние.': 'Too few experimental variogram points to fit. Increase the number of lags or the maximum distance.',
+    'Точек экспериментальной вариограммы мало для подбора. Увеличьте количество лагов или максимальное расстояние.': 'Too few experimental variogram points to fit. Increase the number of lags or the maximum distance.',
     'Точек: %d. Дисперсия данных: %.4g (ориентир для суммарного порога).': 'Points: %d. Data variance: %.4g (a guide for the total sill).',
     'Удалены все профили (%d).': 'All profiles deleted (%d).',
     'Ураганные пробы: срезано %d значений к [%.4g; %.4g].': 'Outliers: %d values capped to [%.4g; %.4g].',
@@ -487,8 +487,8 @@ TRANSLATIONS = {
     'факт': 'actual',
 
     # --- Кригинг с внешним дрейфом (External Drift) ---
-    '2.2 Кригинг с внешним дрейфом (External Drift)':
-        '2.2 External Drift Kriging',
+    '2.02 Кригинг с внешним дрейфом (External Drift)':
+        '2.02 External Drift Kriging',
     'Растр внешнего дрейфа (известен всюду)':
         'External drift raster (known everywhere)',
     'Канал растра дрейфа': 'Drift raster band',
@@ -583,7 +583,7 @@ TRANSLATIONS = {
         'Enable this output to get a pair for external drift kriging: a raster of a smooth secondary surface s (known everywhere) and a wells dz field linearly related to it. Run External Drift Kriging on dz with this raster as the drift. If the output is skipped, the dz field is not added. Off by default.',
     '1. Грид и изолинии': '1. Grid and isolines',
     '2. Дополнительные инструменты': '2. Additional tools',
-    '2.4 Карта вероятности превышения': '2.4 Exceedance probability map',
+    '2.04 Карта вероятности превышения': '2.04 Exceedance probability map',
     'P(<%.4g)': 'P(<%.4g)',
     'P(>%.4g)': 'P(>%.4g)',
     'Вероятность %s · %s': 'Probability %s · %s',
@@ -606,7 +606,7 @@ TRANSLATIONS = {
     'выше порога: P(Z > порог)': 'above the threshold: P(Z > threshold)',
     'ниже': 'below',
     'ниже порога: P(Z < порог)': 'below the threshold: P(Z < threshold)',
-    '2.5 Удельный расход (закон Дарси)': '2.5 Specific discharge (Darcy law)',
+    '2.05 Удельный расход (закон Дарси)': '2.05 Specific discharge (Darcy law)',
     'Векторов потока: %d (шаг %d яч.). Поворот по «az», размер по удельному расходу.': 'Flow vectors: %d (step %d cells). Rotated by "az", sized by the specific discharge.',
     'Задайте хотя бы один растр свойства: K или T.': 'Provide at least one property raster: K or T.',
     'Канал напора': 'Head band',
@@ -626,8 +626,8 @@ TRANSLATIONS = {
     'Удельный расход подземного потока по закону Дарси. К геометрии потока (градиент напора и направление) добавляет свойства пласта, переводя безразмерный градиент в физический поток.\n\nВходы: растр напора и хотя бы один из растров свойств - коэффициент фильтрации K или водопроводимость T. Выходы: скорость фильтрации q = K·|∇h| (м/сут) и расход через единицу ширины потока Q = T·|∇h| (м²/сут), плюс направление и стрелки.\n\nКак получить K и T: кригуйте их по точкам испытаний. K и T обычно лог-нормальны (разброс на порядки), поэтому кригуйте ln(K) и ln(T), а тут включите «Растры заданы как ln». Истинная скорость воды v = q/n требует пористости и здесь не считается. Напорные и безнапорные пласты разумно криговать раздельно. Растры должны быть в одной системе координат.': 'Specific groundwater discharge by Darcy\'s law. To the flow geometry (head gradient and direction) it adds the aquifer properties, turning the dimensionless gradient into a physical flux.\n\nInputs: a head raster and at least one property raster - hydraulic conductivity K or transmissivity T. Outputs: specific discharge q = K·|∇h| (m/day) and flow per unit width Q = T·|∇h| (m²/day), plus direction and arrows.\n\nHow to get K and T: krige them from test points. K and T are usually log-normal (orders-of-magnitude spread), so krige ln(K) and ln(T) and tick \"rasters are given as ln\" here. The true water velocity v = q/n needs porosity and is not computed here. Confined and unconfined aquifers are best kriged separately. The rasters must share one coordinate system.',
     'Добавить поля K и T и напор (для удельного расхода)': 'Add K and T fields and head (for the specific discharge)',
     'Поля K и T (демо): K лог-нормально (K ≈ %.4g…%.4g м/сут), T = K·мощность. Для удельного расхода создайте калькулятором поля ln(K) и ln(T), кригуйте их, а при подаче в «Удельный расход (Дарси)» включите галку «Растры заданы как ln». Напор (head) кригуйте как обычно.': 'K and T fields (demo): K is log-normal (K ≈ %.4g…%.4g m/day), T = K·thickness. For the specific discharge, build ln(K) and ln(T) fields with the field calculator, krige them, and when feeding "Specific discharge (Darcy law)" tick "rasters are given as ln". Krige head as usual.',
-    '2.3 Карта вероятности превышения': '2.3 Exceedance probability map',
-    '2.4 Гидравлический градиент и направление потока': '2.4 Hydraulic gradient and flow direction',
+    '2.03 Карта вероятности превышения': '2.03 Exceedance probability map',
+    '2.04 Гидравлический градиент и направление потока': '2.04 Hydraulic gradient and flow direction',
     'ln (для лог-нормальных, напр. K, T)': 'ln (for log-normal, e.g. K, T)',
     'нет': 'none',
     'Преобразование значения': 'Value transform',
@@ -635,7 +635,7 @@ TRANSLATIONS = {
     'Логарифм: положительных значений недостаточно для кригинга.': 'Logarithm: not enough positive values for kriging.',
     'Логарифмирование включено: кригуется ln(Z), оценка возвращается через exp (медиана). Вариограмму, наггет и среднее простого кригинга задавайте в единицах ln. Стандартная ошибка пересчитывается в исходные единицы дельта-методом.': 'Logarithm enabled: ln(Z) is kriged and the estimate is returned via exp (median). Set the variogram, nugget and simple-kriging mean in ln units. The standard error is converted back to the original units by the delta method.',
     'Логарифмирование перед кригингом для величин с разбросом на порядки (коэффициент фильтрации, водопроводимость, содержания с длинным правым хвостом). Кригуется ln(Z), оценка возвращается через exp - это медианная (геометрическая) оценка. Стандартная ошибка пересчитывается в исходные единицы дельта-методом. Значения должны быть положительными. Избавляет от ручного создания поля ln(Z). Вариограмму и наггет при этом задавайте в единицах ln.': 'Log-transform before kriging for quantities spanning orders of magnitude (hydraulic conductivity, transmissivity, grades with a long right tail). ln(Z) is kriged and the estimate is returned via exp, which is the median (geometric) estimate. The standard error is converted back to the original units by the delta method. Values must be positive. It removes the need to build an ln(Z) field by hand. Set the variogram and nugget in ln units.',
-    '2.6 Разрез по линии': '2.6 Cross-section along a line',
+    '2.06 Разрез по линии': '2.06 Cross-section along a line',
     'В слое несколько линий, разрез построен по первой.': 'The layer has several lines; the section was built along the first.',
     'В слое нет линии.': 'The layer has no line.',
     'Вертикальное преувеличение (для чертежа)': 'Vertical exaggeration (for the drawing)',
@@ -801,14 +801,14 @@ TRANSLATIONS = {
     '3.7 Развёртка стенки ствола (бета)': '3.7 Unwrap a shaft wall (beta)',
     'Масштаб взят из определения разреза: vex = %.4g.': 'Scale taken from the section definition: vex = %.4g.',
     'Определение разреза (для общего масштаба, опционально)': 'Section definition (for a shared scale, optional)',
-    '2.6 Гауссова симуляция (SGS)': '2.6 Gaussian simulation (SGS)',
+    '2.06 Гауссова симуляция (SGS)': '2.06 Gaussian simulation (SGS)',
     'SGS P10': 'SGS P10',
     'SGS P90': 'SGS P90',
     'SGS вероятность превышения': 'SGS exceedance probability',
     'SGS медиана P50': 'SGS median P50',
     'SGS среднее (E-type)': 'SGS mean (E-type)',
     'SGS стандартное отклонение': 'SGS standard deviation',
-    'Ансамбль крупный (>400 МБ в памяти). Уменьшите число реализаций или огрубите ячейку, если не хватит памяти.': 'The ensemble is large (>400 MB in memory). Reduce the number of realizations or coarsen the cell if you run out of memory.',
+    'Ансамбль крупный (>400 МБ в памяти). Уменьшите количество реализаций или огрубите ячейку, если не хватит памяти.': 'The ensemble is large (>400 MB in memory). Reduce the number of realizations or coarsen the cell if you run out of memory.',
     'Вариограмма баллов: %s, наггет %.3f, порог %.3f, радиус %.4g (R2=%.2f).': 'Score variogram: %s, nugget %.3f, sill %.3f, range %.4g (R2=%.2f).',
     'Вероятность ВЫШЕ порога (иначе ниже)': 'Probability ABOVE the threshold (otherwise below)',
     'Вероятность превышения порога': 'Exceedance probability',
@@ -816,7 +816,7 @@ TRANSLATIONS = {
     'Зерно ГСЧ (0 = случайное)': 'RNG seed (0 = random)',
     'Квантиль P10': 'P10 quantile',
     'Квантиль P90': 'P90 quantile',
-    'Макс. число соседей на узел': 'Max neighbours per node',
+    'Макс. количество соседей на узел': 'Max neighbours per node',
     'Медиана P50': 'Median P50',
     'Модель вариограммы баллов': 'Score variogram model',
     'Не удалось подобрать вариограмму нормальных баллов (мало точек или нет структуры).': 'Could not fit a normal-score variogram (too few points or no structure).',
@@ -849,7 +849,7 @@ TRANSLATIONS = {
     'масштаб даёт вертикальное преувеличение, смещение разносит горизонты '
     'по высоте. Разнос по Z сдвигает каждый следующий грид на шаг вниз, '
     'превращая слипшуюся стопку в читаемую этажерку. Прореживание '
-    'уменьшает число узлов на крупных гридах.\n\n'
+    'уменьшает количество узлов на крупных гридах.\n\n'
     'Слои загружаются в проект и получают 3D-отображение автоматически. '
     'Если сцена уже открыта, включите новые слои в её списке. Ячейки без '
     'данных пропускаются.':
@@ -962,7 +962,7 @@ TRANSLATIONS = {
         'with a negative thickness (crossing surfaces) are zeroed and '
         'counted separately.',
     'Грид пласта (канал 1 кровля, канал 2 подошва)': 'Bed grid (band 1 roof, band 2 bottom)',
-    'Канал содержания (0 - без содержания)': 'Content band (0 - no content)',
+    'Канал содержания (пусто - без содержания)': 'Content band (empty - no content)',
     'Плотность руды, т/м³': 'Ore density, t/m³',
     'Контур подсчёта (полигоны, необязательно)': 'Reserve contour (polygons, optional)',
     'Грид пласта с мощностью и запасами': 'Bed grid with thickness and reserves',
@@ -1002,7 +1002,7 @@ TRANSLATIONS = {
     'Блочная модель (центроиды)': 'Block model (centroids)',
     'Блочная модель: %s': 'Block model: %s',
     'Блоков выгружено: %d.': 'Blocks exported: %d.',
-    '2.7 Фрактальная размерность': '2.7 Fractal dimension',
+    '2.07 Фрактальная размерность': '2.07 Fractal dimension',
     'Считает карту фрактальной размерности поверхности '
     'вариограммным методом: в скользящем окне строится лог-лог '
     'вариограмма по лагам 1..N ячеек, её наклон даёт показатель '
@@ -1031,13 +1031,13 @@ TRANSLATIONS = {
     'Поверхность (растр)': 'Surface (raster)',
     'Канал высот': 'Elevation band',
     'Полурадиус окна, ячеек': 'Window half-radius, cells',
-    'Число лагов вариограммы': 'Number of variogram lags',
+    'Количество лагов вариограммы': 'Number of variogram lags',
     'Фрактальная размерность (D)': 'Fractal dimension (D)',
     'Записать H вторым каналом': 'Write H as band 2',
     'Изолинии по карте D: «1.2 Изолинии из растра», канал 1.': 'Isolines over the D map: "1.2 Isolines from a raster", band 1.',
     'Окно или лаги велики для этого грида.': 'The window or the lags are too large for this grid.',
     'Глобально: D = %.3f, H = %.3f.': 'Globally: D = %.3f, H = %.3f.',
-    '2.8 Box-counting маски': '2.8 Mask box-counting',
+    '2.08 Box-counting маски': '2.08 Mask box-counting',
     'Классический box-counting: растр бинаризуется порогом '
     '(объект - значения больше порога), маска покрывается ячейками '
     'убывающего размера, наклон log N от log(1/размер) даёт одну '
@@ -1063,30 +1063,77 @@ TRANSLATIONS = {
     'Маска пуста: нет значений выше порога.': 'The mask is empty: no values above the threshold.',
     'Пикселей в маске: %d.': 'Pixels in the mask: %d.',
     'Box-counting: D = %.3f.': 'Box-counting: D = %.3f.',
-    '2.9 Размерность линий': '2.9 Line dimension',
-    'Считает размерность каждой линии методом циркуля (Ричардсона):'
-    ' линия проходится хордами убывающего раствора, наклон log N '
-    'от log r даёт D. Прямая даёт 1, изрезанная линия - больше; '
-    'для изолиний это диагностика сглаживания: пересглаженные '
-    'изолинии теряют изрезанность и D падает к единице, а сравнение'
-    ' D до и после сглаживания показывает, сколько геометрии '
-    'съедено.\n\nВыход - те же линии с полями D и steps (число '
-    'шагов минимального циркуля); среднее D печатается в журнал. '
-    'Короткие линии (меньше 30 вершин или очень малой длины) '
-    'получают пустое D.':
+    '2.09 Размерность линий и границ': '2.09 Line and boundary dimension',
+    'Считает размерность каждой линии методом циркуля (Ричардсона): линия проходится хордами убывающего раствора, наклон log N от log r даёт D. Прямая даёт 1, изрезанная линия - больше; для изолиний это диагностика сглаживания: пересглаженные изолинии теряют изрезанность и D падает к единице, а сравнение D до и после сглаживания показывает, сколько геометрии съедено.\n\nВыход - те же линии с полями D и steps (количество шагов минимального циркуля); среднее D печатается в журнал. Полигоны принимаются тоже: меряется внешнее кольцо границы. Короткие линии (меньше 30 вершин или очень малой длины) получают пустое D.':
         'Computes the dimension of every line by the divider (Richardson) '
         'method: the line is walked with chords of a decreasing span, the '
         'slope of log N versus log r gives D. A straight line gives 1, a '
         'rugged one - more; for isolines this is a smoothing diagnostic: '
         'oversmoothed isolines lose their ruggedness and D drops towards '
         'one, and comparing D before and after smoothing shows how much '
-        'geometry was eaten.\n\nThe output is the same lines with the D '
-        'and steps fields (the step count of the smallest divider); the '
-        'mean D is printed to the log. Short lines (fewer than 30 vertices '
-        'or of a very small length) get an empty D.',
+        'geometry was eaten.\n\nPolygons are accepted too: the exterior '
+        'ring of the boundary is measured. The output is the same lines '
+        'with the D and steps fields (the step count of the smallest '
+        'divider); the mean D is printed to the log. Short lines (fewer '
+        'than 30 vertices or of a very small length) get an empty D.',
     'Линии': 'Lines',
+    'Линии или полигоны': 'Lines or polygons',
+    'Объекты с размерностью': 'Features with the dimension',
     'Линии с размерностью': 'Lines with the dimension',
     'Среднее D по %d линиям: %.3f.': 'Mean D over %d lines: %.3f.',
+    '2.10 Размерность Минковского (векторы)': '2.10 Minkowski dimension (vectors)',
+    'Box-counting напрямую по векторам: линии и границы полигонов покрываются сеткой убывающего размера, наклон log N от log(1/размер) даёт размерность Минковского. Прямая линия и гладкая граница дают D около 1, речная сеть - 1.1-1.5, сильно изрезанная береговая линия - до 1.3 и выше.\n\nКаждый объект получает поле D_mink; отдельно считается и печатается в журнал D всего слоя как единого множества - для речной сети это размерность сети целиком, она выше размерности отдельных рукавов. Метод дополняет циркуль из 2.9: циркуль меряет извилистость одной линии, Минковский - заполнение плоскости набором объектов.\n\nПараметры: K - ступеней лесенки размеров (8-12 обычно; слишком большое K уводит мелкие ячейки ниже масштаба детальности линии, и D занижается к 1); сдвигов сетки - случайные смещения с минимальным покрытием, снимают привязку к сетке (3-5); фактор уплотнения - шаг выборки вдоль сегментов в долях ячейки, 0 - только вершины. Каждый объект получает и D_r2 - качество лог-лог аппроксимации: ниже 0.85 оценке доверять нельзя.':
+        'Box-counting directly over vectors: lines and polygon boundaries '
+        'are covered by a grid of a decreasing size, the slope of log N '
+        'versus log(1/size) gives the Minkowski dimension. A straight line '
+        'and a smooth boundary give D near 1, a river network - 1.1-1.5, a '
+        'heavily rugged coastline - up to 1.3 and above.\n\nEvery feature '
+        'gets a D_mink field; separately the D of the whole layer as one '
+        'set is computed and printed to the log - for a river network that '
+        'is the dimension of the network as a whole, higher than that of '
+        'the individual branches. The method complements the divider of '
+        '2.09: the divider measures the sinuosity of one line, Minkowski - '
+        'the plane filling by a set of features.\n\nParameters: K - the '
+        'size-ladder steps (8-12 typically; a too large K takes the small '
+        'cells below the line detail scale and D drops towards 1); grid '
+        'offsets - random shifts with the minimal cover, remove the grid '
+        'alignment (3-5); the densify factor - the sampling step along '
+        'the segments as a cell fraction, 0 - vertices only. Every feature '
+        'also gets D_r2 - the log-log fit quality: below 0.85 the estimate '
+        'cannot be trusted.',
+    'Количество размеров сетки': 'Number of grid sizes',
+    'Размерность слоя': 'Layer dimension',
+    'Размерность Минковского слоя: D = %.3f.': 'Minkowski dimension of the layer: D = %.3f.',
+    'Количество размеров сетки (K)': 'Number of grid sizes (K)',
+    'Сдвигов сетки на размер': 'Grid offsets per size',
+    'Фактор уплотнения выборки (0 - вершины)': 'Sampling densify factor (0 - vertices)',
+    'R² аппроксимации слоя': 'Layer fit R²',
+    'Размерность Минковского слоя: D = %.3f (R² = %.3f).': 'Minkowski dimension of the layer: D = %.3f (R² = %.3f).',
+    'R² ниже 0.85: степенной закон не выдержан, оценке '
+    'доверять нельзя (уменьшите K или проверьте данные).':
+        'R² below 0.85: the power law does not hold, the estimate cannot '
+        'be trusted (reduce K or check the data).',
+
+    '2.11 Создать пример для фракталов (демо)': '2.11 Create a fractal example (demo)',
+    'Генерирует учебные объекты для фрактальных инструментов: '
+    'ветвящуюся речную сеть (поле order - порядок притока), полигон '
+    'водосбора с изрезанной границей и отдельную береговую линию '
+    '(срединные смещения). Реки подавайте в 2.10 - размерность '
+    'сети; берег и границу водосбора - в 2.09 и 2.10; растеризуйте '
+    'водосбор - и он же пример для 2.08.':
+        'Generates study features for the fractal tools: a branching river '
+        'network (the order field - the tributary order), a basin polygon '
+        'with a rugged boundary and a separate coastline (midpoint '
+        'displacements). Feed the rivers into 2.10 - the network '
+        'dimension; the coast and the basin boundary - into 2.09 and 2.10; '
+        'rasterise the basin - and it doubles as an example for 2.08.',
+    'Охват': 'Extent',
+    'Зерно генератора': 'Generator seed',
+    'Реки (демо)': 'Rivers (demo)',
+    'Водосбор (демо)': 'Basin (demo)',
+    'Берег (демо)': 'Coast (demo)',
+    'Рек сгенерировано: %d.': 'Rivers generated: %d.',
+
 
 
     'Isoliner развивается на задачах реальных предприятий. '

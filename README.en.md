@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty in all:
+The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-two in all:
 
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [www.informpp.ru](https://www.informpp.ru/).
 
@@ -23,15 +23,17 @@ The tools are split into four Processing groups — **"Grid and isolines"**, **"
 
 ### "Additional analysis tools" group
 
-- **2.1 Categorical indicator kriging** — for a categorical field (mineral type, lithotype) it builds a 0/1 indicator per class, krige each with the KB2D core and normalises the probabilities. Outputs: a multiband probability raster, a zone map and a confidence raster.
+- **2.01 Categorical indicator kriging** — for a categorical field (mineral type, lithotype) it builds a 0/1 indicator per class, krige each with the KB2D core and normalises the probabilities. Outputs: a multiband probability raster, a zone map and a confidence raster.
 - **2.2 External Drift Kriging** — estimation from points when the field is related to a secondary variable known everywhere as a raster (the structural surface of an adjacent seam, a coarse model, a seismic attribute). The drift is removed by regression, the residuals are kriged, and the drift is added back from the raster. The same regression-kriging scheme as trend removal, only here the drift is a function of the external value, not of the coordinates.
-- **2.3 Exceedance probability map** — from the kriging estimate and standard-error rasters it builds P(Z>threshold) = Φ((estimate−threshold)/error) under a normal local distribution. A post-processor, runs no kriging of its own. Cut-off grades, risk zones.
-- **2.4 Hydraulic gradient and flow direction** — from a head raster it builds the hydraulic gradient |∇h|, the flow-direction azimuth (down-gradient) and a point layer of flow vectors (styled as arrows automatically). Hydrogeology without permeability (with permeability — 2.5).
-- **2.5 Specific discharge (Darcy law)** — from a head raster and aquifer-property rasters (K, T) it computes the specific discharge q = K·|∇h| (m/day) and the flow per width Q = T·|∇h| (m²/day). A post-processor, runs no kriging of its own (krige K and T in log space).
-- **2.6 Gaussian simulation (SGS)** — sequential Gaussian simulation: an ensemble of equally probable realizations instead of a single smoothed estimate. Mean (E-type), standard deviation, P10/P50/P90 quantiles and an exceedance-probability map — uncertainty, not just the mean. Pure NumPy on top of the kriging core.
-- **2.7 Fractal dimension** — a D = 3 - H map by the variogram method in a sliding window; smooth tends to 2, rugged to 3, the steps highlight disturbances and block boundaries.
-- **2.8 Mask box-counting** — one dimension D per binary mask (a raster threshold); replacement and workings outlines compared by a number.
-- **2.9 Line dimension** — D of every line by the divider method; an oversmoothing diagnostic for isolines.
+- **2.03 Exceedance probability map** — from the kriging estimate and standard-error rasters it builds P(Z>threshold) = Φ((estimate−threshold)/error) under a normal local distribution. A post-processor, runs no kriging of its own. Cut-off grades, risk zones.
+- **2.04 Hydraulic gradient and flow direction** — from a head raster it builds the hydraulic gradient |∇h|, the flow-direction azimuth (down-gradient) and a point layer of flow vectors (styled as arrows automatically). Hydrogeology without permeability (with permeability — 2.5).
+- **2.05 Specific discharge (Darcy law)** — from a head raster and aquifer-property rasters (K, T) it computes the specific discharge q = K·|∇h| (m/day) and the flow per width Q = T·|∇h| (m²/day). A post-processor, runs no kriging of its own (krige K and T in log space).
+- **2.06 Gaussian simulation (SGS)** — sequential Gaussian simulation: an ensemble of equally probable realizations instead of a single smoothed estimate. Mean (E-type), standard deviation, P10/P50/P90 quantiles and an exceedance-probability map — uncertainty, not just the mean. Pure NumPy on top of the kriging core.
+- **2.07 Fractal dimension** — a D = 3 - H map by the variogram method in a sliding window; smooth tends to 2, rugged to 3, the steps highlight disturbances and block boundaries.
+- **2.08 Mask box-counting** — one dimension D per binary mask (a raster threshold); replacement and workings outlines compared by a number.
+- **2.09 Line and boundary dimension** — D of every line by the divider method; an oversmoothing diagnostic for isolines.
+- **2.10 Minkowski dimension (vectors)** — box-counting straight over lines and polygon boundaries, no rasterisation; D_mink per feature and the D of the whole layer (a river-network dimension).
+- **2.11 Create a fractal example (demo)** — a river network with tributary orders, a basin with a rugged boundary and a coastline.
 
 ### "Cross-sections" group
 
@@ -267,7 +269,12 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
-- **2.43.0** — the fractal tools 2.7-2.9 left beta; the manual chapters extended with workflows.
+- **2.47.0** — 2.10: K, grid offsets, a densify factor and D_r2 - the fit quality per feature.
+- **2.46.1** — terminology: consistent count wording in the Russian parameter labels.
+- **2.46.0** — group 2 renumbered to 2.01-2.11: proper ordering in the toolbox.
+- **2.45.0** — raster band choice everywhere as drop-downs with band names (14 parameters in nine tools).
+- **2.44.0** — 2.10 Minkowski dimension over vectors, 2.11 a demo (rivers, a basin, a coast); 2.9 accepts polygons.
+- **2.43.0** — the fractal tools 2.07-2.09 left beta; the manual chapters extended with workflows.
 - **2.42.1** — 2.7: a single-band D grid by default, ready for dimension isolines; H by a checkbox.
 - **2.42.0** — a fractal pair: 2.8 mask box-counting and 2.9 line dimension by the divider method.
 - **2.41.0** — a new tool 2.7 "Fractal dimension": a D and H map by the variogram method.
@@ -319,8 +326,8 @@ bilingual (EN/RU).
 - **2.21.2** — "3.5 Vector intersection" accepts a list of layers in one run; the src field keeps the source layer.
 - **2.21.1** — "3.5 Vector intersection": the frame height is now stored in the section definition (no need to supply the drawing for 2D objects); empty outputs are not created.
 - **2.21.0** — new tool "3.5 Vector intersection with the section" (lines and polygons onto the section by exact intersection). Section betas shifted to 3.6-3.8, demo to 3.9; the demo gained a fault, a Z marker and a replacement zone.
-- **2.20.1** — restored the Help button in the "2.6 Gaussian simulation (SGS)" dialog.
-- **2.20.0** — new tool "2.6 Gaussian simulation (SGS)": an ensemble of equally probable realizations instead of a single smoothed estimate. Mean (E-type), standard deviation, P10/P50/P90 quantiles and an exceedance-probability map — uncertainty, not just the estimate. The score variogram is fitted automatically; pure NumPy on top of the kriging core. The "Number of …" labels were reworded in Russian.
+- **2.20.1** — restored the Help button in the "2.06 Gaussian simulation (SGS)" dialog.
+- **2.20.0** — new tool "2.06 Gaussian simulation (SGS)": an ensemble of equally probable realizations instead of a single smoothed estimate. Mean (E-type), standard deviation, P10/P50/P90 quantiles and an exceedance-probability map — uncertainty, not just the estimate. The score variogram is fitted automatically; pure NumPy on top of the kriging core. The "Number of …" labels were reworded in Russian.
 - **2.19.1** — horizontal axis labels placed to the left of the line (robust anchoring).
 - **2.19.0** — Boreholes/Bed composition on the section take the scale from the section definition (vertical match); renamed to "on the section"; 3.5-3.7 marked "(beta)"; a schematic added to the manual.
 - **2.18.6** — horizontal axis labels placed to the left of the line.

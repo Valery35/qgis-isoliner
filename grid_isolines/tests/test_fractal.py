@@ -96,6 +96,85 @@ def test_divider_references():
     assert abs(Dt - 1.0) < 0.01, Dt           # строго прямая
 
 
+def test_minkowski_references():
+    from grid_isolines.fractal import minkowski_dimension
+    # K=6: две лишние ступени у Коха-5 ушли бы ниже масштаба построения
+    Dk, r2, _s, _c = minkowski_dimension([_koch(5)], n_sizes=6)
+    assert abs(Dk - 1.2619) < 0.06, Dk
+    assert r2 > 0.99, r2
+    line = np.column_stack([np.linspace(0, 10, 60), np.linspace(0, 3, 60)])
+    Ds, _r, _s, _c = minkowski_dimension([line], n_sizes=6)
+    assert abs(Ds - 1.0) < 0.05, Ds
+    sq = np.array([[0, 0], [10, 0], [10, 10], [0, 10], [0, 0.0]])
+    Dq, _r, _s, _c = minkowski_dimension([sq], n_sizes=6)
+    assert abs(Dq - 1.0) < 0.09, Dq
+
+
+def test_minkowski_offsets_min_cover():
+    from grid_isolines.fractal import minkowski_dimension
+    # минимальное покрытие: со сдвигами счёт на каждой ступени не больше,
+    # чем у выровненной сетки, а D устойчиво по зерну
+    _d, _r, s1, c1 = minkowski_dimension([_koch(4)], n_sizes=5, offsets=1)
+    _d, _r, s3, c3 = minkowski_dimension([_koch(4)], n_sizes=5, offsets=4,
+                                         seed=2)
+    assert all(b <= a for a, b in zip(c1, c3)), (c1, c3)
+    ds = [minkowski_dimension([_koch(4)], n_sizes=5, offsets=3, seed=s)[0]
+          for s in range(6)]
+    assert np.std(ds) < 0.01, np.std(ds)
+
+
+def _river(rough, depth, seed):
+    rng = np.random.default_rng(seed)
+    pts = [np.array([0.0, 0.0]), np.array([1000.0, 180.0])]
+    for _ in range(depth):
+        out = [pts[0]]
+        for a, b in zip(pts[:-1], pts[1:]):
+            m = (a + b) / 2.0
+            d = b - a
+            n = np.array([-d[1], d[0]])
+            L = float(np.hypot(*d))
+            m = m + n / (L + 1e-12) * rng.normal(0, rough * L)
+            out += [m, b]
+        pts = out
+    return np.array(pts)
+
+
+def test_minkowski_near_smooth_river():
+    """Слабошершавая линия обязана давать D чуть выше 1, не ниже:
+    регресс на эталоне выявил бы смещение оценщика на коротких линиях."""
+    from grid_isolines.fractal import minkowski_dimension
+    vals = [minkowski_dimension([_river(0.10, 3, s)])[0] for s in range(12)]
+    m = float(np.mean(vals))
+    assert 0.99 < m < 1.05, m
+    assert min(vals) > 0.96, min(vals)
+
+
+def _midline(rough, depth, seed):
+    rng = np.random.default_rng(seed)
+    pts = [np.array([0.0, 0.0]), np.array([100.0, 20.0])]
+    for _ in range(depth):
+        out = [pts[0]]
+        for a, b in zip(pts[:-1], pts[1:]):
+            m = (a + b) / 2
+            d = b - a
+            nrm = np.array([-d[1], d[0]])
+            L = float(np.hypot(*d))
+            m = m + nrm / (L + 1e-12) * rng.normal(0, rough * L)
+            out += [m, b]
+        pts = out
+    return np.array(pts)
+
+
+def test_minkowski_near_smooth_river():
+    """Слабо изрезанная линия (демо-река): D чуть выше 1, не ниже.
+    Регрессия от 06.07.2026: неверная лесенка давала 0.85-0.95."""
+    from grid_isolines.fractal import minkowski_dimension
+    ds = [minkowski_dimension([_midline(0.10, 3, s)])[0] for s in range(10)]
+    m = float(np.mean(ds))
+    assert 0.99 < m < 1.05, ds
+    assert min(ds) > 0.96, ds
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

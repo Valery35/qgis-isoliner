@@ -185,3 +185,73 @@ def divider_dimension(pts, n_rulers=6):
     x = x - x.mean()
     D = float(-(x * (yv - yv.mean())).sum() / (x ** 2).sum())
     return D, list(rulers), steps
+
+
+def minkowski_dimension(polylines, sizes=None, n_sizes=8, offsets=3,
+                        densify=0.5, seed=0):
+    """Размерность Минковского набора ломаных: box-counting по векторам.
+
+    polylines - список массивов Nx2. Лесенка размеров - геометрический ряд
+    от 1/8 диагонали экстента вниз с шагом 2, n_sizes ступеней. Для каждой
+    ступени пробуется offsets случайных сдвигов сетки и берётся минимальное
+    покрытие (снимает привязку к положению сетки). densify задаёт шаг
+    выборки вдоль сегментов как долю размера ячейки (0 - только вершины).
+    Возвращает (D, r2, sizes, counts): r2 - качество лог-лог аппроксимации,
+    значения ниже ~0.85 считать ненадёжными."""
+    segs = []
+    xmin = ymin = np.inf
+    xmax = ymax = -np.inf
+    for pl in polylines:
+        P = np.asarray(pl, dtype=float)
+        if len(P) < 2:
+            continue
+        segs.append(P)
+        xmin = min(xmin, P[:, 0].min()); xmax = max(xmax, P[:, 0].max())
+        ymin = min(ymin, P[:, 1].min()); ymax = max(ymax, P[:, 1].max())
+    if not segs or not np.isfinite([xmin, xmax, ymin, ymax]).all():
+        return float("nan"), float("nan"), [], []
+    diag = float(np.hypot(xmax - xmin, ymax - ymin))
+    if sizes is None:
+        top = diag / 8.0
+        sizes = [top / (2.0 ** k) for k in range(int(n_sizes))]
+    rng = np.random.default_rng(seed)
+    offs = max(int(offsets), 1)
+    counts = []
+    for s in sizes:
+        best = None
+        shifts = [(0.0, 0.0)] + [(float(rng.random() * s),
+                                  float(rng.random() * s))
+                                 for _ in range(offs - 1)]
+        step = s * densify if densify > 0 else None
+        for ox, oy in shifts:
+            cells = set()
+            for P in segs:
+                d = np.diff(P, axis=0)
+                ln = np.sqrt((d ** 2).sum(axis=1))
+                for (x0, y0), (dx, dy), L in zip(P[:-1], d, ln):
+                    if step is not None:
+                        n = max(int(L / step), 1)
+                        tt = np.linspace(0.0, 1.0, n + 1)
+                        xs = x0 + tt * dx
+                        ys = y0 + tt * dy
+                    else:
+                        xs = np.array([x0, x0 + dx])
+                        ys = np.array([y0, y0 + dy])
+                    ii = np.floor((xs - xmin + ox) / s).astype(np.int64)
+                    jj = np.floor((ys - ymin + oy) / s).astype(np.int64)
+                    cells.update(zip(ii.tolist(), jj.tolist()))
+            c = len(cells)
+            best = c if best is None else min(best, c)
+        counts.append(best)
+    ok = [(s, c) for s, c in zip(sizes, counts) if c > 4]
+    if len(ok) < 3:
+        return float("nan"), float("nan"), list(sizes), counts
+    x = np.log(1.0 / np.array([s for s, _c in ok]))
+    yv = np.log(np.array([c for _s, c in ok], dtype=float))
+    xc = x - x.mean()
+    D = float((xc * (yv - yv.mean())).sum() / (xc ** 2).sum())
+    fit = yv.mean() + D * xc
+    ss_res = float(((yv - fit) ** 2).sum())
+    ss_tot = float(((yv - yv.mean()) ** 2).sum())
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+    return D, r2, list(sizes), counts
