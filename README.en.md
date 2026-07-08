@@ -269,6 +269,11 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.47.7** — fix: the "Custom colour" swatch crashed on the first click for a layer without settings.
+- **2.47.6** — 3D: a per-layer "Custom colour" with a swatch and a click-to-pick dialog.
+- **2.47.5** — 3D: borehole labels are thinned, texts no longer overlap.
+- **2.47.4** — the manual: seven article figures placed into the chapters, the intro image block fixed.
+- **2.47.3** — the manual: nine new screenshots across the fresh chapters.
 - **2.47.2** — the manual: the 3D viewer chapter rewritten for the current UI, a "For enterprises" section.
 - **2.47.1** — the help-footer invitation links to the "For enterprises" page.
 - **2.47.0** — 2.10: K, grid offsets, a densify factor and D_r2 - the fit quality per feature.

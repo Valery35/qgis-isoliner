@@ -195,3 +195,36 @@ def grid_to_2dm(arr, gt, path, zscale=1.0, zoffset=0.0, step=1):
         np.savetxt(f, et, fmt="E3T %d %d %d %d %d")
         np.savetxt(f, nd, fmt="ND %d %.6f %.6f %.6f")
     return n, int(len(faces))
+
+
+def thin_labels_xy(points, min_dist):
+    """Жадное прореживание подписей: True - подпись ставим.
+
+    points - [(x, y)], min_dist - минимальное расстояние между
+    подписанными точками в единицах сцены. Порядок обхода стабильный,
+    первая точка всегда подписывается."""
+    keep = []
+    kept = []
+    md2 = float(min_dist) ** 2
+    for x, y in points:
+        ok = True
+        for kx, ky in kept:
+            if (x - kx) ** 2 + (y - ky) ** 2 < md2:
+                ok = False
+                break
+        if ok:
+            kept.append((x, y))
+        keep.append(ok)
+    return keep
+
+
+def fraction_inside_bbox(points, xmin, xmax, ymin, ymax):
+    """Доля точек внутри прямоугольника [0..1]; пусто - 1.0."""
+    pts = list(points)
+    if not pts:
+        return 1.0
+    n = 0
+    for x, y in pts:
+        if xmin <= x <= xmax and ymin <= y <= ymax:
+            n += 1
+    return n / float(len(pts))

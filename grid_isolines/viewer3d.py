@@ -17,7 +17,7 @@ Qt и pyqtgraph импортируются лениво: модуль импор
 import os
 
 from .i18n import tr
-from .mesh3d import grid_to_mesh_arrays, bed_to_mesh_arrays, sample_bilinear
+from .mesh3d import grid_to_mesh_arrays, bed_to_mesh_arrays, sample_bilinear, thin_labels_xy, fraction_inside_bbox
 
 # опорные цвета шкалы (тёмно-синий -> бирюза -> жёлтый, а-ля viridis)
 _CMAP = [(0.267, 0.005, 0.329), (0.229, 0.322, 0.546),
@@ -272,11 +272,18 @@ def _build_dialog(parent):
                 self.mode_combo.addItem(label, key)
             self.zband = QComboBox()
             self.color_combo = QComboBox()
+            self.color_btn = QPushButton()
+            self.color_btn.setFixedSize(46, 22)
+            self.color_btn.setToolTip(tr("Задать свой цвет"))
+            self.color_btn.clicked.connect(self._pick_solid_color)
             self.aband = QComboBox()
             of = QFormLayout(self.opt_box)
             of.addRow(tr("Режим"), self.mode_combo)
             of.addRow(tr("Канал высот (Z)"), self.zband)
-            of.addRow(tr("Окраска"), self.color_combo)
+            crow = QHBoxLayout()
+            crow.addWidget(self.color_combo, 1)
+            crow.addWidget(self.color_btn, 0)
+            of.addRow(tr("Окраска"), crow)
             of.addRow(tr("Канал атрибута"), self.aband)
             for w in (self.mode_combo, self.zband, self.aband):
                 w.currentIndexChanged.connect(self._save_opts)
@@ -528,7 +535,7 @@ def _build_dialog(parent):
 
         def _default_opts(self, source):
             n = _band_count(source)
-            return dict(mode="auto", zband=1,
+            return dict(solid=None, mode="auto", zband=1,
                         cband=3 if n >= 3 else 0,
                         attr_id=None, aband=1)
 
@@ -558,6 +565,7 @@ def _build_dialog(parent):
                 cc.blockSignals(True)
                 cc.clear()
                 cc.addItem(tr("Палитра"), ("palette", None))
+                cc.addItem(tr("Свой цвет"), ("solid", None))
                 for num, label in items:
                     cc.addItem(label, ("band", num))
                 proj = QgsProject.instance()
@@ -570,15 +578,54 @@ def _build_dialog(parent):
                         cc.insertSeparator(cc.count())
                         first_r = False
                     cc.addItem(rl.name(), ("raster", rl.id()))
-                want = ("raster", o["attr_id"]) if o.get("attr_id") else \
-                       (("band", o["cband"]) if o.get("cband") else
-                        ("palette", None))
+                if o.get("attr_id"):
+                    want = ("raster", o["attr_id"])
+                elif o.get("cband"):
+                    want = ("band", o["cband"])
+                elif o.get("solid"):
+                    want = ("solid", None)
+                else:
+                    want = ("palette", None)
                 i = cc.findData(want)
                 cc.setCurrentIndex(i if i >= 0 else 0)
                 cc.blockSignals(False)
                 self._sync_aband(o.get("aband", 1))
+                self._sync_swatch()
             finally:
                 self._loading_opts = False
+
+        def _sync_swatch(self):
+            """Плашка показывает свой цвет слоя и активна в режиме
+            «Свой цвет»."""
+            item = self.layer_list.currentItem()
+            o = self._opts.get(item.data(_USER_ROLE), {}) if item else {}
+            d = self.color_combo.currentData() or ("palette", None)
+            solid = d[0] == "solid"
+            self.color_btn.setEnabled(solid)
+            col = o.get("solid") or "#e08214"
+            self.color_btn.setStyleSheet(
+                "background-color: %s; border: 1px solid #888;" %
+                (col if solid else "#d0d0d0"))
+
+        def _pick_solid_color(self):
+            from qgis.PyQt.QtWidgets import QColorDialog
+            from qgis.PyQt.QtGui import QColor
+            item = self.layer_list.currentItem()
+            if item is None:
+                return
+            lid = item.data(_USER_ROLE)
+            o = self._opts.get(lid)
+            if o is None:
+                lyr = QgsProject.instance().mapLayer(lid)
+                if lyr is None:
+                    return
+                o = self._default_opts(lyr.source())
+                self._opts[lid] = o
+            c = QColorDialog.getColor(QColor(o.get("solid") or "#e08214"),
+                                      self, tr("Свой цвет слоя"))
+            if c.isValid():
+                o["solid"] = c.name()
+                self._sync_swatch()
 
         def _sync_aband(self, keep):
             """Канал атрибута активен только при окраске внешним растром."""
@@ -609,12 +656,16 @@ def _build_dialog(parent):
                 return
             lid = item.data(_USER_ROLE)
             d = self.color_combo.currentData() or ("palette", None)
+            prev = self._opts.get(lid, {})
             self._opts[lid] = dict(
                 mode=self.mode_combo.currentData() or "auto",
                 zband=self._combo_band(self.zband, 1),
                 cband=d[1] if d[0] == "band" else 0,
                 attr_id=d[1] if d[0] == "raster" else None,
+                solid=(prev.get("solid") or "#e08214")
+                    if d[0] == "solid" else None,
                 aband=self._combo_band(self.aband, 1))
+            self._sync_swatch()
 
         def _plane_lines(self):
             """Полилинии выбранного определения разреза + zmin/zmax из полей
@@ -791,7 +842,12 @@ def _build_dialog(parent):
                 if not len(faces):
                     skipped.append(lyr.name())
                     continue
-                meshes.append((verts, faces, PALETTE[k % len(PALETTE)],
+                base = PALETTE[k % len(PALETTE)]
+                if o.get("solid"):
+                    qc = o["solid"].lstrip("#")
+                    base = tuple(int(qc[i:i + 2], 16) / 255.0
+                                 for i in (0, 2, 4)) + (1.0,)
+                meshes.append((verts, faces, base,
                                lyr.id(), as_bed, lyr.source(), o))
             if not meshes:
                 self.info.setText(tr("Гриды не открылись."))
@@ -957,8 +1013,13 @@ def _build_dialog(parent):
                     from qgis.PyQt.QtGui import QFont
                     fnt = QFont()
                     fnt.setPointSize(8)
-                    for lx, ly, lz, txt in labels:
-                        if not txt:
+                    # прореживание: не подписывать скважину, если рядом
+                    # уже есть подписанная - тексты не налезают
+                    shown = thin_labels_xy(
+                        [(lx, ly) for lx, ly, _z, _t in labels],
+                        min_dist=span * 0.045)
+                    for keep, (lx, ly, lz, txt) in zip(shown, labels):
+                        if not keep or not txt:
                             continue
                         ti = TextItem(pos=(lx, ly, lz), text=txt,
                                       color=(30, 30, 30, 255), font=fnt)

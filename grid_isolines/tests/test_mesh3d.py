@@ -130,6 +130,18 @@ def test_polygon_mask():
     assert m3.sum() == 2 and not m3[1, 1] and not m3[1, 2]
 
 
+def test_thin_labels_xy():
+    from grid_isolines.mesh3d import thin_labels_xy
+    # кучка из трёх близких + одна дальняя: из кучки остаётся первая
+    pts = [(0, 0), (1, 0), (0, 1), (100, 100)]
+    keep = thin_labels_xy(pts, min_dist=10)
+    assert keep == [True, False, False, True]
+    # нулевая дистанция - подписываются все
+    assert all(thin_labels_xy(pts, min_dist=0))
+    # пусто - пусто
+    assert thin_labels_xy([], min_dist=5) == []
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

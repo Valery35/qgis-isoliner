@@ -1163,6 +1163,10 @@ TRANSLATIONS = {
     'Окраска': 'Colouring',
     'Палитра': 'Palette',
     'Поле подписи скважин': 'Borehole label field',
+    'Свой цвет': 'Custom colour',
+    'Задать свой цвет': 'Set a custom colour',
+    'Свой цвет слоя': 'Custom layer colour',
+
 
 
 
