@@ -855,7 +855,7 @@ Classic box-counting for binary masks: the raster is binarised by a threshold (t
 
 ## Where the mask comes from
 
-The mineral-type band of a bed grid with a threshold between the class codes; an indicator-kriging probability grid with a 0.5 threshold; an exceedance-probability map with a cut-off threshold; vector outlines of workings or zones - rasterised beforehand with the standard "Rasterize (vector to raster)". Compare the D of masks of the same nature on the same grid: a growth of the replacement-outline ruggedness from bed to bed or from year to year is a meaningful signal.
+The mineral-type band of a bed grid with a threshold between the class codes, an indicator-kriging probability grid with a 0.5 threshold, an exceedance-probability map with a cut-off threshold, vector outlines of workings or zones - rasterised beforehand with the standard "Rasterize (vector to raster)". Compare the D of masks of the same nature on the same grid: a growth of the replacement-outline ruggedness from bed to bed or from year to year is a meaningful signal.
 
 | Parameter | What it sets | Default |
 |---|---|---|
@@ -910,7 +910,7 @@ A generator of study features for the whole fractal five: a branching river netw
 
 Behind the word "kriging" the plugin hosts a family of methods, and the choice between them affects the result more than fine-tuning the variogram. All the kinds solve the same system of equations with covariances from the variogram; they differ in what is assumed known about the field mean and in what exactly is estimated - a point, a block or a probability. This chapter is a navigator; the parameters of each tool live in their own chapters.
 
-**Simple kriging (SK)** assumes the mean of the field is known in advance and constant over the area. Near the wells the estimate follows the data, away from them it is pulled to the given mean. Take it when the mean is backed by statistics over a representative sample of the same domain; an eyeballed mean drags all the underdrilled margins towards the error. Switched by the type in **2D Kriging**.
+**Simple kriging (SK)** assumes the mean of the field is known in advance and constant over the area. Near the wells the estimate follows the data, away from them it is pulled to the given mean. Take it when the mean is backed by statistics over a representative sample of the same domain, an eyeballed mean drags all the underdrilled margins towards the error. Switched by the type in **2D Kriging**.
 
 ![Simple kriging: the mean set from the data on the left, inflated by seven on the right. There are no wells east of the dashed line, and the whole underdrilled east "floats up" to the false mean.](images/sk_mean_effect.png){width=92%}
 
@@ -926,7 +926,7 @@ Behind the word "kriging" the plugin hosts a family of methods, and the choice b
 
 ![The same wells with two deliberate outliers: the cones on the block grid are damped, the mean standard error is lower.](images/point_vs_block.png){width=92%}
 
-**Indicator kriging** (chapter 2.01) is for categories: mineral type, facies, a replacement zone. The category becomes a 0/1 indicator, it is kriged with plain OK, the result is the class probability at a point; domains are cut from it by a threshold. The indicator variogram is its own and usually shorter than the grade one.
+**Indicator kriging** (chapter 2.01) is for categories: mineral type, facies, a replacement zone. The category becomes a 0/1 indicator, it is kriged with plain OK, the result is the class probability at a point, domains are cut from it by a threshold. The indicator variogram is its own and usually shorter than the grade one.
 
 **Gaussian simulation** (chapter 2.06) is not kriging but its complement: instead of one smooth surface, an ensemble of equally probable rough realisations from which the uncertainty is seen directly.
 
@@ -1218,7 +1218,7 @@ The workflow is shown in section 3.01: the surfaces go into **Cross-section alon
 | Fault, Z marker, zone | Demo vectors for 3.05: a line without Z, a contour with Z, a zone polygon. | on request |
 | Overturned TIN | 3D faces of an overturned fold for 3.06. | on request |
 
-# 4.01 Assemble a bed grid (beta)
+# 4.01 Assemble a bed grid
 
 A production bridge to the multiband-grid convention: the tool assembles a bed from separate rasters that usually come out of kriging one by one - the roof, the bottom, the content, the mineral type. The roof sets the output grid, the bottom and the parameters are resampled to it bilinearly, so the input grids may have different grids and resolutions. The band names are written into the descriptions: roof, bottom, then the names of the parameter layers - the band drop-downs in the 3D viewer will show them by name.
 
@@ -1234,7 +1234,7 @@ One assembled file feeds **Bed composition on the section** (bands 1/2/3), the *
 | Roof / bottom band (Adv.) | The band number in the input rasters. | 1 |
 | Bed grid | A multiband GeoTIFF by the convention. | - |
 
-# 4.02 Bed calculator (beta)
+# 4.02 Bed calculator
 
 The reserve tool of the block model: over a bed grid it computes the thickness (band 1 minus band 2), the volume, the ore tonnage via the density and, if a content band is set, the thickness-weighted mean content and the metal tonnage. The summary covers the whole bed area or the inside of a contour - polygons of a reserve block or a domain, holes are honoured.
 
@@ -1253,7 +1253,7 @@ The result is twofold: a bed grid with the appended bands "thickness" and "ore, 
 | Bed grid with thickness and reserves | The output grid with two new bands. | - |
 | Report (HTML) | The summary file. | on request |
 
-# 4.03 Bed grid to a block model (beta)
+# 4.03 Bed grid to a block model
 
 A bridge from the raster form to the vector one: every valid cell of a bed grid becomes a centroid point. The attributes: bid, row and col, the x and y coordinates, top, bot, thick, vol, ore_t (via the density) and all the parameter bands under their names from the band descriptions.
 
@@ -1272,7 +1272,33 @@ From there the standard QGIS vector machinery works: expression filters (say, "c
 | Reserve contour | Polygons, optional. | empty |
 | Block model (centroids) | A point layer with the block attributes. | - |
 
-# 4.04 Surfaces to 3D (meshes) (beta)
+# 4.05 Domains to a bed band
+
+The tool rasterises domain polygons (reserve blocks, replacement zones, mining contours) into an extra band of the bed grid: each cell gets the code of the domain it falls into, zero - outside the domains. The code is taken from a numeric field of the layer, or, if no field is set, it is the feature order number from one. The source grid bands are kept, the **domain** band is appended last.
+
+Then the domain works as an ordinary parameter: the bed calculator sums over the domain contour, the block model is filtered by an expression on the code. The key scenario is **reserve write-off**: compute the reserves over the contour before and after the mining and subtract one from the other, and the difference of two block models is automated by tool 4.06.
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Bed grid | A multiband grid. | - |
+| Domain polygons | Zone or block contours. | - |
+| Domain code field (Adv.) | A numeric code field, empty - order number. | - |
+| Bed grid with a domain band | The same grid plus the domain band. | - |
+
+# 4.06 Reserve difference (write-off)
+
+The tool computes the difference of two block models over the cells with the same **row** and **col** (and **lay** if the models are split vertically): how much reserve was lost between the "before" and "after" states. For each cell the chosen field, **ore_t** by default, is subtracted, the result is centroid points with the **before**, **after** and **delta** (before minus after) fields. The total write-off is printed to the log.
+
+This is the direct path of operational write-off: the model before mining the chambers minus the model after, the sum of **delta** over the contour gives the written-off tonnage. The models must be built from the same grid so that the row and col split matches.
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| The "before" model | The block model before the change. | - |
+| The "after" model | The block model after. | - |
+| Reserve field (Adv.) | What to subtract. | ore_t |
+| Difference (centroids) | Points with delta, before, after. | - |
+
+# 4.04 Surfaces to 3D (meshes)
 
 The **Surfaces to 3D (meshes)** tool exports a batch of grids into mesh layers of the standard 2DM format (MDAL). Such layers are understood by the QGIS profile tool, the mesh calculator, the built-in 3D view and third-party software, so a stack of horizons goes to meshes in a single run, without manual conversions.
 
@@ -1336,6 +1362,8 @@ In the Auto mode a multiband grid by the convention is read as a body: band 1 - 
 
 ## Querying the scene by a click
 
+When a section plane is set, a **section trace** runs along its line over every surface - a bright red thread of the plane intersecting the roof and the bottom. The trace shows exactly where the section cuts each bed.
+
 A click on a surface or a body (without dragging - the rotation is unaffected) queries the block model: a ray is cast from the camera through the cursor, the nearest intersection with the relief is found, and the status line prints the layer name, the point coordinates and the values of all the bands by name, plus the thickness for a bed. The hit is marked with a red ball until the next click or a scene rebuild.
 
 <!-- SCREENSHOT: viewer_pick.png | A click on a bed body: the red ball on the surface, the status line reads the full band readout -->
@@ -1353,6 +1381,32 @@ A click on a surface or a body (without dragging - the rotation is unaffected) q
 | Radial/fan lines in empty corners | Extrapolation beyond the data. | Enable **Clip to well hull** or set a clip mask. |
 | Isolines cross in dense areas | Formerly - a consequence of smoothing each line. | Smoothing is done over the field (in **2D Kriging**). Increase the grid-smoothing radius there. |
 | Polygons of one colour | By default the layer is created with a single symbol. | Set graduated symbology by ELEV_MIN. |
+
+# Appendix. Lessons and self-check
+
+This section is a hands-on practicum on the demo data: short working cycles (lessons) and tests to make sure the tools compute correctly. Everything is reproduced by the plugin generators, no own data is needed. The section grows as the plugin develops.
+
+## Preparing the demo
+
+1. A new QGIS project.
+2. **1.7 Create a well example (demo)** - demo wells with elevation and content fields appear.
+3. **3.10 Create a cross-section example** - the section line, the zone polygon, the ready beds "Bed 1 (demo)" and "Bed 2 (demo)" and separate roof and bottom surfaces.
+
+The ready "Bed 1 (demo)" is already a multiband grid by the convention (band 1 roof, 2 bottom, 3 content), it suits all the lessons below without assembly.
+
+## Test 1. Reserve write-off: domains, split, difference
+
+The goal is to make sure the "domains - block model - difference" chain computes the write-off correctly. It checks tools 4.05, 4.03 and 4.06.
+
+**Step A. Domains to a band (4.05).** Bed grid = "Bed 1 (demo)", polygons = "Zone (demo, polygon)", the code field empty. The log will show "Cells in domains: N" above zero. Open the result in the 3D viewer, colour it by the **domain** band - the zone lights up with code 1, zero outside it, the colour boundary matches the polygon contour.
+
+**Step D. Tonnage conservation on the split (4.03).** Build a block model from "Bed 1 (demo)" with **Vertical layers = 1**. In the attribute table right-click the **ore_t** field, open the statistics and note the sum. Build the same model with **layers = 5** and take the ore_t sum again. The sums must match to the last digits, and the second model has exactly five times more rows. This is the key check: splitting a column into layers neither creates nor loses reserve.
+
+**Step E. The control zero (4.06).** Run "4.06 Reserve difference" feeding the same model both as "before" and "after", the ore_t field. The log must show a total write-off of exactly zero. This checks that subtracting identical states gives no false write-off.
+
+**Step F. Mining emulation (4.06).** Duplicate the block model (right-click the layer, Duplicate), name it "after". In the edit mode zero the ore_t field of several centroids, having first noted their total reserve as a control number. Save the edits. Run 4.06: "before" is the original model, "after" is the modified one. The total write-off in the log must equal the zeroed reserve. The modified points have a positive **delta**, **before** equal to the old value, **after** equal to zero, the rest have delta zero. The write-off within an arbitrary contour is obtained by selecting the difference points with a polygon and summing delta over the selection - that is the tonnage going into the report.
+
+**Test result.** If step A matched the boundary to the contour, step D gave equal sums, step E a zero, step F a match with the control number, then the whole write-off chain is correct. After that the same steps D and F should be repeated on a real bed: the demo data is clean, while the real one brings gaps and degenerate cells, and checking on it is the last step before production use.
 
 # For enterprises
 

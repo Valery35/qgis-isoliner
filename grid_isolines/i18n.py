@@ -839,7 +839,7 @@ TRANSLATIONS = {
     '3.08 Спроецировать с разреза (бета)': '3.08 Unproject from the section (beta)',
     '3.09 Развёртка стенки ствола (бета)': '3.09 Shaft wall unwrap (beta)',
     '3.10 Создать пример для разреза': '3.10 Create a section example',
-    '4.04 Поверхности в 3D (меши) (бета)': '4.04 Surfaces to 3D (meshes) (beta)',
+    '4.04 Поверхности в 3D (меши)': '4.04 Surfaces to 3D (meshes)',
     'Экспортирует гриды поверхностей в mesh-слои стандартного формата '
     '2DM (MDAL). Такие слои понимают профильный инструмент QGIS, '
     'mesh-калькулятор, штатный 3D-вид и сторонние программы, а пачка '
@@ -916,7 +916,7 @@ TRANSLATIONS = {
     'Окраска поверхностей атрибутом (растр)': 'Colour surfaces by attribute (raster)',
     'Канал параметра пласта (0 - палитра)': 'Bed parameter band (0 - palette)',
     'канал %d пласта': "bed's band %d",
-    '4.01 Собрать грид пласта (бета)': '4.01 Assemble a bed grid (beta)',
+    '4.01 Собрать грид пласта': '4.01 Assemble a bed grid',
     'Собирает многоканальный грид пласта по конвенции плагина: '
     'канал 1 - кровля, канал 2 - подошва, каналы 3 и далее - '
     'параметры (содержание, минтип и любые другие). Кровля задаёт '
@@ -942,7 +942,7 @@ TRANSLATIONS = {
     'Параметры (растры, берётся канал 1)': 'Parameters (rasters, band 1 is taken)',
     'Грид пласта': 'Bed grid',
     'Грид пласта записан: каналов %d.': 'Bed grid written: %d bands.',
-    '4.02 Калькулятор пласта (бета)': '4.02 Bed calculator (beta)',
+    '4.02 Калькулятор пласта': '4.02 Bed calculator',
     'Считает по многоканальному гриду пласта (канал 1 - кровля, '
     'канал 2 - подошва): мощность, объём, тоннаж руды через '
     'плотность и, если задан канал содержания, средневзвешенное по '
@@ -981,27 +981,68 @@ TRANSLATIONS = {
     'Запасы металла': 'Metal reserves',
     'Ячеек с отрицательной мощностью': 'Cells with a negative thickness',
     'Калькулятор пласта': 'Bed calculator',
-    '4.03 Грид пласта в блочную модель (бета)': '4.03 Bed grid to a block model (beta)',
-    'Переводит многоканальный грид пласта в блочную модель: точку-'
-    'центроид на каждую валидную ячейку. Атрибуты: строка и столбец '
-    'ячейки, координаты, верх (top), низ (bot), мощность (thick), '
-    'объём (vol), тоннаж руды (ore_t) через плотность и все каналы '
-    'параметров под их именами из описаний.\n\nДальше работает '
-    'векторный аппарат QGIS: фильтры выражениями, join внешних '
-    'таблиц, калькулятор полей - модель наращивается атрибутами без '
-    'пересоздания. Контур ограничивает выгрузку подсчётным блоком '
-    'или доменом.':
-        'Converts a multiband bed grid into a block model: a centroid point '
-        'per valid cell. The attributes: the cell row and column, the '
-        'coordinates, top, bot, thick, vol, the ore tonnage (ore_t) via the '
-        'density and all the parameter bands under their names from the '
-        'descriptions.\n\nFrom there the QGIS vector machinery works: '
-        'expression filters, joins of external tables, the field calculator '
-        '- the model grows by attributes without rebuilding. A contour '
-        'limits the export to a reserve block or a domain.',
+    '4.03 Грид пласта в блочную модель': '4.03 Bed grid to a block model',
+    'Переводит многоканальный грид пласта в блочную модель: точку-центроид на каждую валидную ячейку. Атрибуты: строка и столбец ячейки, координаты, верх (top), низ (bot), мощность (thick), объём (vol), тоннаж руды (ore_t) через плотность и все каналы параметров под их именами из описаний.\n\nДальше работает векторный аппарат QGIS: фильтры выражениями, join внешних таблиц, калькулятор полей - модель наращивается атрибутами без пересоздания. Контур ограничивает выгрузку подсчётным блоком или доменом.\n\nПараметр «Слоёв по вертикали» делит каждую колонку на N блоков между кровлей и подошвой: у каждого свои z_from, z_to, номер слоя lay и доля объёма. Содержание копируется в под-блоки (по вертикали оно не разбурено). Это заготовка настоящей 3D-модели.\n\nПлотность берётся из числа выше или, если задан «Канал плотности», из этого канала грида поячеечно - для переменной по площади плотности руды.':
+        'Turns a multiband bed grid into a block model: a centroid point per valid cell. Attributes: the cell row and column, the coordinates, the top, the bottom (bot), the thickness (thick), the volume (vol), the ore tonnage (ore_t) via the density and all the parameter bands under their names from the descriptions.\n\nThen the QGIS vector toolbox works: expression filters, joins of external tables, the field calculator - the model grows by attributes without a rebuild. The contour limits the export to a reserve block or a domain.\n\nThe "Vertical layers" parameter splits every column into N blocks between the roof and the bottom: each gets its own z_from, z_to, the layer number lay and a share of the volume. The content is copied into the sub-blocks (it is not drilled vertically). This is a groundwork for a true 3D model.\n\nThe density is taken from the number above or, if a "Density band" is set, from that grid band per cell - for an areally variable ore density.',
     'Блочная модель (центроиды)': 'Block model (centroids)',
     'Блочная модель: %s': 'Block model: %s',
     'Блоков выгружено: %d.': 'Blocks exported: %d.',
+    '4.05 Домены в канал пласта': '4.05 Domains to a bed band',
+    'Растеризует полигоны доменов в добавочный канал грида пласта: '
+    'каждой ячейке присваивается код домена, в который она попадает '
+    '(0 - вне доменов). Код берётся из числового поля слоя или, если '
+    'поле не задано, это порядковый номер объекта от 1. Каналы '
+    'исходного грида сохраняются, канал «domain» дописывается '
+    'последним.\n\nДальше домен работает как обычный параметр: '
+    'калькулятор пласта считает по контуру домена, блочная модель '
+    'фильтруется по коду. Списание запасов - это разность двух '
+    'состояний домена: посчитайте запасы по контуру до и после '
+    'погашения, вычтите. Контуры доменов должны лежать в той же '
+    'системе координат, что и грид.':
+        'Rasterises domain polygons into an extra band of the bed grid: '
+        'each cell gets the code of the domain it falls into (0 - outside '
+        'the domains). The code is taken from a numeric field of the layer '
+        'or, if no field is set, it is the feature order number from 1. The '
+        'source grid bands are kept, the "domain" band is appended last.'
+        '\n\nThen the domain works as an ordinary parameter: the bed '
+        'calculator sums over the domain contour, the block model is '
+        'filtered by the code. Reserve write-off is the difference of two '
+        'domain states: compute the reserves over the contour before and '
+        'after the mining, subtract. The domain contours must be in the '
+        'same CRS as the grid.',
+    'Полигоны доменов': 'Domain polygons',
+    'Поле кода домена (число, необязательно)': 'Domain code field (numeric, optional)',
+    'Грид пласта с каналом domain': 'Bed grid with a domain band',
+    'Грид не открылся.': 'The grid did not open.',
+    'Домены записаны в канал %d. Ячеек в доменах: %d.': 'Domains written to band %d. Cells in domains: %d.',
+    '4.06 Разность запасов (списание)': '4.06 Reserve difference (write-off)',
+    'Считает разность двух блочных моделей по ячейкам с одинаковыми '
+    'row и col: сколько запаса убыло между состояниями «было» и '
+    '«стало». Для каждой ячейки вычитается выбранное поле (по '
+    'умолчанию ore_t), результат - точки со значениями delta '
+    '(было минус стало), before и after.\n\nЭто прямой путь '
+    'оперативного списания: модель до погашения камер минус модель '
+    'после - и сумма delta по контуру даёт списанный тоннаж. Модели '
+    'должны быть построены из одного грида (совпадающая нарезка row '
+    'и col).':
+        'Computes the difference of two block models over the cells with '
+        'the same row and col: how much reserve was lost between the '
+        '"before" and "after" states. For each cell the chosen field '
+        '(ore_t by default) is subtracted, the result is points with delta '
+        '(before minus after), before and after values.\n\nThis is the '
+        'direct path of operational write-off: the model before mining the '
+        'chambers minus the model after - and the sum of delta over the '
+        'contour gives the written-off tonnage. The models must be built '
+        'from the same grid (a matching row and col split).',
+    'Модель «было» (центроиды)': 'The "before" model (centroids)',
+    'Модель «стало» (центроиды)': 'The "after" model (centroids)',
+    'Поле запаса': 'Reserve field',
+    'Разность (центроиды)': 'Difference (centroids)',
+    'Суммарное списание по полю %s: %.6g.': 'Total write-off by the %s field: %.6g.',
+
+    'Слоёв по вертикали (деление колонки)': 'Vertical layers (column split)',
+    'Канал плотности (пусто - брать значение выше)': 'Density band (empty - use the value above)',
+
     '2.07 Фрактальная размерность': '2.07 Fractal dimension',
     'Считает карту фрактальной размерности поверхности '
     'вариограммным методом: в скользящем окне строится лог-лог '

@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-two in all:
+The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-four in all:
 
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
@@ -47,10 +47,12 @@ The tools are split into four Processing groups — **"Grid and isolines"**, **"
 - **3.08 Unproject from the section (beta)** — reverse projection: objects drawn on the drawing are returned to real coordinates with a Z elevation.
 - **3.09 Unwrap a shaft wall (beta)** — a cylindrical section: a circle around the axis with an angular step, surfaces give intersection lines with the wall in arc-elevation axes.
 - **3.10 Create a section example** — six stacked surfaces (five beds: three host and two industrial), a line and boreholes along it (h1...h6 elevation fields), to try the cross-section and boreholes on a section at once without kriging.
-- **4.04 Surfaces to 3D (meshes) (beta)** — surface grids to 2DM mesh layers for the built-in QGIS 3D view (a scene holds one raster terrain but any number of meshes), with a vertical Z transform (scale and offset) and node thinning.
-- **4.01 Assemble a bed grid (beta)** — a multiband grid by the convention (roof, bottom, parameters) from separate rasters; the inputs are resampled to the roof grid, the band names go into the descriptions.
-- **4.02 Bed calculator (beta)** — the thickness, the volume, the ore and metal tonnage, the thickness-weighted content over a bed grid; a contour summary, an HTML report, the "thickness" and "reserves" bands are appended to the grid.
-- **4.03 Bed grid to a block model (beta)** — a centroid per cell with top/bot/thick/vol/ore_t and all the parameter bands by name; filters, joins and the field calculator grow the model without rebuilding.
+- **4.04 Surfaces to 3D (meshes)** — surface grids to 2DM mesh layers for the built-in QGIS 3D view (a scene holds one raster terrain but any number of meshes), with a vertical Z transform (scale and offset) and node thinning.
+- **4.05 Domains to a bed band** — zone polygons into the grid domain band: sum and filter by domains.
+- **4.06 Reserve difference (write-off)** — the difference of two block models, the sum of delta = written-off tonnage.
+- **4.01 Assemble a bed grid** — a multiband grid by the convention (roof, bottom, parameters) from separate rasters; the inputs are resampled to the roof grid, the band names go into the descriptions.
+- **4.02 Bed calculator** — the thickness, the volume, the ore and metal tonnage, the thickness-weighted content over a bed grid; a contour summary, an HTML report, the "thickness" and "reserves" bands are appended to the grid.
+- **4.03 Bed grid to a block model** — a centroid per cell with top/bot/thick/vol/ore_t and all the parameter bands by name; filters, joins and the field calculator grow the model without rebuilding.
 
 Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
 and any numeric attribute.
@@ -269,6 +271,12 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.48.5** — group 4 left beta; the manual: a "Lessons and self-check" appendix with a write-off test.
+- **2.48.4** — density as a dens field in the block model; band drop-downs in 4.03 and 2.03.
+- **2.48.3** — fix: the "Density band" parameter moved from 4.02 back to 4.03.
+- **2.48.2** — fix of the vertical split in 4.03; per-cell density from a grid band.
+- **2.48.1** — domains: 4.05 zone contours into a grid band, 4.06 reserve difference (write-off).
+- **2.48.0** — 3D: a section trace on the surfaces; 4.03: a vertical column split (z_from/z_to).
 - **2.47.7** — fix: the "Custom colour" swatch crashed on the first click for a layer without settings.
 - **2.47.6** — 3D: a per-layer "Custom colour" with a swatch and a click-to-pick dialog.
 - **2.47.5** — 3D: borehole labels are thinned, texts no longer overlap.

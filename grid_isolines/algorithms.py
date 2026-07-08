@@ -4142,12 +4142,12 @@ class ExceedanceProbabilityAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterNumber(
             self.THRESHOLD, self.tr("Порог"),
             QgsProcessingParameterNumber.Double, defaultValue=0.0))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
+        self.addParameter(_advanced(QgsProcessingParameterBand(
             self.BAND_EST, self.tr("Канал растра оценки"),
-            QgsProcessingParameterNumber.Integer, defaultValue=1, minValue=1)))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            defaultValue=1, parentLayerParameterName=self.ESTIMATE)))
+        self.addParameter(_advanced(QgsProcessingParameterBand(
             self.BAND_SE, self.tr("Канал растра ошибки"),
-            QgsProcessingParameterNumber.Integer, defaultValue=1, minValue=1)))
+            defaultValue=1, parentLayerParameterName=self.STDERR)))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Растр вероятности (0…1)")))
 
@@ -6948,7 +6948,7 @@ class SectionSurfacesToMeshAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionSurfacesToMeshAlgorithm()
     def name(self): return "surfaces_to_mesh3d"
-    def displayName(self): return self.tr("4.04 Поверхности в 3D (меши) (бета)")
+    def displayName(self): return self.tr("4.04 Поверхности в 3D (меши)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP4)
     def groupId(self): return GROUP4_ID
@@ -7077,7 +7077,7 @@ class BedAssembleAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return BedAssembleAlgorithm()
     def name(self): return "assemble_bed_grid"
-    def displayName(self): return self.tr("4.01 Собрать грид пласта (бета)")
+    def displayName(self): return self.tr("4.01 Собрать грид пласта")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP4)
     def groupId(self): return GROUP4_ID
@@ -7196,7 +7196,7 @@ class BedCalculatorAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return BedCalculatorAlgorithm()
     def name(self): return "bed_calculator"
-    def displayName(self): return self.tr("4.02 Калькулятор пласта (бета)")
+    def displayName(self): return self.tr("4.02 Калькулятор пласта")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP4)
     def groupId(self): return GROUP4_ID
@@ -7374,13 +7374,15 @@ class BedToBlockModelAlgorithm(QgsProcessingAlgorithm):
 
     BED = "BED"
     DENSITY = "DENSITY"
+    DENS_BAND = "DENS_BAND"
     CONTOUR = "CONTOUR"
+    NZ = "NZ"
     OUTPUT = "OUTPUT"
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return BedToBlockModelAlgorithm()
     def name(self): return "bed_to_block_model"
-    def displayName(self): return self.tr("4.03 Грид пласта в блочную модель (бета)")
+    def displayName(self): return self.tr("4.03 Грид пласта в блочную модель")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP4)
     def groupId(self): return GROUP4_ID
@@ -7395,7 +7397,14 @@ class BedToBlockModelAlgorithm(QgsProcessingAlgorithm):
             "векторный аппарат QGIS: фильтры выражениями, join внешних "
             "таблиц, калькулятор полей - модель наращивается атрибутами без "
             "пересоздания. Контур ограничивает выгрузку подсчётным блоком "
-            "или доменом.") + _credit())
+            "или доменом.\n\nПараметр «Слоёв по вертикали» делит каждую "
+            "колонку на N блоков между кровлей и подошвой: у каждого свои "
+            "z_from, z_to, номер слоя lay и доля объёма. Содержание "
+            "копируется в под-блоки (по вертикали оно не разбурено). Это "
+            "заготовка настоящей 3D-модели.\n\nПлотность берётся из "
+            "числа выше или, если задан «Канал плотности», из этого канала "
+            "грида поячеечно - для переменной по площади плотности руды.")
+            + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -7405,9 +7414,17 @@ class BedToBlockModelAlgorithm(QgsProcessingAlgorithm):
             self.DENSITY, self.tr("Плотность руды, т/м³"),
             QgsProcessingParameterNumber.Double,
             defaultValue=_dv(self, self.DENSITY, 2.1), minValue=0.01))
+        self.addParameter(_advanced(QgsProcessingParameterBand(
+            self.DENS_BAND,
+            self.tr("Канал плотности (пусто - брать значение выше)"),
+            parentLayerParameterName=self.BED, optional=True)))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.CONTOUR, self.tr("Контур подсчёта (полигоны, необязательно)"),
             [QgsProcessing.TypeVectorPolygon], optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.NZ, self.tr("Слоёв по вертикали (деление колонки)"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.NZ, 1), minValue=1, maxValue=100)))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Блочная модель (центроиды)"),
             QgsProcessing.TypeVectorPoint))
@@ -7417,7 +7434,13 @@ class BedToBlockModelAlgorithm(QgsProcessingAlgorithm):
         _saved = dict(parameters)
         bed_l = self.parameterAsRasterLayer(parameters, self.BED, context)
         dens = self.parameterAsDouble(parameters, self.DENSITY, context)
+        _db = self.parameterAsString(parameters, self.DENS_BAND, context)
+        try:
+            dens_band = int(_db) if _db not in (None, "") else 0
+        except (TypeError, ValueError):
+            dens_band = 0
         contour = self.parameterAsSource(parameters, self.CONTOUR, context)
+        nz = max(self.parameterAsInt(parameters, self.NZ, context), 1)
 
         ds = gdal.Open(bed_l.source())
         if ds is None or ds.RasterCount < 2:
@@ -7438,6 +7461,10 @@ class BedToBlockModelAlgorithm(QgsProcessingAlgorithm):
         roof, bot = stack[0], stack[1]
         thick = np.where(np.isfinite(roof - bot),
                          np.maximum(roof - bot, 0.0), np.nan)
+        if dens_band and dens_band <= len(stack):
+            dens_arr = stack[dens_band - 1]
+        else:
+            dens_arr = np.full_like(roof, dens, dtype=float)
         cell = abs(gt[1] * gt[5])
         mask = np.isfinite(thick)
         if contour is not None:
@@ -7473,15 +7500,17 @@ class BedToBlockModelAlgorithm(QgsProcessingAlgorithm):
             used.add(s)
             return s
 
-        used = {"bid", "row", "col", "x", "y", "top", "bot",
-                "thick", "vol", "ore_t"}
+        used = {"bid", "row", "col", "lay", "x", "y", "top", "bot",
+                "z_from", "z_to", "thick", "vol", "dens", "ore_t"}
         pnames = [_safe(nm, used) for nm in names[2:]]
         fields = QgsFields()
         for nm, tp in (("bid", QVariant.Int), ("row", QVariant.Int),
-                       ("col", QVariant.Int), ("x", QVariant.Double),
-                       ("y", QVariant.Double), ("top", QVariant.Double),
-                       ("bot", QVariant.Double), ("thick", QVariant.Double),
-                       ("vol", QVariant.Double), ("ore_t", QVariant.Double)):
+                       ("col", QVariant.Int), ("lay", QVariant.Int),
+                       ("x", QVariant.Double), ("y", QVariant.Double),
+                       ("top", QVariant.Double), ("bot", QVariant.Double),
+                       ("z_from", QVariant.Double), ("z_to", QVariant.Double),
+                       ("thick", QVariant.Double), ("vol", QVariant.Double),
+                       ("dens", QVariant.Double), ("ore_t", QVariant.Double)):
             fields.append(QgsField(nm, tp))
         for nm in pnames:
             fields.append(QgsField(nm, QVariant.Double))
@@ -7499,22 +7528,243 @@ class BedToBlockModelAlgorithm(QgsProcessingAlgorithm):
                 feedback.setProgress(100.0 * n / total)
             x = gt[0] + (j + 0.5) * gt[1]
             y = gt[3] + (i + 0.5) * gt[5]
-            bid += 1
-            th = float(thick[i, j])
-            vol = th * cell
-            f = QgsFeature(fields)
-            f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
-            attrs = [bid, int(i), int(j), float(x), float(y),
-                     float(roof[i, j]), float(bot[i, j]), th, vol,
-                     vol * dens]
-            for a in stack[2:]:
-                v = a[i, j]
-                attrs.append(float(v) if v == v else None)
-            f.setAttributes(attrs)
-            sink.addFeature(f)
+            r_top = float(roof[i, j])
+            r_bot = float(bot[i, j])
+            th_full = float(thick[i, j])
+            d_ij = float(dens_arr[i, j])
+            if not (d_ij == d_ij) or d_ij <= 0:
+                d_ij = dens
+            dz = th_full / nz
+            params = [(float(a[i, j]) if a[i, j] == a[i, j] else None)
+                      for a in stack[2:]]
+            for L in range(nz):
+                zf = r_top - L * dz          # сверху вниз
+                zt = r_top - (L + 1) * dz
+                bid += 1
+                vol = dz * cell
+                f = QgsFeature(fields)
+                f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
+                attrs = [bid, int(i), int(j), L, float(x), float(y),
+                         r_top, r_bot, zf, zt, dz, vol, d_ij, vol * d_ij]
+                attrs.extend(params)
+                f.setAttributes(attrs)
+                sink.addFeature(f)
         _set_output_name(context, dest,
                          self.tr("Блочная модель: %s") % bed_l.name())
         feedback.pushInfo(_tr("Блоков выгружено: %d.") % bid)
+        _save_values(self, _saved)
+        return {self.OUTPUT: dest}
+
+
+class DomainsToGridAlgorithm(QgsProcessingAlgorithm):
+    """Полигоны доменов -> добавочный канал грида пласта с кодом домена
+    в каждой ячейке. Дальше калькулятор и блочная модель считают по
+    доменам, а разность двух состояний даёт списание запасов."""
+
+    BED = "BED"
+    DOMAINS = "DOMAINS"
+    FIELD = "FIELD"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return DomainsToGridAlgorithm()
+    def name(self): return "domains_to_grid"
+    def displayName(self): return self.tr("4.05 Домены в канал пласта")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP4)
+    def groupId(self): return GROUP4_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Растеризует полигоны доменов в добавочный канал грида пласта: "
+            "каждой ячейке присваивается код домена, в который она попадает "
+            "(0 - вне доменов). Код берётся из числового поля слоя или, если "
+            "поле не задано, это порядковый номер объекта от 1. Каналы "
+            "исходного грида сохраняются, канал «domain» дописывается "
+            "последним.\n\nДальше домен работает как обычный параметр: "
+            "калькулятор пласта считает по контуру домена, блочная модель "
+            "фильтруется по коду. Списание запасов - это разность двух "
+            "состояний домена: посчитайте запасы по контуру до и после "
+            "погашения, вычтите. Контуры доменов должны лежать в той же "
+            "системе координат, что и грид.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.BED, self.tr("Грид пласта")))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.DOMAINS, self.tr("Полигоны доменов"),
+            [QgsProcessing.TypeVectorPolygon]))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.FIELD, self.tr("Поле кода домена (число, необязательно)"),
+            parentLayerParameterName=self.DOMAINS, optional=True,
+            type=QgsProcessingParameterField.Numeric)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Грид пласта с каналом domain")))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        bed_l = self.parameterAsRasterLayer(parameters, self.BED, context)
+        domains = self.parameterAsSource(parameters, self.DOMAINS, context)
+        field = self.parameterAsString(parameters, self.FIELD, context)
+        out = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+
+        ds = gdal.Open(bed_l.source())
+        if ds is None:
+            raise QgsProcessingException(self.tr("Грид не открылся."))
+        gt = ds.GetGeoTransform()
+        ny, nx = ds.RasterYSize, ds.RasterXSize
+        stack, names = [], []
+        for i in range(1, ds.RasterCount + 1):
+            b = ds.GetRasterBand(i)
+            a = b.ReadAsArray().astype(np.float32)
+            nd = b.GetNoDataValue()
+            if nd is not None:
+                a = np.where(a == nd, np.nan, a).astype(np.float32)
+            stack.append(a)
+            names.append(b.GetDescription() or ("band%d" % i))
+        ds = None
+
+        domain = np.zeros((ny, nx), dtype=np.float32)
+        n_assigned = 0
+        for k, ft in enumerate(domains.getFeatures(), start=1):
+            if feedback.isCanceled():
+                break
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            code = k
+            if field:
+                v = ft[field]
+                if v is not None:
+                    try:
+                        code = float(v)
+                    except (TypeError, ValueError):
+                        code = k
+            rings = []
+            try:
+                mp = g.asMultiPolygon()
+            except Exception:
+                mp = []
+            if not mp:
+                try:
+                    p1 = g.asPolygon()
+                except Exception:
+                    p1 = []
+                mp = [p1] if p1 else []
+            for poly in mp:
+                for ring in poly:
+                    rings.append([(p.x(), p.y()) for p in ring])
+            if not rings:
+                continue
+            m = polygon_mask(rings, gt, (ny, nx))
+            domain[m] = code
+            n_assigned += int(m.sum())
+
+        stack.append(domain)
+        names.append("domain")
+        crs_wkt = bed_l.crs().toWkt() if bed_l.crs().isValid() else ""
+        _write_grid_tiff(out, stack, gt, crs_wkt, -9999.0, nx, ny,
+                         band_names=names)
+        feedback.pushInfo(
+            _tr("Домены записаны в канал %d. Ячеек в доменах: %d.")
+            % (len(stack), n_assigned))
+        _save_values(self, _saved)
+        return {self.OUTPUT: out}
+
+
+class ReserveDeltaAlgorithm(QgsProcessingAlgorithm):
+    """Разность двух блочных моделей по совпадающим ячейкам: списание
+    запасов между состояниями (было -> стало)."""
+
+    BEFORE = "BEFORE"
+    AFTER = "AFTER"
+    FIELD = "FIELD"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return ReserveDeltaAlgorithm()
+    def name(self): return "reserve_delta"
+    def displayName(self): return self.tr("4.06 Разность запасов (списание)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP4)
+    def groupId(self): return GROUP4_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Считает разность двух блочных моделей по ячейкам с одинаковыми "
+            "row и col: сколько запаса убыло между состояниями «было» и "
+            "«стало». Для каждой ячейки вычитается выбранное поле (по "
+            "умолчанию ore_t), результат - точки со значениями delta "
+            "(было минус стало), before и after.\n\nЭто прямой путь "
+            "оперативного списания: модель до погашения камер минус модель "
+            "после - и сумма delta по контуру даёт списанный тоннаж. Модели "
+            "должны быть построены из одного грида (совпадающая нарезка row "
+            "и col).") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.BEFORE, self.tr("Модель «было» (центроиды)"),
+            [QgsProcessing.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.AFTER, self.tr("Модель «стало» (центроиды)"),
+            [QgsProcessing.TypeVectorPoint]))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.FIELD, self.tr("Поле запаса"),
+            parentLayerParameterName=self.BEFORE,
+            defaultValue="ore_t",
+            type=QgsProcessingParameterField.Numeric)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Разность (центроиды)"),
+            QgsProcessing.TypeVectorPoint))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        before = self.parameterAsSource(parameters, self.BEFORE, context)
+        after = self.parameterAsSource(parameters, self.AFTER, context)
+        field = self.parameterAsString(parameters, self.FIELD, context) \
+            or "ore_t"
+
+        def _key_vals(src):
+            d = {}
+            for ft in src.getFeatures():
+                try:
+                    key = (ft["row"], ft["col"], ft["lay"]
+                           if "lay" in [f.name() for f in src.fields()]
+                           else 0)
+                except KeyError:
+                    continue
+                v = ft[field] if field in [f.name() for f in src.fields()] \
+                    else None
+                d[key] = (float(v) if v is not None else 0.0, ft.geometry())
+            return d
+
+        db = _key_vals(before)
+        da = _key_vals(after)
+        fields = QgsFields()
+        for nm in ("row", "col", "lay"):
+            fields.append(QgsField(nm, QVariant.Int))
+        for nm in ("before", "after", "delta"):
+            fields.append(QgsField(nm, QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Point, before.sourceCrs())
+        total_delta = 0.0
+        for key, (vb, geom) in db.items():
+            va = da.get(key, (0.0, None))[0]
+            delta = vb - va
+            total_delta += delta
+            f = QgsFeature(fields)
+            f.setGeometry(geom)
+            f.setAttributes([int(key[0]), int(key[1]), int(key[2]),
+                             vb, va, delta])
+            sink.addFeature(f)
+        feedback.pushInfo(
+            _tr("Суммарное списание по полю %s: %.6g.") % (field, total_delta))
+        _set_output_name(context, dest, self.tr("Разность (центроиды)"))
         _save_values(self, _saved)
         return {self.OUTPUT: dest}
 
@@ -8120,6 +8370,8 @@ ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
     BedToBlockModelAlgorithm,
+    DomainsToGridAlgorithm,
+    ReserveDeltaAlgorithm,
     FractalDimensionAlgorithm,
     BoxCountingAlgorithm,
     LineDimensionAlgorithm,

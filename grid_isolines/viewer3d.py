@@ -827,6 +827,7 @@ def _build_dialog(parent):
                         verts, faces = bed_to_mesh_arrays(
                             top, bot, gt, zscale=1.0,
                             zoffset=-spacing * k, step=_auto_step(top))
+                        surf_arr = top
                         nbeds += 1
                     else:
                         arr, gt = _read_raster(lyr.source(),
@@ -836,6 +837,7 @@ def _build_dialog(parent):
                         verts, faces = grid_to_mesh_arrays(
                             arr, gt, zscale=1.0, zoffset=-spacing * k,
                             step=_auto_step(arr))
+                        surf_arr = arr
                 except ValueError:
                     skipped.append(lyr.name())
                     continue
@@ -847,8 +849,9 @@ def _build_dialog(parent):
                     qc = o["solid"].lstrip("#")
                     base = tuple(int(qc[i:i + 2], 16) / 255.0
                                  for i in (0, 2, 4)) + (1.0,)
-                meshes.append((verts, faces, base,
-                               lyr.id(), as_bed, lyr.source(), o))
+                meshes.append((verts, faces, base, lyr.id(), as_bed,
+                               lyr.source(), o, surf_arr, gt,
+                               -spacing * k))
             if not meshes:
                 self.info.setText(tr("Гриды не открылись."))
                 return
@@ -902,7 +905,8 @@ def _build_dialog(parent):
 
             alpha = 1.0 - float(self.opacity.value()) / 100.0
             gopt = 'opaque' if alpha >= 0.999 else 'translucent'
-            for k, (verts, faces, color, lid, as_bed, src, o) in enumerate(meshes):
+            for k, (verts, faces, color, lid, as_bed, src, o,
+                    _sa, _gt, _zo) in enumerate(meshes):
                 v = verts.copy()
                 v[:, 0] -= cx
                 v[:, 1] -= cy
@@ -931,8 +935,8 @@ def _build_dialog(parent):
             self._pick_marker = None
             self._pick = dict(cx=cx, cy=cy, cz=cz, vex=vex, span=span,
                               layers=[])
-            for k, (verts, faces, color, lid, as_bed, src, o) in \
-                    enumerate(meshes):
+            for k, (verts, faces, color, lid, as_bed, src, o,
+                    _sa, _gt, _zo) in enumerate(meshes):
                 zb = 1 if as_bed else int(o.get("zband", 1))
                 lyr = QgsProject.instance().mapLayer(lid)
                 self._pick["layers"].append(dict(
@@ -971,6 +975,47 @@ def _build_dialog(parent):
                                            glOptions='translucent')
                     self.view.addItem(ln)
                     self._items.append(ln)
+
+            # след разреза: линия пересечения секущих плоскостей с каждой
+            # поверхностью - яркая нить по кровле/подошве вдоль линии
+            if planes and meshes:
+                for pts, _zlo, _zhi in planes:
+                    P = np.asarray(pts, dtype=float)
+                    if len(P) < 2:
+                        continue
+                    # плотная передискретизация линии по длине
+                    seg = np.diff(P, axis=0)
+                    seglen = np.hypot(seg[:, 0], seg[:, 1])
+                    total = float(seglen.sum())
+                    if total <= 0:
+                        continue
+                    ns = max(int(total / (span * 0.004)), 32)
+                    tt = np.linspace(0.0, total, ns)
+                    cum = np.concatenate([[0.0], np.cumsum(seglen)])
+                    sx = np.interp(tt, cum, P[:, 0])
+                    sy = np.interp(tt, cum, P[:, 1])
+                    for mm in meshes:
+                        sa, gt, zo = mm[7], mm[8], mm[10]
+                        zc = sample_bilinear(sa, gt, sx, sy)
+                        good = np.isfinite(zc)
+                        if good.sum() < 2:
+                            continue
+                        tr = np.column_stack([
+                            sx - cx, sy - cy,
+                            (zc - cz) * vex + zo]).astype('float32')
+                        # разрыв нитей в местах NaN: рисуем связными кусками
+                        idx = np.where(good)[0]
+                        splits = np.split(idx, np.where(np.diff(idx) > 1)[0]
+                                          + 1)
+                        for run in splits:
+                            if len(run) < 2:
+                                continue
+                            tl = gl.GLLinePlotItem(
+                                pos=tr[run], mode='line_strip', width=3.0,
+                                antialias=True, color=(0.95, 0.20, 0.15, 1.0),
+                                glOptions='opaque')
+                            self.view.addItem(tl)
+                            self._items.append(tl)
 
             if wells:
                 mast = span * 0.02  # мачта над устьем: скважина видна всегда,
