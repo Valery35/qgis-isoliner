@@ -7769,7 +7769,6 @@ class ReserveDeltaAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: dest}
 
 
-<<<<<<< HEAD
 class MinCurvatureAlgorithm(QgsProcessingAlgorithm):
     """Гридирование методом минимальной кривизны (бигармония с натяжением).
     Поверхность как тонкая упругая пластина через данные с минимумом изгиба
@@ -8336,8 +8335,6 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
         return results
 
 
-=======
->>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
 class FractalDimensionAlgorithm(QgsProcessingAlgorithm):
     """Карта фрактальной размерности поверхности вариограммным методом:
     локальный наклон лог-лог вариограммы в скользящем окне даёт H,
@@ -9216,12 +9213,9 @@ ALGORITHMS = [
     BedToBlockModelAlgorithm,
     DomainsToGridAlgorithm,
     ReserveDeltaAlgorithm,
-<<<<<<< HEAD
     PolyhedralDemoAlgorithm,
     MinCurvatureAlgorithm,
     MethodCrossValidationAlgorithm,
-=======
->>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
     FractalDimensionAlgorithm,
     BoxCountingAlgorithm,
     LineDimensionAlgorithm,

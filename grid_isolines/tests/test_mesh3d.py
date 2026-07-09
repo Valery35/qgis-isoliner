@@ -142,7 +142,6 @@ def test_thin_labels_xy():
     assert thin_labels_xy([], min_dist=5) == []
 
 
-<<<<<<< HEAD
 def test_cylinder():
     import numpy as np
     from grid_isolines.mesh3d import cylinder
@@ -158,8 +157,6 @@ def test_cylinder():
     assert len(ve) == 0 and len(fe) == 0
 
 
-=======
->>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

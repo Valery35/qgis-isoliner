@@ -17,11 +17,7 @@ Qt и pyqtgraph импортируются лениво: модуль импор
 import os
 
 from .i18n import tr
-<<<<<<< HEAD
 from .mesh3d import grid_to_mesh_arrays, bed_to_mesh_arrays, sample_bilinear, thin_labels_xy, fraction_inside_bbox, cylinder
-=======
-from .mesh3d import grid_to_mesh_arrays, bed_to_mesh_arrays, sample_bilinear, thin_labels_xy, fraction_inside_bbox
->>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
 
 # опорные цвета шкалы (тёмно-синий -> бирюза -> жёлтый, а-ля viridis)
 _CMAP = [(0.267, 0.005, 0.329), (0.229, 0.322, 0.546),
@@ -948,11 +944,7 @@ def _build_dialog(parent):
                 meshes.append((verts, faces, base, lyr.id(), as_bed,
                                lyr.source(), o, surf_arr, gt,
                                -spacing * k))
-<<<<<<< HEAD
             if not meshes and not bodies:
-=======
-            if not meshes:
->>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
                 self.info.setText(tr("Гриды не открылись."))
                 return
             wells = self._well_points()
@@ -1115,11 +1107,7 @@ def _build_dialog(parent):
                         good = np.isfinite(zc)
                         if good.sum() < 2:
                             continue
-<<<<<<< HEAD
                         tpts = np.column_stack([
-=======
-                        tr = np.column_stack([
->>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
                             sx - cx, sy - cy,
                             (zc - cz) * vex + zo]).astype('float32')
                         # разрыв нитей в местах NaN: рисуем связными кусками
@@ -1130,17 +1118,12 @@ def _build_dialog(parent):
                             if len(run) < 2:
                                 continue
                             tl = gl.GLLinePlotItem(
-<<<<<<< HEAD
                                 pos=tpts[run], mode='line_strip', width=3.0,
-=======
-                                pos=tr[run], mode='line_strip', width=3.0,
->>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
                                 antialias=True, color=(0.95, 0.20, 0.15, 1.0),
                                 glOptions='opaque')
                             self.view.addItem(tl)
                             self._items.append(tl)
 
-<<<<<<< HEAD
             # контур сечения тел плоскостью разреза: где вертикальная штора
             # вдоль линии режет тело, рисуем яркий след (как по поверхностям)
             if planes and bodies:
@@ -1179,8 +1162,6 @@ def _build_dialog(parent):
                     self.view.addItem(cl)
                     self._items.append(cl)
 
-=======
->>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
             if wells:
                 mast = span * 0.02   # мачта над устьем поверх непрозрачных тел
                 rad = max(span * 0.006, 1e-9)
