@@ -1469,4 +1469,12 @@ TRANSLATIONS = {
         'min. curvature',
     'минимальная кривизна':
         'minimum curvature',
+    'Наклон Best Fit': 'Best-fit slope',
+    '1.0 - идеал, меньше 1 - занижение высоких значений': '1.0 is ideal, below 1 means high values are underestimated',
+    'Сдвиг Best Fit': 'Best-fit intercept',
+    '0 - идеал': '0 is ideal',
+    'Угол Best Fit': 'Best-fit angle',
+    '45° - идеал': '45° is ideal',
+    'Best Fit (оценка по факту): наклон %.3f, сдвиг %+.3g, угол %.1f°': 'Best fit (estimate vs fact): slope %.3f, intercept %+.3g, angle %.1f°',
+    'серая - идеал (1:1), синяя - регрессия': 'grey - ideal (1:1), blue - regression',
 }

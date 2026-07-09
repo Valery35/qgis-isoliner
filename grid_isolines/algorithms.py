@@ -1988,6 +1988,25 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
     распределения (хвосты, скос, вторая популяция) независимо от калибровки
     масштаба - за масштаб отвечает MSDR. Если plotly недоступен - текстовый
     отчёт только с метриками (graceful fallback)."""
+    # линия регрессии Best Fit: оценка по факту (est = slope*fact + intercept).
+    # slope=1, intercept=0 - идеал; slope<1 - занижение высоких значений
+    # (регрессия к среднему, подпись сглаживающих методов).
+    _f = np.asarray(fact, float); _e = np.asarray(est, float)
+    _mok = np.isfinite(_f) & np.isfinite(_e)
+    _slope = _intercept = _angle = None
+    if int(_mok.sum()) >= 2 and float(_f[_mok].std()) > 0:
+        _slope, _intercept = [float(v) for v in np.polyfit(_f[_mok], _e[_mok], 1)]
+        _angle = float(np.degrees(np.arctan(_slope)))
+        metrics = list(metrics) + [
+            (_tr("Наклон Best Fit"), "%.3f" % _slope,
+             _tr("1.0 - идеал, меньше 1 - занижение высоких значений")),
+            (_tr("Сдвиг Best Fit"), "%+.3g" % _intercept, _tr("0 - идеал")),
+            (_tr("Угол Best Fit"), "%.1f°" % _angle, _tr("45° - идеал")),
+        ]
+        if feedback is not None:
+            feedback.pushInfo(_tr(
+                "Best Fit (оценка по факту): наклон %.3f, сдвиг %+.3g, "
+                "угол %.1f°") % (_slope, _intercept, _angle))
     rows = "".join(
         "<tr><td>%s</td><td style='text-align:right'>%s</td>"
         "<td style='color:#777'>%s</td></tr>" % m for m in metrics)
@@ -2061,8 +2080,20 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
             row=1, col=1)
         fig.add_trace(go.Scatter(
             x=[lo, hi], y=[lo, hi], mode="lines",
-            line=dict(color="#cc3333", width=2), hoverinfo="skip"),
+            line=dict(color="#999999", width=2, dash="dash"),
+            hoverinfo="skip"),
             row=1, col=1)
+        if _slope is not None:
+            fig.add_trace(go.Scatter(
+                x=[lo, hi],
+                y=[_slope * lo + _intercept, _slope * hi + _intercept],
+                mode="lines", line=dict(color="#1f6fcc", width=2),
+                hoverinfo="skip"), row=1, col=1)
+            fig.add_annotation(
+                xref="x domain", yref="y domain", x=0.02, y=0.98,
+                text=_tr("серая - идеал (1:1), синяя - регрессия"),
+                showarrow=False, align="left",
+                font=dict(size=10, color="#666"), row=1, col=1)
         # подписи худших по модулю остатков прямо на графике
         if worst.size:
             fig.add_trace(go.Scatter(
