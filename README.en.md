@@ -5,7 +5,11 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
+<<<<<<< HEAD
 The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-seven in all:
+=======
+The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-four in all:
+>>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
 
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
@@ -271,6 +275,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+<<<<<<< HEAD
 - **2.56.0** — new tool 1.9 "Method cross-validation (LOO)": leave-one-out control for kriging and minimum curvature, with an error layer and an HTML report.
 - **2.55.0** — new tool 1.8 "Minimum curvature (points -> raster)": biharmonic-with-tension gridding, a deterministic alternative to kriging.
 - **2.54.0** — tool 4.07: the suite loads as separate per-bed layers (visibility control) with gentler folds; the standalone "Folded bed" example was removed.
@@ -280,6 +285,8 @@ bilingual (EN/RU).
 - **2.50.1** — 3D viewer: fixed a crash when showing bodies/surfaces without a section plane, plus the click query and the solid-colour picker on newer pyqtgraph builds (QGIS 4).
 - **2.50.0** — tool 4.07: placement now comes from the extent (map view), with new "Thickness" and "Base elevation" parameters and the Z range printed to the log. 3D viewer: a "Bodies" tab shows polygon layers with Z as volumetric bodies.
 - **2.49.0** — tool 4.07 "Create a polyhedral example (beta)": a PolyhedralSurface Z / TIN Z demo (QGIS 3.40 and newer); MultiPolygon Z fallback.
+=======
+>>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
 - **2.48.5** — group 4 left beta; the manual: a "Lessons and self-check" appendix with a write-off test.
 - **2.48.4** — density as a dens field in the block model; band drop-downs in 4.03 and 2.03.
 - **2.48.3** — fix: the "Density band" parameter moved from 4.02 back to 4.03.

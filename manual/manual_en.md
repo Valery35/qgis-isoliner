@@ -35,7 +35,11 @@ The main way is from the official QGIS repository. Open Plugins → Manage and I
 
 Raster band choice in all the tools is a drop-down with band names: a bed assembled by tool 4.01 shows roof, bottom and the parameter layer names in the lists.
 
+<<<<<<< HEAD
 ![The Isoliner provider in the Processing toolbox: four groups, thirty-seven tools.](images/toolbox_tree.png){width=52%}
+=======
+![The Isoliner provider in the Processing toolbox: four groups, thirty-two tools.](images/toolbox_tree.png){width=52%}
+>>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
@@ -1425,12 +1429,17 @@ In the Auto mode a multiband grid by the convention is read as a body: band 1 - 
 
 ![The **Vectors** tab: the section plane, the boreholes, the label field and the elevation fields; the scene shows the section ribbon with boreholes on a bed body.](images/viewer_vectors_tab.png){width=86%}
 
+<<<<<<< HEAD
 **Boreholes (points)**: pick a layer and check the numeric elevation fields, fields like h1…h6 are checked automatically. Every borehole is a stem of cylindrical segments between neighbouring elevations, the intervals coloured by stratigraphic position (the order of the checked fields), so the same horizon reads in one colour across all boreholes. Above the collar there is a mast with a ball: the mast lifts the collar above the roof by two percent of the scene span, the borehole stays visible even where the stem goes inside an opaque body.
+=======
+**Boreholes (points)**: pick a layer and check the numeric elevation fields, fields like h1…h6 are checked automatically. Every borehole is a vertical rod from the minimal elevation to the maximal one with a collar ball on a mast: the mast lifts the collar above the roof by two percent of the scene span, the borehole stays visible even where the rod goes inside an opaque body.
+>>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
 
 **Borehole label field** adds text above the masts: fields like name and well are guessed automatically, "(none)" switches the labels off. The labels are thinned automatically: if a labelled borehole is already nearby, the text is skipped, and dense well stocks stay readable. The cap is 500 labels.
 
 ![Borehole labels above the masts with automatic thinning. The **Vectors** tab with the label field on the left, the bed bodies coloured with custom colours.](images/viewer_well_labels.png){width=86%}
 
+<<<<<<< HEAD
 **Section plane (line)** accepts any line layer. The best input is the **Section definition** from tool 3.01: the ribbon takes the height range from its zmin and zmax fields. For an arbitrary line the ribbon stretches over the scene span with a margin. Polylines and multiple lines are supported, the bends are drawn by the vertices. A bright trace runs along the ribbon over the surfaces, and for bodies from the **Bodies** tab a section contour is drawn where the vertical curtain along the line cuts the body.
 
 ![Bed bodies, boreholes and the section plane in one scene: the block model stitched with the section.](images/viewer_ribbon_wells.png){width=78%}
@@ -1443,6 +1452,16 @@ The **Bodies** tab shows polygon layers that carry a Z elevation (polyhedral sur
 
 When a section plane is set, a **section trace** runs along its line over every surface - a bright red thread of the plane intersecting the roof and the bottom. The trace shows exactly where the section cuts each bed.
 
+=======
+**Section plane (line)** accepts any line layer. The best input is the **Section definition** from tool 3.01: the ribbon takes the height range from its zmin and zmax fields. For an arbitrary line the ribbon stretches over the scene span with a margin. Polylines and multiple lines are supported, the bends are drawn by the vertices.
+
+![Bed bodies, boreholes and the section plane in one scene: the block model stitched with the section.](images/viewer_ribbon_wells.png){width=78%}
+
+## Querying the scene by a click
+
+When a section plane is set, a **section trace** runs along its line over every surface - a bright red thread of the plane intersecting the roof and the bottom. The trace shows exactly where the section cuts each bed.
+
+>>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
 A click on a surface or a body (without dragging - the rotation is unaffected) queries the block model: a ray is cast from the camera through the cursor, the nearest intersection with the relief is found, and the status line prints the layer name, the point coordinates and the values of all the bands by name, plus the thickness for a bed. The hit is marked with a red ball until the next click or a scene rebuild.
 
 <!-- SCREENSHOT: viewer_pick.png | A click on a bed body: the red ball on the surface, the status line reads the full band readout -->

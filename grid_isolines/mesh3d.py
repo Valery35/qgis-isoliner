@@ -228,6 +228,7 @@ def fraction_inside_bbox(points, xmin, xmax, ymin, ymax):
         if xmin <= x <= xmax and ymin <= y <= ymax:
             n += 1
     return n / float(len(pts))
+<<<<<<< HEAD
 
 
 def cylinder(p0, p1, radius=1.0, sides=12):
@@ -263,3 +264,5 @@ def cylinder(p0, p1, radius=1.0, sides=12):
         faces.append([a, b, d])
         faces.append([a, d, c])
     return verts, np.asarray(faces, dtype=np.int64)
+=======
+>>>>>>> 2dc53d180ea0f6df46ef6849379c188869000699
