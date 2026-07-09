@@ -5,9 +5,9 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-two in all:
+The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-seven in all:
 
-> Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [www.informpp.ru](https://www.informpp.ru/).
+> Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
 **Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) and include your QGIS version, what you did, and attach the data or project to reproduce it — that makes the bug easy to repeat and faster to fix.
 
@@ -47,10 +47,12 @@ The tools are split into four Processing groups — **"Grid and isolines"**, **"
 - **3.08 Unproject from the section (beta)** — reverse projection: objects drawn on the drawing are returned to real coordinates with a Z elevation.
 - **3.09 Unwrap a shaft wall (beta)** — a cylindrical section: a circle around the axis with an angular step, surfaces give intersection lines with the wall in arc-elevation axes.
 - **3.10 Create a section example** — six stacked surfaces (five beds: three host and two industrial), a line and boreholes along it (h1...h6 elevation fields), to try the cross-section and boreholes on a section at once without kriging.
-- **4.04 Surfaces to 3D (meshes) (beta)** — surface grids to 2DM mesh layers for the built-in QGIS 3D view (a scene holds one raster terrain but any number of meshes), with a vertical Z transform (scale and offset) and node thinning.
-- **4.01 Assemble a bed grid (beta)** — a multiband grid by the convention (roof, bottom, parameters) from separate rasters; the inputs are resampled to the roof grid, the band names go into the descriptions.
-- **4.02 Bed calculator (beta)** — the thickness, the volume, the ore and metal tonnage, the thickness-weighted content over a bed grid; a contour summary, an HTML report, the "thickness" and "reserves" bands are appended to the grid.
-- **4.03 Bed grid to a block model (beta)** — a centroid per cell with top/bot/thick/vol/ore_t and all the parameter bands by name; filters, joins and the field calculator grow the model without rebuilding.
+- **4.04 Surfaces to 3D (meshes)** — surface grids to 2DM mesh layers for the built-in QGIS 3D view (a scene holds one raster terrain but any number of meshes), with a vertical Z transform (scale and offset) and node thinning.
+- **4.05 Domains to a bed band** — zone polygons into the grid domain band: sum and filter by domains.
+- **4.06 Reserve difference (write-off)** — the difference of two block models, the sum of delta = written-off tonnage.
+- **4.01 Assemble a bed grid** — a multiband grid by the convention (roof, bottom, parameters) from separate rasters; the inputs are resampled to the roof grid, the band names go into the descriptions.
+- **4.02 Bed calculator** — the thickness, the volume, the ore and metal tonnage, the thickness-weighted content over a bed grid; a contour summary, an HTML report, the "thickness" and "reserves" bands are appended to the grid.
+- **4.03 Bed grid to a block model** — a centroid per cell with top/bot/thick/vol/ore_t and all the parameter bands by name; filters, joins and the field calculator grow the model without rebuilding.
 
 Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
 and any numeric attribute.
@@ -269,6 +271,28 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.56.0** — new tool 1.9 "Method cross-validation (LOO)": leave-one-out control for kriging and minimum curvature, with an error layer and an HTML report.
+- **2.55.0** — new tool 1.8 "Minimum curvature (points -> raster)": biharmonic-with-tension gridding, a deterministic alternative to kriging.
+- **2.54.0** — tool 4.07: the suite loads as separate per-bed layers (visibility control) with gentler folds; the standalone "Folded bed" example was removed.
+- **2.53.0** — tool 4.07: the suite is now folded beds, each a separate feature coloured individually in 3D, with adaptive layer names. 3D viewer: framing accounts for the exaggerated height.
+- **2.52.0** — 3D viewer: a section contour of bodies cut by the section plane, and boreholes drawn as cylinders with intervals coloured by lithology.
+- **2.51.0** — tool 4.07: new examples "Folded bed" (a fold train) and "Suite" (a stack of beds).
+- **2.50.1** — 3D viewer: fixed a crash when showing bodies/surfaces without a section plane, plus the click query and the solid-colour picker on newer pyqtgraph builds (QGIS 4).
+- **2.50.0** — tool 4.07: placement now comes from the extent (map view), with new "Thickness" and "Base elevation" parameters and the Z range printed to the log. 3D viewer: a "Bodies" tab shows polygon layers with Z as volumetric bodies.
+- **2.49.0** — tool 4.07 "Create a polyhedral example (beta)": a PolyhedralSurface Z / TIN Z demo (QGIS 3.40 and newer); MultiPolygon Z fallback.
+- **2.48.5** — group 4 left beta; the manual: a "Lessons and self-check" appendix with a write-off test.
+- **2.48.4** — density as a dens field in the block model; band drop-downs in 4.03 and 2.03.
+- **2.48.3** — fix: the "Density band" parameter moved from 4.02 back to 4.03.
+- **2.48.2** — fix of the vertical split in 4.03; per-cell density from a grid band.
+- **2.48.1** — domains: 4.05 zone contours into a grid band, 4.06 reserve difference (write-off).
+- **2.48.0** — 3D: a section trace on the surfaces; 4.03: a vertical column split (z_from/z_to).
+- **2.47.7** — fix: the "Custom colour" swatch crashed on the first click for a layer without settings.
+- **2.47.6** — 3D: a per-layer "Custom colour" with a swatch and a click-to-pick dialog.
+- **2.47.5** — 3D: borehole labels are thinned, texts no longer overlap.
+- **2.47.4** — the manual: seven article figures placed into the chapters, the intro image block fixed.
+- **2.47.3** — the manual: nine new screenshots across the fresh chapters.
+- **2.47.2** — the manual: the 3D viewer chapter rewritten for the current UI, a "For enterprises" section.
+- **2.47.1** — the help-footer invitation links to the "For enterprises" page.
 - **2.47.0** — 2.10: K, grid offsets, a densify factor and D_r2 - the fit quality per feature.
 - **2.46.1** — terminology: consistent count wording in the Russian parameter labels.
 - **2.46.0** — group 2 renumbered to 2.01-2.11: proper ordering in the toolbox.

@@ -839,7 +839,7 @@ TRANSLATIONS = {
     '3.08 Спроецировать с разреза (бета)': '3.08 Unproject from the section (beta)',
     '3.09 Развёртка стенки ствола (бета)': '3.09 Shaft wall unwrap (beta)',
     '3.10 Создать пример для разреза': '3.10 Create a section example',
-    '4.04 Поверхности в 3D (меши) (бета)': '4.04 Surfaces to 3D (meshes) (beta)',
+    '4.04 Поверхности в 3D (меши)': '4.04 Surfaces to 3D (meshes)',
     'Экспортирует гриды поверхностей в mesh-слои стандартного формата '
     '2DM (MDAL). Такие слои понимают профильный инструмент QGIS, '
     'mesh-калькулятор, штатный 3D-вид и сторонние программы, а пачка '
@@ -916,7 +916,7 @@ TRANSLATIONS = {
     'Окраска поверхностей атрибутом (растр)': 'Colour surfaces by attribute (raster)',
     'Канал параметра пласта (0 - палитра)': 'Bed parameter band (0 - palette)',
     'канал %d пласта': "bed's band %d",
-    '4.01 Собрать грид пласта (бета)': '4.01 Assemble a bed grid (beta)',
+    '4.01 Собрать грид пласта': '4.01 Assemble a bed grid',
     'Собирает многоканальный грид пласта по конвенции плагина: '
     'канал 1 - кровля, канал 2 - подошва, каналы 3 и далее - '
     'параметры (содержание, минтип и любые другие). Кровля задаёт '
@@ -942,7 +942,7 @@ TRANSLATIONS = {
     'Параметры (растры, берётся канал 1)': 'Parameters (rasters, band 1 is taken)',
     'Грид пласта': 'Bed grid',
     'Грид пласта записан: каналов %d.': 'Bed grid written: %d bands.',
-    '4.02 Калькулятор пласта (бета)': '4.02 Bed calculator (beta)',
+    '4.02 Калькулятор пласта': '4.02 Bed calculator',
     'Считает по многоканальному гриду пласта (канал 1 - кровля, '
     'канал 2 - подошва): мощность, объём, тоннаж руды через '
     'плотность и, если задан канал содержания, средневзвешенное по '
@@ -981,27 +981,68 @@ TRANSLATIONS = {
     'Запасы металла': 'Metal reserves',
     'Ячеек с отрицательной мощностью': 'Cells with a negative thickness',
     'Калькулятор пласта': 'Bed calculator',
-    '4.03 Грид пласта в блочную модель (бета)': '4.03 Bed grid to a block model (beta)',
-    'Переводит многоканальный грид пласта в блочную модель: точку-'
-    'центроид на каждую валидную ячейку. Атрибуты: строка и столбец '
-    'ячейки, координаты, верх (top), низ (bot), мощность (thick), '
-    'объём (vol), тоннаж руды (ore_t) через плотность и все каналы '
-    'параметров под их именами из описаний.\n\nДальше работает '
-    'векторный аппарат QGIS: фильтры выражениями, join внешних '
-    'таблиц, калькулятор полей - модель наращивается атрибутами без '
-    'пересоздания. Контур ограничивает выгрузку подсчётным блоком '
-    'или доменом.':
-        'Converts a multiband bed grid into a block model: a centroid point '
-        'per valid cell. The attributes: the cell row and column, the '
-        'coordinates, top, bot, thick, vol, the ore tonnage (ore_t) via the '
-        'density and all the parameter bands under their names from the '
-        'descriptions.\n\nFrom there the QGIS vector machinery works: '
-        'expression filters, joins of external tables, the field calculator '
-        '- the model grows by attributes without rebuilding. A contour '
-        'limits the export to a reserve block or a domain.',
+    '4.03 Грид пласта в блочную модель': '4.03 Bed grid to a block model',
+    'Переводит многоканальный грид пласта в блочную модель: точку-центроид на каждую валидную ячейку. Атрибуты: строка и столбец ячейки, координаты, верх (top), низ (bot), мощность (thick), объём (vol), тоннаж руды (ore_t) через плотность и все каналы параметров под их именами из описаний.\n\nДальше работает векторный аппарат QGIS: фильтры выражениями, join внешних таблиц, калькулятор полей - модель наращивается атрибутами без пересоздания. Контур ограничивает выгрузку подсчётным блоком или доменом.\n\nПараметр «Слоёв по вертикали» делит каждую колонку на N блоков между кровлей и подошвой: у каждого свои z_from, z_to, номер слоя lay и доля объёма. Содержание копируется в под-блоки (по вертикали оно не разбурено). Это заготовка настоящей 3D-модели.\n\nПлотность берётся из числа выше или, если задан «Канал плотности», из этого канала грида поячеечно - для переменной по площади плотности руды.':
+        'Turns a multiband bed grid into a block model: a centroid point per valid cell. Attributes: the cell row and column, the coordinates, the top, the bottom (bot), the thickness (thick), the volume (vol), the ore tonnage (ore_t) via the density and all the parameter bands under their names from the descriptions.\n\nThen the QGIS vector toolbox works: expression filters, joins of external tables, the field calculator - the model grows by attributes without a rebuild. The contour limits the export to a reserve block or a domain.\n\nThe "Vertical layers" parameter splits every column into N blocks between the roof and the bottom: each gets its own z_from, z_to, the layer number lay and a share of the volume. The content is copied into the sub-blocks (it is not drilled vertically). This is a groundwork for a true 3D model.\n\nThe density is taken from the number above or, if a "Density band" is set, from that grid band per cell - for an areally variable ore density.',
     'Блочная модель (центроиды)': 'Block model (centroids)',
     'Блочная модель: %s': 'Block model: %s',
     'Блоков выгружено: %d.': 'Blocks exported: %d.',
+    '4.05 Домены в канал пласта': '4.05 Domains to a bed band',
+    'Растеризует полигоны доменов в добавочный канал грида пласта: '
+    'каждой ячейке присваивается код домена, в который она попадает '
+    '(0 - вне доменов). Код берётся из числового поля слоя или, если '
+    'поле не задано, это порядковый номер объекта от 1. Каналы '
+    'исходного грида сохраняются, канал «domain» дописывается '
+    'последним.\n\nДальше домен работает как обычный параметр: '
+    'калькулятор пласта считает по контуру домена, блочная модель '
+    'фильтруется по коду. Списание запасов - это разность двух '
+    'состояний домена: посчитайте запасы по контуру до и после '
+    'погашения, вычтите. Контуры доменов должны лежать в той же '
+    'системе координат, что и грид.':
+        'Rasterises domain polygons into an extra band of the bed grid: '
+        'each cell gets the code of the domain it falls into (0 - outside '
+        'the domains). The code is taken from a numeric field of the layer '
+        'or, if no field is set, it is the feature order number from 1. The '
+        'source grid bands are kept, the "domain" band is appended last.'
+        '\n\nThen the domain works as an ordinary parameter: the bed '
+        'calculator sums over the domain contour, the block model is '
+        'filtered by the code. Reserve write-off is the difference of two '
+        'domain states: compute the reserves over the contour before and '
+        'after the mining, subtract. The domain contours must be in the '
+        'same CRS as the grid.',
+    'Полигоны доменов': 'Domain polygons',
+    'Поле кода домена (число, необязательно)': 'Domain code field (numeric, optional)',
+    'Грид пласта с каналом domain': 'Bed grid with a domain band',
+    'Грид не открылся.': 'The grid did not open.',
+    'Домены записаны в канал %d. Ячеек в доменах: %d.': 'Domains written to band %d. Cells in domains: %d.',
+    '4.06 Разность запасов (списание)': '4.06 Reserve difference (write-off)',
+    'Считает разность двух блочных моделей по ячейкам с одинаковыми '
+    'row и col: сколько запаса убыло между состояниями «было» и '
+    '«стало». Для каждой ячейки вычитается выбранное поле (по '
+    'умолчанию ore_t), результат - точки со значениями delta '
+    '(было минус стало), before и after.\n\nЭто прямой путь '
+    'оперативного списания: модель до погашения камер минус модель '
+    'после - и сумма delta по контуру даёт списанный тоннаж. Модели '
+    'должны быть построены из одного грида (совпадающая нарезка row '
+    'и col).':
+        'Computes the difference of two block models over the cells with '
+        'the same row and col: how much reserve was lost between the '
+        '"before" and "after" states. For each cell the chosen field '
+        '(ore_t by default) is subtracted, the result is points with delta '
+        '(before minus after), before and after values.\n\nThis is the '
+        'direct path of operational write-off: the model before mining the '
+        'chambers minus the model after - and the sum of delta over the '
+        'contour gives the written-off tonnage. The models must be built '
+        'from the same grid (a matching row and col split).',
+    'Модель «было» (центроиды)': 'The "before" model (centroids)',
+    'Модель «стало» (центроиды)': 'The "after" model (centroids)',
+    'Поле запаса': 'Reserve field',
+    'Разность (центроиды)': 'Difference (centroids)',
+    'Суммарное списание по полю %s: %.6g.': 'Total write-off by the %s field: %.6g.',
+
+    'Слоёв по вертикали (деление колонки)': 'Vertical layers (column split)',
+    'Канал плотности (пусто - брать значение выше)': 'Density band (empty - use the value above)',
+
     '2.07 Фрактальная размерность': '2.07 Fractal dimension',
     'Считает карту фрактальной размерности поверхности '
     'вариограммным методом: в скользящем окне строится лог-лог '
@@ -1138,10 +1179,11 @@ TRANSLATIONS = {
 
     'Isoliner развивается на задачах реальных предприятий. '
     'Если вашему производству не хватает функции - напишите '
-    'нам: https://www.informpp.ru/':
+    'нам: https://www.informpp.ru/главная-страница/'
+    'предприятиям':
         'Isoliner grows on the tasks of real mining operations. '
         'If your production is missing a feature - contact us: '
-        'https://www.informpp.ru/',
+        'https://www.informpp.ru/главная-страница/предприятиям',
 
 
 
@@ -1162,6 +1204,10 @@ TRANSLATIONS = {
     'Окраска': 'Colouring',
     'Палитра': 'Palette',
     'Поле подписи скважин': 'Borehole label field',
+    'Свой цвет': 'Custom colour',
+    'Задать свой цвет': 'Set a custom colour',
+    'Свой цвет слоя': 'Custom layer colour',
+
 
 
 
@@ -1234,4 +1280,193 @@ TRANSLATIONS = {
     'Исходный код': 'Source code',
     'Сообщить об ошибке': 'Report an issue',
     'Руководство не найдено.': 'Manual not found.',
+    # 4.07 Создать пример полиэдра (демо)
+    '4.07 Создать пример полиэдра (бета)':
+        '4.07 Create a polyhedral example (beta)',
+    'Пример': 'Example',
+    'Тело пласта': 'Bed body',
+    'Куб': 'Cube',
+    'Тетраэдр': 'Tetrahedron',
+    'Разбиение тела пласта (ячеек по стороне)':
+        'Bed body resolution (cells per side)',
+    'Размер, ед. карты': 'Size, map units',
+    'Выдать как TIN (триангулировать)': 'Output as TIN (triangulate)',
+    'X начала': 'X of origin',
+    'Y начала': 'Y of origin',
+    'Полиэдр (демо)': 'Polyhedral (demo)',
+    'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть '
+    'сам тип геометрии в 3D и проверить его на своей сборке QGIS. Варианты '
+    'примера: тело пласта (водонепроницаемая оболочка из кровли, подошвы и '
+    'боковой юбки - тот же приём, что и в будущем экспорте тела пласта), куб '
+    'и тетраэдр. Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же '
+    'работает плагин QSFCGAL (резка и булевы операции над телами). На более '
+    'старых сборках вывод деградирует до MultiPolygon Z. Флаг TIN выдаёт '
+    'триангулированную поверхность (тип TIN Z).':
+        'Creates a demonstration polyhedral surface so you can see the '
+        'geometry type in 3D and check it on your QGIS build. Example '
+        'options: a bed body (a watertight shell of roof, floor and side '
+        'skirt, the same approach as the upcoming bed-body export), a cube '
+        'and a tetrahedron. A native PolyhedralSurface Z is available from '
+        'QGIS 3.40, where the QSFCGAL plugin also works (cutting and boolean '
+        'operations on bodies). On older builds the output degrades to '
+        'MultiPolygon Z. The TIN flag outputs a triangulated surface '
+        '(TIN Z type).',
+    'Не удалось собрать геометрию из WKT.':
+        'Could not build geometry from WKT.',
+    'Нативный тип {0} на этой сборке недоступен - вывод как MultiPolygon Z. '
+    'Нативный PolyhedralSurface / TIN и QSFCGAL доступны с QGIS 3.40.':
+        'The native {0} type is unavailable on this build, output as '
+        'MultiPolygon Z. Native PolyhedralSurface / TIN and QSFCGAL are '
+        'available from QGIS 3.40.',
+    'Не удалось создать выходной слой типа %s.':
+        'Could not create an output layer of type %s.',
+    'Тип геометрии: %s Z.': 'Geometry type: %s Z.',
+    'Граней: %d.': 'Patches: %d.',
+    'Оболочка замкнута (водонепроницаема).':
+        'Shell is closed (watertight).',
+    'Оболочка НЕ замкнута: открытых рёбер %d.':
+        'Shell is NOT closed: open edges %d.',
+    'Охват (окно вида) - размещение и размер':
+        'Extent (map view) - placement and size',
+    'Мощность, ед. карты':
+        'Thickness, map units',
+    'Отметка залегания (подошва), ед. карты':
+        'Base elevation (floor), map units',
+    'Диапазон Z: %.3f .. %.3f (ед. карты).':
+        'Z range: %.3f .. %.3f (map units).',
+    'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть сам тип геометрии в 3D и проверить его на своей сборке QGIS. Варианты примера: тело пласта (водонепроницаемая оболочка из кровли, подошвы и боковой юбки - тот же приём, что и в будущем экспорте тела пласта), куб и тетраэдр. Плановое положение и размер берутся из охвата (окна вида), по вертикали тело занимает от отметки залегания до отметки плюс мощность. Тип геометрии плоский, поэтому в 2D-виде Z не виден - диапазон Z печатается в журнал, а само тело удобно смотреть в окне Модули - Isoliner - 3D-просмотр поверхностей, вкладка Тела. Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же работает плагин QSFCGAL (резка и булевы операции над телами). На более старых сборках вывод деградирует до MultiPolygon Z. Флаг TIN выдаёт триангулированную поверхность (тип TIN Z).':
+        'Creates a demonstration polyhedral surface so you can see the geometry type in 3D and check it on your QGIS build. Example options: a bed body (a watertight shell of roof, floor and side skirt, the same approach as the upcoming bed-body export), a cube and a tetrahedron. The plan position and size come from the extent (map view); vertically the body spans from the base elevation up to that elevation plus the thickness. The geometry type is flat, so Z is not visible in the 2D view - the Z range is printed to the log, and the body itself is best viewed in Plugins - Isoliner - 3D surface viewer, the Bodies tab. A native PolyhedralSurface Z is available from QGIS 3.40, where the QSFCGAL plugin also works (cutting and boolean operations on bodies). On older builds the output degrades to MultiPolygon Z. The TIN flag outputs a triangulated surface (TIN Z type).',
+    'Полигональные слои с Z (полиэдр, TIN, MultiPolygon Z). Отметьте тела для показа и нажмите «Обновить сцену».':
+        'Polygon layers with Z (polyhedral, TIN, MultiPolygon Z). Tick the bodies to show and press «Rebuild scene».',
+    'Отметьте растр на вкладке «Слои» или тело на вкладке «Тела».':
+        'Tick a raster on the «Layers» tab or a body on the «Bodies» tab.',
+    'Тела':
+        'Bodies',
+    'Тел: %d.':
+        'Bodies: %d.',
+    'Складчатый пласт': 'Folded bed',
+    'Свита (стопка пластов)': 'Suite (stack of beds)',
+    'Пластов в свите': 'Beds in the suite',
+    'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть сам тип геометрии в 3D и проверить его на своей сборке QGIS. Варианты примера: тело пласта, складчатый пласт (фолд-трейн из антиклиналей и синклиналей), свита (стопка пластов), куб и тетраэдр. Тело пласта - водонепроницаемая оболочка из кровли, подошвы и боковой юбки, тот же приём, что и в будущем экспорте тела пласта. Плановое положение и размер берутся из охвата (окна вида), по вертикали тело занимает от отметки залегания до отметки плюс мощность. Тип геометрии плоский, поэтому в 2D-виде Z не виден - диапазон Z печатается в журнал, а само тело удобно смотреть в окне Модули - Isoliner - 3D-просмотр поверхностей, вкладка Тела. Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же работает плагин QSFCGAL (резка и булевы операции над телами). На более старых сборках вывод деградирует до MultiPolygon Z. Флаг TIN выдаёт триангулированную поверхность (тип TIN Z).':
+        'Creates a demonstration polyhedral surface so you can see the geometry type in 3D and check it on your QGIS build. Example options: a bed body, a folded bed (a fold train of anticlines and synclines), a suite (a stack of beds), a cube and a tetrahedron. The bed body is a watertight shell of roof, floor and side skirt, the same approach as the upcoming bed-body export. The plan position and size come from the extent (map view); vertically the body spans from the base elevation up to that elevation plus the thickness. The geometry type is flat, so Z is not visible in the 2D view - the Z range is printed to the log, and the body itself is best viewed in Plugins - Isoliner - 3D surface viewer, the Bodies tab. A native PolyhedralSurface Z is available from QGIS 3.40, where the QSFCGAL plugin also works (cutting and boolean operations on bodies). On older builds the output degrades to MultiPolygon Z. The TIN flag outputs a triangulated surface (TIN Z type).',
+    'Пласт (демо)': 'Bed (demo)',
+    'Складчатый пласт (демо)': 'Folded bed (demo)',
+    'Свита x%d (демо)': 'Suite x%d (demo)',
+    'Куб (демо)': 'Cube (demo)',
+    'Тетраэдр (демо)': 'Tetrahedron (demo)',
+    'Объектов: %d, граней всего: %d.': 'Objects: %d, faces total: %d.',
+    'Свита (стопка складчатых пластов)':
+        'Suite (stack of folded beds)',
+    'Свита: пласт %d':
+        'Suite: bed %d',
+    'Свита загружена отдельными слоями по пласту: %d.':
+        'Suite loaded as separate per-bed layers: %d.',
+    'Не удалось разнести свиту по слоям (%s) - вывод одним слоем.':
+        'Could not split the suite into layers (%s) - output as one layer.',
+    'Не задан выходной слой. Укажите «Полиэдр (демо)» (например, временный слой).':
+        'No output layer is set. Specify "Polyhedral (demo)" (for example, a temporary layer).',
+    'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть сам тип геометрии в 3D и проверить его на своей сборке QGIS. Варианты примера: тело пласта, свита (стопка складчатых пластов, каждый пласт грузится отдельным слоем для управления видимостью и красится своим цветом), куб и тетраэдр. Тело пласта - водонепроницаемая оболочка из кровли, подошвы и боковой юбки, тот же приём, что и в будущем экспорте тела пласта. Плановое положение и размер берутся из охвата (окна вида), по вертикали тело занимает от отметки залегания до отметки плюс мощность. Тип геометрии плоский, поэтому в 2D-виде Z не виден - диапазон Z печатается в журнал, а само тело удобно смотреть в окне Модули - Isoliner - 3D-просмотр поверхностей, вкладка Тела. Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же работает плагин QSFCGAL (резка и булевы операции над телами). На более старых сборках вывод деградирует до MultiPolygon Z. Флаг TIN выдаёт триангулированную поверхность (тип TIN Z).':
+        'Creates a demonstration polyhedral surface so you can see the geometry type in 3D and check it on your QGIS build. Example options: a bed body, a suite (a stack of folded beds, each bed loaded as a separate layer for visibility control and coloured on its own), a cube and a tetrahedron. The bed body is a watertight shell of roof, floor and side skirt, the same approach as the upcoming bed-body export. The plan position and size come from the extent (map view); vertically the body spans from the base elevation up to that elevation plus the thickness. The geometry type is flat, so Z is not visible in the 2D view - the Z range is printed to the log, and the body itself is best viewed in Plugins - Isoliner - 3D surface viewer, the Bodies tab. A native PolyhedralSurface Z is available from QGIS 3.40, where the QSFCGAL plugin also works (cutting and boolean operations on bodies). On older builds the output degrades to MultiPolygon Z. The TIN flag outputs a triangulated surface (TIN Z type).',
+    '1.8 Минимальная кривизна (точки → растр)':
+        '1.8 Minimum curvature (points -> raster)',
+    'Анизотропия (отношение осей Y/X)':
+        'Anisotropy (Y/X axis ratio)',
+    'Грид (минимальная кривизна)':
+        'Grid (minimum curvature)',
+    'Коэффициент релаксации (SOR)':
+        'Relaxation factor (SOR)',
+    'Максимум итераций':
+        'Maximum iterations',
+    'Натяжение (0 - мин. кривизна, 1 - мембрана)':
+        'Tension (0 - minimum curvature, 1 - membrane)',
+    'Натяжение на границе':
+        'Boundary tension',
+    'Охват (0 = по точкам)':
+        'Extent (0 = from points)',
+    'Порог невязки (0 = авто, 0.01% размаха)':
+        'Residual threshold (0 = auto, 0.01% of the range)',
+    'Сетка %d x %d, ячейка %.4g. Порог невязки %.4g.':
+        'Grid %d x %d, cell %.4g. Residual threshold %.4g.',
+    'Сошлось за %d итераций (невязка %.4g).':
+        'Converged in %d iterations (residual %.4g).',
+    'Узлов-данных: %d из %d.':
+        'Data nodes: %d of %d.',
+    'Достигнут потолок %d итераций, невязка %.4g больше порога %.4g. Увеличьте число итераций или порог невязки.':
+        'Reached the cap of %d iterations, residual %.4g exceeds the threshold %.4g. Increase the iterations or the residual threshold.',
+    'Строит грид методом минимальной кривизны: поверхность ведёт себя как тонкая упругая пластина, проходящая через данные с минимумом изгиба (решение бигармонического уравнения). Метод неточный - данные воспроизводятся приближённо, зато поверхность максимально гладкая, поэтому его любят для карт геофизических полей и любых плавных величин.\n\nНатяжение подмешивает мембранный член: 0 - чистая минимальная кривизна, 1 - натянутая мембрана (меньше выбросов между пробами). Отдельно задаётся натяжение на границе. Решение итеративное (SOR обходом девятью цветами): сетка сходится, пока изменение узла не станет меньше порога невязки или не исчерпаются итерации.\n\nРазмер ячейки 0 = min(охват)/50. Порог невязки 0 = 0.01 процента от размаха данных. Выход - грид, готовый для «1.2 Изолинии из растра». Это детерминированная альтернатива кригингу без подбора вариограммы; кригинг же даёт оценку с погрешностью.':
+        'Builds a grid by minimum curvature: the surface behaves like a thin elastic plate passing through the data with the least bending (a solution of the biharmonic equation). The method is not exact - the data are honored approximately - but the surface is as smooth as possible, which is why it is favored for maps of geophysical fields and any smooth quantity.\n\nTension mixes in a membrane term: 0 is pure minimum curvature, 1 is a taut membrane (fewer overshoots between samples). Boundary tension is set separately. The solution is iterative (SOR with a nine-colour sweep): the grid converges until a node changes by less than the residual threshold or the iterations run out.\n\nCell size 0 = min(extent)/50. Residual threshold 0 = 0.01 percent of the data range. The output is a grid ready for "1.2 Isolines from raster". It is a deterministic alternative to kriging without variogram fitting; kriging, in turn, gives an estimate with an error.',
+    'Скользящий контроль (leave-one-out) для метода гридирования - кригинга или минимальной кривизны. Каждая проверяемая точка по очереди исключается, её значение предсказывается методом по остальным и сравнивается с фактом. По ошибкам считаются ME (смещение), MAE, RMSE и R - объективная оценка качества метода и сравнение методов между собой.\n\nКак в Surfer: можно проверять случайную выборку из N точек (на больших данных быстрее), ограничить проверку подобластью (фильтр по охвату и по значению) и задать буфер исключения - соседние точки в прямоугольнике вокруг проверяемой не участвуют в её оценке (нужно для сгущённых кластеров, иначе оценка просто повторяет соседа).\n\nВыходы: слой точек с ошибками и HTML-отчёт (график оценка/факт, гистограмма, метрики). Для минимальной кривизны переоценка идёт с тёплого старта от полного решения, поэтому каждая точка считается быстро, но на очень больших выборках уменьшайте N.':
+        'Leave-one-out cross-validation for a gridding method - kriging or minimum curvature. Each validation point is removed in turn, its value is predicted by the method from the rest and compared with the fact. From the errors it computes ME (bias), MAE, RMSE and R - an objective quality measure for the method and a way to compare methods.\n\nLike in Surfer: you can validate a random subset of N points (faster on large data), restrict validation to a subarea (extent and value filters) and set an exclusion buffer - neighbouring points in a rectangle around the validation point are left out of its estimate (needed for dense clusters, otherwise the estimate just repeats a neighbour).\n\nOutputs: an error point layer and an HTML report (estimate-vs-fact plot, histogram, metrics). For minimum curvature each re-estimate warm-starts from the full solution, so a point is fast to compute, but reduce N on very large samples.',
+    '1.9 Кросс-валидация метода (LOO)':
+        '1.9 Method cross-validation (LOO)',
+    '== Кросс-валидация метода (LOO) ==':
+        '== Method cross-validation (LOO) ==',
+    'HTML (*.html)':
+        'HTML (*.html)',
+    'HTML-отчёт':
+        'HTML report',
+    'ME (смещение):   %+.4g':
+        'ME (bias):       %+.4g',
+    'MSDR:            %.3f':
+        'MSDR:            %.3f',
+    'RMSE:            %.4g':
+        'RMSE:            %.4g',
+    'Буфер исключения по X (0 = выкл.)':
+        'Exclusion buffer in X (0 = off)',
+    'Буфер исключения по Y (0 = выкл.)':
+        'Exclusion buffer in Y (0 = off)',
+    'Кросс-валидация метода: %s · %s':
+        'Method cross-validation: %s · %s',
+    'Метод':
+        'Method',
+    'Метод: %s. Проверяем %d из %d точек.':
+        'Method: %s. Validating %d of %d points.',
+    'Мин. кривизна: анизотропия (Y/X)':
+        'Min curvature: anisotropy (Y/X)',
+    'Мин. кривизна: коэффициент релаксации':
+        'Min curvature: relaxation factor',
+    'Мин. кривизна: максимум итераций':
+        'Min curvature: maximum iterations',
+    'Мин. кривизна: натяжение (0..1)':
+        'Min curvature: tension (0..1)',
+    'Мин. кривизна: натяжение на границе':
+        'Min curvature: boundary tension',
+    'Мин. кривизна: охват сетки (0 = по точкам)':
+        'Min curvature: grid extent (0 = from points)',
+    'Мин. кривизна: порог невязки (0 = авто)':
+        'Min curvature: residual threshold (0 = auto)',
+    'Мин. кривизна: размер ячейки (0 = авто)':
+        'Min curvature: cell size (0 = auto)',
+    'Минимальная кривизна':
+        'Minimum curvature',
+    'Натяжение':
+        'Tension',
+    'Оценка метода (LOO)':
+        'Method estimate (LOO)',
+    'Ошибки CV (%s) %s':
+        'CV errors (%s) %s',
+    'Ошибки кросс-валидации':
+        'Cross-validation errors',
+    'После фильтров осталось меньше двух проверяемых точек.':
+        'Fewer than two validation points remain after the filters.',
+    'Прервано.':
+        'Cancelled.',
+    'Проверяемых точек (0 = авто, min(N, 100))':
+        'Points to validate (0 = auto, min(N, 100))',
+    'Проверять при Z не выше (пусто = нет)':
+        'Validate where Z is at most (empty = none)',
+    'Проверять при Z не ниже (пусто = нет)':
+        'Validate where Z is at least (empty = none)',
+    'Проверять только в охвате (0 = везде)':
+        'Validate only within the extent (0 = everywhere)',
+    'Сетка':
+        'Grid',
+    'Ячейка':
+        'Cell',
+    'кригинг':
+        'kriging',
+    'мин. кривизна':
+        'min. curvature',
+    'минимальная кривизна':
+        'minimum curvature',
 }
