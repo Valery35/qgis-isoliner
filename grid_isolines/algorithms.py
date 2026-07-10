@@ -103,6 +103,8 @@ GROUP3 = _tr("3. Разрез")
 GROUP3_ID = "section"
 GROUP4 = _tr("4. Пласт и блочная модель")
 GROUP4_ID = "bed_block_model"
+GROUP5 = _tr("5. Фрактальный анализ")
+GROUP5_ID = "fractal_analysis"
 
 MODEL_LABELS = [_tr("Сферическая"), _tr("Экспоненциальная"), _tr("Гауссова"), _tr("Степенная")]
 KTYPE_LABELS = [_tr("Ординарный (OK)"), _tr("Простой (SK)")]
@@ -821,6 +823,10 @@ def _read_points(source, zfield, feedback=None,
                  vmin=None, vmax=None, pct=0.0, cap=False,
                  id_field=None, return_ids=False, request=None):
     idx = source.fields().lookupField(zfield)
+    if idx < 0:
+        raise QgsProcessingException(
+            _tr("Поле «%s» не найдено в слое. Выберите поле значения Z.")
+            % zfield)
     id_idx = source.fields().lookupField(id_field) if id_field else -1
     xs, ys, vs = [], [], []
     ids = [] if return_ids else None
@@ -3368,6 +3374,214 @@ def _write_variogram_report(path, title, series, data_var, fit, model_curves,
         fh.write(html)
 
 
+class GeophysProfilesDemoAlgorithm(QgsProcessingAlgorithm):
+    """Демонстрационные геофизические профили. Два режима: электроразведка
+    (ρк, ЕП, ВП с низкоомной аномалией-пятном) и оседания (мульда сдвижения
+    по турам). Дополнительно отметка z и истинное значение без шума."""
+    EXTENT = "EXTENT"
+    N_PROFILES = "N_PROFILES"
+    PICKET_STEP = "PICKET_STEP"
+    MODE = "MODE"
+    RHO_BG, RHO_MIN = "RHO_BG", "RHO_MIN"
+    SP_AMP, VP_AMP, NOISE = "SP_AMP", "VP_AMP", "NOISE"
+    SUBS_MAX, N_TOURS = "SUBS_MAX", "N_TOURS"
+    SUBS_SIGN = "SUBS_SIGN"
+    Z_BASE, Z_AMP, SEED = "Z_BASE", "Z_AMP", "SEED"
+    OUTPUT = "OUTPUT"
+
+    _MODES = ("electro", "subsidence")
+
+    def tr(self, s): return _tr(s)
+    def helpUrl(self): return _help_url()
+    def name(self): return "geophysprofiles"
+    def displayName(self):
+        return self.tr("1.11 Создать пример геофизических профилей (демо)")
+    def group(self): return self.tr(GROUP)
+    def groupId(self): return "grid_isolines"
+    def createInstance(self): return GeophysProfilesDemoAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Создаёт точечный слой геофизических профилей для обучения и "
+            "проверки инструментов без реальных данных. Параллельные профили с "
+            "пикетами. Два режима.\n\nЭлектроразведка: кажущееся сопротивление "
+            "ρк (Ом·м), потенциал естественного поля ЕП (мВ) и вызванная "
+            "поляризация ВП (мВ/В). Заложена низкоомная аномалия компактным "
+            "пятном (обводнение или замещение), а не полосой, поэтому профили "
+            "не синхронны. ρк проваливается с фоновых десятков Ом·м до единиц, "
+            "ЕП даёт отрицательный минимум. Поле rho_k интерполируется 2D "
+            "Kriging или минимальной кривизной, аномалия оконтуривается "
+            "изолиниями.\n\nОседания (мульда): оседание (мм) в виде мульды "
+            "сдвижения над отработанной площадью, по нескольким турам. По одним "
+            "пикетам можно посчитать разность между турами.\n\nВо всех режимах "
+            "добавлены отметка z (м) и истинное значение без шума для проверки "
+            "точности интерполяции против эталона. Диапазоны и число туров "
+            "меняются в разделе «Дополнительно».\n\nПоля электроразведки: "
+            "profile, picket_m, pk, z, rho_k, rho_true, sp, vp. Поля оседаний: "
+            "profile, picket_m, pk, tour, z, settle, settle_true."))
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Область (экстент)")))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.MODE, self.tr("Режим"),
+            options=[self.tr("Электроразведка (ρк, ЕП, ВП)"),
+                     self.tr("Оседания (мульда)")], defaultValue=0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.N_PROFILES, self.tr("Число профилей"),
+            QgsProcessingParameterNumber.Integer, defaultValue=4,
+            minValue=1, maxValue=50))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.PICKET_STEP, self.tr("Шаг пикетов, м"),
+            QgsProcessingParameterNumber.Double, defaultValue=20.0,
+            minValue=0.1))
+        for key, label, dv, lo, hi in (
+                (self.RHO_BG, _tr("Фоновое ρк, Ом·м"), 60.0, 1.0, 1e6),
+                (self.RHO_MIN, _tr("Минимальное ρк в аномалии, Ом·м"),
+                 10.0, 0.1, 1e6),
+                (self.SP_AMP, _tr("Амплитуда аномалии ЕП, мВ (обычно < 0)"),
+                 -100.0, -1e4, 1e4),
+                (self.VP_AMP, _tr("Амплитуда аномалии ВП, мВ/В"),
+                 15.0, 0.0, 1e4),
+                (self.NOISE, _tr("Шум ρк (доля, лог-масштаб)"),
+                 0.06, 0.0, 0.5),
+                (self.SUBS_MAX, _tr("Максимальное оседание (мульда), мм"),
+                 400.0, 1.0, 2000.0),
+                (self.Z_BASE, _tr("Отметка поверхности: база, м"),
+                 120.0, -1e4, 1e4),
+                (self.Z_AMP, _tr("Отметка поверхности: амплитуда, м"),
+                 15.0, 0.0, 1e4)):
+            p = QgsProcessingParameterNumber(
+                key, self.tr(label), QgsProcessingParameterNumber.Double,
+                defaultValue=dv, minValue=lo, maxValue=hi)
+            _advanced(p); self.addParameter(p)
+        p = QgsProcessingParameterNumber(
+            self.N_TOURS, self.tr("Число туров (для оседаний)"),
+            QgsProcessingParameterNumber.Integer, defaultValue=2,
+            minValue=1, maxValue=20)
+        _advanced(p); self.addParameter(p)
+        p = QgsProcessingParameterEnum(
+            self.SUBS_SIGN, self.tr("Знак оседания"),
+            options=[self.tr("Вниз (отрицательное)"),
+                     self.tr("Величина (положительное)")], defaultValue=0)
+        _advanced(p); self.addParameter(p)
+        p = QgsProcessingParameterNumber(
+            self.SEED, self.tr("Зерно ГСЧ (0 - случайно)"),
+            QgsProcessingParameterNumber.Integer, defaultValue=1, minValue=0)
+        _advanced(p); self.addParameter(p)
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Геофизические профили"),
+            QgsProcessing.TypeVectorPoint))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        from . import geodemo
+        feedback.pushInfo(_version_line())
+        crs = self.parameterAsExtentCrs(parameters, self.EXTENT, context)
+        rect = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        if rect.isEmpty():
+            raise QgsProcessingException(self.tr("Не задан охват."))
+        mode = self._MODES[self.parameterAsEnum(parameters, self.MODE, context)]
+        n_prof = self.parameterAsInt(parameters, self.N_PROFILES, context)
+        step = self.parameterAsDouble(parameters, self.PICKET_STEP, context)
+        z_base = self.parameterAsDouble(parameters, self.Z_BASE, context)
+        z_amp = self.parameterAsDouble(parameters, self.Z_AMP, context)
+        seed = self.parameterAsInt(parameters, self.SEED, context)
+        args = dict(n_profiles=n_prof, picket_step=step, z_base=z_base,
+                    z_amp=z_amp, seed=seed)
+        ext = (rect.xMinimum(), rect.yMinimum(), rect.xMaximum(),
+               rect.yMaximum())
+
+        fields = QgsFields()
+        fields.append(QgsField("profile", QVariant.Int))
+        fields.append(QgsField("picket_m", QVariant.Double))
+        fields.append(QgsField("pk", QVariant.String))
+
+        if mode == "subsidence":
+            subs = self.parameterAsDouble(parameters, self.SUBS_MAX, context)
+            n_tours = self.parameterAsInt(parameters, self.N_TOURS, context)
+            positive = self.parameterAsEnum(
+                parameters, self.SUBS_SIGN, context) == 1
+            d = geodemo.gen_subsidence(
+                *ext, subs_max=subs, n_tours=n_tours, positive=positive,
+                noise=max(subs * 0.01, 1.0), **args)
+            for nm in ("tour", "z", "settle", "settle_true"):
+                fields.append(QgsField(
+                    nm, QVariant.Int if nm == "tour" else QVariant.Double))
+            cols = ("profile", "picket_m", "__pk__", "tour", "z", "settle",
+                    "settle_true")
+            aliases = {"profile": self.tr("Профиль"),
+                       "picket_m": self.tr("Пикет, м"),
+                       "pk": self.tr("Пикет (ПК)"), "tour": self.tr("Тур"),
+                       "z": self.tr("Отметка z, м"),
+                       "settle": self.tr("Оседание, мм"),
+                       "settle_true": self.tr("Оседание без шума, мм")}
+        else:
+            rho_bg = self.parameterAsDouble(parameters, self.RHO_BG, context)
+            rho_min = self.parameterAsDouble(parameters, self.RHO_MIN, context)
+            sp_amp = self.parameterAsDouble(parameters, self.SP_AMP, context)
+            vp_amp = self.parameterAsDouble(parameters, self.VP_AMP, context)
+            noise = self.parameterAsDouble(parameters, self.NOISE, context)
+            d = geodemo.gen_profiles(
+                *ext, rho_bg=rho_bg, rho_min=rho_min, sp_amp=sp_amp,
+                vp_amp=vp_amp, noise=noise, **args)
+            for nm in ("z", "rho_k", "rho_true", "sp", "vp"):
+                fields.append(QgsField(nm, QVariant.Double))
+            cols = ("profile", "picket_m", "__pk__", "z", "rho_k", "rho_true",
+                    "sp", "vp")
+            aliases = {"profile": self.tr("Профиль"),
+                       "picket_m": self.tr("Пикет, м"),
+                       "pk": self.tr("Пикет (ПК)"), "z": self.tr("Отметка z, м"),
+                       "rho_k": self.tr("ρк, Ом·м"),
+                       "rho_true": self.tr("ρк без шума, Ом·м"),
+                       "sp": self.tr("ЕП, мВ"), "vp": self.tr("ВП, мВ/В")}
+
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields, QgsWkbTypes.Point, crs)
+        if sink is None:
+            raise QgsProcessingException(self.tr("Не создан слой результата."))
+        xs = d["x"]; ys = d["y"]; pkm = d["picket_m"]
+        n = len(d["profile"])
+        for i in range(n):
+            f = QgsFeature(fields)
+            f.setGeometry(QgsGeometry.fromPointXY(
+                QgsPointXY(float(xs[i]), float(ys[i]))))
+            attrs = []
+            for c in cols:
+                if c == "__pk__":
+                    attrs.append(geodemo.pk_label(pkm[i]))
+                elif c == "profile" or c == "tour":
+                    attrs.append(int(d[c][i]))
+                else:
+                    attrs.append(float(d[c][i]))
+            f.setAttributes(attrs)
+            sink.addFeature(f)
+
+        n_prof_act = int(len(set(d["profile"].tolist())))
+        if mode == "subsidence":
+            feedback.pushInfo(self.tr(
+                "Оседания: профилей %d, туров %d, точек %d. Мульда до %.1f мм. "
+                "Разность settle между турами по одним пикетам даёт скорость "
+                "оседания.") % (n_prof_act,
+                int(len(set(d["tour"].tolist()))), n,
+                float(d["settle"].min())))
+            layer_name = self.tr("Профили оседаний (мульда, туров: %d)") \
+                % int(len(set(d["tour"].tolist())))
+        else:
+            rho = d["rho_k"]; sp = d["sp"]
+            feedback.pushInfo(self.tr(
+                "Электроразведка: профилей %d, точек %d. ρк %.4g..%.4g Ом·м, "
+                "ЕП %.1f..%.1f мВ.") % (n_prof_act, n, float(rho.min()),
+                float(rho.max()), float(sp.min()), float(sp.max())))
+            feedback.pushInfo(self.tr(
+                "Интерполируйте rho_k (2D Kriging или минимальная кривизна) и "
+                "постройте изолинии - аномалия-пятно оконтурится. Поле rho_true "
+                "- эталон без шума для проверки точности."))
+            layer_name = self.tr("Профили электроразведки (ρк, ЕП, ВП)")
+        _set_output_name(context, dest, layer_name)
+        _set_field_aliases(context, dest, aliases)
+        return {self.OUTPUT: dest}
+
+
 # ===========================================================================
 #  4. Экспериментальная вариограмма (изотропная) + подбор модели
 # ===========================================================================
@@ -5105,7 +5319,7 @@ class SectionDemoAlgorithm(QgsProcessingAlgorithm):
                 fw.setAttributes(["SKR-%03d" % (i + 1)]
                                  + [float(hs[j][i]) for j in range(6)])
                 wsink.addFeature(fw)
-            _set_output_name(context, wdest, self.tr("Скважины (демо)"))
+            _set_output_name(context, wdest, self.tr("Скважины разреза (демо)"))
             results[self.WELLS] = wdest
 
         # демо-векторы для «3.5 Пересечение векторов с разрезом»: разлом
@@ -8223,11 +8437,7 @@ class MinCurvatureAlgorithm(QgsProcessingAlgorithm):
     def createInstance(self): return MinCurvatureAlgorithm()
     def name(self): return "min_curvature"
     def displayName(self):
-<<<<<<< HEAD
         return self.tr("1.03 Минимальная кривизна (точки → растр)")
-=======
-        return self.tr("1.8 Минимальная кривизна (точки → растр)")
->>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
@@ -8377,10 +8587,7 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
     случайная выборка точек, фильтры, буфер исключения соседей."""
 
     INPUT, ZFIELD, IDFIELD = "INPUT", "ZFIELD", "IDFIELD"
-<<<<<<< HEAD
     WEIGHT_FIELD = "WEIGHT_FIELD"
-=======
->>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
     METHOD = "METHOD"
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
@@ -8400,11 +8607,7 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
     def createInstance(self): return MethodCrossValidationAlgorithm()
     def name(self): return "method_crossvalidation"
     def displayName(self):
-<<<<<<< HEAD
         return self.tr("1.08 Кросс-валидация метода (LOO)")
-=======
-        return self.tr("1.9 Кросс-валидация метода (LOO)")
->>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
@@ -8441,14 +8644,11 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterField(
             self.IDFIELD, self.tr("Поле номера скважины (необязательно)"),
             parentLayerParameterName=self.INPUT, optional=True))
-<<<<<<< HEAD
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
             self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.Numeric, optional=True)))
-=======
->>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
         self.addParameter(QgsProcessingParameterEnum(
             self.METHOD, self.tr("Метод"),
             options=[self.tr("Кригинг"), self.tr("Минимальная кривизна")],
@@ -8555,7 +8755,6 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
             vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
             pct=pct, cap=cap, id_field=idfield, return_ids=True)
         n = len(xs)
-<<<<<<< HEAD
         wfield = self.parameterAsString(
             parameters, self.WEIGHT_FIELD, context) or None
         mcw = None
@@ -8579,8 +8778,6 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
             except Exception:
                 feedback.pushWarning(self.tr(
                     "Не удалось прочитать поле весов - веса игнорируются."))
-=======
->>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
 
         # --- отбор проверяемых точек: фильтр области и по значению ---
         crs = source.sourceCrs()
@@ -8712,26 +8909,10 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
             raise QgsProcessingException(self.tr(
                 "Слишком мало оценённых точек."))
         err = est[ok] - fact[ok]
-<<<<<<< HEAD
         _w_ok = (mcw[val_idx][ok] if mcw is not None else None)
         me, mae, rmse, msdr, r = _weighted_cv_metrics(
             fact[ok], est[ok], err,
             (var[ok] if var is not None else None), _w_ok)
-=======
-        me = float(np.mean(err))
-        mae = float(np.mean(np.abs(err)))
-        rmse = float(np.sqrt(np.mean(err ** 2)))
-        try:
-            r = float(np.corrcoef(est[ok], fact[ok])[0, 1])
-        except Exception:
-            r = float("nan")
-        msdr = float("nan")
-        if var is not None:
-            sd = np.sqrt(np.maximum(var[ok], 0.0))
-            good = sd > 0
-            if good.any():
-                msdr = float(np.mean((err[good] / sd[good]) ** 2))
->>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
 
         feedback.pushInfo(self.tr("== Кросс-валидация метода (LOO) =="))
         feedback.pushInfo(self.tr("Точек оценено: %d из %d")
@@ -8840,10 +9021,10 @@ class FractalDimensionAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return FractalDimensionAlgorithm()
     def name(self): return "fractal_dimension"
-    def displayName(self): return self.tr("2.07 Фрактальная размерность")
+    def displayName(self): return self.tr("5.01 Фрактальная размерность")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP2)
-    def groupId(self): return GROUP2_ID
+    def group(self): return self.tr(GROUP5)
+    def groupId(self): return GROUP5_ID
 
     def shortHelpString(self):
         return _help_version(self.tr(
@@ -8940,10 +9121,10 @@ class BoxCountingAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return BoxCountingAlgorithm()
     def name(self): return "box_counting"
-    def displayName(self): return self.tr("2.08 Box-counting маски")
+    def displayName(self): return self.tr("5.02 Box-counting маски")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP2)
-    def groupId(self): return GROUP2_ID
+    def group(self): return self.tr(GROUP5)
+    def groupId(self): return GROUP5_ID
 
     def shortHelpString(self):
         return _help_version(self.tr(
@@ -9011,10 +9192,10 @@ class LineDimensionAlgorithm(QgsProcessingAlgorithm):
     def createInstance(self): return LineDimensionAlgorithm()
     def name(self): return "line_dimension"
     def displayName(self):
-        return self.tr("2.09 Размерность линий и границ")
+        return self.tr("5.03 Размерность линий и границ")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP2)
-    def groupId(self): return GROUP2_ID
+    def group(self): return self.tr(GROUP5)
+    def groupId(self): return GROUP5_ID
 
     def shortHelpString(self):
         return _help_version(self.tr(
@@ -9116,10 +9297,10 @@ class MinkowskiDimensionAlgorithm(QgsProcessingAlgorithm):
     def createInstance(self): return MinkowskiDimensionAlgorithm()
     def name(self): return "minkowski_dimension"
     def displayName(self):
-        return self.tr("2.10 Размерность Минковского (векторы)")
+        return self.tr("5.04 Размерность Минковского (векторы)")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP2)
-    def groupId(self): return GROUP2_ID
+    def group(self): return self.tr(GROUP5)
+    def groupId(self): return GROUP5_ID
 
     def shortHelpString(self):
         return _help_version(self.tr(
@@ -9264,10 +9445,10 @@ class FractalDemoAlgorithm(QgsProcessingAlgorithm):
     def createInstance(self): return FractalDemoAlgorithm()
     def name(self): return "fractal_demo"
     def displayName(self):
-        return self.tr("2.11 Создать пример для фракталов (демо)")
+        return self.tr("5.05 Создать пример для фракталов (демо)")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP2)
-    def groupId(self): return GROUP2_ID
+    def group(self): return self.tr(GROUP5)
+    def groupId(self): return GROUP5_ID
 
     def shortHelpString(self):
         return _help_version(self.tr(
@@ -9686,6 +9867,7 @@ ALGORITHMS = [
     MethodCrossValidationAlgorithm,
     ProfilesAlgorithm,
     ExampleWellsAlgorithm,
+    GeophysProfilesDemoAlgorithm,
     CategoricalIndicatorAlgorithm,
     SectionDemoAlgorithm,
     FlowGradientAlgorithm,
@@ -9709,11 +9891,6 @@ ALGORITHMS = [
     DomainsToGridAlgorithm,
     ReserveDeltaAlgorithm,
     PolyhedralDemoAlgorithm,
-<<<<<<< HEAD
-=======
-    MinCurvatureAlgorithm,
-    MethodCrossValidationAlgorithm,
->>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
     FractalDimensionAlgorithm,
     BoxCountingAlgorithm,
     LineDimensionAlgorithm,

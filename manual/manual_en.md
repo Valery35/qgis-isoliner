@@ -35,7 +35,7 @@ The main way is from the official QGIS repository. Open Plugins → Manage and I
 
 Raster band choice in all the tools is a drop-down with band names: a bed assembled by tool 4.01 shows roof, bottom and the parameter layer names in the lists.
 
-![The Isoliner provider in the Processing toolbox: four groups, thirty-seven tools.](images/toolbox_tree.png){width=52%}
+![The Isoliner provider in the Processing toolbox: five groups, thirty-nine tools.](images/toolbox_tree.png){width=52%}
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
@@ -655,58 +655,46 @@ Result fields:
 | dz | number | A value linearly related to the drift surface. Only when the drift-surface output is enabled. |
 
 
-# 1.8 Minimum curvature (points -> raster)
+# 1.11 Create a geophysical-profiles example (demo)
 
-The tool builds a grid by minimum curvature. The surface behaves like a thin elastic plate passing through the data with the least bending, that is a solution of the biharmonic equation. The method is not exact: the data are honored approximately, but the surface comes out as smooth as possible, which is why it is traditionally used for maps of geophysical fields and any smooth quantity. It is a deterministic alternative to kriging without variogram fitting. Kriging, unlike it, gives an estimate with a standard-error map.
+The tool creates a point layer of geophysical profiles for learning and testing without real data. Several parallel profiles with pickets are built. There are two modes.
 
-**Tension** mixes in a membrane term: 0 is pure minimum curvature, 1 is a taut membrane with fewer overshoots between samples. Boundary tension is set separately and helps remove edge overshoots. The solution is iterative, by successive over-relaxation (SOR) with a nine-colour sweep of the grid: nodes of one colour do not fall into each other's stencil, so they are updated at once and stably. The grid is recomputed until the largest node change drops below the **residual threshold** or the iterations run out.
+**Electrical prospecting.** Along the profiles apparent resistivity rho_k (Ohm*m), self-potential SP (mV) and induced polarisation IP (mV/V) are set. The data contains a low-resistivity anomaly - a water-bearing or replaced zone. There rho_k drops from a background of tens of Ohm*m to units, and SP shows a negative minimum. This matches field practice: the lowest resistivities are typical of sedimentary rocks, while salt, gypsum and anhydrite are high-resistivity, and water saturation or salinisation drives the resistivity down. The anomaly is set as a compact spot rather than a stripe, so the profiles are not synchronous and interpolation shows a local focus rather than a solid band.
 
-Free nodes start from the nearest data value, so convergence is fast on dense data. On very sparse data more iterations are needed: raise their limit or the residual threshold. Faults and breaklines are not supported in this version; they are planned for the future.
+**Subsidence (trough).** The value is settlement (mm) as a subsidence trough over a mined area, across several observation tours. The trough deepens from tour to tour and is capped at two metres in magnitude. The sign is uniform: down (negative) or magnitude (positive), by choice. The edges are strictly zero - away from the mined area there is no subsidence. At the same pickets you can compute the **settle** difference between tours to get the settlement rate.
 
-| Parameter | Purpose | Default |
-| --- | --- | --- |
-| Point layer | Samples with a value. | - |
-| Value field (Z) | Numeric field to interpolate. | - |
-| Extent | Result rectangle. | from layer |
-| Cell size | 0 = auto, min(extent)/50. | 0 |
-| Tension | 0 = minimum curvature, 1 = membrane. | 0 |
-| Residual threshold | 0 = auto, 0.01 percent of the data range. | 0 |
-| Maximum iterations | Cap on the number of SOR passes. | 100000 |
-| Boundary tension (Adv.) | Tension at the grid edge. | 0 |
-| Relaxation factor (Adv.) | SOR acceleration, sensibly 1.5 - 1.9. | 1.85 |
-| Anisotropy (Adv.) | Y/X axis ratio in the membrane term. | 1 |
-| Grid (minimum curvature) | Output raster. | - |
+The workflow repeats the main one: the **rho_k** (or **settle**) field is interpolated with **1.02 2D Kriging** or minimum curvature, isolines are built from the grid with **1.04**, and the anomaly is outlined. The **sp** field can be interpolated the same way and its SP minimum compared with the rho_k drop. The **rho_true** (or **settle_true**) field is the embedded noise-free value, a reference for checking interpolation accuracy.
 
-The output is an ordinary grid ready for **1.2 Isolines from raster**. The log prints the grid size, the number of data nodes, the number of iterations and the final residual. If the iteration cap is reached while the residual is still above the threshold, the tool warns about it.
+## Kriging or minimum curvature
 
+Geophysical profiles are a typical case where the choice of interpolation method matters more than its tuning. The data are dense along the profiles and sparse between them, while the quantity itself (resistivity, potential) is physically smooth and continuous.
 
-# 1.9 Method cross-validation (LOO)
+Kriging faithfully reflects the uneven network: without tuning the variogram anisotropy it stretches the structure along the survey lines, and the field breaks into bands along the pickets. Minimum curvature (**1.03**) imposes a physically meaningful smoothness and stitches the separate profiles into a connected surface, so for profile surveys and potential fields it is usually preferable. The same holds for the **sp** field: the SP minimum appears as a single body rather than columns.
 
-Leave-one-out control for a gridding method: kriging or minimum curvature. Each validation point is removed in turn, its value is predicted by the method from the rest and compared with the fact. The errors give quality metrics - an objective measure of the method and a way to compare methods on your own data.
+Practical takeaway: build fields from profiles with minimum curvature, and use kriging when the variogram anisotropy is tuned to the network geometry.
 
-This differs from **1.5 Cross-validation of the variogram**: that one fits the variogram model for kriging, while this one compares gridding methods as such and works for minimum curvature too.
-
-Metrics: **ME** (bias, closer to 0), **MAE** and **RMSE** (smaller is better), **R** (correlation of estimate and fact). For kriging there is also **MSDR** (closer to 1 when the standard-error scale is adequate). The estimate-vs-fact chart has two lines: a grey 1:1 diagonal (the ideal) and a blue **Best-fit** regression line. Its slope, intercept and angle go into the metrics as a range-bias indicator. A slope near 1 means the method is equally accurate at low and high values, a slope below 1 means high values are underestimated and low ones overestimated (regression to the mean, the signature of smoothing methods).
-
-Three Surfer-style options are available. A **random subset** of N points speeds control on large data, while the whole sample still takes part in each estimate. An **area filter** restricts validation to a subarea by extent and by Z value, useful to avoid control at known anomalies. An **exclusion buffer** in X and Y drops points in a rectangle around the validation point, needed for dense clusters, otherwise the estimate just repeats the nearest neighbour.
+The area is set by an extent. The mode, ranges, number of tours and surface elevation can be changed under **Advanced**.
 
 | Parameter | Purpose | Default |
-| --- | --- | --- |
-| Points with values | Samples. | - |
-| Value field (Z) | Numeric field. | - |
-| Well id field | For labels in the report. | - |
-| Method | Kriging or minimum curvature. | Kriging |
-| Points to validate | 0 = auto, min(N, 100). | 0 |
-| Exclusion buffer in X, Y | Rectangle around the point, neighbours in it are left out. | 0 |
-| Kriging parameters | Variogram and search (as in 1.1). | - |
-| Min curvature parameters (Adv.) | Extent, cell, tension, threshold, iterations. | auto |
-| Validate only within the extent (Adv.) | Control area by X/Y. | everywhere |
-| Validate where Z is in range (Adv.) | Control area by value. | none |
-| RNG seed (Adv.) | For a reproducible subset. | 0 |
-| Cross-validation errors | Point layer with fact, estimate and error fields. | - |
-| HTML report | Estimate-vs-fact plot, histogram, metrics. | default |
+|---|---|---|
+| Extent | Generation bounds. | - |
+| Mode | Electrical prospecting or subsidence. | Electrical prospecting |
+| Number of profiles | How many parallel profiles. | 4 |
+| Picket step, m | Distance between pickets. | 20 |
+| Background rho_k, Ohm*m (Adv.) | Resistivity outside the anomaly. | 60 |
+| Minimum rho_k, Ohm*m (Adv.) | Resistivity at the spot centre. | 10 |
+| SP amplitude, mV (Adv.) | Depth of the SP minimum, usually below 0. | -100 |
+| IP amplitude, mV/V (Adv.) | Height of the IP anomaly. | 15 |
+| rho_k noise (Adv.) | Spread fraction in log scale. | 0.06 |
+| Maximum subsidence, mm (Adv.) | Trough depth at the last tour. | 400 |
+| Number of tours (Adv.) | How many cycles for subsidence mode. | 2 |
+| Subsidence sign (Adv.) | Down (negative) or magnitude (positive). | Down |
+| Elevation: base and amplitude, m (Adv.) | Smooth surface relief. | 120 and 15 |
+| Geophysical profiles | Point layer with the fields. | - |
 
-For minimum curvature each point is re-estimated from a warm start off the full solution, so a single pass is fast. On very large samples reduce the number of validation points.
+Electrical fields: **profile** (profile number), **picket_m** (picket in metres from the profile start), **pk** (a PK label, e.g. PK5+20), **z** (surface elevation, m), **rho_k** (rho_k, Ohm*m), **rho_true** (rho_k without noise), **sp** (SP, mV), **vp** (IP, mV/V).
+
+Subsidence fields: **profile**, **picket_m**, **pk**, **tour** (tour number), **z** (elevation, m), **settle** (subsidence, mm), **settle_true** (subsidence without noise).
 
 
 # 2.01 Categorical indicator kriging
@@ -962,96 +950,6 @@ How it works. The values are mapped to normal scores and the simulation runs in 
 The outputs are ensemble rasters. **Mean (E-type)** resembles kriging. **Standard deviation** shows the uncertainty, small at the boreholes and large away from them. The **P10**, **P50**, **P90** quantiles outline the likely range, and **Exceedance probability** for a given threshold offers a non-parametric alternative to the map from the probability tool. Runtime grows with grid size and the number of realizations, so start with a coarse cell.
 
 If the data are clustered unevenly, supply the **wt** weight field from tool **1.01 Declustering**. The normal-score transform then builds the distribution with weights, and the ensemble histogram is not skewed toward over-sampled rich areas.
-
-# 2.07 Fractal dimension
-
-The tool computes a fractal-dimension map of a surface by the variogram method, native to the plugin: a log-log variogram over lags of one to N cells is built in a sliding window, its slope gives the Hurst exponent H, and the dimension D = 3 - H. Smooth differentiable areas give D near 2, rugged and noisy ones tend to 3; the values themselves matter less than their steps - they highlight zones of tectonic disturbance, block boundaries and changes of the roof relief character.
-
-The output is a D grid that feeds straight into **1.04 Isolines from a raster** for dimension isolines; an advanced checkbox adds H as band 2. The global D and H over the whole surface are printed to the log.
-
-## Reading the map
-
-The absolute D values matter less than their steps: a linear step across the area is a lineament, a candidate tectonic disturbance; a patch of a raised D is a zone of intense folding or a rugged roof relief; wide even fields of a low D are quiet blocks. For reading, apply a singleband pseudocolour symbology with a contrast palette and quantile classification, and for a report plan build isolines with belts over the D grid with tool 1.2 - the disturbance zones get outlined like contour lines.
-
-![A synthetic roof with a diagonal crushing zone and its D map: quiet blocks near 2, the disturbance zone shows up as a bright lineament.](images/fd_map_demo.png){width=92%}
-
-## Picking the window and the lags
-
-A small window (5-8 cells) reveals the microstructure and local disturbances, a large one (12-20) - regional zones; in doubt compute both and compare. Four lags fit almost always: more lags - a steadier slope but a coarser minimal scale the method can resolve. The window and the lags are limited by the grid size, the tool checks that itself.
-
-## Workflow
-
-A bed roof from kriging → **2.7** with a window of 8 → the D grid → **1.04 Isolines from a raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS; the demo surfaces fit as they are.
-
-## Parameters
-
-| Parameter | What it sets | Default / advice |
-|---|---|---|
-| Surface (raster) | A relief grid or any surface. | - |
-| Window half-radius, cells | The sliding-window size. | 8 |
-| Number of lags (Adv.) | Variogram lags 1..N cells. | 4 |
-| Elevation band (Adv.) | The band with elevations. | 1 |
-| Write H (Adv.) | Add H as band 2. | off |
-| Fractal dimension | A D grid (and H if checked). | - |
-
-# 2.08 Mask box-counting
-
-Classic box-counting for binary masks: the raster is binarised by a threshold (the object - values above it), the mask is covered by cells of a decreasing size, the slope of log N versus log(1/size) gives one dimension D for the whole mask. A linear object gives D near 1, a blob - near 2, rugged outlines of replacement zones or mined-out areas fall in between. The accuracy on finite masks is about ±0.1, so the method is good for comparing masks with each other rather than as an absolute measure. The result is printed to the log with a table of sizes and counts and returned as the number D - usable further in Processing models.
-
-![Checking the estimators on the references: the Sierpinski carpet gives a slope of 1.8928 against the theoretical 1.8928, the Koch curve - 1.254 against 1.2619. Points on a line - the power law holds.](images/fractal_validation.png){width=92%}
-
-## Where the mask comes from
-
-The mineral-type band of a bed grid with a threshold between the class codes, an indicator-kriging probability grid with a 0.5 threshold, an exceedance-probability map with a cut-off threshold, vector outlines of workings or zones - rasterised beforehand with the standard "Rasterize (vector to raster)". Compare the D of masks of the same nature on the same grid: a growth of the replacement-outline ruggedness from bed to bed or from year to year is a meaningful signal.
-
-| Parameter | What it sets | Default |
-|---|---|---|
-| Mask raster | Any raster; the mask - values above the threshold. | - |
-| Threshold | The object/background boundary. | 0.5 |
-| Band (Adv.) | The raster band. | 1 |
-
-# 2.09 Line and boundary dimension
-
-The dimension of every line by the divider (Richardson) method: the line is walked with chords of a decreasing span, the slope of log N versus log r gives D. A straight line gives one, a rugged line - more. Polygons are accepted alongside lines - the exterior ring of the boundary is measured, so the ruggedness of zone and basin outlines is computed without a prior conversion. The output is the same features with the D and steps fields, the mean D is printed to the log; short lines get an empty D. The method is checked on references: the Koch curve gives 1.262 against the theoretical 1.2619.
-
-## An isoline-smoothing diagnostic
-
-Oversmoothed isolines lose their ruggedness and D drops towards one. The workflow: build the isolines twice - without smoothing and with the working parameters, run both layers through the tool and compare the mean D from the log. A drop by hundredths is cosmetics, the shape is kept; a drop by tenths means the smoothing eats the field geometry - weaken the rounding or keep the densification only. The D field in the attributes lets you find the specific lines that suffered most.
-
-## Other uses
-
-The ruggedness of zone outlines in plan, comparing the digitising detail of boundaries from different sources, generalisation control when preparing small-scale plans - anywhere "how winding the line is" must become a number.
-
-| Parameter | What it sets | Default |
-|---|---|---|
-| Lines | A line layer (isolines, outlines). | - |
-| Lines with the dimension | The same lines with the D and steps fields. | - |
-
-# 2.10 Minkowski dimension (vectors)
-
-Box-counting directly over vectors, no rasterisation: lines and polygon boundaries are covered by a grid of a decreasing size, the slope of log N versus log(1/size) gives the Minkowski dimension. A straight line and a smooth boundary give D near one, a river network - 1.1-1.5, a heavily rugged coastline - up to 1.3 and above. Every feature gets the D_mink and D_r2 fields (the log-log fit quality: below 0.85 the estimate cannot be trusted), and separately the D of the layer as one set is computed and printed to the log: for a river network that is the dimension of the network as a whole, regularly higher than that of the individual branches.
-
-The method complements the divider of 2.09: the divider measures the sinuosity of one line, Minkowski - the plane filling by a set of features. The dimension is also returned as a number output for Processing models.
-
-![The 2.10 dialog: K, the grid offsets and the densify factor under the advanced parameters.](images/ui_minkowski.png){width=74%}
-
-![Demo rivers labelled by the per-branch D_mink: nearly smooth branches give values around one, the network as a whole - higher.](images/rivers_dmink.png){width=88%}
-
-| Parameter | What it sets | Default |
-|---|---|---|
-| Lines or polygons | A vector layer; for polygons the boundary rings are taken. | - |
-| Number of grid sizes, K (Adv.) | Ladder steps; a too large K takes the cells below the line detail and lowers D. | 8 |
-| Grid offsets per size (Adv.) | Random shifts, the minimal cover is taken - removes the grid alignment. | 3 |
-| Densify factor (Adv.) | The sampling step along segments as a cell fraction; 0 - vertices only. | 0.5 |
-
-# 2.11 Create a fractal example (demo)
-
-A generator of study features for the whole fractal five: a branching river network with an order field (the tributary order), a basin polygon with a rugged boundary and a separate coastline built by midpoint displacements. Feed the rivers into 2.10 - you get the network dimension; the coast and the basin boundary - into 2.09 and 2.10 and compare the divider with Minkowski; rasterise the basin with the standard tool - and it doubles as an example for 2.08.
-
-| Parameter | What it sets | Default |
-|---|---|---|
-| Extent | The generation area. | - |
-| Seed (Adv.) | The example repeatability. | 1 |
 
 # Kriging kinds: which one to pick
 
@@ -1484,6 +1382,97 @@ This is a first step towards the future **bed body -> PolyhedralSurface** bridge
 | TIN instead of PolyhedralSurface | Write as a triangulated surface. | no |
 | Polyhedron (layer) | The result with the fields name, kind, patches, watertight. | - |
 
+# 5.01 Fractal dimension
+
+The tool computes a fractal-dimension map of a surface by the variogram method, native to the plugin: a log-log variogram over lags of one to N cells is built in a sliding window, its slope gives the Hurst exponent H, and the dimension D = 3 - H. Smooth differentiable areas give D near 2, rugged and noisy ones tend to 3; the values themselves matter less than their steps - they highlight zones of tectonic disturbance, block boundaries and changes of the roof relief character.
+
+The output is a D grid that feeds straight into **1.04 Isolines from a raster** for dimension isolines; an advanced checkbox adds H as band 2. The global D and H over the whole surface are printed to the log.
+
+## Reading the map
+
+The absolute D values matter less than their steps: a linear step across the area is a lineament, a candidate tectonic disturbance; a patch of a raised D is a zone of intense folding or a rugged roof relief; wide even fields of a low D are quiet blocks. For reading, apply a singleband pseudocolour symbology with a contrast palette and quantile classification, and for a report plan build isolines with belts over the D grid with tool 1.04 - the disturbance zones get outlined like contour lines.
+
+![A synthetic roof with a diagonal crushing zone and its D map: quiet blocks near 2, the disturbance zone shows up as a bright lineament.](images/fd_map_demo.png){width=92%}
+
+## Picking the window and the lags
+
+A small window (5-8 cells) reveals the microstructure and local disturbances, a large one (12-20) - regional zones; in doubt compute both and compare. Four lags fit almost always: more lags - a steadier slope but a coarser minimal scale the method can resolve. The window and the lags are limited by the grid size, the tool checks that itself.
+
+## Workflow
+
+A bed roof from kriging → **5.01** with a window of 8 → the D grid → **1.04 Isolines from a raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS; the demo surfaces fit as they are.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Surface (raster) | A relief grid or any surface. | - |
+| Window half-radius, cells | The sliding-window size. | 8 |
+| Number of lags (Adv.) | Variogram lags 1..N cells. | 4 |
+| Elevation band (Adv.) | The band with elevations. | 1 |
+| Write H (Adv.) | Add H as band 2. | off |
+| Fractal dimension | A D grid (and H if checked). | - |
+
+# 5.02 Mask box-counting
+
+Classic box-counting for binary masks: the raster is binarised by a threshold (the object - values above it), the mask is covered by cells of a decreasing size, the slope of log N versus log(1/size) gives one dimension D for the whole mask. A linear object gives D near 1, a blob - near 2, rugged outlines of replacement zones or mined-out areas fall in between. The accuracy on finite masks is about ±0.1, so the method is good for comparing masks with each other rather than as an absolute measure. The result is printed to the log with a table of sizes and counts and returned as the number D - usable further in Processing models.
+
+![Checking the estimators on the references: the Sierpinski carpet gives a slope of 1.8928 against the theoretical 1.8928, the Koch curve - 1.254 against 1.2619. Points on a line - the power law holds.](images/fractal_validation.png){width=92%}
+
+## Where the mask comes from
+
+The mineral-type band of a bed grid with a threshold between the class codes, an indicator-kriging probability grid with a 0.5 threshold, an exceedance-probability map with a cut-off threshold, vector outlines of workings or zones - rasterised beforehand with the standard "Rasterize (vector to raster)". Compare the D of masks of the same nature on the same grid: a growth of the replacement-outline ruggedness from bed to bed or from year to year is a meaningful signal.
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Mask raster | Any raster; the mask - values above the threshold. | - |
+| Threshold | The object/background boundary. | 0.5 |
+| Band (Adv.) | The raster band. | 1 |
+
+# 5.03 Line and boundary dimension
+
+The dimension of every line by the divider (Richardson) method: the line is walked with chords of a decreasing span, the slope of log N versus log r gives D. A straight line gives one, a rugged line - more. Polygons are accepted alongside lines - the exterior ring of the boundary is measured, so the ruggedness of zone and basin outlines is computed without a prior conversion. The output is the same features with the D and steps fields, the mean D is printed to the log; short lines get an empty D. The method is checked on references: the Koch curve gives 1.262 against the theoretical 1.2619.
+
+## An isoline-smoothing diagnostic
+
+Oversmoothed isolines lose their ruggedness and D drops towards one. The workflow: build the isolines twice - without smoothing and with the working parameters, run both layers through the tool and compare the mean D from the log. A drop by hundredths is cosmetics, the shape is kept; a drop by tenths means the smoothing eats the field geometry - weaken the rounding or keep the densification only. The D field in the attributes lets you find the specific lines that suffered most.
+
+## Other uses
+
+The ruggedness of zone outlines in plan, comparing the digitising detail of boundaries from different sources, generalisation control when preparing small-scale plans - anywhere "how winding the line is" must become a number.
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Lines | A line layer (isolines, outlines). | - |
+| Lines with the dimension | The same lines with the D and steps fields. | - |
+
+# 5.04 Minkowski dimension (vectors)
+
+Box-counting directly over vectors, no rasterisation: lines and polygon boundaries are covered by a grid of a decreasing size, the slope of log N versus log(1/size) gives the Minkowski dimension. A straight line and a smooth boundary give D near one, a river network - 1.1-1.5, a heavily rugged coastline - up to 1.3 and above. Every feature gets the D_mink and D_r2 fields (the log-log fit quality: below 0.85 the estimate cannot be trusted), and separately the D of the layer as one set is computed and printed to the log: for a river network that is the dimension of the network as a whole, regularly higher than that of the individual branches.
+
+The method complements the divider of 5.03: the divider measures the sinuosity of one line, Minkowski - the plane filling by a set of features. The dimension is also returned as a number output for Processing models.
+
+![The 5.04 dialog: K, the grid offsets and the densify factor under the advanced parameters.](images/ui_minkowski.png){width=74%}
+
+![Demo rivers labelled by the per-branch D_mink: nearly smooth branches give values around one, the network as a whole - higher.](images/rivers_dmink.png){width=88%}
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Lines or polygons | A vector layer; for polygons the boundary rings are taken. | - |
+| Number of grid sizes, K (Adv.) | Ladder steps; a too large K takes the cells below the line detail and lowers D. | 8 |
+| Grid offsets per size (Adv.) | Random shifts, the minimal cover is taken - removes the grid alignment. | 3 |
+| Densify factor (Adv.) | The sampling step along segments as a cell fraction; 0 - vertices only. | 0.5 |
+
+# 5.05 Create a fractal example (demo)
+
+A generator of study features for the whole fractal five: a branching river network with an order field (the tributary order), a basin polygon with a rugged boundary and a separate coastline built by midpoint displacements. Feed the rivers into 5.04 - you get the network dimension; the coast and the basin boundary - into 5.03 and 5.04 and compare the divider with Minkowski; rasterise the basin with the standard tool - and it doubles as an example for 5.02.
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Extent | The generation area. | - |
+| Seed (Adv.) | The example repeatability. | 1 |
+
+
 # 3D surface viewer (beta)
 
 The plugin has its own 3D window: **Plugins - Isoliner - 3D surface viewer (beta)…** It does not depend on the built-in QGIS 3D view: the render runs on pyqtgraph and PyOpenGL bundled with the plugin, nothing to install.
@@ -1579,6 +1568,78 @@ The goal is to make sure the "domains - block model - difference" chain computes
 **Step F. Mining emulation (4.06).** Duplicate the block model (right-click the layer, Duplicate), name it "after". In the edit mode zero the ore_t field of several centroids, having first noted their total reserve as a control number. Save the edits. Run 4.06: "before" is the original model, "after" is the modified one. The total write-off in the log must equal the zeroed reserve. The modified points have a positive **delta**, **before** equal to the old value, **after** equal to zero, the rest have delta zero. The write-off within an arbitrary contour is obtained by selecting the difference points with a polygon and summing delta over the selection - that is the tonnage going into the report.
 
 **Test result.** If step A matched the boundary to the contour, step D gave equal sums, step E a zero, step F a match with the control number, then the whole write-off chain is correct. After that the same steps D and F should be repeated on a real bed: the demo data is clean, while the real one brings gaps and degenerate cells, and checking on it is the last step before production use.
+
+# Appendix. Demo layer fields
+
+A summary of the fields of all demo-data generators with units. The values are demonstrational: where a quantity is abstract, the units are nominal.
+
+## Sample wells (demo) - tool 1.10
+
+Point layer **Sample wells (demo)**:
+
+| Field | Type | Meaning, units |
+|---|---|---|
+| well | string | well name or number |
+| roof | double | absolute bed roof elevation, m |
+| thick | double | bed thickness, m |
+| X | double | content of a nominal component, percent (demo) |
+| head | double | head, m (optional) |
+| K | double | hydraulic conductivity, m/day (demo, optional) |
+| T | double | transmissivity, m²/day, T = K·thickness (optional) |
+| mintype | string | mineral type, category (demo replacement, optional) |
+| dz | double | value linearly related to the drift, nominal (optional) |
+
+Optional raster **Drift surface (demo)** - an external surface for external-drift kriging, nominal units.
+
+## Electrical-prospecting profiles - tool 1.11, electrical mode
+
+Point layer **Electrical-prospecting profiles (rho_k, SP, IP)**:
+
+| Field | Type | Meaning, units |
+|---|---|---|
+| profile | integer | profile number |
+| picket_m | double | picket from the profile start, m |
+| pk | string | picket as a PK label (e.g. PK5+20) |
+| z | double | surface elevation, m |
+| rho_k | double | apparent resistivity rho_k, Ohm*m |
+| rho_true | double | rho_k without noise, Ohm*m (reference) |
+| sp | double | self-potential SP, mV |
+| vp | double | induced polarisation IP, mV/V |
+
+## Subsidence profiles - tool 1.11, subsidence mode
+
+Point layer **Subsidence profiles (trough, tours: N)**:
+
+| Field | Type | Meaning, units |
+|---|---|---|
+| profile | integer | profile number |
+| picket_m | double | picket from the profile start, m |
+| pk | string | picket as a PK label |
+| tour | integer | observation tour number |
+| z | double | surface elevation, m |
+| settle | double | subsidence, mm |
+| settle_true | double | subsidence without noise, mm (reference) |
+
+## Section data - tool 3.10
+
+- **Surface 1…6** (rasters) - elevations of six stacked surfaces, m. Top to bottom: 1 roof of the upper host, 2 roof and 3 floor of the 1st productive, 4 roof and 5 floor of the 2nd productive, 6 floor of the lower host.
+- **Section line (demo)** (line): field **name** - line name.
+- **Section wells (demo)** (points): **name** (SKR-NNN), **h1…h6** - elevations of the six surfaces at the well, m.
+- **1st productive bed (demo)** and **2nd productive bed (demo)** (multiband rasters): band 1 roof (m), band 2 floor (m), band 3 content (percent), band 4 mineral type (category 1 or 2).
+- **Fault (demo, 2D)** (line): **name**.
+- **Marker with Z (demo, 3D)** (line with Z): **name**.
+- **Zone (demo, polygon)** (polygon): **name**.
+- **Overturned TIN (demo)** (3D faces): **name**.
+
+## Fractal data - tool 5.05
+
+- **Rivers (demo)** (lines): field **order** (integer) - tributary order in the network hierarchy.
+- **Basin (demo)** (polygon): field **name**.
+- **Coast (demo)** (line): field **name**.
+
+## Polyhedron - tool 4.07
+
+Polyhedral layer (3D faces): field **bed** (integer) - bed number, field **watertight** (integer) - watertightness, 1 yes or 0 no.
 
 # For enterprises
 

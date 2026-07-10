@@ -5,11 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-<<<<<<< HEAD
-The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-eight in all:
-=======
-The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-seven in all:
->>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
+The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-nine in all:
 
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
@@ -275,13 +271,16 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
-<<<<<<< HEAD
+- **2.63.3** - fixed a kriging crash on a missing Z field (a clear message instead of KeyError); added a "Demo layer fields" appendix to the manual.
+- **2.63.2** - adaptive output layer names on generation (1.11 by mode, section demo wells distinct from 1.10).
+- **2.63.1** - subsidence (1.11) capped at 2 m, uniform sign by choice, strict zeros at the edges.
+- **2.63.0** - tool 1.11 extended: electrical-prospecting mode (rho_k as a spot, SP, IP, z, rho_true) and subsidence mode (a trough across tours). The anomaly is now a spot, not a stripe.
+- **2.62.0** - new tool 1.11 "Create a geophysical-profiles example (demo)": electrical-prospecting profiles with pickets, rho_k (Ohm*m) and SP (mV), with a low-resistivity anomaly.
+- **2.61.0** — fractal tools moved into a separate group "5. Fractal analysis" (5.01-5.05), formerly in group 2. No logic changes.
 - **2.60.0** — declustering weights now also in cross-validations (1.07, 1.08 - weighted metrics) and indicator kriging (2.01 - indicator toward the declustered class proportion).
 - **2.59.0** — declustering weights (the wt field from 1.01) are now accepted by the variogram (1.05) and variogram map (1.06): pairs are weighted so clusters do not inflate the near lags.
 - **2.58.1** — Group 1 reordered and switched to two-digit numbering (1.01…1.10) for correct toolbox sorting.
 - **2.58.0** — new tool 1.0 "Declustering (weights)" (a GSLIB declus port): density-based weights and a declustered mean; the weight field feeds SGS for a weighted histogram.
-=======
->>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
 - **2.57.0** — cross-validation report (1.5, 1.9): a Best-fit regression line on the estimate-vs-fact plot plus its slope/intercept/angle in the metrics (a range-bias indicator).
 - **2.56.1** — trimmed unused subpackages from the bundled pyqtgraph (console, flowchart, multiprocess, exporters, configfile), clearing security-scanner warnings.
 - **2.56.0** — new tool 1.9 "Method cross-validation (LOO)": leave-one-out control for kriging and minimum curvature, with an error layer and an HTML report.

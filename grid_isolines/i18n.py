@@ -1477,7 +1477,6 @@ TRANSLATIONS = {
     '45° - идеал': '45° is ideal',
     'Best Fit (оценка по факту): наклон %.3f, сдвиг %+.3g, угол %.1f°': 'Best fit (estimate vs fact): slope %.3f, intercept %+.3g, angle %.1f°',
     'серая - идеал (1:1), синяя - регрессия': 'grey - ideal (1:1), blue - regression',
-<<<<<<< HEAD
     'Ячеистая декластеризация (порт GSLIB declus). Когда пробы сгущены неравномерно - одни блоки разбурены плотнее, - наивная глобальная статистика смещается в сторону переразведанных участков: если гуще бурили богатые зоны, среднее и гистограмма завышены. Инструмент даёт каждой пробе вес, обратный локальной плотности (в скоплении меньше, на отшибе больше), и считает представительное декластеризованное среднее.\n\nРазмер ячейки подбирается автоматически (свип по размерам, выбор по минимуму декластеризованного среднего) либо задаётся вручную. На регулярной сети декластеризация ничего не меняет - веса равны.\n\nВыход: слой точек с полем весов wt и HTML-отчёт (сводка, гистограмма сырая против взвешенной, кривая среднего). Декластеризованное среднее - готовая оценка для подсчёта запасов и для «Среднего» простого кригинга (1.1). Поле wt подаётся в гауссову симуляцию (2.06) для взвешенной гистограммы.':
         'Cell declustering (a port of GSLIB declus). When samples are clustered unevenly - some blocks drilled denser - the naive global statistics shift toward the over-sampled areas: if rich zones were drilled denser, the mean and histogram are overstated. The tool gives each sample a weight inversely proportional to the local density (less in a cluster, more on its own) and computes a representative declustered mean.\n\nThe cell size is chosen automatically (a sweep over sizes, picking the minimum declustered mean) or set manually. On a regular grid declustering changes nothing - the weights are equal.\n\nOutput: a point layer with a wt weight field and an HTML report (summary, raw-vs-weighted histogram, the mean curve). The declustered mean is a ready estimate for reserve calculation and for the Mean of simple kriging (1.1). The wt field feeds the Gaussian simulation (2.06) for a weighted histogram.',
     'Декластеризованное среднее - представительная оценка для подсчёта запасов и для «Среднего» простого кригинга. Поле весов wt подаётся в SGS (2.06) для взвешенной гистограммы.':
@@ -1537,6 +1536,60 @@ TRANSLATIONS = {
     'Поле весов декластеризации (из 1.01, необязательно)': 'Declustering weight field (from 1.01, optional)',
     'Доли классов взвешены декластеризацией (поле «%s»).': 'Class proportions weighted by declustering (field "%s").',
     'Метрики взвешены декластеризацией (поле «%s»).': 'Metrics weighted by declustering (field "%s").',
-=======
->>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
+    '5. Фрактальный анализ': '5. Fractal analysis',
+    '5.01 Фрактальная размерность': '5.01 Fractal dimension',
+    '5.02 Box-counting маски': '5.02 Box-counting of masks',
+    '5.03 Размерность линий и границ': '5.03 Dimension of lines and boundaries',
+    '5.04 Размерность Минковского (векторы)': '5.04 Minkowski dimension (vectors)',
+    '5.05 Создать пример для фракталов (демо)': '5.05 Create a fractal example (demo)',
+    'Создаёт точечный слой геофизических профилей электроразведки для обучения и проверки инструментов без реальных данных. Несколько параллельных профилей с пикетами, вдоль которых заданы кажущееся сопротивление ρк (Ом·м) и потенциал естественного поля ЕП (мВ).\n\nВ данные заложена низкоомная аномалия - обводнённая или замещённая зона, где ρк проваливается с фоновых десятков Ом·м до единиц, а ЕП даёт отрицательный минимум. Аномалия вытянута поперёк профилей, поэтому проявляется при интерполяции ρк изолиниями: точки -> 2D Kriging по полю rho_k -> карта сопротивления -> изолинии, оконтуривающие аномалию.\n\nОбласть задаётся экстентом. Фоновое и минимальное ρк, амплитуду ЕП и шум можно изменить в разделе «Дополнительно».\n\nПоля результата: profile (номер профиля), picket_m (пикет в метрах от начала профиля), pk (метка ПК), rho_k (ρк, Ом·м), sp (ЕП, мВ).':
+        'Creates a point layer of electrical-prospecting geophysical profiles for learning and testing the tools without real data. Several parallel profiles with pickets carrying apparent resistivity rho_k (Ohm*m) and self-potential SP (mV).\n\nThe data contains a low-resistivity anomaly - a water-bearing or replaced zone where rho_k drops from a background of tens of Ohm*m to units, and SP shows a negative minimum. The anomaly is elongated across the profiles, so it shows up when rho_k is interpolated into isolines: points -> 2D Kriging on rho_k -> a resistivity map -> isolines outlining the anomaly.\n\nThe area is set by an extent. The background and minimum rho_k, the SP amplitude and the noise can be changed under Advanced.\n\nOutput fields: profile (profile number), picket_m (picket in metres from the profile start), pk (a ПК label), rho_k (rho_k, Ohm*m), sp (SP, mV).',
+    '1.11 Создать пример геофизических профилей (демо)': '1.11 Create a geophysical-profiles example (demo)',
+    'ρк, Ом·м': 'rho_k, Ohm*m',
+    'Амплитуда аномалии ЕП, мВ (обычно < 0)': 'SP anomaly amplitude, mV (usually < 0)',
+    'Геофизические профили': 'Geophysical profiles',
+    'Геофизические профили (демо)': 'Geophysical profiles (demo)',
+    'ЕП, мВ': 'SP, mV',
+    'Зерно ГСЧ (0 - случайно)': 'RNG seed (0 - random)',
+    'Интерполируйте поле rho_k инструментом 1.02 2D Kriging и постройте изолинии - низкоомная аномалия оконтурится.':
+        'Interpolate the rho_k field with tool 1.02 2D Kriging and build isolines - the low-resistivity anomaly will be outlined.',
+    'Минимальное ρк в аномалии, Ом·м': 'Minimum rho_k in the anomaly, Ohm*m',
+    'Не задан охват.': 'No extent set.',
+    'Не создан слой результата.': 'Output layer not created.',
+    'Пикет (ПК)': 'Picket (PK)',
+    'Пикет, м': 'Picket, m',
+    'Профилей: %d, точек: %d. ρк от %.4g до %.4g Ом·м, ЕП от %.1f до %.1f мВ.':
+        'Profiles: %d, points: %d. rho_k from %.4g to %.4g Ohm*m, SP from %.1f to %.1f mV.',
+    'Профиль': 'Profile',
+    'Фоновое ρк, Ом·м': 'Background rho_k, Ohm*m',
+    'Число профилей': 'Number of profiles',
+    'Шаг пикетов, м': 'Picket step, m',
+    'Шум ρк (доля, лог-масштаб)': 'rho_k noise (fraction, log scale)',
+    'Создаёт точечный слой геофизических профилей для обучения и проверки инструментов без реальных данных. Параллельные профили с пикетами. Два режима.\n\nЭлектроразведка: кажущееся сопротивление ρк (Ом·м), потенциал естественного поля ЕП (мВ) и вызванная поляризация ВП (мВ/В). Заложена низкоомная аномалия компактным пятном (обводнение или замещение), а не полосой, поэтому профили не синхронны. ρк проваливается с фоновых десятков Ом·м до единиц, ЕП даёт отрицательный минимум. Поле rho_k интерполируется 2D Kriging или минимальной кривизной, аномалия оконтуривается изолиниями.\n\nОседания (мульда): оседание (мм) в виде мульды сдвижения над отработанной площадью, по нескольким турам. По одним пикетам можно посчитать разность между турами.\n\nВо всех режимах добавлены отметка z (м) и истинное значение без шума для проверки точности интерполяции против эталона. Диапазоны и число туров меняются в разделе «Дополнительно».\n\nПоля электроразведки: profile, picket_m, pk, z, rho_k, rho_true, sp, vp. Поля оседаний: profile, picket_m, pk, tour, z, settle, settle_true.':
+        'Creates a point layer of geophysical profiles for learning and testing the tools without real data. Parallel profiles with pickets. Two modes.\n\nElectrical prospecting: apparent resistivity rho_k (Ohm*m), self-potential SP (mV) and induced polarisation IP (mV/V). A low-resistivity anomaly is embedded as a compact spot (water saturation or replacement), not a stripe, so the profiles are not synchronous. rho_k drops from a background of tens of Ohm*m to units, SP shows a negative minimum. The rho_k field is interpolated with 2D Kriging or minimum curvature, the anomaly is outlined by isolines.\n\nSubsidence (trough): settlement (mm) as a subsidence trough over a mined area, across several tours. The difference between tours at the same pickets gives the settlement rate.\n\nIn all modes a surface elevation z (m) and a noise-free true value are added, to check interpolation accuracy against a reference. Ranges and the number of tours are changed under Advanced.\n\nElectrical fields: profile, picket_m, pk, z, rho_k, rho_true, sp, vp. Subsidence fields: profile, picket_m, pk, tour, z, settle, settle_true.',
+    'Интерполируйте rho_k (2D Kriging или минимальная кривизна) и постройте изолинии - аномалия-пятно оконтурится. Поле rho_true - эталон без шума для проверки точности.':
+        'Interpolate rho_k (2D Kriging or minimum curvature) and build isolines - the spot anomaly will be outlined. The rho_true field is a noise-free reference for accuracy checks.',
+    'Оседания: профилей %d, туров %d, точек %d. Мульда до %.1f мм. Разность settle между турами по одним пикетам даёт скорость оседания.':
+        'Subsidence: %d profiles, %d tours, %d points. Trough down to %.1f mm. The settle difference between tours at the same pickets gives the settlement rate.',
+    'Электроразведка: профилей %d, точек %d. ρк %.4g..%.4g Ом·м, ЕП %.1f..%.1f мВ.':
+        'Electrical prospecting: %d profiles, %d points. rho_k %.4g..%.4g Ohm*m, SP %.1f..%.1f mV.',
+    'ρк без шума, Ом·м': 'rho_k without noise, Ohm*m',
+    'Амплитуда аномалии ВП, мВ/В': 'IP anomaly amplitude, mV/V',
+    'ВП, мВ/В': 'IP, mV/V',
+    'Максимальное оседание (мульда), мм': 'Maximum subsidence (trough), mm',
+    'Оседание без шума, мм': 'Subsidence without noise, mm',
+    'Оседание, мм': 'Subsidence, mm',
+    'Оседания (мульда)': 'Subsidence (trough)',
+    'Отметка z, м': 'Elevation z, m',
+    'Отметка поверхности: амплитуда, м': 'Surface elevation: amplitude, m',
+    'Отметка поверхности: база, м': 'Surface elevation: base, m',
+    'Тур': 'Tour',
+    'Число туров (для оседаний)': 'Number of tours (for subsidence)',
+    'Электроразведка (ρк, ЕП, ВП)': 'Electrical prospecting (rho_k, SP, IP)',
+    'Знак оседания': 'Subsidence sign',
+    'Вниз (отрицательное)': 'Down (negative)',
+    'Величина (положительное)': 'Magnitude (positive)',
+    'Профили оседаний (мульда, туров: %d)': 'Subsidence profiles (trough, tours: %d)',
+    'Профили электроразведки (ρк, ЕП, ВП)': 'Electrical-prospecting profiles (rho_k, SP, IP)',
+    'Скважины разреза (демо)': 'Section wells (demo)',
 }
