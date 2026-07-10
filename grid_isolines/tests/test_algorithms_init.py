@@ -58,8 +58,13 @@ def test_all_algorithms_init():
     algorithms = importlib.import_module(pkg + ".algorithms")
     algorithms._tr = lambda s: s          # translate-заглушка возвращает строку
     assert algorithms.ALGORITHMS, "список ALGORITHMS пуст"
+<<<<<<< HEAD
     assert len(algorithms.ALGORITHMS) == 38, (
         "ожидалось 38 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
+=======
+    assert len(algorithms.ALGORITHMS) == 37, (
+        "ожидалось 37 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
+>>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
     for cls in algorithms.ALGORITHMS:
         a = cls()
         a.initAlgorithm()                 # тут и падало бы 'no attribute tr'

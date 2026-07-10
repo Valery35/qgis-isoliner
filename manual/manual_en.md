@@ -655,6 +655,60 @@ Result fields:
 | dz | number | A value linearly related to the drift surface. Only when the drift-surface output is enabled. |
 
 
+# 1.8 Minimum curvature (points -> raster)
+
+The tool builds a grid by minimum curvature. The surface behaves like a thin elastic plate passing through the data with the least bending, that is a solution of the biharmonic equation. The method is not exact: the data are honored approximately, but the surface comes out as smooth as possible, which is why it is traditionally used for maps of geophysical fields and any smooth quantity. It is a deterministic alternative to kriging without variogram fitting. Kriging, unlike it, gives an estimate with a standard-error map.
+
+**Tension** mixes in a membrane term: 0 is pure minimum curvature, 1 is a taut membrane with fewer overshoots between samples. Boundary tension is set separately and helps remove edge overshoots. The solution is iterative, by successive over-relaxation (SOR) with a nine-colour sweep of the grid: nodes of one colour do not fall into each other's stencil, so they are updated at once and stably. The grid is recomputed until the largest node change drops below the **residual threshold** or the iterations run out.
+
+Free nodes start from the nearest data value, so convergence is fast on dense data. On very sparse data more iterations are needed: raise their limit or the residual threshold. Faults and breaklines are not supported in this version; they are planned for the future.
+
+| Parameter | Purpose | Default |
+| --- | --- | --- |
+| Point layer | Samples with a value. | - |
+| Value field (Z) | Numeric field to interpolate. | - |
+| Extent | Result rectangle. | from layer |
+| Cell size | 0 = auto, min(extent)/50. | 0 |
+| Tension | 0 = minimum curvature, 1 = membrane. | 0 |
+| Residual threshold | 0 = auto, 0.01 percent of the data range. | 0 |
+| Maximum iterations | Cap on the number of SOR passes. | 100000 |
+| Boundary tension (Adv.) | Tension at the grid edge. | 0 |
+| Relaxation factor (Adv.) | SOR acceleration, sensibly 1.5 - 1.9. | 1.85 |
+| Anisotropy (Adv.) | Y/X axis ratio in the membrane term. | 1 |
+| Grid (minimum curvature) | Output raster. | - |
+
+The output is an ordinary grid ready for **1.2 Isolines from raster**. The log prints the grid size, the number of data nodes, the number of iterations and the final residual. If the iteration cap is reached while the residual is still above the threshold, the tool warns about it.
+
+
+# 1.9 Method cross-validation (LOO)
+
+Leave-one-out control for a gridding method: kriging or minimum curvature. Each validation point is removed in turn, its value is predicted by the method from the rest and compared with the fact. The errors give quality metrics - an objective measure of the method and a way to compare methods on your own data.
+
+This differs from **1.5 Cross-validation of the variogram**: that one fits the variogram model for kriging, while this one compares gridding methods as such and works for minimum curvature too.
+
+Metrics: **ME** (bias, closer to 0), **MAE** and **RMSE** (smaller is better), **R** (correlation of estimate and fact). For kriging there is also **MSDR** (closer to 1 when the standard-error scale is adequate). The estimate-vs-fact chart has two lines: a grey 1:1 diagonal (the ideal) and a blue **Best-fit** regression line. Its slope, intercept and angle go into the metrics as a range-bias indicator. A slope near 1 means the method is equally accurate at low and high values, a slope below 1 means high values are underestimated and low ones overestimated (regression to the mean, the signature of smoothing methods).
+
+Three Surfer-style options are available. A **random subset** of N points speeds control on large data, while the whole sample still takes part in each estimate. An **area filter** restricts validation to a subarea by extent and by Z value, useful to avoid control at known anomalies. An **exclusion buffer** in X and Y drops points in a rectangle around the validation point, needed for dense clusters, otherwise the estimate just repeats the nearest neighbour.
+
+| Parameter | Purpose | Default |
+| --- | --- | --- |
+| Points with values | Samples. | - |
+| Value field (Z) | Numeric field. | - |
+| Well id field | For labels in the report. | - |
+| Method | Kriging or minimum curvature. | Kriging |
+| Points to validate | 0 = auto, min(N, 100). | 0 |
+| Exclusion buffer in X, Y | Rectangle around the point, neighbours in it are left out. | 0 |
+| Kriging parameters | Variogram and search (as in 1.1). | - |
+| Min curvature parameters (Adv.) | Extent, cell, tension, threshold, iterations. | auto |
+| Validate only within the extent (Adv.) | Control area by X/Y. | everywhere |
+| Validate where Z is in range (Adv.) | Control area by value. | none |
+| RNG seed (Adv.) | For a reproducible subset. | 0 |
+| Cross-validation errors | Point layer with fact, estimate and error fields. | - |
+| HTML report | Estimate-vs-fact plot, histogram, metrics. | default |
+
+For minimum curvature each point is re-estimated from a warm start off the full solution, so a single pass is fast. On very large samples reduce the number of validation points.
+
+
 # 2.01 Categorical indicator kriging
 
 The **Categorical indicator kriging** tool builds a probability map from a categorical field: mineral type, lithotype, any text class. Unlike ordinary kriging, which interpolates a number, here it estimates how likely each class is at every point of the area. This is what you need where the type matters rather than the magnitude: where to expect replacement, where the seam composition changes, where the boundary between varieties runs.

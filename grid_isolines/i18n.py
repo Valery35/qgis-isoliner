@@ -1477,6 +1477,7 @@ TRANSLATIONS = {
     '45° - идеал': '45° is ideal',
     'Best Fit (оценка по факту): наклон %.3f, сдвиг %+.3g, угол %.1f°': 'Best fit (estimate vs fact): slope %.3f, intercept %+.3g, angle %.1f°',
     'серая - идеал (1:1), синяя - регрессия': 'grey - ideal (1:1), blue - regression',
+<<<<<<< HEAD
     'Ячеистая декластеризация (порт GSLIB declus). Когда пробы сгущены неравномерно - одни блоки разбурены плотнее, - наивная глобальная статистика смещается в сторону переразведанных участков: если гуще бурили богатые зоны, среднее и гистограмма завышены. Инструмент даёт каждой пробе вес, обратный локальной плотности (в скоплении меньше, на отшибе больше), и считает представительное декластеризованное среднее.\n\nРазмер ячейки подбирается автоматически (свип по размерам, выбор по минимуму декластеризованного среднего) либо задаётся вручную. На регулярной сети декластеризация ничего не меняет - веса равны.\n\nВыход: слой точек с полем весов wt и HTML-отчёт (сводка, гистограмма сырая против взвешенной, кривая среднего). Декластеризованное среднее - готовая оценка для подсчёта запасов и для «Среднего» простого кригинга (1.1). Поле wt подаётся в гауссову симуляцию (2.06) для взвешенной гистограммы.':
         'Cell declustering (a port of GSLIB declus). When samples are clustered unevenly - some blocks drilled denser - the naive global statistics shift toward the over-sampled areas: if rich zones were drilled denser, the mean and histogram are overstated. The tool gives each sample a weight inversely proportional to the local density (less in a cluster, more on its own) and computes a representative declustered mean.\n\nThe cell size is chosen automatically (a sweep over sizes, picking the minimum declustered mean) or set manually. On a regular grid declustering changes nothing - the weights are equal.\n\nOutput: a point layer with a wt weight field and an HTML report (summary, raw-vs-weighted histogram, the mean curve). The declustered mean is a ready estimate for reserve calculation and for the Mean of simple kriging (1.1). The wt field feeds the Gaussian simulation (2.06) for a weighted histogram.',
     'Декластеризованное среднее - представительная оценка для подсчёта запасов и для «Среднего» простого кригинга. Поле весов wt подаётся в SGS (2.06) для взвешенной гистограммы.':
@@ -1536,4 +1537,6 @@ TRANSLATIONS = {
     'Поле весов декластеризации (из 1.01, необязательно)': 'Declustering weight field (from 1.01, optional)',
     'Доли классов взвешены декластеризацией (поле «%s»).': 'Class proportions weighted by declustering (field "%s").',
     'Метрики взвешены декластеризацией (поле «%s»).': 'Metrics weighted by declustering (field "%s").',
+=======
+>>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
 }

@@ -8223,7 +8223,11 @@ class MinCurvatureAlgorithm(QgsProcessingAlgorithm):
     def createInstance(self): return MinCurvatureAlgorithm()
     def name(self): return "min_curvature"
     def displayName(self):
+<<<<<<< HEAD
         return self.tr("1.03 Минимальная кривизна (точки → растр)")
+=======
+        return self.tr("1.8 Минимальная кривизна (точки → растр)")
+>>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
@@ -8373,7 +8377,10 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
     случайная выборка точек, фильтры, буфер исключения соседей."""
 
     INPUT, ZFIELD, IDFIELD = "INPUT", "ZFIELD", "IDFIELD"
+<<<<<<< HEAD
     WEIGHT_FIELD = "WEIGHT_FIELD"
+=======
+>>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
     METHOD = "METHOD"
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
@@ -8393,7 +8400,11 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
     def createInstance(self): return MethodCrossValidationAlgorithm()
     def name(self): return "method_crossvalidation"
     def displayName(self):
+<<<<<<< HEAD
         return self.tr("1.08 Кросс-валидация метода (LOO)")
+=======
+        return self.tr("1.9 Кросс-валидация метода (LOO)")
+>>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
@@ -8430,11 +8441,14 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterField(
             self.IDFIELD, self.tr("Поле номера скважины (необязательно)"),
             parentLayerParameterName=self.INPUT, optional=True))
+<<<<<<< HEAD
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
             self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.Numeric, optional=True)))
+=======
+>>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
         self.addParameter(QgsProcessingParameterEnum(
             self.METHOD, self.tr("Метод"),
             options=[self.tr("Кригинг"), self.tr("Минимальная кривизна")],
@@ -8541,6 +8555,7 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
             vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
             pct=pct, cap=cap, id_field=idfield, return_ids=True)
         n = len(xs)
+<<<<<<< HEAD
         wfield = self.parameterAsString(
             parameters, self.WEIGHT_FIELD, context) or None
         mcw = None
@@ -8564,6 +8579,8 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
             except Exception:
                 feedback.pushWarning(self.tr(
                     "Не удалось прочитать поле весов - веса игнорируются."))
+=======
+>>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
 
         # --- отбор проверяемых точек: фильтр области и по значению ---
         crs = source.sourceCrs()
@@ -8695,10 +8712,26 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
             raise QgsProcessingException(self.tr(
                 "Слишком мало оценённых точек."))
         err = est[ok] - fact[ok]
+<<<<<<< HEAD
         _w_ok = (mcw[val_idx][ok] if mcw is not None else None)
         me, mae, rmse, msdr, r = _weighted_cv_metrics(
             fact[ok], est[ok], err,
             (var[ok] if var is not None else None), _w_ok)
+=======
+        me = float(np.mean(err))
+        mae = float(np.mean(np.abs(err)))
+        rmse = float(np.sqrt(np.mean(err ** 2)))
+        try:
+            r = float(np.corrcoef(est[ok], fact[ok])[0, 1])
+        except Exception:
+            r = float("nan")
+        msdr = float("nan")
+        if var is not None:
+            sd = np.sqrt(np.maximum(var[ok], 0.0))
+            good = sd > 0
+            if good.any():
+                msdr = float(np.mean((err[good] / sd[good]) ** 2))
+>>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
 
         feedback.pushInfo(self.tr("== Кросс-валидация метода (LOO) =="))
         feedback.pushInfo(self.tr("Точек оценено: %d из %d")
@@ -9676,6 +9709,11 @@ ALGORITHMS = [
     DomainsToGridAlgorithm,
     ReserveDeltaAlgorithm,
     PolyhedralDemoAlgorithm,
+<<<<<<< HEAD
+=======
+    MinCurvatureAlgorithm,
+    MethodCrossValidationAlgorithm,
+>>>>>>> aaf4cae812282ba68a271482651264b6bc5c2d2e
     FractalDimensionAlgorithm,
     BoxCountingAlgorithm,
     LineDimensionAlgorithm,
