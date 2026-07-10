@@ -35,7 +35,7 @@ The main way is from the official QGIS repository. Open Plugins → Manage and I
 
 Raster band choice in all the tools is a drop-down with band names: a bed assembled by tool 4.01 shows roof, bottom and the parameter layer names in the lists.
 
-![The Isoliner provider in the Processing toolbox: four groups, thirty-two tools.](images/toolbox_tree.png){width=52%}
+![The Isoliner provider in the Processing toolbox: four groups, thirty-seven tools.](images/toolbox_tree.png){width=52%}
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
@@ -65,7 +65,29 @@ The tools are grouped into three Processing groups. The "Grid and isolines" grou
 
 ![The whole process on a generated example: wells with measurements (left) are turned into a continuous grid by kriging (centre), from which isolines and contour polygons are built (right).](images/schema_process.png){width=98%}
 
-# 1.1 2D Kriging (points → raster)
+# 1.01 Declustering (weights)
+
+The tool prepares data before interpolation. When samples are clustered unevenly, some blocks drilled denser than others, the naive global statistics shift toward the over-sampled areas. If rich zones were drilled denser, the mean and histogram are overstated, and that directly affects reserve calculation. Cell declustering (a port of GSLIB **declus**) gives each sample a weight inversely proportional to the local density: less in a cluster, more on its own. A representative declustered mean is computed from the weighted data.
+
+A grid of cells is laid over the area, a sample weight is proportional to one divided by the number of samples in its cell, then the weights are normalized. The cell size is chosen automatically: a sweep over sizes, picking the minimum declustered mean (when clusters fall in rich zones) or the maximum. The size can be set manually. On a regular grid declustering changes nothing, all weights are equal.
+
+| Parameter | Purpose | Default |
+| --- | --- | --- |
+| Points with values | Samples. | - |
+| Value field (Z) | Numeric field. | - |
+| Cell size | Auto (sweep) or manual. | Auto |
+| Cell size for manual mode | Cell side in manual mode. | 0 |
+| Sweep objective (Adv.) | Minimum or maximum mean. | Minimum |
+| Number of sizes in the sweep (Adv.) | How many cells to try. | 24 |
+| Cell Y/X ratio (Adv.) | Cell anisotropy. | 1 |
+| Grid-origin offsets (Adv.) | Averaging over grid shifts. | 4 |
+| Points with weights | Point layer with a **wt** field. | - |
+| HTML report | Summary, histogram, mean curve. | default |
+
+Outputs: a point layer with a **wt** field and an HTML report with a summary (naive vs declustered mean), a raw-vs-weighted histogram and a mean-vs-cell-size curve. The declustered mean from the log and report goes into **1.02**, the **Mean of simple kriging** field, and the **wt** field feeds **2.06 Gaussian simulation** for a weighted normal-score transform. Outlier samples are cut separately, by percentile capping in the kriging and cross-validation tools themselves.
+
+
+# 1.02 2D Kriging (points → raster)
 
 Ordinary (OK) or simple (SK) kriging over a point layer. Coincident points (the same XY) are averaged over Z. At grid nodes the values of the source points are reproduced exactly (with a zero nugget).
 
@@ -225,7 +247,32 @@ A 4×4 discretization is almost always enough. A larger N takes longer to comput
 Block kriging combines with trend removal. The residuals are kriged over the block and the trend is added back to the estimate. It also combines with grid smoothing, but block averaging alone is usually enough and extra smoothing is not needed.
 
 
-# 1.2 Isolines from raster
+# 1.03 Minimum curvature (points -> raster)
+
+The tool builds a grid by minimum curvature. The surface behaves like a thin elastic plate passing through the data with the least bending, that is a solution of the biharmonic equation. The method is not exact: the data are honored approximately, but the surface comes out as smooth as possible, which is why it is traditionally used for maps of geophysical fields and any smooth quantity. It is a deterministic alternative to kriging without variogram fitting. Kriging, unlike it, gives an estimate with a standard-error map.
+
+**Tension** mixes in a membrane term: 0 is pure minimum curvature, 1 is a taut membrane with fewer overshoots between samples. Boundary tension is set separately and helps remove edge overshoots. The solution is iterative, by successive over-relaxation (SOR) with a nine-colour sweep of the grid: nodes of one colour do not fall into each other's stencil, so they are updated at once and stably. The grid is recomputed until the largest node change drops below the **residual threshold** or the iterations run out.
+
+Free nodes start from the nearest data value, so convergence is fast on dense data. On very sparse data more iterations are needed: raise their limit or the residual threshold. Faults and breaklines are not supported in this version; they are planned for the future.
+
+| Parameter | Purpose | Default |
+| --- | --- | --- |
+| Point layer | Samples with a value. | - |
+| Value field (Z) | Numeric field to interpolate. | - |
+| Extent | Result rectangle. | from layer |
+| Cell size | 0 = auto, min(extent)/50. | 0 |
+| Tension | 0 = minimum curvature, 1 = membrane. | 0 |
+| Residual threshold | 0 = auto, 0.01 percent of the data range. | 0 |
+| Maximum iterations | Cap on the number of SOR passes. | 100000 |
+| Boundary tension (Adv.) | Tension at the grid edge. | 0 |
+| Relaxation factor (Adv.) | SOR acceleration, sensibly 1.5 - 1.9. | 1.85 |
+| Anisotropy (Adv.) | Y/X axis ratio in the membrane term. | 1 |
+| Grid (minimum curvature) | Output raster. | - |
+
+The output is an ordinary grid ready for **1.04 Isolines from raster**. The log prints the grid size, the number of data nodes, the number of iterations and the final residual. If the iteration cap is reached while the residual is still above the threshold, the tool warns about it.
+
+
+# 1.04 Isolines from raster
 
 Builds isolines (lines) and, by default, contour polygons. Levels are set by a uniform step or by an explicit list. Parameters:
 
@@ -276,7 +323,7 @@ Polygons are created with a single symbol. For range fills set graduated symbolo
 
 The isoline layer is automatically placed above the polygon layer so the lines show over the fill.
 
-# 1.3 Variogram (experimental)
+# 1.05 Variogram (experimental)
 
 The tool builds an experimental semivariogram from points, fits a model to it if needed, and produces an HTML report with a chart. It does not compute a grid and is not part of the kriging computation chain directly. Its job is diagnostic: to show the structure of the data's spatial variability and to help set the variogram parameters deliberately, by the look of the cloud rather than by eye.
 
@@ -367,7 +414,10 @@ After scaling, the full sill may turn out above the data variance. On a clustere
 
 The finished and validated model then only needs to be carried into **2D Kriging** to compute the grid, and after that, if needed, into **Isolines from raster**.
 
-# 1.4 Variogram map (anisotropy)
+If the data are clustered unevenly, set the optional **wt** weight field from tool **1.01 Declustering**. Each pair of points is then taken with a weight equal to the product of its endpoints' weights, and clusters do not inflate the near lags. The pair count in the report shows the raw number of pairs, while γ itself is computed with weights.
+
+
+# 1.06 Variogram map (anisotropy)
 
 The tool builds a variogram map - the semivariance surface γ as a function of the two-dimensional separation vector (h_x, h_y). An ordinary variogram averages all directions into one curve and loses directionality; the map, by contrast, shows how the continuity of the parameter depends on direction. From it you can see whether there is anisotropy in the data and where the axis of maximum continuity points. The tool is diagnostic: it does not compute a grid but helps to set the azimuth and anisotropy in the 2D Kriging variogram structure deliberately.
 
@@ -421,7 +471,10 @@ In this case the range a cannot be carried into kriging as is: the real correlat
 
 If desired, the map is also saved as a raster (the **Surface raster** field). It is the same γ surface but in lag coordinates: the origin at (0, 0), the pixel size equal to the lag cell. The raster is not georeferenced - it lies in the separation space, not in the deposit plan - and is meant for those who want to spin the map on the QGIS canvas, apply their own colour scale or measure a lag with a ruler. The HTML report is enough for the anisotropy estimate itself.
 
-# 1.5 Variogram cross-validation
+If the data are clustered unevenly, set the optional **wt** weight field from tool **1.01 Declustering**. Each pair of points is then taken with a weight equal to the product of its endpoints' weights, and clusters do not inflate the near lags. The pair count in the report shows the raw number of pairs, while γ itself is computed with weights.
+
+
+# 1.07 Variogram cross-validation
 
 ![The idea of cross-validation: the kriging estimate from the remaining points (vertical) is compared with the actual value (horizontal). The tighter the cloud lies on the estimate = actual diagonal, the more accurate the prediction.](images/crossval.png){width=70%}
 
@@ -473,7 +526,7 @@ The residuals-layer fields:
 | `abs_error` | \|Error\| | The absolute value of the error, \|error\|. |
 | `std_resid` | Std. residual (signed) | (estimate − actual) / the kriging standard error, signed. Not a variance (which is ≥ 0). |
 
-Besides the residuals layer the tool by default produces an HTML report (on plotly): an interactive "estimate vs actual" chart with the diagonal, an error histogram, a residuals QQ-plot and a metrics table with a recommendations block. The data variance is added to the table - a reference for the total sill C0+C. Next to the metrics table a **Kriging parameters** block is shown: only the settings that differ from the defaults are listed (nugget, sill, range, outliers and so on), so you can see which parameters produced these metrics. On the "estimate vs actual" chart, hovering over a point shows the well number and the values, and the eight wells with the largest residuals by absolute value are labelled right on the chart - they are convenient to check first. The report opens in the QGIS result viewer (or in a browser). If plotly is unavailable in the QGIS build, the report is still created - with the metrics table but without charts.
+Besides the residuals layer the tool by default produces an HTML report (on plotly): an interactive "estimate vs actual" chart with two lines - a grey 1:1 diagonal (the ideal) and a blue Best-fit regression line, an error histogram, a residuals QQ-plot and a metrics table with a recommendations block. The Best-fit slope, intercept and angle are added to the metrics: this is a range-bias indicator. A slope near 1 means the method is equally accurate at low and high values, a slope below 1 means high values are underestimated and low ones overestimated (regression to the mean, the signature of smoothing methods). The data variance is added to the table - a reference for the total sill C0+C. Next to the metrics table a **Kriging parameters** block is shown: only the settings that differ from the defaults are listed (nugget, sill, range, outliers and so on), so you can see which parameters produced these metrics. On the "estimate vs actual" chart, hovering over a point shows the well number and the values, and the eight wells with the largest residuals by absolute value are labelled right on the chart - they are convenient to check first. The report opens in the QGIS result viewer (or in a browser). If plotly is unavailable in the QGIS build, the report is still created - with the metrics table but without charts.
 
 **The residuals QQ-plot.** Shows the shape of the error distribution. The errors are normalized to their own variance (a z-score) and compared with the normal distribution, so the chart reads by shape at any calibration. The uncertainty scale is handled separately by the MSDR in the metrics table. The horizontal axis is the normal-distribution quantiles, the vertical is the normalized error. If the errors are normal, the points lie on the red diagonal. Deviations read at once. Curled ends (S-shaped) - heavy tails, i.e. more large misses than under normality. An overall arc - skew, worth considering a value transform. A separate group broken off the line - an alien population in the data, for example barren samples from replacement zones (where the component is practically absent). Normality matters because the MSDR and the standard-error map rest on it.
 
@@ -493,7 +546,41 @@ In sum: this tool is the last step before the final kriging. First you calibrate
 
 A note on speed: the check solves kriging as many times as there are points, so on large sets (tens of thousands of wells) it runs noticeably longer. Reduce the sample if needed.
 
-# 1.6 Processing profiles
+If the data are clustered unevenly, set the optional **wt** weight field from tool **1.01 Declustering**. The ME, MAE, RMSE, MSDR and R metrics are then computed with weights, so a dense cluster of wells does not dominate the quality assessment. The leave-one-out estimate itself is unchanged, only the summary is weighted.
+
+
+# 1.08 Method cross-validation (LOO)
+
+Leave-one-out control for a gridding method: kriging or minimum curvature. Each validation point is removed in turn, its value is predicted by the method from the rest and compared with the fact. The errors give quality metrics - an objective measure of the method and a way to compare methods on your own data.
+
+This differs from **1.07 Cross-validation of the variogram**: that one fits the variogram model for kriging, while this one compares gridding methods as such and works for minimum curvature too.
+
+Metrics: **ME** (bias, closer to 0), **MAE** and **RMSE** (smaller is better), **R** (correlation of estimate and fact). For kriging there is also **MSDR** (closer to 1 when the standard-error scale is adequate). The estimate-vs-fact chart has two lines: a grey 1:1 diagonal (the ideal) and a blue **Best-fit** regression line. Its slope, intercept and angle go into the metrics as a range-bias indicator. A slope near 1 means the method is equally accurate at low and high values, a slope below 1 means high values are underestimated and low ones overestimated (regression to the mean, the signature of smoothing methods).
+
+Three Surfer-style options are available. A **random subset** of N points speeds control on large data, while the whole sample still takes part in each estimate. An **area filter** restricts validation to a subarea by extent and by Z value, useful to avoid control at known anomalies. An **exclusion buffer** in X and Y drops points in a rectangle around the validation point, needed for dense clusters, otherwise the estimate just repeats the nearest neighbour.
+
+| Parameter | Purpose | Default |
+| --- | --- | --- |
+| Points with values | Samples. | - |
+| Value field (Z) | Numeric field. | - |
+| Well id field | For labels in the report. | - |
+| Method | Kriging or minimum curvature. | Kriging |
+| Points to validate | 0 = auto, min(N, 100). | 0 |
+| Exclusion buffer in X, Y | Rectangle around the point, neighbours in it are left out. | 0 |
+| Kriging parameters | Variogram and search (as in 1.1). | - |
+| Min curvature parameters (Adv.) | Extent, cell, tension, threshold, iterations. | auto |
+| Validate only within the extent (Adv.) | Control area by X/Y. | everywhere |
+| Validate where Z is in range (Adv.) | Control area by value. | none |
+| RNG seed (Adv.) | For a reproducible subset. | 0 |
+| Cross-validation errors | Point layer with fact, estimate and error fields. | - |
+| HTML report | Estimate-vs-fact plot, histogram, metrics. | default |
+
+For minimum curvature each point is re-estimated from a warm start off the full solution, so a single pass is fast. On very large samples reduce the number of validation points.
+
+If the data are clustered unevenly, set the optional **wt** weight field from tool **1.01 Declustering**. The ME, MAE, RMSE, MSDR and R metrics are then computed with weights, so a dense cluster of wells does not dominate the quality assessment. The leave-one-out estimate itself is unchanged, only the summary is weighted.
+
+
+# 1.09 Processing profiles
 
 A profile is a named set of processing settings for one parameter: the variogram (nugget C0, model type, contribution C, range a, azimuth and anisotropy axes) plus outlier removal (percentile, bounds, capping mode). Profiles are handy when a project has several seams or zones of different variability: you fit a model for a seam once and reuse it in kriging without re-entering the numbers.
 
@@ -525,7 +612,7 @@ The **Processing profiles** tool itself manages the storage via the **Action** p
 Saving under an existing name overwrites the profile. The profile lists in the drop-down fields (the choice for deletion, the load in kriging) refresh when the tool window opens: after saving a profile, reopen the tool so it appears in the list.
 
 Below the profile drop-down, in the line beneath it, the parameters of the chosen profile are shown (nugget, type, contribution, range, azimuth, axes, outliers). In **2D Kriging** and **Cross-validation** a reminder is shown there as well that the computation will use the profile rather than the dialog fields. On QGIS builds without the old widget API the caption does not appear - an ordinary list remains (this does not affect the work).
-# 1.7 Create sample wells (demo)
+# 1.10 Create sample wells (demo)
 
 The **Create sample wells (demo)** tool builds a point layer with random coordinates and three structured fields: the absolute roof elevation (roof), the thickness (thick) and the grade of an abstract component X (%). The roof and thickness ranges are set after the model of an industrial seam (KrII). The tool is meant for learning and testing kriging, isolines and cross-validation without real data.
 
@@ -545,6 +632,7 @@ Parameters:
 | Add a head field | A head field with a regional slope for the flow gradient. | off |
 | Add K and T fields and head | Head plus log-normal K (m/day) and T = K·thickness for the specific discharge (Darcy). | off |
 | RNG seed (Adv.) | Reproducibility of the generation. 0 = random. | 0 |
+| Declustering weight field (Adv.) | **wt** weights from tool **1.01**, optional. | none |
 | Sample wells (demo) | The output point layer. | - |
 | Drift surface (raster) + dz field | Enable the output to get an s raster and a dz field for external drift. | off (skipped) |
 
@@ -601,6 +689,9 @@ Three results. A multiband probability raster, one band per class, the class nam
 The categorical approach is convenient because it needs no boundary drawn in advance. There is no need to decide whether partial replacement counts as dangerous. All types are mapped as they are, and the required combination of classes is assembled later from the probabilities. Rare classes with few boreholes give a noisy variogram, the tool warns about this in the log, so read the probability of such a class with caution.
 
 To learn the tool without real data, switch on **Add a categorical mineral-type field** in **Create sample wells (demo)**. A mintype field is added to the layer with a silvinite background and replacement spots after a mine, ready to run the tool on.
+
+With an uneven network you can set the optional **wt** weight field from tool **1.01 Declustering**. Each class indicator is then kriged toward its declustered proportion rather than zero, so far from the data the probability tends to the representative class proportion. Without weights the behaviour is unchanged.
+
 
 # 2.02 External Drift Kriging
 
@@ -816,11 +907,13 @@ How it works. The values are mapped to normal scores and the simulation runs in 
 
 The outputs are ensemble rasters. **Mean (E-type)** resembles kriging. **Standard deviation** shows the uncertainty, small at the boreholes and large away from them. The **P10**, **P50**, **P90** quantiles outline the likely range, and **Exceedance probability** for a given threshold offers a non-parametric alternative to the map from the probability tool. Runtime grows with grid size and the number of realizations, so start with a coarse cell.
 
+If the data are clustered unevenly, supply the **wt** weight field from tool **1.01 Declustering**. The normal-score transform then builds the distribution with weights, and the ensemble histogram is not skewed toward over-sampled rich areas.
+
 # 2.07 Fractal dimension
 
 The tool computes a fractal-dimension map of a surface by the variogram method, native to the plugin: a log-log variogram over lags of one to N cells is built in a sliding window, its slope gives the Hurst exponent H, and the dimension D = 3 - H. Smooth differentiable areas give D near 2, rugged and noisy ones tend to 3; the values themselves matter less than their steps - they highlight zones of tectonic disturbance, block boundaries and changes of the roof relief character.
 
-The output is a D grid that feeds straight into **1.2 Isolines from a raster** for dimension isolines; an advanced checkbox adds H as band 2. The global D and H over the whole surface are printed to the log.
+The output is a D grid that feeds straight into **1.04 Isolines from a raster** for dimension isolines; an advanced checkbox adds H as band 2. The global D and H over the whole surface are printed to the log.
 
 ## Reading the map
 
@@ -834,7 +927,7 @@ A small window (5-8 cells) reveals the microstructure and local disturbances, a 
 
 ## Workflow
 
-A bed roof from kriging → **2.7** with a window of 8 → the D grid → **1.2 Isolines from a raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS; the demo surfaces fit as they are.
+A bed roof from kriging → **2.7** with a window of 8 → the D grid → **1.04 Isolines from a raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS; the demo surfaces fit as they are.
 
 ## Parameters
 
@@ -1316,6 +1409,27 @@ A vertical transform is applied to the elevations on write: Z' = Z × scale + of
 | Elevation band (Adv.) | The band with elevations, for multiband grids. | 1 |
 | Folder for meshes (2DM) | Where to write the files; the layers are loaded into the project. | - |
 
+# 4.07 Create a polyhedral example (beta)
+
+The tool builds a single demonstration polyhedron so you can see how a closed volumetric shell looks in QGIS. Four examples are available: **Bed body** (an analytic fold-lens between a roof and a floor), **Suite** (a stack of folded beds, each bed loaded as a separate **Suite: bed k** layer for visibility control and coloured on its own), **Cube** and **Tetrahedron**. The bed-body shell is watertight: the roof, the reversed floor and the side skirt are stitched into a closed surface with no holes. The output layer name follows the example (**Bed (demo)**, **Suite x3 (demo)**, **Cube (demo)**, **Tetrahedron (demo)**) so the objects are distinct in the **Bodies** tab list.
+
+From QGIS 3.40 on, the output is written as a native **PolyhedralSurface Z** (or **TIN Z** if the flag is set). Older builds have no such geometry type, so the object degrades to **MultiPolygon Z** with a warning in the log; the faces are the same, only the layer type differs. The result carries the fields **name**, **kind**, **patches** (face count) and **watertight**.
+
+The plan position and size come from the **extent (map view)**, like the other generators: the body is centred in the extent and takes its smaller side. Vertically the body runs from the base elevation (floor) up to that elevation plus the thickness. The geometry type is flat, so Z is not visible in the 2D map view. The Z range is printed to the log, and the body itself is best viewed in **Plugins - Isoliner - 3D surface viewer**, the **Bodies** tab.
+
+This is a first step towards the future **bed body -> PolyhedralSurface** bridge: for now the tool only shows the geometry type on simple examples, while volumetric boolean operations on bed bodies are the next step (via QSFCGAL in QGIS 3.40 and newer).
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Example | Bed body, Suite, Cube or Tetrahedron. | Bed body |
+| Extent (map view) | Plan placement and size of the example. | map view |
+| Thickness | Vertical thickness of the body, map units. | 25 |
+| Bed body resolution | Grid density of the bed body (cells per side). | 8 |
+| Base elevation (Adv.) | Floor elevation, map units. | 0 |
+| Beds in the suite (Adv.) | How many beds in the Suite example. | 3 |
+| TIN instead of PolyhedralSurface | Write as a triangulated surface. | no |
+| Polyhedron (layer) | The result with the fields name, kind, patches, watertight. | - |
+
 # 3D surface viewer (beta)
 
 The plugin has its own 3D window: **Plugins - Isoliner - 3D surface viewer (beta)…** It does not depend on the built-in QGIS 3D view: the render runs on pyqtgraph and PyOpenGL bundled with the plugin, nothing to install.
@@ -1350,15 +1464,19 @@ In the Auto mode a multiband grid by the convention is read as a body: band 1 - 
 
 ![The **Vectors** tab: the section plane, the boreholes, the label field and the elevation fields; the scene shows the section ribbon with boreholes on a bed body.](images/viewer_vectors_tab.png){width=86%}
 
-**Boreholes (points)**: pick a layer and check the numeric elevation fields, fields like h1…h6 are checked automatically. Every borehole is a vertical rod from the minimal elevation to the maximal one with a collar ball on a mast: the mast lifts the collar above the roof by two percent of the scene span, the borehole stays visible even where the rod goes inside an opaque body.
+**Boreholes (points)**: pick a layer and check the numeric elevation fields, fields like h1…h6 are checked automatically. Every borehole is a stem of cylindrical segments between neighbouring elevations, the intervals coloured by stratigraphic position (the order of the checked fields), so the same horizon reads in one colour across all boreholes. Above the collar there is a mast with a ball: the mast lifts the collar above the roof by two percent of the scene span, the borehole stays visible even where the stem goes inside an opaque body.
 
 **Borehole label field** adds text above the masts: fields like name and well are guessed automatically, "(none)" switches the labels off. The labels are thinned automatically: if a labelled borehole is already nearby, the text is skipped, and dense well stocks stay readable. The cap is 500 labels.
 
 ![Borehole labels above the masts with automatic thinning. The **Vectors** tab with the label field on the left, the bed bodies coloured with custom colours.](images/viewer_well_labels.png){width=86%}
 
-**Section plane (line)** accepts any line layer. The best input is the **Section definition** from tool 3.01: the ribbon takes the height range from its zmin and zmax fields. For an arbitrary line the ribbon stretches over the scene span with a margin. Polylines and multiple lines are supported, the bends are drawn by the vertices.
+**Section plane (line)** accepts any line layer. The best input is the **Section definition** from tool 3.01: the ribbon takes the height range from its zmin and zmax fields. For an arbitrary line the ribbon stretches over the scene span with a margin. Polylines and multiple lines are supported, the bends are drawn by the vertices. A bright trace runs along the ribbon over the surfaces, and for bodies from the **Bodies** tab a section contour is drawn where the vertical curtain along the line cuts the body.
 
 ![Bed bodies, boreholes and the section plane in one scene: the block model stitched with the section.](images/viewer_ribbon_wells.png){width=78%}
+
+## The Bodies tab: polyhedra and polygons with Z
+
+The **Bodies** tab shows polygon layers that carry a Z elevation (polyhedral surfaces, TIN, MultiPolygon Z) as volumetric bodies right in the scene, next to surfaces and bed bodies. Tick the layers you want and press **Rebuild scene**. The geometry of each feature is broken into triangles as a separate mesh and coloured on its own, so a suite of several beds comes out multi-coloured, and the tab also takes the examples from tool 4.07 and any third-party bodies with Z. The same vertical exaggeration and transparency apply to bodies as to surfaces, so a polyhedron and a stack of horizons read at one scale.
 
 ## Querying the scene by a click
 
@@ -1389,7 +1507,7 @@ This section is a hands-on practicum on the demo data: short working cycles (les
 ## Preparing the demo
 
 1. A new QGIS project.
-2. **1.7 Create a well example (demo)** - demo wells with elevation and content fields appear.
+2. **1.10 Create a well example (demo)** - demo wells with elevation and content fields appear.
 3. **3.10 Create a cross-section example** - the section line, the zone polygon, the ready beds "Bed 1 (demo)" and "Bed 2 (demo)" and separate roof and bottom surfaces.
 
 The ready "Bed 1 (demo)" is already a multiband grid by the convention (band 1 roof, 2 bottom, 3 content), it suits all the lessons below without assembly.

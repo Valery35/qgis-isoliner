@@ -228,3 +228,38 @@ def fraction_inside_bbox(points, xmin, xmax, ymin, ymax):
         if xmin <= x <= xmax and ymin <= y <= ymax:
             n += 1
     return n / float(len(pts))
+
+
+def cylinder(p0, p1, radius=1.0, sides=12):
+    """Боковая поверхность цилиндра между точками p0 и p1 (без торцов).
+
+    Возвращает (verts, faces): verts - 2*sides вершин (нижнее и верхнее
+    кольца), faces - 2*sides треугольников боковой стенки. Чистый NumPy,
+    для рисования цилиндрических стволов скважин в 3D-просмотре.
+    """
+    p0 = np.asarray(p0, dtype=float)
+    p1 = np.asarray(p1, dtype=float)
+    sides = max(3, int(sides))
+    axis = p1 - p0
+    length = float(np.linalg.norm(axis))
+    if length == 0.0:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    w = axis / length
+    ref = np.array([1.0, 0.0, 0.0]) if abs(w[0]) < 0.9 \
+        else np.array([0.0, 1.0, 0.0])
+    u = np.cross(w, ref)
+    u /= np.linalg.norm(u)
+    vv = np.cross(w, u)
+    ang = np.linspace(0.0, 2.0 * np.pi, sides, endpoint=False)
+    ring = np.cos(ang)[:, None] * u + np.sin(ang)[:, None] * vv
+    bottom = p0 + radius * ring
+    top = p1 + radius * ring
+    verts = np.vstack([bottom, top])
+    faces = []
+    for i in range(sides):
+        j = (i + 1) % sides
+        a, b = i, j
+        c, d = sides + i, sides + j
+        faces.append([a, b, d])
+        faces.append([a, d, c])
+    return verts, np.asarray(faces, dtype=np.int64)

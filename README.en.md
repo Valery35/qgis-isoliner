@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-four in all:
+The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-eight in all:
 
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
@@ -271,6 +271,21 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.60.0** — declustering weights now also in cross-validations (1.07, 1.08 - weighted metrics) and indicator kriging (2.01 - indicator toward the declustered class proportion).
+- **2.59.0** — declustering weights (the wt field from 1.01) are now accepted by the variogram (1.05) and variogram map (1.06): pairs are weighted so clusters do not inflate the near lags.
+- **2.58.1** — Group 1 reordered and switched to two-digit numbering (1.01…1.10) for correct toolbox sorting.
+- **2.58.0** — new tool 1.0 "Declustering (weights)" (a GSLIB declus port): density-based weights and a declustered mean; the weight field feeds SGS for a weighted histogram.
+- **2.57.0** — cross-validation report (1.5, 1.9): a Best-fit regression line on the estimate-vs-fact plot plus its slope/intercept/angle in the metrics (a range-bias indicator).
+- **2.56.1** — trimmed unused subpackages from the bundled pyqtgraph (console, flowchart, multiprocess, exporters, configfile), clearing security-scanner warnings.
+- **2.56.0** — new tool 1.9 "Method cross-validation (LOO)": leave-one-out control for kriging and minimum curvature, with an error layer and an HTML report.
+- **2.55.0** — new tool 1.8 "Minimum curvature (points -> raster)": biharmonic-with-tension gridding, a deterministic alternative to kriging.
+- **2.54.0** — tool 4.07: the suite loads as separate per-bed layers (visibility control) with gentler folds; the standalone "Folded bed" example was removed.
+- **2.53.0** — tool 4.07: the suite is now folded beds, each a separate feature coloured individually in 3D, with adaptive layer names. 3D viewer: framing accounts for the exaggerated height.
+- **2.52.0** — 3D viewer: a section contour of bodies cut by the section plane, and boreholes drawn as cylinders with intervals coloured by lithology.
+- **2.51.0** — tool 4.07: new examples "Folded bed" (a fold train) and "Suite" (a stack of beds).
+- **2.50.1** — 3D viewer: fixed a crash when showing bodies/surfaces without a section plane, plus the click query and the solid-colour picker on newer pyqtgraph builds (QGIS 4).
+- **2.50.0** — tool 4.07: placement now comes from the extent (map view), with new "Thickness" and "Base elevation" parameters and the Z range printed to the log. 3D viewer: a "Bodies" tab shows polygon layers with Z as volumetric bodies.
+- **2.49.0** — tool 4.07 "Create a polyhedral example (beta)": a PolyhedralSurface Z / TIN Z demo (QGIS 3.40 and newer); MultiPolygon Z fallback.
 - **2.48.5** — group 4 left beta; the manual: a "Lessons and self-check" appendix with a write-off test.
 - **2.48.4** — density as a dens field in the block model; band drop-downs in 4.03 and 2.03.
 - **2.48.3** — fix: the "Density band" parameter moved from 4.02 back to 4.03.

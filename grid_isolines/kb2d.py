@@ -426,7 +426,8 @@ def variogram_shape(model, h, a):
 
 
 def experimental_variogram(xs, ys, vs, n_lags=15, maxlag=None, robust=False,
-                           max_pairs=6_000_000, cloud_max=20000, seed=0):
+                           max_pairs=6_000_000, cloud_max=20000, seed=0,
+                           wts=None):
     """Омнинаправленная экспериментальная полувариограмма (оценка Матерона).
 
     Делит расстояния между всеми парами на n_lags интервалов до maxlag и
@@ -443,6 +444,7 @@ def experimental_variogram(xs, ys, vs, n_lags=15, maxlag=None, robust=False,
     ys = np.asarray(ys, float)
     vs = np.asarray(vs, float)
     n = len(xs)
+    w = None if wts is None else np.asarray(wts, float)
     rng = np.random.default_rng(seed)
     subsampled = False
     if n > 2 and n * (n - 1) // 2 > max_pairs:
@@ -450,6 +452,8 @@ def experimental_variogram(xs, ys, vs, n_lags=15, maxlag=None, robust=False,
         m = max(2, min(n, m))
         idx = rng.choice(n, m, replace=False)
         xs, ys, vs = xs[idx], ys[idx], vs[idx]
+        if w is not None:
+            w = w[idx]
         n = m
         subsampled = True
 
@@ -463,6 +467,7 @@ def experimental_variogram(xs, ys, vs, n_lags=15, maxlag=None, robust=False,
     width = maxlag / n_lags
 
     cnt = np.zeros(n_lags)
+    sw = np.zeros(n_lags)
     s_h = np.zeros(n_lags)
     s_d2 = np.zeros(n_lags)
     s_sqrt = np.zeros(n_lags)
@@ -480,11 +485,13 @@ def experimental_variogram(xs, ys, vs, n_lags=15, maxlag=None, robust=False,
         h = h[sel]
         d = d[sel]
         b = np.minimum((h / width).astype(np.intp), n_lags - 1)
+        wp = (w[i] * w[i + 1:][sel]) if w is not None else np.ones(len(h))
         np.add.at(cnt, b, 1.0)
-        np.add.at(s_h, b, h)
-        np.add.at(s_d2, b, d * d)
+        np.add.at(sw, b, wp)
+        np.add.at(s_h, b, wp * h)
+        np.add.at(s_d2, b, wp * d * d)
         if robust:
-            np.add.at(s_sqrt, b, np.sqrt(np.abs(d)))
+            np.add.at(s_sqrt, b, wp * np.sqrt(np.abs(d)))
         if budget > 0:
             k = len(h)
             take = min(k, budget)
@@ -495,11 +502,12 @@ def experimental_variogram(xs, ys, vs, n_lags=15, maxlag=None, robust=False,
                 cloud_h.append(h); cloud_g.append(0.5 * d * d)
             budget -= take
 
-    safe = np.maximum(cnt, 1.0)
+    safe = np.maximum(sw, 1e-12)
+    cntsafe = np.maximum(cnt, 1.0)
     lag = np.where(cnt > 0, s_h / safe, (np.arange(n_lags) + 0.5) * width)
     if robust:
         mean_sqrt = np.where(cnt > 0, s_sqrt / safe, 0.0)
-        denom = 0.457 + 0.494 / safe + 0.045 / (safe * safe)
+        denom = 0.457 + 0.494 / cntsafe + 0.045 / (cntsafe * cntsafe)
         gamma = 0.5 * (mean_sqrt ** 4) / denom
     else:
         gamma = 0.5 * np.where(cnt > 0, s_d2 / safe, np.nan)
@@ -732,12 +740,13 @@ def _estimate_anisotropy(grid, cell, n_bins, sill, maxlag, n_az=36,
 
 
 def variogram_map(xs, ys, vs, n_bins=15, maxlag=None, min_pairs=5,
-                  max_pairs=4_000_000, seed=0, n_az=36):
+                  max_pairs=4_000_000, seed=0, n_az=36, wts=None):
     """Вариограммная карта γ(h_x, h_y) и оценка анизотропии.
 
     Для всех пар берётся вектор разноса (dx, dy) и полудисперсия
     0.5*(z_i - z_j)^2; усредняется по 2D-сетке лагов в [-maxlag; maxlag].
-    Карта симметрична (учитываем пару и зеркало). Возвращает dict: grid
+    Карта симметрична (учитываем пару и зеркало). wts - веса декластеризации:
+    пара берётся с весом w_i*w_j. Возвращает dict: grid
     (квадрат 2*n_bins+1, NaN в пустых), counts, cell, extent (=maxlag), sill,
     azimuth (геогр.), anis (0..1), range_major/minor, range_capped (радиус
     упёрся в окно), n_used, subsampled."""
@@ -745,6 +754,7 @@ def variogram_map(xs, ys, vs, n_bins=15, maxlag=None, min_pairs=5,
     ys = np.asarray(ys, float)
     vs = np.asarray(vs, float)
     n = len(xs)
+    w = None if wts is None else np.asarray(wts, float)
     rng = np.random.default_rng(seed)
     subsampled = False
     if n > 2 and n * (n - 1) // 2 > max_pairs:
@@ -752,6 +762,8 @@ def variogram_map(xs, ys, vs, n_bins=15, maxlag=None, min_pairs=5,
         m = max(2, min(n, m))
         idx = rng.choice(n, m, replace=False)
         xs, ys, vs = xs[idx], ys[idx], vs[idx]
+        if w is not None:
+            w = w[idx]
         n = m
         subsampled = True
 
@@ -766,21 +778,24 @@ def variogram_map(xs, ys, vs, n_bins=15, maxlag=None, min_pairs=5,
     size = 2 * n_bins + 1
     s_g = np.zeros((size, size))
     s_c = np.zeros((size, size))
+    s_w = np.zeros((size, size))
 
     for i in range(n - 1):
         dx = xs[i + 1:] - xs[i]
         dy = ys[i + 1:] - ys[i]
         g = 0.5 * (vs[i + 1:] - vs[i]) ** 2
+        wp = (w[i] * w[i + 1:]) if w is not None else np.ones(len(dx))
         for sx, sy in ((dx, dy), (-dx, -dy)):
             ix = np.round(sx / cell).astype(int) + n_bins
             iy = np.round(sy / cell).astype(int) + n_bins
             ok = (ix >= 0) & (ix < size) & (iy >= 0) & (iy < size)
-            np.add.at(s_g, (iy[ok], ix[ok]), g[ok])
+            np.add.at(s_g, (iy[ok], ix[ok]), wp[ok] * g[ok])
+            np.add.at(s_w, (iy[ok], ix[ok]), wp[ok])
             np.add.at(s_c, (iy[ok], ix[ok]), 1.0)
 
     grid = np.full((size, size), np.nan)
     mask = s_c >= float(min_pairs)
-    grid[mask] = s_g[mask] / s_c[mask]
+    grid[mask] = s_g[mask] / np.maximum(s_w[mask], 1e-12)
     grid[n_bins, n_bins] = 0.0
 
     sill = float(np.var(vs)) if n > 1 else 0.0
@@ -845,13 +860,18 @@ def _auto_indicator_variogram(xd, yd, ind, n_lags=15, maxlag=None):
 
 def categorical_indicator_grids(xd, yd, labels, classes, xmn, ymn, cell, nx, ny,
                                 ndmin=4, ndmax=24, radius=None, nodata=-9999.0,
-                                models=None, progress=None):
+                                models=None, progress=None, wts=None):
     """Категориальный индикаторный кригинг.
 
-    На каждый класс из classes строит индикатор 0/1, кригует ординарным
+    На каждый класс из classes строит индикатор 0/1, кригует простым
     кригингом (ktype=0) и обрезает оценку в [0, 1]. Затем вероятности по классам
     нормируются к сумме 1 в каждой ячейке. Кодом класса НЕ кригуем: у категорий
     нет порядка, поэтому только раздельные индикаторы.
+
+    wts - веса декластеризации. Если заданы, средним простого кригинга для
+    индикатора берётся декластеризованная доля класса (взвешенная), поэтому
+    вдали от данных вероятность стремится к представительной доле, а не к нулю.
+    Без весов поведение прежнее (среднее 0).
 
     Возвращает (probs, zone, conf):
       probs - float32 ny×nx×K, нормированные вероятности (nodata вне области),
@@ -863,6 +883,7 @@ def categorical_indicator_grids(xd, yd, labels, classes, xmn, ymn, cell, nx, ny,
     xd = np.asarray(xd, float)
     yd = np.asarray(yd, float)
     labels = np.asarray(labels, dtype=object)
+    w = None if wts is None else np.asarray(wts, float)
     K = len(classes)
     if not radius or radius <= 0:
         radius = max(nx * cell, ny * cell)
@@ -870,11 +891,16 @@ def categorical_indicator_grids(xd, yd, labels, classes, xmn, ymn, cell, nx, ny,
     raw = np.empty((ny, nx, K), dtype=np.float32)
     for k, c in enumerate(classes):
         ind = (labels == c).astype(float)
+        if w is not None:
+            skmean_k = float(np.sum(w * ind) / np.sum(w))   # декласт. доля
+        else:
+            skmean_k = 0.0
         vg = (models[k] if (models and k < len(models) and models[k] is not None)
               else _auto_indicator_variogram(xd, yd, ind))
         prog = (lambda d, t, _k=k: progress(_k, K, d, t)) if progress else None
-        raw[:, :, k] = build_grid(xd, yd, ind, vg, 0, 0.0, ndmin, ndmax, rad2,
-                                  nodata, xmn, ymn, cell, nx, ny, progress=prog)
+        raw[:, :, k] = build_grid(xd, yd, ind, vg, 0, skmean_k, ndmin, ndmax,
+                                  rad2, nodata, xmn, ymn, cell, nx, ny,
+                                  progress=prog)
     valid = np.all(raw != nodata, axis=2)
     clipped = np.clip(raw, 0.0, 1.0)
     s = clipped.sum(axis=2, keepdims=True)
@@ -1096,20 +1122,32 @@ def _norm_ppf(p):
     return out
 
 
-def nscore_transform(v):
+def nscore_transform(v, wts=None):
     """Нормально-оценочное преобразование (normal score).
 
     Значения переводятся в стандартные нормальные баллы через эмпирическую
     функцию распределения: ранг -> вероятность (ранг + 0.5)/n -> Φ⁻¹. Связки
-    разводятся стабильной сортировкой. Возвращает (баллы, таблица_значений,
-    таблица_баллов); две последних - для обратного преобразования."""
+    разводятся стабильной сортировкой. Если заданы веса wts (декластеризация),
+    функция распределения строится по накопленному весу, а не по рангам.
+    Возвращает (баллы, таблица_значений, таблица_баллов); две последних - для
+    обратного преобразования."""
     v = np.asarray(v, float)
     n = v.size
     order = np.argsort(v, kind="mergesort")
-    ranks = np.empty(n, float)
-    ranks[order] = np.arange(n, dtype=float)
-    ns = _norm_ppf((ranks + 0.5) / n)
-    return ns, v[order], ns[order]
+    if wts is None:
+        ranks = np.empty(n, float)
+        ranks[order] = np.arange(n, dtype=float)
+        ns = _norm_ppf((ranks + 0.5) / n)
+        return ns, v[order], ns[order]
+    w = np.asarray(wts, float)
+    w = w / w.sum()
+    wo = w[order]
+    cum = np.cumsum(wo)
+    p = np.clip(cum - 0.5 * wo, 1e-6, 1.0 - 1e-6)   # серединная CDF по весу
+    ns_sorted = _norm_ppf(p)
+    ns = np.empty(n, float)
+    ns[order] = ns_sorted
+    return ns, v[order], ns_sorted
 
 
 def nscore_back(y, sv, sns):
@@ -1119,7 +1157,7 @@ def nscore_back(y, sv, sns):
 
 
 def sgsim(xd, yd, vrd, vg, xmn, ymn, cell, nx, ny, nreal,
-          ndmin, ndmax, rad2, seed=None, progress=None):
+          ndmin, ndmax, rad2, seed=None, progress=None, wts=None):
     """Последовательная гауссова симуляция на регулярном гриде.
 
     Возвращает float32 (nreal, ny, nx) реализаций в ИСХОДНЫХ единицах (row 0 =
@@ -1132,7 +1170,7 @@ def sgsim(xd, yd, vrd, vg, xmn, ymn, cell, nx, ny, nreal,
     rng = np.random.default_rng(seed)
     xd = np.asarray(xd, float)
     yd = np.asarray(yd, float)
-    ns, sv, sns = nscore_transform(np.asarray(vrd, float))
+    ns, sv, sns = nscore_transform(np.asarray(vrd, float), wts=wts)
     fix_ix = np.clip(np.round((xd - xmn) / cell).astype(int), 0, nx - 1)
     fix_iy = np.clip(np.round((yd - ymn) / cell).astype(int), 0, ny - 1)
     frozen = np.zeros((ny, nx), bool)

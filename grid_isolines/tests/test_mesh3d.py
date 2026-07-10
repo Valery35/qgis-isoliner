@@ -142,6 +142,21 @@ def test_thin_labels_xy():
     assert thin_labels_xy([], min_dist=5) == []
 
 
+def test_cylinder():
+    import numpy as np
+    from grid_isolines.mesh3d import cylinder
+    v, f = cylinder((0, 0, 0), (0, 0, 10), radius=2.0, sides=12)
+    assert v.shape == (24, 3) and f.shape == (24, 3)   # 2 кольца, боковина
+    # все вершины на радиусе 2 от оси Z
+    r = np.hypot(v[:, 0], v[:, 1])
+    assert np.allclose(r, 2.0, atol=1e-6)
+    # высоты - только 0 и 10
+    assert set(np.round(v[:, 2], 6)) == {0.0, 10.0}
+    # нулевая длина - пустой меш
+    ve, fe = cylinder((1, 1, 5), (1, 1, 5), radius=1.0)
+    assert len(ve) == 0 and len(fe) == 0
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

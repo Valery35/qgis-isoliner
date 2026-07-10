@@ -17,7 +17,7 @@ Qt и pyqtgraph импортируются лениво: модуль импор
 import os
 
 from .i18n import tr
-from .mesh3d import grid_to_mesh_arrays, bed_to_mesh_arrays, sample_bilinear, thin_labels_xy, fraction_inside_bbox
+from .mesh3d import grid_to_mesh_arrays, bed_to_mesh_arrays, sample_bilinear, thin_labels_xy, fraction_inside_bbox, cylinder
 
 # опорные цвета шкалы (тёмно-синий -> бирюза -> жёлтый, а-ля viridis)
 _CMAP = [(0.267, 0.005, 0.329), (0.229, 0.322, 0.546),
@@ -98,11 +98,25 @@ def _auto_step(arr):
     return int(math.ceil(math.sqrt(total / float(MAX_VERTS))))
 
 
+def _gdal_open(source):
+    """gdal.Open, устойчивый к пустому/битому источнику.
+
+    В сборках с включёнными исключениями GDAL (QGIS 4) gdal.Open на пустой
+    строке бросает RuntimeError вместо None - гасим и возвращаем None.
+    """
+    if not source:
+        return None
+    from osgeo import gdal
+    try:
+        return gdal.Open(source)
+    except Exception:
+        return None
+
+
 def _read_raster(source, band=1):
     """Читает канал растра как массив с NaN и geotransform."""
     import numpy as np
-    from osgeo import gdal
-    ds = gdal.Open(source)
+    ds = _gdal_open(source)
     if ds is None or band > ds.RasterCount:
         return None, None
     b = ds.GetRasterBand(band)
@@ -116,8 +130,7 @@ def _read_raster(source, band=1):
 
 
 def _band_count(source):
-    from osgeo import gdal
-    ds = gdal.Open(source)
+    ds = _gdal_open(source)
     if ds is None:
         return 0
     n = ds.RasterCount
@@ -127,8 +140,7 @@ def _band_count(source):
 
 def _band_items(source):
     """[(номер, подпись)] по описаниям каналов растра."""
-    from osgeo import gdal
-    ds = gdal.Open(source)
+    ds = _gdal_open(source)
     if ds is None:
         return []
     out = []
@@ -166,10 +178,12 @@ def _build_dialog(parent):
         from qgis.core import Qgis
         _POINT_GT = Qgis.GeometryType.Point
         _LINE_GT = Qgis.GeometryType.Line
+        _POLYGON_GT = Qgis.GeometryType.Polygon
     except Exception:  # старые QGIS 3
         from qgis.core import QgsWkbTypes
         _POINT_GT = QgsWkbTypes.PointGeometry
         _LINE_GT = QgsWkbTypes.LineGeometry
+        _POLYGON_GT = QgsWkbTypes.PolygonGeometry
     from qgis.PyQt.QtCore import Qt
     from qgis.PyQt.QtWidgets import (
         QDialog, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
@@ -313,9 +327,21 @@ def _build_dialog(parent):
             tv.addLayout(vform)
             tv.addStretch(1)
 
+            # --- вкладка «Тела»: полигональные слои с Z (полиэдр/TIN/MultiPolygon)
+            self.body_list = QListWidget()
+            body_hint = QLabel(tr(
+                "Полигональные слои с Z (полиэдр, TIN, MultiPolygon Z). "
+                "Отметьте тела для показа и нажмите «Обновить сцену»."))
+            body_hint.setWordWrap(True)
+            tab_body = QWidget()
+            tbl = QVBoxLayout(tab_body)
+            tbl.addWidget(body_hint)
+            tbl.addWidget(self.body_list, 1)
+
             tabs = QTabWidget()
             tabs.addTab(tab_layers, tr("Слои"))
             tabs.addTab(tab_vec, tr("Векторы"))
+            tabs.addTab(tab_body, tr("Тела"))
 
             gform = QFormLayout()
             gform.addRow(tr("Вертикальное преувеличение"), self.vex)
@@ -425,6 +451,22 @@ def _build_dialog(parent):
             i = self.wells_combo.findData(prev)
             self.wells_combo.setCurrentIndex(max(i, 0))
             self.wells_combo.blockSignals(False)
+            # полигональные слои с Z для вкладки «Тела»
+            checked_b = {self.body_list.item(i).data(_USER_ROLE)
+                         for i in range(self.body_list.count())
+                         if self.body_list.item(i).checkState() == _CHECKED}
+            self.body_list.clear()
+            for lyr in QgsProject.instance().mapLayers().values():
+                if not isinstance(lyr, QgsVectorLayer):
+                    continue
+                gt = lyr.geometryType()
+                if gt == _POLYGON_GT or getattr(gt, "name", "") == "Polygon":
+                    it = QListWidgetItem(lyr.name())
+                    it.setData(_USER_ROLE, lyr.id())
+                    it.setFlags(it.flags() | _CHECKABLE)
+                    it.setCheckState(_CHECKED if lyr.id() in checked_b
+                                     else _UNCHECKED)
+                    self.body_list.addItem(it)
             self._wells_changed()
             self._load_opts(self.layer_list.currentItem())
 
@@ -501,6 +543,46 @@ def _build_dialog(parent):
                 lyr = proj.mapLayer(it.data(_USER_ROLE))
                 if lyr is not None:
                     out.append(lyr)
+            return out
+
+        def _checked_body_layers(self):
+            proj = QgsProject.instance()
+            out = []
+            for i in range(self.body_list.count()):
+                it = self.body_list.item(i)
+                if it.checkState() != _CHECKED:
+                    continue
+                lyr = proj.mapLayer(it.data(_USER_ROLE))
+                if lyr is not None:
+                    out.append(lyr)
+            return out
+
+        def _body_meshes(self):
+            """(verts, faces, name) по отмеченным полигональным слоям.
+
+            Каждый ОБЪЕКТ слоя разбирается из WKT в треугольники отдельным
+            мешем (polyhedral.wkt_to_tris), поэтому свита из нескольких
+            пластов красится по-объектно, каждый пласт своим цветом.
+            """
+            from . import polyhedral as poly
+            out = []
+            for lyr in self._checked_body_layers():
+                feats = list(lyr.getFeatures())
+                multi = len(feats) > 1
+                k = 0
+                for ft in feats:
+                    g = ft.geometry()
+                    if g is None or g.isEmpty():
+                        continue
+                    try:
+                        v, f = poly.wkt_to_tris(g.asWkt())
+                    except Exception:
+                        continue
+                    if not len(f):
+                        continue
+                    k += 1
+                    nm = ("%s #%d" % (lyr.name(), k)) if multi else lyr.name()
+                    out.append((v, f.astype(np.int64), nm))
             return out
 
         def _apply_filter(self, text):
@@ -711,7 +793,15 @@ def _build_dialog(parent):
             from qgis.PyQt.QtGui import QVector3D
             w = max(self.view.width(), 1)
             h = max(self.view.height(), 1)
-            m = self.view.projectionMatrix() * self.view.viewMatrix()
+            try:  # старый pyqtgraph: без аргументов
+                proj = self.view.projectionMatrix()
+            except TypeError:  # новый pyqtgraph (QGIS 4): нужны region и viewport
+                try:
+                    proj = self.view.projectionMatrix((0, 0, w, h),
+                                                      (0, 0, w, h))
+                except Exception:
+                    return
+            m = proj * self.view.viewMatrix()
             inv, ok = m.inverted()
             if not ok:
                 return
@@ -804,8 +894,10 @@ def _build_dialog(parent):
                     pass
                 self._pick_marker = None
             layers = self._checked_layers()
-            if not layers:
-                self.info.setText(tr("Отметьте хотя бы один растр."))
+            bodies = self._body_meshes()
+            if not layers and not bodies:
+                self.info.setText(tr("Отметьте растр на вкладке «Слои» "
+                                     "или тело на вкладке «Тела»."))
                 return
             vex = float(self.vex.value())
             spacing = float(self.spacing.value())
@@ -852,12 +944,13 @@ def _build_dialog(parent):
                 meshes.append((verts, faces, base, lyr.id(), as_bed,
                                lyr.source(), o, surf_arr, gt,
                                -spacing * k))
-            if not meshes:
+            if not meshes and not bodies:
                 self.info.setText(tr("Гриды не открылись."))
                 return
             wells = self._well_points()
             planes = self._plane_lines()
-            allv = np.vstack([m[0] for m in meshes])
+            vsets = [m[0] for m in meshes] + [b[0] for b in bodies]
+            allv = np.vstack(vsets)
             xs = [allv[:, 0].min(), allv[:, 0].max()]
             ys = [allv[:, 1].min(), allv[:, 1].max()]
             zs_ = [allv[:, 2].min(), allv[:, 2].max()]
@@ -924,6 +1017,20 @@ def _build_dialog(parent):
                                          shader='shaded',
                                          color=color[:3] + (alpha,),
                                          glOptions=gopt)
+                self.view.addItem(item)
+                self._items.append(item)
+            # тела (полиэдры/полигоны с Z): плоские грани, окраска палитрой
+            for bi, (bverts, bfaces, bname) in enumerate(bodies):
+                color = PALETTE[(len(meshes) + bi) % len(PALETTE)]
+                v = bverts.copy()
+                v[:, 0] -= cx
+                v[:, 1] -= cy
+                v[:, 2] = (v[:, 2] - cz) * vex
+                md = gl.MeshData(vertexes=v.astype('float32'), faces=bfaces)
+                item = gl.GLMeshItem(meshdata=md, smooth=False,
+                                     shader='shaded',
+                                     color=color[:3] + (alpha,),
+                                     glOptions=gopt)
                 self.view.addItem(item)
                 self._items.append(item)
             if attr is not None:
@@ -1000,7 +1107,7 @@ def _build_dialog(parent):
                         good = np.isfinite(zc)
                         if good.sum() < 2:
                             continue
-                        tr = np.column_stack([
+                        tpts = np.column_stack([
                             sx - cx, sy - cy,
                             (zc - cz) * vex + zo]).astype('float32')
                         # разрыв нитей в местах NaN: рисуем связными кусками
@@ -1011,29 +1118,94 @@ def _build_dialog(parent):
                             if len(run) < 2:
                                 continue
                             tl = gl.GLLinePlotItem(
-                                pos=tr[run], mode='line_strip', width=3.0,
+                                pos=tpts[run], mode='line_strip', width=3.0,
                                 antialias=True, color=(0.95, 0.20, 0.15, 1.0),
                                 glOptions='opaque')
                             self.view.addItem(tl)
                             self._items.append(tl)
 
+            # контур сечения тел плоскостью разреза: где вертикальная штора
+            # вдоль линии режет тело, рисуем яркий след (как по поверхностям)
+            if planes and bodies:
+                from . import polyhedral as poly
+                cut = []
+                for pts, _zlo, _zhi in planes:
+                    ppoly = np.asarray(pts, dtype=float)
+                    if len(ppoly) < 2:
+                        continue
+                    for si in range(len(ppoly) - 1):
+                        ax, ay = ppoly[si][0], ppoly[si][1]
+                        sxx = ppoly[si + 1][0] - ax
+                        syy = ppoly[si + 1][1] - ay
+                        seglen = float(np.hypot(sxx, syy))
+                        if seglen <= 0.0:
+                            continue
+                        dxn, dyn = sxx / seglen, syy / seglen
+                        nrm = (syy, -sxx, 0.0)   # горизонтальная нормаль шторы
+                        for bverts, bfaces, _bn in bodies:
+                            s3 = poly.slice_triangles(
+                                bverts, bfaces, (ax, ay, 0.0), nrm)
+                            for s in s3:
+                                mx = 0.5 * (s[0][0] + s[1][0])
+                                my = 0.5 * (s[0][1] + s[1][1])
+                                t = (mx - ax) * dxn + (my - ay) * dyn
+                                if -1e-6 <= t <= seglen + 1e-6:
+                                    cut.append([s[0][0] - cx, s[0][1] - cy,
+                                                (s[0][2] - cz) * vex])
+                                    cut.append([s[1][0] - cx, s[1][1] - cy,
+                                                (s[1][2] - cz) * vex])
+                if cut:
+                    cl = gl.GLLinePlotItem(
+                        pos=np.array(cut, dtype='float32'), mode='lines',
+                        width=3.0, antialias=True,
+                        color=(0.95, 0.20, 0.15, 1.0), glOptions='opaque')
+                    self.view.addItem(cl)
+                    self._items.append(cl)
+
             if wells:
-                mast = span * 0.02  # мачта над устьем: скважина видна всегда,
-                # даже когда штанга целиком внутри непрозрачного тела
-                segs, tops, labels = [], [], []
+                mast = span * 0.02   # мачта над устьем поверх непрозрачных тел
+                rad = max(span * 0.006, 1e-9)
+                allv, allf, allc = [], [], []
+                nof = 0
+                mseg, tops, labels = [], [], []
                 for x, y, zs, txt in wells:
-                    zlo = (min(zs) - cz) * vex
-                    zhi = (max(zs) - cz) * vex + mast
-                    segs.append([x - cx, y - cy, zlo])
-                    segs.append([x - cx, y - cy, zhi])
-                    tops.append([x - cx, y - cy, zhi])
-                    labels.append((x - cx, y - cy, zhi + mast * 0.3, txt))
-                seg = np.array(segs, dtype='float32')
-                line = gl.GLLinePlotItem(pos=seg, mode='lines', width=2.0,
-                                         color=(0.15, 0.15, 0.15, 1.0),
-                                         antialias=True, glOptions='opaque')
-                self.view.addItem(line)
-                self._items.append(line)
+                    xx, yy = x - cx, y - cy
+                    zw = [(z - cz) * vex for z in zs]
+                    # интервалы литологии: цилиндр между соседними отметками,
+                    # цвет по стратиграфическому положению (индексу интервала)
+                    for i in range(len(zw) - 1):
+                        cv, cf = cylinder((xx, yy, zw[i]),
+                                          (xx, yy, zw[i + 1]), rad, sides=10)
+                        if not len(cv):
+                            continue
+                        col = PALETTE[i % len(PALETTE)]
+                        allv.append(cv)
+                        allf.append(cf + nof)
+                        allc.append(np.tile(
+                            np.array(col[:3] + (1.0,), dtype='float32'),
+                            (len(cv), 1)))
+                        nof += len(cv)
+                    ztop = max(zw)
+                    mseg.append([xx, yy, ztop])
+                    mseg.append([xx, yy, ztop + mast])
+                    tops.append([xx, yy, ztop + mast])
+                    labels.append((xx, yy, ztop + mast + mast * 0.3, txt))
+                if allv:   # стволы одним мешем, цвет по интервалам
+                    md = gl.MeshData(
+                        vertexes=np.vstack(allv).astype('float32'),
+                        faces=np.vstack(allf).astype(np.int64))
+                    md.setVertexColors(np.vstack(allc).astype('float32'))
+                    stems = gl.GLMeshItem(meshdata=md, smooth=False,
+                                          glOptions='opaque')
+                    self.view.addItem(stems)
+                    self._items.append(stems)
+                if mseg:   # мачты тонкой линией
+                    ln = gl.GLLinePlotItem(
+                        pos=np.array(mseg, dtype='float32'), mode='lines',
+                        width=2.0, color=(0.15, 0.15, 0.15, 1.0),
+                        antialias=True, glOptions='opaque')
+                    self.view.addItem(ln)
+                    self._items.append(ln)
                 r = span * 0.004
                 if len(tops) <= 500:  # шарики на устьях
                     sph = gl.MeshData.sphere(rows=8, cols=8, radius=r)
@@ -1071,12 +1243,18 @@ def _build_dialog(parent):
                         self.view.addItem(ti)
                         self._items.append(ti)
 
-            self.view.opts['distance'] = span * 1.5
+            # кадрируем с учётом преувеличенной высоты, иначе высокое тело
+            # при большом vex выходит за кадр и читается как перекос плана
+            zspan_disp = (max(zs_) - min(zs_)) * vex
+            view_span = max(span, zspan_disp, 1.0)
+            self.view.opts['distance'] = view_span * 1.5
             self.view.opts['center'].setX(0)
             self.view.opts['center'].setY(0)
             self.view.opts['center'].setZ(0)
             self.view.update()
             msg = tr("Показано поверхностей: %d.") % len(meshes)
+            if bodies:
+                msg += " " + tr("Тел: %d.") % len(bodies)
             if nbeds:
                 msg += " " + tr("Тел пластов: %d.") % nbeds
             if planes:

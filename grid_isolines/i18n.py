@@ -1280,4 +1280,260 @@ TRANSLATIONS = {
     'Исходный код': 'Source code',
     'Сообщить об ошибке': 'Report an issue',
     'Руководство не найдено.': 'Manual not found.',
+    # 4.07 Создать пример полиэдра (демо)
+    '4.07 Создать пример полиэдра (бета)':
+        '4.07 Create a polyhedral example (beta)',
+    'Пример': 'Example',
+    'Тело пласта': 'Bed body',
+    'Куб': 'Cube',
+    'Тетраэдр': 'Tetrahedron',
+    'Разбиение тела пласта (ячеек по стороне)':
+        'Bed body resolution (cells per side)',
+    'Размер, ед. карты': 'Size, map units',
+    'Выдать как TIN (триангулировать)': 'Output as TIN (triangulate)',
+    'X начала': 'X of origin',
+    'Y начала': 'Y of origin',
+    'Полиэдр (демо)': 'Polyhedral (demo)',
+    'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть '
+    'сам тип геометрии в 3D и проверить его на своей сборке QGIS. Варианты '
+    'примера: тело пласта (водонепроницаемая оболочка из кровли, подошвы и '
+    'боковой юбки - тот же приём, что и в будущем экспорте тела пласта), куб '
+    'и тетраэдр. Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же '
+    'работает плагин QSFCGAL (резка и булевы операции над телами). На более '
+    'старых сборках вывод деградирует до MultiPolygon Z. Флаг TIN выдаёт '
+    'триангулированную поверхность (тип TIN Z).':
+        'Creates a demonstration polyhedral surface so you can see the '
+        'geometry type in 3D and check it on your QGIS build. Example '
+        'options: a bed body (a watertight shell of roof, floor and side '
+        'skirt, the same approach as the upcoming bed-body export), a cube '
+        'and a tetrahedron. A native PolyhedralSurface Z is available from '
+        'QGIS 3.40, where the QSFCGAL plugin also works (cutting and boolean '
+        'operations on bodies). On older builds the output degrades to '
+        'MultiPolygon Z. The TIN flag outputs a triangulated surface '
+        '(TIN Z type).',
+    'Не удалось собрать геометрию из WKT.':
+        'Could not build geometry from WKT.',
+    'Нативный тип {0} на этой сборке недоступен - вывод как MultiPolygon Z. '
+    'Нативный PolyhedralSurface / TIN и QSFCGAL доступны с QGIS 3.40.':
+        'The native {0} type is unavailable on this build, output as '
+        'MultiPolygon Z. Native PolyhedralSurface / TIN and QSFCGAL are '
+        'available from QGIS 3.40.',
+    'Не удалось создать выходной слой типа %s.':
+        'Could not create an output layer of type %s.',
+    'Тип геометрии: %s Z.': 'Geometry type: %s Z.',
+    'Граней: %d.': 'Patches: %d.',
+    'Оболочка замкнута (водонепроницаема).':
+        'Shell is closed (watertight).',
+    'Оболочка НЕ замкнута: открытых рёбер %d.':
+        'Shell is NOT closed: open edges %d.',
+    'Охват (окно вида) - размещение и размер':
+        'Extent (map view) - placement and size',
+    'Мощность, ед. карты':
+        'Thickness, map units',
+    'Отметка залегания (подошва), ед. карты':
+        'Base elevation (floor), map units',
+    'Диапазон Z: %.3f .. %.3f (ед. карты).':
+        'Z range: %.3f .. %.3f (map units).',
+    'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть сам тип геометрии в 3D и проверить его на своей сборке QGIS. Варианты примера: тело пласта (водонепроницаемая оболочка из кровли, подошвы и боковой юбки - тот же приём, что и в будущем экспорте тела пласта), куб и тетраэдр. Плановое положение и размер берутся из охвата (окна вида), по вертикали тело занимает от отметки залегания до отметки плюс мощность. Тип геометрии плоский, поэтому в 2D-виде Z не виден - диапазон Z печатается в журнал, а само тело удобно смотреть в окне Модули - Isoliner - 3D-просмотр поверхностей, вкладка Тела. Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же работает плагин QSFCGAL (резка и булевы операции над телами). На более старых сборках вывод деградирует до MultiPolygon Z. Флаг TIN выдаёт триангулированную поверхность (тип TIN Z).':
+        'Creates a demonstration polyhedral surface so you can see the geometry type in 3D and check it on your QGIS build. Example options: a bed body (a watertight shell of roof, floor and side skirt, the same approach as the upcoming bed-body export), a cube and a tetrahedron. The plan position and size come from the extent (map view); vertically the body spans from the base elevation up to that elevation plus the thickness. The geometry type is flat, so Z is not visible in the 2D view - the Z range is printed to the log, and the body itself is best viewed in Plugins - Isoliner - 3D surface viewer, the Bodies tab. A native PolyhedralSurface Z is available from QGIS 3.40, where the QSFCGAL plugin also works (cutting and boolean operations on bodies). On older builds the output degrades to MultiPolygon Z. The TIN flag outputs a triangulated surface (TIN Z type).',
+    'Полигональные слои с Z (полиэдр, TIN, MultiPolygon Z). Отметьте тела для показа и нажмите «Обновить сцену».':
+        'Polygon layers with Z (polyhedral, TIN, MultiPolygon Z). Tick the bodies to show and press «Rebuild scene».',
+    'Отметьте растр на вкладке «Слои» или тело на вкладке «Тела».':
+        'Tick a raster on the «Layers» tab or a body on the «Bodies» tab.',
+    'Тела':
+        'Bodies',
+    'Тел: %d.':
+        'Bodies: %d.',
+    'Складчатый пласт': 'Folded bed',
+    'Свита (стопка пластов)': 'Suite (stack of beds)',
+    'Пластов в свите': 'Beds in the suite',
+    'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть сам тип геометрии в 3D и проверить его на своей сборке QGIS. Варианты примера: тело пласта, складчатый пласт (фолд-трейн из антиклиналей и синклиналей), свита (стопка пластов), куб и тетраэдр. Тело пласта - водонепроницаемая оболочка из кровли, подошвы и боковой юбки, тот же приём, что и в будущем экспорте тела пласта. Плановое положение и размер берутся из охвата (окна вида), по вертикали тело занимает от отметки залегания до отметки плюс мощность. Тип геометрии плоский, поэтому в 2D-виде Z не виден - диапазон Z печатается в журнал, а само тело удобно смотреть в окне Модули - Isoliner - 3D-просмотр поверхностей, вкладка Тела. Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же работает плагин QSFCGAL (резка и булевы операции над телами). На более старых сборках вывод деградирует до MultiPolygon Z. Флаг TIN выдаёт триангулированную поверхность (тип TIN Z).':
+        'Creates a demonstration polyhedral surface so you can see the geometry type in 3D and check it on your QGIS build. Example options: a bed body, a folded bed (a fold train of anticlines and synclines), a suite (a stack of beds), a cube and a tetrahedron. The bed body is a watertight shell of roof, floor and side skirt, the same approach as the upcoming bed-body export. The plan position and size come from the extent (map view); vertically the body spans from the base elevation up to that elevation plus the thickness. The geometry type is flat, so Z is not visible in the 2D view - the Z range is printed to the log, and the body itself is best viewed in Plugins - Isoliner - 3D surface viewer, the Bodies tab. A native PolyhedralSurface Z is available from QGIS 3.40, where the QSFCGAL plugin also works (cutting and boolean operations on bodies). On older builds the output degrades to MultiPolygon Z. The TIN flag outputs a triangulated surface (TIN Z type).',
+    'Пласт (демо)': 'Bed (demo)',
+    'Складчатый пласт (демо)': 'Folded bed (demo)',
+    'Свита x%d (демо)': 'Suite x%d (demo)',
+    'Куб (демо)': 'Cube (demo)',
+    'Тетраэдр (демо)': 'Tetrahedron (demo)',
+    'Объектов: %d, граней всего: %d.': 'Objects: %d, faces total: %d.',
+    'Свита (стопка складчатых пластов)':
+        'Suite (stack of folded beds)',
+    'Свита: пласт %d':
+        'Suite: bed %d',
+    'Свита загружена отдельными слоями по пласту: %d.':
+        'Suite loaded as separate per-bed layers: %d.',
+    'Не удалось разнести свиту по слоям (%s) - вывод одним слоем.':
+        'Could not split the suite into layers (%s) - output as one layer.',
+    'Не задан выходной слой. Укажите «Полиэдр (демо)» (например, временный слой).':
+        'No output layer is set. Specify "Polyhedral (demo)" (for example, a temporary layer).',
+    'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть сам тип геометрии в 3D и проверить его на своей сборке QGIS. Варианты примера: тело пласта, свита (стопка складчатых пластов, каждый пласт грузится отдельным слоем для управления видимостью и красится своим цветом), куб и тетраэдр. Тело пласта - водонепроницаемая оболочка из кровли, подошвы и боковой юбки, тот же приём, что и в будущем экспорте тела пласта. Плановое положение и размер берутся из охвата (окна вида), по вертикали тело занимает от отметки залегания до отметки плюс мощность. Тип геометрии плоский, поэтому в 2D-виде Z не виден - диапазон Z печатается в журнал, а само тело удобно смотреть в окне Модули - Isoliner - 3D-просмотр поверхностей, вкладка Тела. Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же работает плагин QSFCGAL (резка и булевы операции над телами). На более старых сборках вывод деградирует до MultiPolygon Z. Флаг TIN выдаёт триангулированную поверхность (тип TIN Z).':
+        'Creates a demonstration polyhedral surface so you can see the geometry type in 3D and check it on your QGIS build. Example options: a bed body, a suite (a stack of folded beds, each bed loaded as a separate layer for visibility control and coloured on its own), a cube and a tetrahedron. The bed body is a watertight shell of roof, floor and side skirt, the same approach as the upcoming bed-body export. The plan position and size come from the extent (map view); vertically the body spans from the base elevation up to that elevation plus the thickness. The geometry type is flat, so Z is not visible in the 2D view - the Z range is printed to the log, and the body itself is best viewed in Plugins - Isoliner - 3D surface viewer, the Bodies tab. A native PolyhedralSurface Z is available from QGIS 3.40, where the QSFCGAL plugin also works (cutting and boolean operations on bodies). On older builds the output degrades to MultiPolygon Z. The TIN flag outputs a triangulated surface (TIN Z type).',
+    '1.8 Минимальная кривизна (точки → растр)':
+        '1.8 Minimum curvature (points -> raster)',
+    'Анизотропия (отношение осей Y/X)':
+        'Anisotropy (Y/X axis ratio)',
+    'Грид (минимальная кривизна)':
+        'Grid (minimum curvature)',
+    'Коэффициент релаксации (SOR)':
+        'Relaxation factor (SOR)',
+    'Максимум итераций':
+        'Maximum iterations',
+    'Натяжение (0 - мин. кривизна, 1 - мембрана)':
+        'Tension (0 - minimum curvature, 1 - membrane)',
+    'Натяжение на границе':
+        'Boundary tension',
+    'Охват (0 = по точкам)':
+        'Extent (0 = from points)',
+    'Порог невязки (0 = авто, 0.01% размаха)':
+        'Residual threshold (0 = auto, 0.01% of the range)',
+    'Сетка %d x %d, ячейка %.4g. Порог невязки %.4g.':
+        'Grid %d x %d, cell %.4g. Residual threshold %.4g.',
+    'Сошлось за %d итераций (невязка %.4g).':
+        'Converged in %d iterations (residual %.4g).',
+    'Узлов-данных: %d из %d.':
+        'Data nodes: %d of %d.',
+    'Достигнут потолок %d итераций, невязка %.4g больше порога %.4g. Увеличьте число итераций или порог невязки.':
+        'Reached the cap of %d iterations, residual %.4g exceeds the threshold %.4g. Increase the iterations or the residual threshold.',
+    'Строит грид методом минимальной кривизны: поверхность ведёт себя как тонкая упругая пластина, проходящая через данные с минимумом изгиба (решение бигармонического уравнения). Метод неточный - данные воспроизводятся приближённо, зато поверхность максимально гладкая, поэтому его любят для карт геофизических полей и любых плавных величин.\n\nНатяжение подмешивает мембранный член: 0 - чистая минимальная кривизна, 1 - натянутая мембрана (меньше выбросов между пробами). Отдельно задаётся натяжение на границе. Решение итеративное (SOR обходом девятью цветами): сетка сходится, пока изменение узла не станет меньше порога невязки или не исчерпаются итерации.\n\nРазмер ячейки 0 = min(охват)/50. Порог невязки 0 = 0.01 процента от размаха данных. Выход - грид, готовый для «1.2 Изолинии из растра». Это детерминированная альтернатива кригингу без подбора вариограммы; кригинг же даёт оценку с погрешностью.':
+        'Builds a grid by minimum curvature: the surface behaves like a thin elastic plate passing through the data with the least bending (a solution of the biharmonic equation). The method is not exact - the data are honored approximately - but the surface is as smooth as possible, which is why it is favored for maps of geophysical fields and any smooth quantity.\n\nTension mixes in a membrane term: 0 is pure minimum curvature, 1 is a taut membrane (fewer overshoots between samples). Boundary tension is set separately. The solution is iterative (SOR with a nine-colour sweep): the grid converges until a node changes by less than the residual threshold or the iterations run out.\n\nCell size 0 = min(extent)/50. Residual threshold 0 = 0.01 percent of the data range. The output is a grid ready for "1.2 Isolines from raster". It is a deterministic alternative to kriging without variogram fitting; kriging, in turn, gives an estimate with an error.',
+    'Скользящий контроль (leave-one-out) для метода гридирования - кригинга или минимальной кривизны. Каждая проверяемая точка по очереди исключается, её значение предсказывается методом по остальным и сравнивается с фактом. По ошибкам считаются ME (смещение), MAE, RMSE и R - объективная оценка качества метода и сравнение методов между собой.\n\nКак в Surfer: можно проверять случайную выборку из N точек (на больших данных быстрее), ограничить проверку подобластью (фильтр по охвату и по значению) и задать буфер исключения - соседние точки в прямоугольнике вокруг проверяемой не участвуют в её оценке (нужно для сгущённых кластеров, иначе оценка просто повторяет соседа).\n\nВыходы: слой точек с ошибками и HTML-отчёт (график оценка/факт, гистограмма, метрики). Для минимальной кривизны переоценка идёт с тёплого старта от полного решения, поэтому каждая точка считается быстро, но на очень больших выборках уменьшайте N.':
+        'Leave-one-out cross-validation for a gridding method - kriging or minimum curvature. Each validation point is removed in turn, its value is predicted by the method from the rest and compared with the fact. From the errors it computes ME (bias), MAE, RMSE and R - an objective quality measure for the method and a way to compare methods.\n\nLike in Surfer: you can validate a random subset of N points (faster on large data), restrict validation to a subarea (extent and value filters) and set an exclusion buffer - neighbouring points in a rectangle around the validation point are left out of its estimate (needed for dense clusters, otherwise the estimate just repeats a neighbour).\n\nOutputs: an error point layer and an HTML report (estimate-vs-fact plot, histogram, metrics). For minimum curvature each re-estimate warm-starts from the full solution, so a point is fast to compute, but reduce N on very large samples.',
+    '1.9 Кросс-валидация метода (LOO)':
+        '1.9 Method cross-validation (LOO)',
+    '== Кросс-валидация метода (LOO) ==':
+        '== Method cross-validation (LOO) ==',
+    'HTML (*.html)':
+        'HTML (*.html)',
+    'HTML-отчёт':
+        'HTML report',
+    'ME (смещение):   %+.4g':
+        'ME (bias):       %+.4g',
+    'MSDR:            %.3f':
+        'MSDR:            %.3f',
+    'RMSE:            %.4g':
+        'RMSE:            %.4g',
+    'Буфер исключения по X (0 = выкл.)':
+        'Exclusion buffer in X (0 = off)',
+    'Буфер исключения по Y (0 = выкл.)':
+        'Exclusion buffer in Y (0 = off)',
+    'Кросс-валидация метода: %s · %s':
+        'Method cross-validation: %s · %s',
+    'Метод':
+        'Method',
+    'Метод: %s. Проверяем %d из %d точек.':
+        'Method: %s. Validating %d of %d points.',
+    'Мин. кривизна: анизотропия (Y/X)':
+        'Min curvature: anisotropy (Y/X)',
+    'Мин. кривизна: коэффициент релаксации':
+        'Min curvature: relaxation factor',
+    'Мин. кривизна: максимум итераций':
+        'Min curvature: maximum iterations',
+    'Мин. кривизна: натяжение (0..1)':
+        'Min curvature: tension (0..1)',
+    'Мин. кривизна: натяжение на границе':
+        'Min curvature: boundary tension',
+    'Мин. кривизна: охват сетки (0 = по точкам)':
+        'Min curvature: grid extent (0 = from points)',
+    'Мин. кривизна: порог невязки (0 = авто)':
+        'Min curvature: residual threshold (0 = auto)',
+    'Мин. кривизна: размер ячейки (0 = авто)':
+        'Min curvature: cell size (0 = auto)',
+    'Минимальная кривизна':
+        'Minimum curvature',
+    'Натяжение':
+        'Tension',
+    'Оценка метода (LOO)':
+        'Method estimate (LOO)',
+    'Ошибки CV (%s) %s':
+        'CV errors (%s) %s',
+    'Ошибки кросс-валидации':
+        'Cross-validation errors',
+    'После фильтров осталось меньше двух проверяемых точек.':
+        'Fewer than two validation points remain after the filters.',
+    'Прервано.':
+        'Cancelled.',
+    'Проверяемых точек (0 = авто, min(N, 100))':
+        'Points to validate (0 = auto, min(N, 100))',
+    'Проверять при Z не выше (пусто = нет)':
+        'Validate where Z is at most (empty = none)',
+    'Проверять при Z не ниже (пусто = нет)':
+        'Validate where Z is at least (empty = none)',
+    'Проверять только в охвате (0 = везде)':
+        'Validate only within the extent (0 = everywhere)',
+    'Сетка':
+        'Grid',
+    'Ячейка':
+        'Cell',
+    'кригинг':
+        'kriging',
+    'мин. кривизна':
+        'min. curvature',
+    'минимальная кривизна':
+        'minimum curvature',
+    'Наклон Best Fit': 'Best-fit slope',
+    '1.0 - идеал, меньше 1 - занижение высоких значений': '1.0 is ideal, below 1 means high values are underestimated',
+    'Сдвиг Best Fit': 'Best-fit intercept',
+    '0 - идеал': '0 is ideal',
+    'Угол Best Fit': 'Best-fit angle',
+    '45° - идеал': '45° is ideal',
+    'Best Fit (оценка по факту): наклон %.3f, сдвиг %+.3g, угол %.1f°': 'Best fit (estimate vs fact): slope %.3f, intercept %+.3g, angle %.1f°',
+    'серая - идеал (1:1), синяя - регрессия': 'grey - ideal (1:1), blue - regression',
+    'Ячеистая декластеризация (порт GSLIB declus). Когда пробы сгущены неравномерно - одни блоки разбурены плотнее, - наивная глобальная статистика смещается в сторону переразведанных участков: если гуще бурили богатые зоны, среднее и гистограмма завышены. Инструмент даёт каждой пробе вес, обратный локальной плотности (в скоплении меньше, на отшибе больше), и считает представительное декластеризованное среднее.\n\nРазмер ячейки подбирается автоматически (свип по размерам, выбор по минимуму декластеризованного среднего) либо задаётся вручную. На регулярной сети декластеризация ничего не меняет - веса равны.\n\nВыход: слой точек с полем весов wt и HTML-отчёт (сводка, гистограмма сырая против взвешенной, кривая среднего). Декластеризованное среднее - готовая оценка для подсчёта запасов и для «Среднего» простого кригинга (1.1). Поле wt подаётся в гауссову симуляцию (2.06) для взвешенной гистограммы.':
+        'Cell declustering (a port of GSLIB declus). When samples are clustered unevenly - some blocks drilled denser - the naive global statistics shift toward the over-sampled areas: if rich zones were drilled denser, the mean and histogram are overstated. The tool gives each sample a weight inversely proportional to the local density (less in a cluster, more on its own) and computes a representative declustered mean.\n\nThe cell size is chosen automatically (a sweep over sizes, picking the minimum declustered mean) or set manually. On a regular grid declustering changes nothing - the weights are equal.\n\nOutput: a point layer with a wt weight field and an HTML report (summary, raw-vs-weighted histogram, the mean curve). The declustered mean is a ready estimate for reserve calculation and for the Mean of simple kriging (1.1). The wt field feeds the Gaussian simulation (2.06) for a weighted histogram.',
+    'Декластеризованное среднее - представительная оценка для подсчёта запасов и для «Среднего» простого кригинга. Поле весов wt подаётся в SGS (2.06) для взвешенной гистограммы.':
+        'The declustered mean is a representative estimate for reserve calculation and for the Mean of simple kriging. The wt weight field feeds SGS (2.06) for a weighted histogram.',
+    '1.0 Декластеризация (веса)': '1.0 Declustering (weights)',
+    '== Декластеризация ==': '== Declustering ==',
+    'plotly недоступен, отчёт без графиков (%s).': 'plotly unavailable, report without charts (%s).',
+    'Авто (свип по размеру)': 'Auto (size sweep)',
+    'Вес декластеризации': 'Declustering weight',
+    'Веса декластеризации (%s)': 'Declustering weights (%s)',
+    'Гистограмма строится с весами декластеризации (поле «%s»).': 'The histogram is built with declustering weights (field "%s").',
+    'Гистограмма: сырая и взвешенная': 'Histogram: raw and weighted',
+    'Декластеризация: %s': 'Declustering: %s',
+    'Декластеризованное среднее': 'Declustered mean',
+    'Декластеризованное среднее: %.4g (%+.2f%%)': 'Declustered mean: %.4g (%+.2f%%)',
+    'Значение': 'Value',
+    'Значение (%s)': 'Value (%s)',
+    'Максимум среднего (скопления в бедном)': 'Maximum mean (clusters in the poor)',
+    'Минимум среднего (скопления в богатом)': 'Minimum mean (clusters in the rich)',
+    'Наивное среднее': 'Naive mean',
+    'Наивное среднее:          %.4g': 'Naive mean:              %.4g',
+    'Не удалось прочитать поле весов - веса игнорируются.': 'Could not read the weight field - weights ignored.',
+    'Показатель': 'Metric',
+    'Поле весов декластеризации (из 1.0, необязательно)': 'Declustering weight field (from 1.0, optional)',
+    'Поле весов содержит пустые или неположительные значения - веса игнорируются.':
+        'The weight field has empty or non-positive values - weights ignored.',
+    'Размер ячейки': 'Cell size',
+    'Размер ячейки для ручного режима': 'Cell size for manual mode',
+    'Размер ячейки не задан - взят %.4g.': 'Cell size not set - using %.4g.',
+    'Ручной размер': 'Manual size',
+    'Сдвиг': 'Shift',
+    'Слишком мало точек.': 'Too few points.',
+    'Смещений начала сетки (усреднение)': 'Grid-origin offsets (averaging)',
+    'Соотношение ячейки Y/X': 'Cell Y/X ratio',
+    'Среднее от размера ячейки': 'Mean vs cell size',
+    'Точек: %d, размер ячейки: %.4g': 'Points: %d, cell size: %.4g',
+    'Точки с весами декластеризации': 'Points with declustering weights',
+    'Цель свипа': 'Sweep objective',
+    'Число размеров в свипе': 'Number of sizes in the sweep',
+    'Это среднее ставьте в «Среднее» простого кригинга, а поле wt - в поле весов SGS.':
+        'Put this mean into the Mean of simple kriging, and the wt field into the SGS weight field.',
+    'взвешенная': 'weighted',
+    'выбор': 'chosen',
+    'декл. среднее': 'decl. mean',
+    'сырая': 'raw',
+    '1.01 Декластеризация (веса)': '1.01 Declustering (weights)',
+    '1.02 2D Kriging (точки → растр)': '1.02 2D Kriging (points -> raster)',
+    '1.03 Минимальная кривизна (точки → растр)': '1.03 Minimum curvature (points -> raster)',
+    '1.04 Изолинии из растра': '1.04 Isolines from raster',
+    '1.05 Вариограмма (экспериментальная)': '1.05 Variogram (experimental)',
+    '1.06 Вариограммная карта (анизотропия)': '1.06 Variogram map (anisotropy)',
+    '1.07 Кросс-валидация вариограммы': '1.07 Variogram cross-validation',
+    '1.08 Кросс-валидация метода (LOO)': '1.08 Method cross-validation (LOO)',
+    '1.09 Профили обработки': '1.09 Processing profiles',
+    '1.10 Создать пример скважин (демо)': '1.10 Create sample wells (demo)',
+    'Пары взвешены декластеризацией (поле «%s»).': 'Pairs weighted by declustering (field "%s").',
+    'Поле весов декластеризации (из 1.01, необязательно)': 'Declustering weight field (from 1.01, optional)',
+    'Доли классов взвешены декластеризацией (поле «%s»).': 'Class proportions weighted by declustering (field "%s").',
+    'Метрики взвешены декластеризацией (поле «%s»).': 'Metrics weighted by declustering (field "%s").',
 }

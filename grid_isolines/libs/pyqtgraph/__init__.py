@@ -351,7 +351,7 @@ def dbg(*args, **kwds):
     All arguments are passed to :func:`ConsoleWidget.__init__() <pyqtgraph.console.ConsoleWidget.__init__>`.
     """
     mkQApp()
-    from . import console
+    raise RuntimeError("pyqtgraph.console is not bundled in this Isoliner build")
     c = console.ConsoleWidget(*args, **kwds)
     c.catchAllExceptions()
     c.show()
@@ -370,7 +370,7 @@ def stack(*args, **kwds):
     All arguments are passed to :func:`ConsoleWidget.__init__() <pyqtgraph.console.ConsoleWidget.__init__>`.
     """
     mkQApp()
-    from . import console
+    raise RuntimeError("pyqtgraph.console is not bundled in this Isoliner build")
     c = console.ConsoleWidget(*args, **kwds)
     c.setStack()
     c.show()

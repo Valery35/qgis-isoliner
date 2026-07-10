@@ -1381,6 +1381,247 @@ def _add_isoline_params(alg):
 # ===========================================================================
 #  1. Точки → растр (кригинг)
 # ===========================================================================
+def _write_declus_report(path, title, naive, decl, best_cell, sizes, means,
+                         vs, wts, feedback):
+    """Компактный HTML-отчёт декластеризации: сводка, гистограмма (сырая
+    против взвешенной) и кривая среднее-размер ячейки. При отсутствии plotly
+    выдаёт таблицу-сводку."""
+    delta = (decl - naive)
+    pct = (100.0 * delta / naive) if naive else 0.0
+    head = (
+        "<html><head><meta charset='utf-8'><title>%s</title>"
+        "<style>body{font-family:sans-serif;margin:20px;color:#222}"
+        "table{border-collapse:collapse;margin:8px 0}"
+        "td,th{border:1px solid #ccc;padding:4px 10px;text-align:left}"
+        "h2{margin:6px 0}.k{color:#666}</style></head><body>"
+        "<h2>%s</h2>" % (title, title))
+    tbl = ("<table><tr><th>%s</th><th>%s</th></tr>"
+           "<tr><td>%s</td><td>%.4g</td></tr>"
+           "<tr><td>%s</td><td><b>%.4g</b></td></tr>"
+           "<tr><td>%s</td><td>%+.4g (%+.2f%%)</td></tr>"
+           "<tr><td>%s</td><td>%.4g</td></tr></table>" % (
+               _tr("Показатель"), _tr("Значение"),
+               _tr("Наивное среднее"), naive,
+               _tr("Декластеризованное среднее"), decl,
+               _tr("Сдвиг"), delta, pct,
+               _tr("Размер ячейки"), best_cell))
+    hint = "<p class='k'>%s</p>" % _tr(
+        "Декластеризованное среднее - представительная оценка для подсчёта "
+        "запасов и для «Среднего» простого кригинга. Поле весов wt подаётся "
+        "в SGS (2.06) для взвешенной гистограммы.")
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+        vs = np.asarray(vs, float); wts = np.asarray(wts, float)
+        ncols = 2 if (sizes is not None) else 1
+        fig = make_subplots(rows=1, cols=ncols, subplot_titles=(
+            [_tr("Гистограмма: сырая и взвешенная")]
+            + ([_tr("Среднее от размера ячейки")] if ncols == 2 else [])))
+        bins = np.histogram_bin_edges(vs, bins=min(20, max(5, vs.size // 5)))
+        centers = 0.5 * (bins[:-1] + bins[1:])
+        widths = np.diff(bins)
+        raw, _ = np.histogram(vs, bins=bins, density=True)
+        wsum, _ = np.histogram(vs, bins=bins, weights=wts)
+        tot = wsum.sum()
+        wdens = wsum / (tot * widths) if tot > 0 else wsum * 0.0
+        fig.add_trace(go.Bar(x=centers, y=raw, width=widths,
+                             name=_tr("сырая"), marker_color="#999999",
+                             opacity=0.55), row=1, col=1)
+        fig.add_trace(go.Bar(x=centers, y=wdens, width=widths,
+                             name=_tr("взвешенная"), marker_color="#1f6fcc",
+                             opacity=0.55), row=1, col=1)
+        if sizes is not None:
+            fig.add_trace(go.Scatter(
+                x=np.asarray(sizes), y=np.asarray(means), mode="lines+markers",
+                line=dict(color="#1f6fcc"), name=_tr("декл. среднее")),
+                row=1, col=2)
+            fig.add_trace(go.Scatter(
+                x=[best_cell], y=[decl], mode="markers",
+                marker=dict(color="#cc3333", size=10), name=_tr("выбор")),
+                row=1, col=2)
+        fig.update_layout(barmode="overlay", showlegend=True,
+                          height=380, margin=dict(t=40, l=40, r=20, b=40))
+        chart = fig.to_html(full_html=False, include_plotlyjs="cdn")
+    except Exception as e:
+        if feedback is not None:
+            feedback.pushInfo(_tr("plotly недоступен, отчёт без графиков (%s).")
+                              % e)
+        chart = ""
+    html = head + tbl + hint + chart + _version_footer() + "</body></html>"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+
+
+class DeclusteringAlgorithm(QgsProcessingAlgorithm):
+    """Ячеистая декластеризация: веса, обратные локальной плотности данных,
+    и представительное (декластеризованное) среднее. Порт GSLIB declus."""
+
+    INPUT, ZFIELD, MODE = "INPUT", "ZFIELD", "MODE"
+    CELL_SIZE, NCELL, OBJECTIVE = "CELL_SIZE", "NCELL", "OBJECTIVE"
+    ASPECT, NOFF = "ASPECT", "NOFF"
+    OUTPUT, OUTPUT_HTML = "OUTPUT", "OUTPUT_HTML"
+
+    _MODES = ("auto", "manual")
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return DeclusteringAlgorithm()
+    def name(self): return "declustering"
+    def displayName(self): return self.tr("1.01 Декластеризация (веса)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP)
+    def groupId(self): return GROUP_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Ячеистая декластеризация (порт GSLIB declus). Когда пробы "
+            "сгущены неравномерно - одни блоки разбурены плотнее, - наивная "
+            "глобальная статистика смещается в сторону переразведанных "
+            "участков: если гуще бурили богатые зоны, среднее и гистограмма "
+            "завышены. Инструмент даёт каждой пробе вес, обратный локальной "
+            "плотности (в скоплении меньше, на отшибе больше), и считает "
+            "представительное декластеризованное среднее.\n\nРазмер ячейки "
+            "подбирается автоматически (свип по размерам, выбор по минимуму "
+            "декластеризованного среднего) либо задаётся вручную. На "
+            "регулярной сети декластеризация ничего не меняет - веса "
+            "равны.\n\nВыход: слой точек с полем весов wt и HTML-отчёт "
+            "(сводка, гистограмма сырая против взвешенной, кривая среднего). "
+            "Декластеризованное среднее - готовая оценка для подсчёта запасов "
+            "и для «Среднего» простого кригинга (1.1). Поле wt подаётся в "
+            "гауссову симуляцию (2.06) для взвешенной гистограммы.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Точки со значениями"),
+            [QgsProcessing.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            self.ZFIELD, self.tr("Поле значения (Z)"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric,
+            defaultValue=_dv(self, self.ZFIELD, None)))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.MODE, self.tr("Размер ячейки"),
+            options=[self.tr("Авто (свип по размеру)"),
+                     self.tr("Ручной размер")],
+            defaultValue=_dv(self, self.MODE, 0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELL_SIZE, self.tr("Размер ячейки для ручного режима"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.CELL_SIZE, 0.0), minValue=0.0))
+        self.addParameter(_advanced(QgsProcessingParameterEnum(
+            self.OBJECTIVE, self.tr("Цель свипа"),
+            options=[self.tr("Минимум среднего (скопления в богатом)"),
+                     self.tr("Максимум среднего (скопления в бедном)")],
+            defaultValue=_dv(self, self.OBJECTIVE, 0))))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.NCELL, self.tr("Число размеров в свипе"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.NCELL, 24), minValue=3, maxValue=200)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.ASPECT, self.tr("Соотношение ячейки Y/X"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.ASPECT, 1.0), minValue=0.05,
+            maxValue=20.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.NOFF, self.tr("Смещений начала сетки (усреднение)"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.NOFF, 4), minValue=1, maxValue=16)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Точки с весами декластеризации"),
+            QgsProcessing.TypeVectorPoint))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            self.OUTPUT_HTML, self.tr("HTML-отчёт"),
+            self.tr("HTML (*.html)"), optional=True, createByDefault=True))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        from . import declus as dc
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        source = self.parameterAsSource(parameters, self.INPUT, context)
+        if source is None:
+            raise QgsProcessingException(self.tr("Не задан точечный слой."))
+        zfield = self.parameterAsString(parameters, self.ZFIELD, context)
+        xs, ys, vs = _read_points(source, zfield, feedback)
+        n = len(xs)
+        if n < 2:
+            raise QgsProcessingException(self.tr("Слишком мало точек."))
+
+        mode = self._MODES[self.parameterAsEnum(
+            parameters, self.MODE, context)]
+        aspect = self.parameterAsDouble(parameters, self.ASPECT, context)
+        noff = self.parameterAsInt(parameters, self.NOFF, context)
+        sizes = means = None
+        if mode == "manual":
+            cell = self.parameterAsDouble(parameters, self.CELL_SIZE, context)
+            if cell <= 0:
+                lo, hi = dc.suggest_range(xs, ys)
+                cell = float(np.sqrt(lo * hi))
+                feedback.pushInfo(self.tr(
+                    "Размер ячейки не задан - взят %.4g.") % cell)
+            weights, decl = dc.cell_declus(xs, ys, vs, cell, cell * aspect,
+                                           noff)
+            best_cell = cell
+            naive = float(np.mean(vs))
+        else:
+            obj = "max" if self.parameterAsEnum(
+                parameters, self.OBJECTIVE, context) == 1 else "min"
+            ncell = self.parameterAsInt(parameters, self.NCELL, context)
+            lo, hi = dc.suggest_range(xs, ys)
+            res = dc.declus_sweep(xs, ys, vs, lo, hi, ncell=ncell, noff=noff,
+                                  aspect=aspect, objective=obj)
+            weights = res["weights"]; decl = res["decl_mean"]
+            naive = res["naive_mean"]; best_cell = res["best_cell"]
+            sizes = res["sizes"]; means = res["means"]
+
+        pct = (100.0 * (decl - naive) / naive) if naive else 0.0
+        feedback.pushInfo(self.tr("== Декластеризация =="))
+        feedback.pushInfo(self.tr("Точек: %d, размер ячейки: %.4g")
+                          % (n, best_cell))
+        feedback.pushInfo(self.tr("Наивное среднее:          %.4g") % naive)
+        feedback.pushInfo(self.tr("Декластеризованное среднее: %.4g (%+.2f%%)")
+                          % (decl, pct))
+        feedback.pushInfo(self.tr(
+            "Это среднее ставьте в «Среднее» простого кригинга, а поле wt - "
+            "в поле весов SGS."))
+
+        valname = _san(zfield) or "z"
+        fields = QgsFields()
+        fields.append(QgsField(valname, QVariant.Double))
+        fields.append(QgsField("wt", QVariant.Double))
+        aliases = {valname: self.tr("Значение (%s)") % zfield,
+                   "wt": self.tr("Вес декластеризации")}
+        crs = source.sourceCrs()
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields, QgsWkbTypes.Point, crs)
+        if sink is not None:
+            for i in range(n):
+                f = QgsFeature(fields)
+                f.setGeometry(QgsGeometry.fromPointXY(
+                    QgsPointXY(float(xs[i]), float(ys[i]))))
+                f.setAttributes([float(vs[i]), float(weights[i])])
+                sink.addFeature(f)
+        _set_output_name(context, dest,
+                         self.tr("Веса декластеризации (%s)") % zfield)
+        _set_field_aliases(context, dest, aliases)
+
+        results = {self.OUTPUT: dest}
+        html_path = self.parameterAsFileOutput(
+            parameters, self.OUTPUT_HTML, context)
+        if html_path:
+            try:
+                _write_declus_report(
+                    html_path, self.tr("Декластеризация: %s") % zfield,
+                    naive, decl, best_cell, sizes, means, vs, weights,
+                    feedback)
+                results[self.OUTPUT_HTML] = html_path
+            except Exception as e:
+                feedback.pushWarning(self.tr(
+                    "Не удалось записать HTML-отчёт: %s") % e)
+        _save_values(self, _saved)
+        return results
+
+
 class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     INPUT, ZFIELD = "INPUT", "ZFIELD"
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
@@ -1402,7 +1643,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return Kriging2DAlgorithm()
     def name(self): return "kriging2d"
-    def displayName(self): return self.tr("1.1 2D Kriging (точки → растр)")
+    def displayName(self): return self.tr("1.02 2D Kriging (точки → растр)")
 
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
@@ -1537,6 +1778,7 @@ class CategoricalIndicatorAlgorithm(QgsProcessingAlgorithm):
     вероятностей (полоса на класс), карта зон (самый вероятный класс) и
     уверенность. Кодом класса не кригует - у категорий нет порядка."""
     INPUT, CLASS_FIELD = "INPUT", "CLASS_FIELD"
+    WEIGHT_FIELD = "WEIGHT_FIELD"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
     CELL_SIZE, EXTENT = "CELL_SIZE", "EXTENT"
     OUTPUT_PROB, OUTPUT_ZONE, OUTPUT_CONF = \
@@ -1573,6 +1815,11 @@ class CategoricalIndicatorAlgorithm(QgsProcessingAlgorithm):
             self.CLASS_FIELD, self.tr("Категориальное поле (класс)"),
             parentLayerParameterName=self.INPUT,
             defaultValue=_dv(self, self.CLASS_FIELD, None)))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.WEIGHT_FIELD,
+            self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric, optional=True)))
         self.addParameter(QgsProcessingParameterNumber(
             self.RADIUS, self.tr("Радиус поиска (0 = вся выборка)"),
             QgsProcessingParameterNumber.Double,
@@ -1612,10 +1859,12 @@ class CategoricalIndicatorAlgorithm(QgsProcessingAlgorithm):
         _saved = dict(parameters)
         source = self.parameterAsSource(parameters, self.INPUT, context)
         field = self.parameterAsString(parameters, self.CLASS_FIELD, context)
+        wfield = self.parameterAsString(
+            parameters, self.WEIGHT_FIELD, context) or None
         if source is None:
             raise QgsProcessingException(self.tr("Не задан точечный слой."))
 
-        xs, ys, labels = [], [], []
+        xs, ys, labels, wraw = [], [], [], []
         for ft in source.getFeatures():
             if feedback.isCanceled():
                 raise QgsProcessingException(_tr("Прервано пользователем."))
@@ -1630,6 +1879,11 @@ class CategoricalIndicatorAlgorithm(QgsProcessingAlgorithm):
                 continue
             p = g.asPoint()
             xs.append(p.x()); ys.append(p.y()); labels.append(s)
+            if wfield:
+                try:
+                    wraw.append(float(ft.attribute(wfield)))
+                except (TypeError, ValueError):
+                    wraw.append(np.nan)
         if len(xs) < 3:
             raise QgsProcessingException(
                 _tr("Слишком мало точек с заданным классом."))
@@ -1672,9 +1926,22 @@ class CategoricalIndicatorAlgorithm(QgsProcessingAlgorithm):
             feedback.setProgress(int(88.0 * (k + done / max(total, 1)) / max(K, 1)))
 
         from .kb2d import categorical_indicator_grids
+        wts = None
+        if wfield:
+            wv = np.asarray(wraw, float)
+            if wv.size == len(xs) and np.all(np.isfinite(wv)) and np.all(wv > 0):
+                wts = wv
+                feedback.pushInfo(self.tr(
+                    "Доли классов взвешены декластеризацией (поле «%s»).")
+                    % wfield)
+            else:
+                feedback.pushWarning(self.tr(
+                    "Поле весов содержит пустые или неположительные "
+                    "значения - веса игнорируются."))
         probs, zone, conf = categorical_indicator_grids(
             xs, ys, labels, classes, xmn, ymn, cell, nx, ny,
-            ndmin=ndmin, ndmax=ndmax, radius=radius, nodata=nodata, progress=prog)
+            ndmin=ndmin, ndmax=ndmax, radius=radius, nodata=nodata,
+            progress=prog, wts=wts)
 
         geotr = (xmin, cell, 0.0, ymin + ny * cell, 0.0, -cell)
         wkt = None
@@ -1751,7 +2018,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return RasterToIsolinesAlgorithm()
     def name(self): return "raster_to_isolines"
-    def displayName(self): return self.tr("1.2 Изолинии из растра")
+    def displayName(self): return self.tr("1.04 Изолинии из растра")
 
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
@@ -1874,6 +2141,40 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
         return results
 
 
+def _weighted_cv_metrics(fact, est, err, var, w):
+    """Метрики кросс-валидации, взвешенные декластеризацией. w=None -> обычные.
+    Возвращает (me, mae, rmse, msdr, r)."""
+    fact = np.asarray(fact, float); est = np.asarray(est, float)
+    err = np.asarray(err, float)
+    if w is None:
+        wv = np.ones(err.shape)
+    else:
+        wv = np.asarray(w, float)
+    W = float(np.sum(wv)) or 1.0
+    me = float(np.sum(wv * err) / W)
+    mae = float(np.sum(wv * np.abs(err)) / W)
+    rmse = float(np.sqrt(np.sum(wv * err * err) / W))
+    msdr = float("nan")
+    if var is not None:
+        sd = np.sqrt(np.maximum(np.asarray(var, float), 0.0))
+        good = sd > 0
+        if good.any():
+            gw = wv[good]
+            msdr = float(np.sum(gw * (err[good] / sd[good]) ** 2)
+                         / (float(np.sum(gw)) or 1.0))
+    # взвешенная корреляция оценки и факта
+    try:
+        mf = np.sum(wv * fact) / W
+        me_ = np.sum(wv * est) / W
+        cov = np.sum(wv * (fact - mf) * (est - me_)) / W
+        vf = np.sum(wv * (fact - mf) ** 2) / W
+        ve = np.sum(wv * (est - me_) ** 2) / W
+        r = float(cov / np.sqrt(vf * ve)) if vf > 0 and ve > 0 else float("nan")
+    except Exception:
+        r = float("nan")
+    return me, mae, rmse, msdr, r
+
+
 def _cv_advice(me, mae, rmse, msdr, r):
     """Авто-интерпретация метрик: итог + конкретные действия."""
     tips = []
@@ -1988,6 +2289,25 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
     распределения (хвосты, скос, вторая популяция) независимо от калибровки
     масштаба - за масштаб отвечает MSDR. Если plotly недоступен - текстовый
     отчёт только с метриками (graceful fallback)."""
+    # линия регрессии Best Fit: оценка по факту (est = slope*fact + intercept).
+    # slope=1, intercept=0 - идеал; slope<1 - занижение высоких значений
+    # (регрессия к среднему, подпись сглаживающих методов).
+    _f = np.asarray(fact, float); _e = np.asarray(est, float)
+    _mok = np.isfinite(_f) & np.isfinite(_e)
+    _slope = _intercept = _angle = None
+    if int(_mok.sum()) >= 2 and float(_f[_mok].std()) > 0:
+        _slope, _intercept = [float(v) for v in np.polyfit(_f[_mok], _e[_mok], 1)]
+        _angle = float(np.degrees(np.arctan(_slope)))
+        metrics = list(metrics) + [
+            (_tr("Наклон Best Fit"), "%.3f" % _slope,
+             _tr("1.0 - идеал, меньше 1 - занижение высоких значений")),
+            (_tr("Сдвиг Best Fit"), "%+.3g" % _intercept, _tr("0 - идеал")),
+            (_tr("Угол Best Fit"), "%.1f°" % _angle, _tr("45° - идеал")),
+        ]
+        if feedback is not None:
+            feedback.pushInfo(_tr(
+                "Best Fit (оценка по факту): наклон %.3f, сдвиг %+.3g, "
+                "угол %.1f°") % (_slope, _intercept, _angle))
     rows = "".join(
         "<tr><td>%s</td><td style='text-align:right'>%s</td>"
         "<td style='color:#777'>%s</td></tr>" % m for m in metrics)
@@ -2061,8 +2381,20 @@ def _write_cv_report(path, title, metrics, advice, fact, est, err,
             row=1, col=1)
         fig.add_trace(go.Scatter(
             x=[lo, hi], y=[lo, hi], mode="lines",
-            line=dict(color="#cc3333", width=2), hoverinfo="skip"),
+            line=dict(color="#999999", width=2, dash="dash"),
+            hoverinfo="skip"),
             row=1, col=1)
+        if _slope is not None:
+            fig.add_trace(go.Scatter(
+                x=[lo, hi],
+                y=[_slope * lo + _intercept, _slope * hi + _intercept],
+                mode="lines", line=dict(color="#1f6fcc", width=2),
+                hoverinfo="skip"), row=1, col=1)
+            fig.add_annotation(
+                xref="x domain", yref="y domain", x=0.02, y=0.98,
+                text=_tr("серая - идеал (1:1), синяя - регрессия"),
+                showarrow=False, align="left",
+                font=dict(size=10, color="#666"), row=1, col=1)
         # подписи худших по модулю остатков прямо на графике
         if worst.size:
             fig.add_trace(go.Scatter(
@@ -2196,6 +2528,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
     IDFIELD = "IDFIELD"
+    WEIGHT_FIELD = "WEIGHT_FIELD"
     DETREND, DETREND_DEG = "DETREND", "DETREND_DEG"
     PROFILE = "PROFILE"
     OUTPUT = "OUTPUT"
@@ -2210,7 +2543,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
         return "crossvalidation"
 
     def displayName(self):
-        return self.tr("1.5 Кросс-валидация вариограммы")
+        return self.tr("1.07 Кросс-валидация вариограммы")
 
     def group(self): return self.tr(GROUP)
 
@@ -2252,6 +2585,11 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterField(
             self.IDFIELD, self.tr("Поле номера скважины (необязательно)"),
             parentLayerParameterName=self.INPUT, optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.WEIGHT_FIELD,
+            self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric, optional=True)))
         _add_cv_params(self)
         self.addParameter(QgsProcessingParameterBoolean(
             self.DETREND, self.tr("Снять полиномиальный тренд"),
@@ -2301,6 +2639,30 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
             pct=pct, cap=cap, id_field=idfield, return_ids=True)
         _warn_data(feedback, xd, yd, vrd)
+        wfield = self.parameterAsString(
+            parameters, self.WEIGHT_FIELD, context) or None
+        cvw = None
+        if wfield:
+            _wx, _wy, _wv, wids = _read_points(
+                source, zfield, feedback,
+                vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
+                pct=pct, cap=cap, id_field=wfield, return_ids=True)
+            try:
+                wv = np.array([float(w) if w is not None else np.nan
+                               for w in wids], float)
+                if wv.size == len(xd) and np.all(np.isfinite(wv)) \
+                        and np.all(wv > 0):
+                    cvw = wv
+                    feedback.pushInfo(_tr(
+                        "Метрики взвешены декластеризацией (поле «%s»).")
+                        % wfield)
+                else:
+                    feedback.pushWarning(_tr(
+                        "Поле весов содержит пустые или неположительные "
+                        "значения - веса игнорируются."))
+            except Exception:
+                feedback.pushWarning(_tr(
+                    "Не удалось прочитать поле весов - веса игнорируются."))
 
         ktype = 1 if self.parameterAsEnum(parameters, self.KTYPE, context) == 0 else 0
         skmean = self.parameterAsDouble(parameters, self.SKMEAN, context)
@@ -2379,16 +2741,9 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
         if nvalid < 2:
             raise QgsProcessingException(_tr("Слишком мало оценённых точек."))
         err = est[ok] - vrd[ok]
-        me = float(np.mean(err))
-        mae = float(np.mean(np.abs(err)))
-        rmse = float(np.sqrt(np.mean(err ** 2)))
-        sd = np.sqrt(np.maximum(var[ok], 0.0))
-        good = sd > 0
-        msdr = float(np.mean((err[good] / sd[good]) ** 2)) if good.any() else float("nan")
-        try:
-            r = float(np.corrcoef(est[ok], vrd[ok])[0, 1])
-        except Exception:
-            r = float("nan")
+        me, mae, rmse, msdr, r = _weighted_cv_metrics(
+            vrd[ok], est[ok], err, var[ok],
+            (cvw[ok] if cvw is not None else None))
 
         feedback.pushInfo(_tr("== Кросс-валидация (leave-one-out) =="))
         feedback.pushInfo(_tr("Точек оценено: %d из %d") % (nvalid, len(xd)))
@@ -2542,7 +2897,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
         return "examplewells"
 
     def displayName(self):
-        return self.tr("1.7 Создать пример скважин (демо)")
+        return self.tr("1.10 Создать пример скважин (демо)")
 
     def group(self): return self.tr(GROUP)
 
@@ -3018,6 +3373,7 @@ def _write_variogram_report(path, title, series, data_var, fit, model_curves,
 # ===========================================================================
 class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
     INPUT, ZFIELD, GROUP_FIELD = "INPUT", "ZFIELD", "GROUP_FIELD"
+    WEIGHT_FIELD = "WEIGHT_FIELD"
     MIN_GROUP_PCT = "MIN_GROUP_PCT"
     N_LAGS, MAXLAG, ROBUST, SHOW_CLOUD = "N_LAGS", "MAXLAG", "ROBUST", "SHOW_CLOUD"
     FIT, FIT_MODEL = "FIT", "FIT_MODEL"
@@ -3037,7 +3393,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
     def name(self): return "experimental_variogram"
 
     def displayName(self):
-        return self.tr("1.3 Вариограмма (экспериментальная)")
+        return self.tr("1.05 Вариограмма (экспериментальная)")
 
     def group(self): return self.tr(GROUP)
 
@@ -3077,6 +3433,11 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
             self.GROUP_FIELD,
             self.tr("Поле группировки (необязательно, напр. вид разведки)"),
             parentLayerParameterName=self.INPUT, optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.WEIGHT_FIELD,
+            self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric, optional=True)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.MIN_GROUP_PCT,
             self.tr("Минимум точек в группе, % от выборки (пол 30 точек)"),
@@ -3160,8 +3521,30 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
         vmax = self._opt(parameters, self.VAL_MAX, context)
 
         # читаем все точки (для общей кривой, дисперсии и облака)
-        xs, ys, vs = _read_points(source, zfield, feedback,
-                                  vmin=vmin, vmax=vmax, pct=pct, cap=cap)
+        wfield = self.parameterAsString(
+            parameters, self.WEIGHT_FIELD, context) or None
+        wts = None
+        if wfield:
+            xs, ys, vs, wids = _read_points(
+                source, zfield, feedback, vmin=vmin, vmax=vmax, pct=pct,
+                cap=cap, id_field=wfield, return_ids=True)
+            try:
+                wv = np.array([float(w) if w is not None else np.nan
+                               for w in wids], float)
+                if np.all(np.isfinite(wv)) and np.all(wv > 0):
+                    wts = wv
+                    feedback.pushInfo(_tr(
+                        "Пары взвешены декластеризацией (поле «%s»).") % wfield)
+                else:
+                    feedback.pushWarning(_tr(
+                        "Поле весов содержит пустые или неположительные "
+                        "значения - веса игнорируются."))
+            except Exception:
+                feedback.pushWarning(_tr(
+                    "Не удалось прочитать поле весов - веса игнорируются."))
+        else:
+            xs, ys, vs = _read_points(source, zfield, feedback,
+                                      vmin=vmin, vmax=vmax, pct=pct, cap=cap)
         _warn_data(feedback, xs, ys, vs)
         data_var = float(np.var(vs))
         feedback.pushInfo(_tr("Точек: %d. Дисперсия данных: %.4g (ориентир для "
@@ -3170,7 +3553,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
         group_min = max(int(round(min_group_pct / 100.0 * len(xs))), 30)
 
         ev = experimental_variogram(xs, ys, vs, n_lags=n_lags, maxlag=maxlag,
-                                     robust=robust,
+                                     robust=robust, wts=wts,
                                      cloud_max=(20000 if show_cloud else 0))
         if ev["subsampled"]:
             feedback.pushInfo(_tr("Точек много - для расчёта пар использована "
@@ -3372,7 +3755,7 @@ class ProfilesAlgorithm(QgsProcessingAlgorithm):
 
     def name(self): return "profiles"
 
-    def displayName(self): return self.tr("1.6 Профили обработки")
+    def displayName(self): return self.tr("1.09 Профили обработки")
 
     def group(self): return self.tr(GROUP)
 
@@ -3558,6 +3941,7 @@ def _write_varmap_report(path, title, m, meta, advice, feedback=None):
 
 class VariogramMapAlgorithm(QgsProcessingAlgorithm):
     INPUT, ZFIELD = "INPUT", "ZFIELD"
+    WEIGHT_FIELD = "WEIGHT_FIELD"
     N_BINS, MAXLAG, MIN_PAIRS = "N_BINS", "MAXLAG", "MIN_PAIRS"
     OUTPUT_HTML, OUTPUT_RASTER = "OUTPUT_HTML", "OUTPUT_RASTER"
     WRITE_PROFILE = "WRITE_PROFILE"
@@ -3565,7 +3949,7 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
     def tr(self, s): return _tr(s)
     def helpUrl(self): return _help_url()
     def name(self): return "variogram_map"
-    def displayName(self): return self.tr("1.4 Вариограммная карта (анизотропия)")
+    def displayName(self): return self.tr("1.06 Вариограммная карта (анизотропия)")
     def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
     def createInstance(self): return VariogramMapAlgorithm()
@@ -3596,6 +3980,11 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
             self.ZFIELD, self.tr("Поле значения Z"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.Numeric))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.WEIGHT_FIELD,
+            self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric, optional=True)))
         self.addParameter(QgsProcessingParameterNumber(
             self.N_BINS, self.tr("Бинов на полуось (детализация карты)"),
             QgsProcessingParameterNumber.Integer,
@@ -3629,12 +4018,33 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
         maxlag = self.parameterAsDouble(parameters, self.MAXLAG, context)
         min_pairs = self.parameterAsInt(parameters, self.MIN_PAIRS, context)
 
-        xs, ys, vs = _read_points(src, zfield, feedback)
+        wfield = self.parameterAsString(
+            parameters, self.WEIGHT_FIELD, context) or None
+        wts = None
+        if wfield:
+            xs, ys, vs, wids = _read_points(
+                src, zfield, feedback, id_field=wfield, return_ids=True)
+            try:
+                wv = np.array([float(w) if w is not None else np.nan
+                               for w in wids], float)
+                if np.all(np.isfinite(wv)) and np.all(wv > 0):
+                    wts = wv
+                    feedback.pushInfo(_tr(
+                        "Пары взвешены декластеризацией (поле «%s»).") % wfield)
+                else:
+                    feedback.pushWarning(_tr(
+                        "Поле весов содержит пустые или неположительные "
+                        "значения - веса игнорируются."))
+            except Exception:
+                feedback.pushWarning(_tr(
+                    "Не удалось прочитать поле весов - веса игнорируются."))
+        else:
+            xs, ys, vs = _read_points(src, zfield, feedback)
         _warn_data(feedback, xs, ys, vs)
         feedback.pushInfo(_tr("Вариограммная карта: %d точек…") % len(xs))
         m = variogram_map(xs, ys, vs, n_bins=n_bins,
                           maxlag=(maxlag if maxlag > 0 else None),
-                          min_pairs=min_pairs)
+                          min_pairs=min_pairs, wts=wts)
 
         if m["subsampled"]:
             feedback.pushInfo(_tr("Точки прорежены до %d (для скорости).") % m["n_used"])
@@ -6694,6 +7104,7 @@ class ShaftUnwrapAlgorithm(QgsProcessingAlgorithm):
 
 class SequentialGaussianSimAlgorithm(QgsProcessingAlgorithm):
     INPUT, FIELD = "INPUT", "FIELD"
+    WEIGHT_FIELD = "WEIGHT_FIELD"
     CELL_SIZE, EXTENT = "CELL_SIZE", "EXTENT"
     NREAL, MODEL = "NREAL", "MODEL"
     MAX_POINTS, RADIUS, SEED = "MAX_POINTS", "RADIUS", "SEED"
@@ -6732,6 +7143,11 @@ class SequentialGaussianSimAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterField(
             self.FIELD, self.tr("Поле значения"), parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.Numeric))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.WEIGHT_FIELD,
+            self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric, optional=True)))
         self.addParameter(QgsProcessingParameterNumber(
             self.CELL_SIZE, self.tr("Размер ячейки (0 = авто, min(охват)/50)"),
             QgsProcessingParameterNumber.Double,
@@ -6787,7 +7203,29 @@ class SequentialGaussianSimAlgorithm(QgsProcessingAlgorithm):
         field = self.parameterAsString(parameters, self.FIELD, context)
         if source is None:
             raise QgsProcessingException(self.tr("Не задан точечный слой."))
-        xd, yd, vrd = _read_points(source, field, feedback)
+        wfield = self.parameterAsString(
+            parameters, self.WEIGHT_FIELD, context) or None
+        wts = None
+        if wfield:
+            xd, yd, vrd, wids = _read_points(
+                source, field, feedback, id_field=wfield, return_ids=True)
+            try:
+                wv = np.array([float(w) if w is not None else np.nan
+                               for w in wids], float)
+                if np.all(np.isfinite(wv)) and np.all(wv > 0):
+                    wts = wv
+                    feedback.pushInfo(self.tr(
+                        "Гистограмма строится с весами декластеризации "
+                        "(поле «%s»).") % wfield)
+                else:
+                    feedback.pushWarning(self.tr(
+                        "Поле весов содержит пустые или неположительные "
+                        "значения - веса игнорируются."))
+            except Exception:
+                feedback.pushWarning(self.tr(
+                    "Не удалось прочитать поле весов - веса игнорируются."))
+        else:
+            xd, yd, vrd = _read_points(source, field, feedback)
         if len(xd) < 8:
             raise QgsProcessingException(self.tr(
                 "Слишком мало точек для симуляции (нужно хотя бы 8)."))
@@ -6818,7 +7256,7 @@ class SequentialGaussianSimAlgorithm(QgsProcessingAlgorithm):
 
         from .kb2d import (nscore_transform, experimental_variogram,
                            fit_variogram, Variogram, sgsim)
-        ns, _sv, _sns = nscore_transform(vrd)
+        ns, _sv, _sns = nscore_transform(vrd, wts=wts)
         ev = experimental_variogram(xd, yd, ns, n_lags=15)
         mchoice = self.parameterAsEnum(parameters, self.MODEL, context)
         marg = "auto" if mchoice == 0 else (mchoice - 1)
@@ -6846,7 +7284,8 @@ class SequentialGaussianSimAlgorithm(QgsProcessingAlgorithm):
             feedback.setProgress(int(92.0 * done / max(total, 1)))
 
         real = sgsim(xd, yd, vrd, vg, xmn, ymn, cell, nx, ny, nreal,
-                     ndmin=1, ndmax=ndmax, rad2=rad2, seed=seed, progress=prog)
+                     ndmin=1, ndmax=ndmax, rad2=rad2, seed=seed, progress=prog,
+                     wts=wts)
 
         mean = real.mean(axis=0).astype(np.float32)
         std = real.std(axis=0).astype(np.float32)
@@ -7769,6 +8208,592 @@ class ReserveDeltaAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: dest}
 
 
+class MinCurvatureAlgorithm(QgsProcessingAlgorithm):
+    """Гридирование методом минимальной кривизны (бигармония с натяжением).
+    Поверхность как тонкая упругая пластина через данные с минимумом изгиба
+    (Briggs, 1974). Часто применяется для карт геофизических полей."""
+
+    INPUT, ZFIELD = "INPUT", "ZFIELD"
+    EXTENT, CELL_SIZE = "EXTENT", "CELL_SIZE"
+    MAX_RESIDUAL, MAX_ITER, RELAX = "MAX_RESIDUAL", "MAX_ITER", "RELAX"
+    TENSION, BOUNDARY_TENSION, ANISO = "TENSION", "BOUNDARY_TENSION", "ANISO"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return MinCurvatureAlgorithm()
+    def name(self): return "min_curvature"
+    def displayName(self):
+        return self.tr("1.03 Минимальная кривизна (точки → растр)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP)
+    def groupId(self): return GROUP_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Строит грид методом минимальной кривизны: поверхность ведёт "
+            "себя как тонкая упругая пластина, проходящая через данные с "
+            "минимумом изгиба (решение бигармонического уравнения). Метод "
+            "неточный - данные воспроизводятся приближённо, зато поверхность "
+            "максимально гладкая, поэтому его любят для карт геофизических "
+            "полей и любых плавных величин.\n\nНатяжение подмешивает "
+            "мембранный член: 0 - чистая минимальная кривизна, 1 - "
+            "натянутая мембрана (меньше выбросов между пробами). Отдельно "
+            "задаётся натяжение на границе. Решение итеративное (SOR обходом "
+            "девятью цветами): сетка сходится, пока изменение узла не станет "
+            "меньше порога невязки или не исчерпаются итерации.\n\nРазмер "
+            "ячейки 0 = min(охват)/50. Порог невязки 0 = 0.01 процента от "
+            "размаха данных. Выход - грид, готовый для «1.2 Изолинии из "
+            "растра». Это детерминированная альтернатива кригингу без "
+            "подбора вариограммы; кригинг же даёт оценку с погрешностью.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Точечный слой"),
+            [QgsProcessing.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            self.ZFIELD, self.tr("Поле значения (Z)"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric,
+            defaultValue=_dv(self, self.ZFIELD, None)))
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Охват (0 = по точкам)"), optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELL_SIZE, self.tr("Размер ячейки (0 = авто, min(охват)/50)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.CELL_SIZE, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.TENSION, self.tr("Натяжение (0 - мин. кривизна, 1 - мембрана)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.TENSION, 0.0),
+            minValue=0.0, maxValue=1.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.MAX_RESIDUAL,
+            self.tr("Порог невязки (0 = авто, 0.01% размаха)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.MAX_RESIDUAL, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.MAX_ITER, self.tr("Максимум итераций"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.MAX_ITER, 100000),
+            minValue=10, maxValue=5000000))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BOUNDARY_TENSION, self.tr("Натяжение на границе"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.BOUNDARY_TENSION, 0.0),
+            minValue=0.0, maxValue=1.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.RELAX, self.tr("Коэффициент релаксации (SOR)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.RELAX, 1.85),
+            minValue=0.1, maxValue=1.99)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.ANISO, self.tr("Анизотропия (отношение осей Y/X)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.ANISO, 1.0),
+            minValue=0.05, maxValue=20.0)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Грид (минимальная кривизна)")))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        import math
+        from . import mincurv as mc
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        source = self.parameterAsSource(parameters, self.INPUT, context)
+        if source is None:
+            raise QgsProcessingException(self.tr("Не задан точечный слой."))
+        zfield = self.parameterAsString(parameters, self.ZFIELD, context)
+        xs, ys, vs = _read_points(source, zfield, feedback)
+
+        crs = source.sourceCrs()
+        rect = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        if rect is None or rect.isEmpty():
+            rect = source.sourceExtent()
+        xmin, xmax = rect.xMinimum(), rect.xMaximum()
+        ymin, ymax = rect.yMinimum(), rect.yMaximum()
+        width, height = xmax - xmin, ymax - ymin
+        cell = self.parameterAsDouble(parameters, self.CELL_SIZE, context)
+        if cell <= 0:
+            cell = (min(width, height) / 50.0) or 1.0
+        nx = max(int(math.ceil(width / cell)), 2)
+        ny = max(int(math.ceil(height / cell)), 2)
+
+        tension = self.parameterAsDouble(parameters, self.TENSION, context)
+        btens = self.parameterAsDouble(
+            parameters, self.BOUNDARY_TENSION, context)
+        relax = self.parameterAsDouble(parameters, self.RELAX, context)
+        aniso = self.parameterAsDouble(parameters, self.ANISO, context)
+        max_iter = self.parameterAsInt(parameters, self.MAX_ITER, context)
+        max_res = self.parameterAsDouble(
+            parameters, self.MAX_RESIDUAL, context)
+        zrange = float(np.nanmax(vs) - np.nanmin(vs)) or 1.0
+        tol = max_res if max_res > 0 else max(1e-6, 1e-4 * zrange)
+        feedback.pushInfo(self.tr(
+            "Сетка %d x %d, ячейка %.4g. Порог невязки %.4g.")
+            % (nx, ny, cell, tol))
+
+        z0, fixed = mc.grid_points(xs, ys, vs, xmin, ymin, cell, nx, ny)
+        feedback.pushInfo(self.tr("Узлов-данных: %d из %d.")
+                          % (int(fixed.sum()), nx * ny))
+
+        def prog(it, mx, res):
+            if feedback.isCanceled():
+                raise QgsProcessingException(self.tr("Прервано пользователем."))
+            feedback.setProgress(min(95, int(95.0 * it / max(mx, 1))))
+
+        grid, iters, last = mc.solve(
+            z0, fixed, tension=tension, boundary_tension=btens,
+            max_iter=max_iter, tol=tol, relax=relax, aniso=aniso,
+            progress=prog)
+        if last <= tol:
+            feedback.pushInfo(self.tr(
+                "Сошлось за %d итераций (невязка %.4g).") % (iters, last))
+        else:
+            feedback.pushWarning(self.tr(
+                "Достигнут потолок %d итераций, невязка %.4g больше порога "
+                "%.4g. Увеличьте число итераций или порог невязки.")
+                % (iters, last, tol))
+
+        nodata = -9999.0
+        geotr = (xmin, cell, 0.0, ymin + ny * cell, 0.0, -cell)
+        wkt = crs.toWkt() if (crs is not None and crs.isValid()) else None
+        out_path = self.parameterAsOutputLayer(
+            parameters, self.OUTPUT, context)
+        _write_grid_tiff(out_path, grid.astype("float32"), geotr, wkt,
+                         nodata, nx, ny, band_names=[zfield])
+        _save_values(self, _saved)
+        return {self.OUTPUT: out_path}
+
+
+class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
+    """Скользящий контроль (leave-one-out) метода гридирования: кригинг или
+    минимальная кривизна. Оценивает качество метода по ошибке, как в Surfer:
+    случайная выборка точек, фильтры, буфер исключения соседей."""
+
+    INPUT, ZFIELD, IDFIELD = "INPUT", "ZFIELD", "IDFIELD"
+    WEIGHT_FIELD = "WEIGHT_FIELD"
+    METHOD = "METHOD"
+    KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
+    RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
+    VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = \
+        "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
+    EXTENT, CELL_SIZE = "EXTENT", "CELL_SIZE"
+    TENSION, MAX_RESIDUAL, MAX_ITER = "TENSION", "MAX_RESIDUAL", "MAX_ITER"
+    RELAX, BOUNDARY_TENSION, ANISO = "RELAX", "BOUNDARY_TENSION", "ANISO"
+    N_VALIDATE, SEED = "N_VALIDATE", "SEED"
+    FILTER_EXTENT, ZMIN, ZMAX = "FILTER_EXTENT", "ZMIN", "ZMAX"
+    EXCL_X, EXCL_Y = "EXCL_X", "EXCL_Y"
+    OUTPUT, OUTPUT_HTML = "OUTPUT", "OUTPUT_HTML"
+
+    _METHODS = ("kriging", "mincurv")
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return MethodCrossValidationAlgorithm()
+    def name(self): return "method_crossvalidation"
+    def displayName(self):
+        return self.tr("1.08 Кросс-валидация метода (LOO)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP)
+    def groupId(self): return GROUP_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Скользящий контроль (leave-one-out) для метода гридирования - "
+            "кригинга или минимальной кривизны. Каждая проверяемая точка по "
+            "очереди исключается, её значение предсказывается методом по "
+            "остальным и сравнивается с фактом. По ошибкам считаются ME "
+            "(смещение), MAE, RMSE и R - объективная оценка качества метода "
+            "и сравнение методов между собой.\n\nКак в Surfer: можно "
+            "проверять случайную выборку из N точек (на больших данных "
+            "быстрее), ограничить проверку подобластью (фильтр по охвату и "
+            "по значению) и задать буфер исключения - соседние точки в "
+            "прямоугольнике вокруг проверяемой не участвуют в её оценке "
+            "(нужно для сгущённых кластеров, иначе оценка просто повторяет "
+            "соседа).\n\nВыходы: слой точек с ошибками и HTML-отчёт (график "
+            "оценка/факт, гистограмма, метрики). Для минимальной кривизны "
+            "переоценка идёт с тёплого старта от полного решения, поэтому "
+            "каждая точка считается быстро, но на очень больших выборках "
+            "уменьшайте N.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Точки со значениями"),
+            [QgsProcessing.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            self.ZFIELD, self.tr("Поле значения (Z)"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric,
+            defaultValue=_dv(self, self.ZFIELD, None)))
+        self.addParameter(QgsProcessingParameterField(
+            self.IDFIELD, self.tr("Поле номера скважины (необязательно)"),
+            parentLayerParameterName=self.INPUT, optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.WEIGHT_FIELD,
+            self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.Numeric, optional=True)))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.METHOD, self.tr("Метод"),
+            options=[self.tr("Кригинг"), self.tr("Минимальная кривизна")],
+            defaultValue=_dv(self, self.METHOD, 0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.N_VALIDATE,
+            self.tr("Проверяемых точек (0 = авто, min(N, 100))"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.N_VALIDATE, 0), minValue=0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.EXCL_X, self.tr("Буфер исключения по X (0 = выкл.)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.EXCL_X, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.EXCL_Y, self.tr("Буфер исключения по Y (0 = выкл.)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.EXCL_Y, 0.0), minValue=0.0))
+        # --- параметры кригинга (вариограмма и поиск) ---
+        _add_cv_params(self)
+        # --- параметры минимальной кривизны ---
+        self.addParameter(_advanced(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Мин. кривизна: охват сетки (0 = по точкам)"),
+            optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.CELL_SIZE,
+            self.tr("Мин. кривизна: размер ячейки (0 = авто)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.CELL_SIZE, 0.0), minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.TENSION, self.tr("Мин. кривизна: натяжение (0..1)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.TENSION, 0.0),
+            minValue=0.0, maxValue=1.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MAX_RESIDUAL,
+            self.tr("Мин. кривизна: порог невязки (0 = авто)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.MAX_RESIDUAL, 0.0), minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MAX_ITER, self.tr("Мин. кривизна: максимум итераций"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.MAX_ITER, 100000), minValue=10)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BOUNDARY_TENSION,
+            self.tr("Мин. кривизна: натяжение на границе"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.BOUNDARY_TENSION, 0.0),
+            minValue=0.0, maxValue=1.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.RELAX, self.tr("Мин. кривизна: коэффициент релаксации"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.RELAX, 1.85),
+            minValue=0.1, maxValue=1.99)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.ANISO, self.tr("Мин. кривизна: анизотропия (Y/X)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.ANISO, 1.0),
+            minValue=0.05, maxValue=20.0)))
+        # --- фильтр области проверки ---
+        self.addParameter(_advanced(QgsProcessingParameterExtent(
+            self.FILTER_EXTENT,
+            self.tr("Проверять только в охвате (0 = везде)"), optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.ZMIN, self.tr("Проверять при Z не ниже (пусто = нет)"),
+            QgsProcessingParameterNumber.Double, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.ZMAX, self.tr("Проверять при Z не выше (пусто = нет)"),
+            QgsProcessingParameterNumber.Double, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SEED, self.tr("Зерно ГСЧ (0 = случайно)"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.SEED, 0), minValue=0))
+        )
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Ошибки кросс-валидации"),
+            QgsProcessing.TypeVectorPoint))
+        html = QgsProcessingParameterFileDestination(
+            self.OUTPUT_HTML, self.tr("HTML-отчёт"),
+            self.tr("HTML (*.html)"), optional=True, createByDefault=True)
+        self.addParameter(html)
+
+    def processAlgorithm(self, parameters, context, feedback):
+        import math
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        source = self.parameterAsSource(parameters, self.INPUT, context)
+        if source is None:
+            raise QgsProcessingException(self.tr("Не задан точечный слой."))
+        zfield = self.parameterAsString(parameters, self.ZFIELD, context)
+        idfield = self.parameterAsString(
+            parameters, self.IDFIELD, context) or None
+        method = self._METHODS[self.parameterAsEnum(
+            parameters, self.METHOD, context)]
+
+        def _opt(name):
+            v = parameters.get(name, None)
+            if v is None or v == "":
+                return None
+            return self.parameterAsDouble(parameters, name, context)
+        pct = self.parameterAsDouble(parameters, self.VAL_PCT, context)
+        cap = self.parameterAsBool(parameters, self.VAL_CAP, context)
+        xs, ys, vs, ids = _read_points(
+            source, zfield, feedback,
+            vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
+            pct=pct, cap=cap, id_field=idfield, return_ids=True)
+        n = len(xs)
+        wfield = self.parameterAsString(
+            parameters, self.WEIGHT_FIELD, context) or None
+        mcw = None
+        if wfield:
+            _wx, _wy, _wv, wids = _read_points(
+                source, zfield, feedback,
+                vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
+                pct=pct, cap=cap, id_field=wfield, return_ids=True)
+            try:
+                wv = np.array([float(w) if w is not None else np.nan
+                               for w in wids], float)
+                if wv.size == n and np.all(np.isfinite(wv)) and np.all(wv > 0):
+                    mcw = wv
+                    feedback.pushInfo(self.tr(
+                        "Метрики взвешены декластеризацией (поле «%s»).")
+                        % wfield)
+                else:
+                    feedback.pushWarning(self.tr(
+                        "Поле весов содержит пустые или неположительные "
+                        "значения - веса игнорируются."))
+            except Exception:
+                feedback.pushWarning(self.tr(
+                    "Не удалось прочитать поле весов - веса игнорируются."))
+
+        # --- отбор проверяемых точек: фильтр области и по значению ---
+        crs = source.sourceCrs()
+        cand = np.ones(n, dtype=bool)
+        frect = self.parameterAsExtent(
+            parameters, self.FILTER_EXTENT, context, crs)
+        if frect is not None and not frect.isEmpty():
+            cand &= (xs >= frect.xMinimum()) & (xs <= frect.xMaximum()) \
+                & (ys >= frect.yMinimum()) & (ys <= frect.yMaximum())
+        zmin = _opt(self.ZMIN); zmax = _opt(self.ZMAX)
+        if zmin is not None:
+            cand &= vs >= zmin
+        if zmax is not None:
+            cand &= vs <= zmax
+        cand_idx = np.where(cand)[0]
+        if len(cand_idx) < 2:
+            raise QgsProcessingException(self.tr(
+                "После фильтров осталось меньше двух проверяемых точек."))
+
+        nreq = self.parameterAsInt(parameters, self.N_VALIDATE, context)
+        if nreq <= 0:
+            nreq = min(len(cand_idx), 100)
+        nreq = min(nreq, len(cand_idx))
+        seed = self.parameterAsInt(parameters, self.SEED, context)
+        rng = np.random.default_rng(seed if seed > 0 else None)
+        if nreq < len(cand_idx):
+            val_idx = np.sort(rng.choice(cand_idx, size=nreq, replace=False))
+        else:
+            val_idx = cand_idx
+        excl_x = self.parameterAsDouble(parameters, self.EXCL_X, context)
+        excl_y = self.parameterAsDouble(parameters, self.EXCL_Y, context)
+        nodata = -9999.0
+        feedback.pushInfo(self.tr(
+            "Метод: %s. Проверяем %d из %d точек.")
+            % (self.tr("кригинг") if method == "kriging"
+               else self.tr("минимальная кривизна"), len(val_idx), n))
+
+        est = np.full(len(val_idx), np.nan)
+        var = None
+        used_params = None
+
+        if method == "kriging":
+            ktype = 1 if self.parameterAsEnum(
+                parameters, self.KTYPE, context) == 0 else 0
+            skmean = self.parameterAsDouble(parameters, self.SKMEAN, context)
+            nugget = self.parameterAsDouble(parameters, self.NUGGET, context)
+            radius = self.parameterAsDouble(parameters, self.RADIUS, context)
+            ndmin = self.parameterAsInt(parameters, self.MIN_POINTS, context)
+            ndmax = self.parameterAsInt(parameters, self.MAX_POINTS, context)
+            width = float(xs.max() - xs.min())
+            height = float(ys.max() - ys.min())
+            auto_range = max(width, height) / 3.0 or 1.0
+            if radius <= 0:
+                radius = math.hypot(width, height) or 1e12
+            rad2 = radius * radius
+            vg = _build_variogram(self, parameters, context, nugget,
+                                  auto_range, feedback)
+            var = np.full(len(val_idx), np.nan)
+            from .kb2d import krige_point
+            idxall = np.arange(n)
+            for k, i in enumerate(val_idx):
+                if feedback.isCanceled():
+                    raise QgsProcessingException(self.tr("Прервано."))
+                drop = idxall == i
+                if excl_x > 0 or excl_y > 0:
+                    drop = drop | ((np.abs(xs - xs[i]) <= excl_x)
+                                   & (np.abs(ys - ys[i]) <= excl_y))
+                keep = ~drop
+                if int(keep.sum()) < max(1, ndmin):
+                    continue
+                e, v = krige_point(
+                    float(xs[i]), float(ys[i]), xs[keep], ys[keep], vs[keep],
+                    vg, ktype, skmean, ndmin, ndmax, rad2, nodata,
+                    return_var=True)
+                if e != nodata:
+                    est[k] = e
+                    var[k] = v
+                feedback.setProgress(int(95.0 * (k + 1) / len(val_idx)))
+            used_params = _cv_used_params(self, parameters, context)
+        else:
+            from . import mincurv as mc
+            rect = self.parameterAsExtent(
+                parameters, self.EXTENT, context, crs)
+            if rect is None or rect.isEmpty():
+                rect = source.sourceExtent()
+            xmin, xmax = rect.xMinimum(), rect.xMaximum()
+            ymin, ymax = rect.yMinimum(), rect.yMaximum()
+            width, height = xmax - xmin, ymax - ymin
+            cell = self.parameterAsDouble(parameters, self.CELL_SIZE, context)
+            if cell <= 0:
+                cell = (min(width, height) / 50.0) or 1.0
+            nx = max(int(math.ceil(width / cell)), 2)
+            ny = max(int(math.ceil(height / cell)), 2)
+            tension = self.parameterAsDouble(parameters, self.TENSION, context)
+            btens = self.parameterAsDouble(
+                parameters, self.BOUNDARY_TENSION, context)
+            relax = self.parameterAsDouble(parameters, self.RELAX, context)
+            aniso = self.parameterAsDouble(parameters, self.ANISO, context)
+            max_iter = self.parameterAsInt(parameters, self.MAX_ITER, context)
+            max_res = self.parameterAsDouble(
+                parameters, self.MAX_RESIDUAL, context)
+            zr = float(np.nanmax(vs) - np.nanmin(vs)) or 1.0
+            tol = max_res if max_res > 0 else max(1e-6, 1e-4 * zr)
+            feedback.pushInfo(self.tr(
+                "Сетка %d x %d, ячейка %.4g.") % (nx, ny, cell))
+
+            def prog(done, total):
+                if feedback.isCanceled():
+                    raise QgsProcessingException(self.tr("Прервано."))
+                feedback.setProgress(int(95.0 * done / max(total, 1)))
+
+            est, _zf = mc.loo_estimates(
+                xs, ys, vs, xmin, ymin, cell, nx, ny, val_idx,
+                tension=tension, boundary_tension=btens, relax=relax,
+                aniso=aniso, tol=tol, base_iter=max_iter,
+                loo_iter=max(2000, max_iter // 20),
+                excl_x=excl_x, excl_y=excl_y, progress=prog)
+            used_params = [
+                (self.tr("Метод"), self.tr("минимальная кривизна")),
+                (self.tr("Натяжение"), "%.3g" % tension),
+                (self.tr("Сетка"), "%d x %d" % (nx, ny)),
+                (self.tr("Ячейка"), "%.4g" % cell),
+            ]
+
+        fact = vs[val_idx]
+        ok = np.isfinite(est)
+        nvalid = int(ok.sum())
+        if nvalid < 2:
+            raise QgsProcessingException(self.tr(
+                "Слишком мало оценённых точек."))
+        err = est[ok] - fact[ok]
+        _w_ok = (mcw[val_idx][ok] if mcw is not None else None)
+        me, mae, rmse, msdr, r = _weighted_cv_metrics(
+            fact[ok], est[ok], err,
+            (var[ok] if var is not None else None), _w_ok)
+
+        feedback.pushInfo(self.tr("== Кросс-валидация метода (LOO) =="))
+        feedback.pushInfo(self.tr("Точек оценено: %d из %d")
+                          % (nvalid, len(val_idx)))
+        feedback.pushInfo(self.tr("ME (смещение):   %+.4g") % me)
+        feedback.pushInfo("MAE:             %.4g" % mae)
+        feedback.pushInfo(self.tr("RMSE:            %.4g") % rmse)
+        if var is not None:
+            feedback.pushInfo(self.tr("MSDR:            %.3f") % msdr)
+        feedback.pushInfo(self.tr("R (оценка/факт): %.3f") % r)
+        advice = _cv_advice(me, mae, rmse, msdr, r)
+        for a in advice:
+            feedback.pushInfo("• " + a)
+
+        # --- слой ошибок ---
+        valname = _san(zfield) or "z"
+        idname = (_san(idfield) or "well_id") if idfield else None
+        fields = QgsFields()
+        aliases = {}
+        if idname:
+            fields.append(QgsField(idname, QVariant.String))
+            aliases[idname] = self.tr("Номер скважины")
+        fields.append(QgsField(valname, QVariant.Double))
+        aliases[valname] = self.tr("Факт (%s)") % zfield
+        fields.append(QgsField("z_est", QVariant.Double))
+        aliases["z_est"] = self.tr("Оценка метода (LOO)")
+        fields.append(QgsField("error", QVariant.Double))
+        aliases["error"] = self.tr("Ошибка (оценка − факт)")
+        fields.append(QgsField("abs_error", QVariant.Double))
+        aliases["abs_error"] = self.tr("|Ошибка|")
+        if var is not None:
+            fields.append(QgsField("std_resid", QVariant.Double))
+            aliases["std_resid"] = self.tr("Станд. остаток (со знаком)")
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Point, crs)
+        if sink is not None:
+            for k, i in enumerate(val_idx):
+                if not ok[k]:
+                    continue
+                f = QgsFeature(fields)
+                f.setGeometry(QgsGeometry.fromPointXY(
+                    QgsPointXY(float(xs[i]), float(ys[i]))))
+                e = float(est[k] - fact[k])
+                attrs = []
+                if idname:
+                    attrs.append(None if ids[i] is None else str(ids[i]))
+                attrs += [float(fact[k]), float(est[k]), e, abs(e)]
+                if var is not None:
+                    s = float(np.sqrt(max(var[k], 0.0)))
+                    attrs.append((e / s) if s > 0 else None)
+                f.setAttributes(attrs)
+                sink.addFeature(f)
+        mlabel = (self.tr("кригинг") if method == "kriging"
+                  else self.tr("мин. кривизна"))
+        _set_output_name(context, dest,
+                         self.tr("Ошибки CV (%s) %s") % (mlabel, zfield))
+        _set_field_aliases(context, dest, aliases)
+
+        results = {self.OUTPUT: dest}
+        html_path = self.parameterAsFileOutput(
+            parameters, self.OUTPUT_HTML, context)
+        if html_path:
+            metrics = [
+                (self.tr("Метод"), mlabel, ""),
+                (self.tr("ME (смещение)"), "%+.4g" % me,
+                 self.tr("ближе к 0 - лучше")),
+                ("MAE", "%.4g" % mae, self.tr("средняя |ошибка|")),
+                ("RMSE", "%.4g" % rmse, self.tr("меньше - лучше")),
+            ]
+            if var is not None:
+                metrics.append(("MSDR", "%.3f" % msdr,
+                                self.tr("ближе к 1 - лучше")))
+            metrics += [
+                (self.tr("R (оценка/факт)"), "%.3f" % r,
+                 self.tr("корреляция")),
+                (self.tr("Точек оценено"), "%d" % nvalid,
+                 self.tr("из %d") % len(val_idx)),
+            ]
+            title = self.tr("Кросс-валидация метода: %s · %s") % (
+                mlabel, zfield)
+            ids_ok = ([ids[i] for k, i in enumerate(val_idx) if ok[k]]
+                      if (idfield and ids is not None) else None)
+            try:
+                _write_cv_report(html_path, title, metrics, advice,
+                                 fact[ok], est[ok], err, ids_ok,
+                                 used_params, feedback)
+                results[self.OUTPUT_HTML] = html_path
+            except Exception as e:
+                feedback.pushWarning(self.tr(
+                    "Не удалось записать HTML-отчёт: %s") % e)
+        _save_values(self, _saved)
+        return results
+
+
 class FractalDimensionAlgorithm(QgsProcessingAlgorithm):
     """Карта фрактальной размерности поверхности вариограммным методом:
     локальный наклон лог-лог вариограммы в скользящем окне даёт H,
@@ -8342,16 +9367,294 @@ class FractalDemoAlgorithm(QgsProcessingAlgorithm):
                 self.OUT_COAST: dest_c}
 
 
+class PolyhedralDemoAlgorithm(QgsProcessingAlgorithm):
+    """Демо полиэдральной поверхности: тело пласта, куб или тетраэдр как
+    нативный PolyhedralSurface Z (QGIS 3.40+) или TIN Z. На сборках до 3.40
+    вывод деградирует до MultiPolygon Z с предупреждением. Задача - показать
+    сам тип геометрии и проверить, что сборка QGIS и плагин QSFCGAL с ним
+    работают."""
+
+    EXAMPLE = "EXAMPLE"
+    EXTENT = "EXTENT"
+    NX = "NX"
+    THICKNESS = "THICKNESS"
+    BASE = "BASE"
+    N_BEDS = "N_BEDS"
+    AS_TIN = "AS_TIN"
+    OUTPUT = "OUTPUT"
+
+    _KINDS = ("bed", "suite", "cube", "tetra")
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return PolyhedralDemoAlgorithm()
+    def name(self): return "polyhedral_demo"
+    def displayName(self):
+        return self.tr("4.07 Создать пример полиэдра (бета)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP4)
+    def groupId(self): return GROUP4_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Создаёт демонстрационную полиэдральную поверхность, чтобы "
+            "посмотреть сам тип геометрии в 3D и проверить его на своей "
+            "сборке QGIS. Варианты примера: тело пласта, свита (стопка "
+            "складчатых пластов, каждый пласт грузится отдельным слоем для "
+            "управления видимостью и красится своим цветом), куб и "
+            "тетраэдр. Тело пласта - водонепроницаемая "
+            "оболочка из кровли, подошвы и боковой юбки, тот же приём, что "
+            "и в будущем экспорте тела пласта. Плановое "
+            "положение и размер берутся из охвата (окна вида), по вертикали "
+            "тело занимает от отметки залегания до отметки плюс мощность. "
+            "Тип геометрии плоский, поэтому в 2D-виде Z не виден - диапазон "
+            "Z печатается в журнал, а само тело удобно смотреть в окне "
+            "Модули - Isoliner - 3D-просмотр поверхностей, вкладка Тела. "
+            "Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же "
+            "работает плагин QSFCGAL (резка и булевы операции над телами). "
+            "На более старых сборках вывод деградирует до MultiPolygon Z. "
+            "Флаг TIN выдаёт триангулированную поверхность (тип TIN Z).")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterEnum(
+            self.EXAMPLE, self.tr("Пример"),
+            options=[self.tr("Тело пласта"),
+                     self.tr("Свита (стопка складчатых пластов)"),
+                     self.tr("Куб"), self.tr("Тетраэдр")],
+            defaultValue=_dv(self, self.EXAMPLE, 0)))
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Охват (окно вида) - размещение и размер"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.THICKNESS, self.tr("Мощность, ед. карты"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.THICKNESS, 25.0), minValue=0.001))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.NX, self.tr("Разбиение тела пласта (ячеек по стороне)"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.NX, 8), minValue=2, maxValue=80))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.AS_TIN, self.tr("Выдать как TIN (триангулировать)"),
+            defaultValue=_dv(self, self.AS_TIN, False)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BASE, self.tr("Отметка залегания (подошва), ед. карты"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.BASE, 0.0))))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.N_BEDS, self.tr("Пластов в свите"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.N_BEDS, 3), minValue=2, maxValue=8)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Полиэдр (демо)"),
+            QgsProcessing.TypeVectorPolygon, optional=True))
+
+    @staticmethod
+    def _resolve_wkb(*names):
+        """Первый доступный enum QgsWkbTypes из перечисленных имён."""
+        for nm in names:
+            t = getattr(QgsWkbTypes, nm, None)
+            if t is not None:
+                return t, nm
+        return None, None
+
+    def _load_suite_layers(self, beds, crs, context, feedback):
+        """Разносит пласты свиты по отдельным слоям в проекте (управление
+        видимостью). Возвращает True при успехе. При любой проблеме с API
+        загрузки возвращает False - вызывающий пишет свиту одним слоем."""
+        try:
+            from . import polyhedral as poly
+            from qgis.core import QgsVectorLayer, QgsProcessingContext
+            authid = crs.authid() if crs is not None else ""
+            uri = "MultiPolygonZ" + (("?crs=%s" % authid) if authid else "")
+            store = context.temporaryLayerStore()
+            proj = QgsProject.instance()
+            for k, bp in enumerate(beds, 1):
+                g = QgsGeometry.fromWkt(poly.patches_to_wkt(bp, "MULTIPOLYGON"))
+                if g is None or g.isNull():
+                    return False
+                nm = self.tr("Свита: пласт %d") % k
+                lyr = QgsVectorLayer(uri, nm, "memory")
+                if not lyr.isValid():
+                    return False
+                pr = lyr.dataProvider()
+                pr.addAttributes([QgsField("bed", QVariant.Int),
+                                  QgsField("watertight", QVariant.Int)])
+                lyr.updateFields()
+                _ne, n_open = poly.edge_audit(bp)
+                ft = QgsFeature(lyr.fields())
+                ft.setGeometry(g)
+                ft.setAttributes([k, 1 if n_open == 0 else 0])
+                pr.addFeature(ft)
+                lyr.updateExtents()
+                store.addMapLayer(lyr)
+                details = QgsProcessingContext.LayerDetails(nm, proj, nm)
+                context.addLayerToLoadOnCompletion(lyr.id(), details)
+            feedback.pushInfo(self.tr(
+                "Свита загружена отдельными слоями по пласту: %d.") % len(beds))
+            return True
+        except Exception as e:
+            feedback.pushInfo(self.tr(
+                "Не удалось разнести свиту по слоям (%s) - вывод одним "
+                "слоем.") % e)
+            return False
+
+    def processAlgorithm(self, parameters, context, feedback):
+        from . import polyhedral as poly
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        idx = self.parameterAsEnum(parameters, self.EXAMPLE, context)
+        kind = self._KINDS[idx]
+        nx = self.parameterAsInt(parameters, self.NX, context)
+        thickness = self.parameterAsDouble(parameters, self.THICKNESS, context)
+        base = self.parameterAsDouble(parameters, self.BASE, context)
+        n_beds = self.parameterAsInt(parameters, self.N_BEDS, context)
+        as_tin = self.parameterAsBool(parameters, self.AS_TIN, context)
+
+        # footprint берётся из охвата (окна вида); пустой охват - дефолт
+        crs = QgsProject.instance().crs()
+        ext = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        if ext is None or ext.isEmpty() or ext.width() <= 0 \
+                or ext.height() <= 0:
+            cx = cy = 0.0
+            size = 200.0
+        else:
+            cx, cy = ext.center().x(), ext.center().y()
+            size = min(ext.width(), ext.height())
+
+        # общий вертикальный размах: подошва - base, кровля - base + мощность
+        cz = base + thickness / 2.0
+        x0, y0 = cx - size / 2.0, cy - size / 2.0
+
+        # свита: пробуем разнести пласты по отдельным слоям (управление
+        # видимостью); при неудаче API загрузки - свита одним слоем ниже
+        if kind == "suite":
+            beds = poly.suite_beds(n=n_beds, nx=nx, ny=nx, size=size,
+                                   x0=x0, y0=y0, base=base, thickness=thickness)
+            if as_tin:
+                beds = [poly._triangulate(bp) for bp in beds]
+            if self._load_suite_layers(beds, crs, context, feedback):
+                allp = [p for bp in beds for p in bp]
+                zmin, zmax = poly.z_range(allp)
+                feedback.pushInfo(self.tr(
+                    "Диапазон Z: %.3f .. %.3f (ед. карты).") % (zmin, zmax))
+                _save_values(self, _saved)
+                return {}
+            wkt_kind = "TIN" if as_tin else "POLYHEDRALSURFACE"
+            objs = []
+            for k, bp in enumerate(beds, 1):
+                _ne, n_open = poly.edge_audit(bp)
+                objs.append(dict(patches=bp, name="suite_bed_%d" % k, bed=k,
+                                 np=len(bp), watertight=(n_open == 0),
+                                 open=n_open))
+        else:
+            if kind == "bed":
+                patches, wkt_kind, meta = poly.build_example(
+                    "bed", as_tin=as_tin, nx=nx, ny=nx, size=size,
+                    x0=x0, y0=y0, base=base + thickness, thickness=thickness)
+            elif kind == "cube":
+                patches, wkt_kind, meta = poly.build_example(
+                    "cube", as_tin=as_tin, cx=cx, cy=cy, cz=cz,
+                    sx=size, sy=size, sz=thickness)
+            else:  # tetra
+                patches, wkt_kind, meta = poly.build_example(
+                    "tetra", as_tin=as_tin, cx=cx, cy=cy, cz=cz, size=size)
+            objs = [dict(patches=patches, name=meta["name"], bed=1,
+                         np=meta["patches"], watertight=meta["watertight"],
+                         open=meta["open_edges"])]
+
+        # желаемый нативный тип, решаем по первому объекту
+        if wkt_kind == "TIN":
+            native_wkb, _nm = self._resolve_wkb("TINZ", "TinZ", "TIN")
+        else:
+            native_wkb, _nm = self._resolve_wkb(
+                "PolyhedralSurfaceZ", "PolyhedralSurface")
+        mpoly_wkb, _ = self._resolve_wkb("MultiPolygonZ")
+
+        use_native = False
+        if native_wkb is not None:
+            g0 = QgsGeometry.fromWkt(
+                poly.patches_to_wkt(objs[0]["patches"], wkt_kind))
+            use_native = g0 is not None and not g0.isNull()
+        if use_native:
+            used_kind, used_wkb = wkt_kind, native_wkb
+        else:
+            used_kind, used_wkb = "MULTIPOLYGON", mpoly_wkb
+            feedback.pushWarning(self.tr(
+                "Нативный тип {0} на этой сборке недоступен - вывод как "
+                "MultiPolygon Z. Нативный PolyhedralSurface / TIN и QSFCGAL "
+                "доступны с QGIS 3.40.").format(wkt_kind))
+
+        for o in objs:
+            g = QgsGeometry.fromWkt(
+                poly.patches_to_wkt(o["patches"], used_kind))
+            if g is None or g.isNull():
+                raise QgsProcessingException(self.tr(
+                    "Не удалось собрать геометрию из WKT."))
+            o["geom"] = g
+
+        fields = QgsFields()
+        fields.append(QgsField("name", QVariant.String))
+        fields.append(QgsField("kind", QVariant.String))
+        fields.append(QgsField("patches", QVariant.Int))
+        fields.append(QgsField("watertight", QVariant.Int))
+        fields.append(QgsField("bed", QVariant.Int))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields, used_wkb, crs)
+        if sink is None:
+            raise QgsProcessingException(self.tr(
+                "Не задан выходной слой. Укажите «Полиэдр (демо)» "
+                "(например, временный слой)."))
+
+        for o in objs:
+            f = QgsFeature(fields)
+            f.setGeometry(o["geom"])
+            f.setAttributes([o["name"], used_kind, int(o["np"]),
+                             1 if o["watertight"] else 0, int(o["bed"])])
+            sink.addFeature(f)
+
+        titles = {
+            "bed": self.tr("Пласт (демо)"),
+            "suite": self.tr("Свита x%d (демо)") % n_beds,
+            "cube": self.tr("Куб (демо)"),
+            "tetra": self.tr("Тетраэдр (демо)"),
+        }
+        _set_output_name(context, dest, titles[kind])
+
+        total_np = sum(o["np"] for o in objs)
+        feedback.pushInfo(self.tr("Тип геометрии: %s Z.") % used_kind)
+        if len(objs) > 1:
+            feedback.pushInfo(self.tr("Объектов: %d, граней всего: %d.")
+                              % (len(objs), total_np))
+        else:
+            feedback.pushInfo(self.tr("Граней: %d.") % total_np)
+        allp = [p for o in objs for p in o["patches"]]
+        zmin, zmax = poly.z_range(allp)
+        feedback.pushInfo(self.tr("Диапазон Z: %.3f .. %.3f (ед. карты).")
+                          % (zmin, zmax))
+        n_open_total = sum(o["open"] for o in objs)
+        if n_open_total == 0:
+            feedback.pushInfo(self.tr("Оболочка замкнута (водонепроницаема)."))
+        else:
+            feedback.pushWarning(self.tr(
+                "Оболочка НЕ замкнута: открытых рёбер %d.") % n_open_total)
+        _save_values(self, _saved)
+        return {self.OUTPUT: dest}
+
+
 ALGORITHMS = [
+    DeclusteringAlgorithm,
     Kriging2DAlgorithm,
-    CategoricalIndicatorAlgorithm,
+    MinCurvatureAlgorithm,
     RasterToIsolinesAlgorithm,
     ExperimentalVariogramAlgorithm,
     VariogramMapAlgorithm,
     CrossValidationAlgorithm,
-    ExampleWellsAlgorithm,
-    SectionDemoAlgorithm,
+    MethodCrossValidationAlgorithm,
     ProfilesAlgorithm,
+    ExampleWellsAlgorithm,
+    CategoricalIndicatorAlgorithm,
+    SectionDemoAlgorithm,
     FlowGradientAlgorithm,
     ExternalDriftKrigingAlgorithm,
     ExceedanceProbabilityAlgorithm,
@@ -8372,6 +9675,7 @@ ALGORITHMS = [
     BedToBlockModelAlgorithm,
     DomainsToGridAlgorithm,
     ReserveDeltaAlgorithm,
+    PolyhedralDemoAlgorithm,
     FractalDimensionAlgorithm,
     BoxCountingAlgorithm,
     LineDimensionAlgorithm,
