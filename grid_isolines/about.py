@@ -55,6 +55,24 @@ def open_manual(parent=None):
         QMessageBox.warning(parent, "Isoliner", tr("Руководство не найдено."))
 
 
+def open_log(parent=None):
+    """Открыть файл журнала isoliner.log системным приложением."""
+    from qgis.PyQt.QtCore import QUrl
+    from qgis.PyQt.QtGui import QDesktopServices
+    from qgis.PyQt.QtWidgets import QMessageBox
+    from .i18n import tr
+    try:
+        from . import trace
+        p = trace.path()
+    except Exception:
+        p = ""
+    if p and os.path.exists(p):
+        QDesktopServices.openUrl(QUrl.fromLocalFile(p))
+    else:
+        QMessageBox.information(parent, "Isoliner",
+                                tr("Журнал ещё не создан."))
+
+
 def show_changelog(parent=None):
     """Окно с историей изменений из metadata.txt (прокручиваемый текст)."""
     from qgis.PyQt.QtWidgets import (QDialog, QVBoxLayout, QPlainTextEdit,
@@ -119,6 +137,9 @@ def show_about(parent=None):
     btn_man = QPushButton(tr("Руководство (PDF)"), dlg)
     btn_man.clicked.connect(lambda: open_manual(dlg))
     row.addWidget(btn_man)
+    btn_journal = QPushButton(tr("Журнал"), dlg)
+    btn_journal.clicked.connect(lambda: open_log(dlg))
+    row.addWidget(btn_journal)
     row.addStretch(1)
     lay.addLayout(row)
 

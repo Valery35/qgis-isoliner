@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <g fill="none" stroke="#1f6f4a" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round">
+    <!-- изометрический куб -->
+    <path d="M24 6 L40 15 L40 33 L24 42 L8 33 L8 15 Z" fill="#e8f3ee"/>
+    <path d="M24 6 L40 15 L24 24 L8 15 Z" fill="#bfe0cf"/>
+    <path d="M24 24 L24 42 M24 24 L40 15 M24 24 L8 15"/>
+    <!-- горизонтали-поверхности -->
+    <path d="M8 24 L24 33 L40 24" stroke="#2f9e6a" stroke-width="1.8"/>
+  </g>
+</svg>

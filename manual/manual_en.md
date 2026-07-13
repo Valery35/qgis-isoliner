@@ -35,7 +35,7 @@ The main way is from the official QGIS repository. Open Plugins → Manage and I
 
 Raster band choice in all the tools is a drop-down with band names: a bed assembled by tool 4.01 shows roof, bottom and the parameter layer names in the lists.
 
-![The Isoliner provider in the Processing toolbox: five groups, thirty-nine tools.](images/toolbox_tree.png){width=52%}
+![The Isoliner provider in the Processing toolbox: five groups, forty-one tools.](images/toolbox_tree.png){width=52%}
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
@@ -612,6 +612,7 @@ The **Processing profiles** tool itself manages the storage via the **Action** p
 Saving under an existing name overwrites the profile. The profile lists in the drop-down fields (the choice for deletion, the load in kriging) refresh when the tool window opens: after saving a profile, reopen the tool so it appears in the list.
 
 Below the profile drop-down, in the line beneath it, the parameters of the chosen profile are shown (nugget, type, contribution, range, azimuth, axes, outliers). In **2D Kriging** and **Cross-validation** a reminder is shown there as well that the computation will use the profile rather than the dialog fields. On QGIS builds without the old widget API the caption does not appear - an ordinary list remains (this does not affect the work).
+
 # 1.10 Create sample wells (demo)
 
 The **Create sample wells (demo)** tool builds a point layer with random coordinates and three structured fields: the absolute roof elevation (roof), the thickness (thick) and the grade of an abstract component X (%). The roof and thickness ranges are set after the model of an industrial seam (KrII). The tool is meant for learning and testing kriging, isolines and cross-validation without real data.
@@ -669,7 +670,7 @@ The workflow repeats the main one: the **rho_k** (or **settle**) field is interp
 
 Geophysical profiles are a typical case where the choice of interpolation method matters more than its tuning. The data are dense along the profiles and sparse between them, while the quantity itself (resistivity, potential) is physically smooth and continuous.
 
-Kriging faithfully reflects the uneven network: without tuning the variogram anisotropy it stretches the structure along the survey lines, and the field breaks into bands along the pickets. Minimum curvature (**1.03**) imposes a physically meaningful smoothness and stitches the separate profiles into a connected surface, so for profile surveys and potential fields it is usually preferable. The same holds for the **sp** field: the SP minimum appears as a single body rather than columns.
+Kriging faithfully reflects the uneven network: without tuning the variogram anisotropy it stretches the structure along the survey lines, and the field breaks into bands along the pickets. Minimum curvature (**1.03**) imposes a physically meaningful smoothness and stitches the separate profiles into a connected surface, so for profile surveys and potential fields it is usually preferable. The same holds for the **sp** field: the SP minimum appears as a single body rather than columns. It is most vivid on subsidence: the trough is a compact axisymmetric bowl, and kriging rolls it into a band along the profiles, while minimum curvature restores the bowl with a clear centre.
 
 Practical takeaway: build fields from profiles with minimum curvature, and use kriging when the variogram anisotropy is tuned to the network geometry.
 
@@ -988,6 +989,55 @@ Behind the word "kriging" the plugin hosts a family of methods, and the choice b
 | Uncertainty assessment | SGS simulation | chapter 2.06 |
 
 The search neighbourhood is common to all the kinds, and three rules remove most problems: the radius of the order of the variogram range, 12-16 neighbours at most, the neighbourhood anisotropy consistent with the variogram anisotropy from the variogram map.
+
+# 2.07 Density from measurements (variable support)
+
+The tool builds a density map where a measurement is given not by a point but by a finite-size support: a point with an uncertainty sigma, a line segment (a corridor of half-width) or a polygon. The unit mass of a measurement is spread over its support. Mass is conserved and density is inverse to the support area, so coarse georeferencing self-attenuates geometrically, without thresholds or filters. This is density estimation (how much and where), not value interpolation - kriging remains for values.
+
+One geometry type per run. Points, lines and polygons are mixed by a series of runs into one raster (append mode). Each type spreads its mass in its own way:
+
+- **Point** - a Gaussian spot with a sigma from the precision field, truncated at three sigmas. A sigma below the half-cell is raised to the half-cell.
+- **Line** - a soft-edged corridor: the polyline is densified, mass is split by length, each subpoint is a Gaussian profile with the half-width sigma. The from_m/to_m fields cut an interval by linear referencing.
+- **Polygon** - mass is split by area uniformly or, in dasymetric mode, proportionally to an auxiliary raster (population, built-up area). If the raster is empty inside the polygon, it falls back to uniform.
+
+## Output and invariant
+
+The main output is a three-band raster. Band 1 is density in mass per km2 (independent of cell size). Bands 2 and 3 are service (sum m*sigma and sum m) so that append series and the effective-sigma map stay exact. The optional second raster is the mass-weighted sigma per cell, an effective-precision map: it separates density backed by precise georeferences from the smeared one. This is an analogue of kriging variance for the density floor.
+
+Invariant: the density integral over the raster equals the sum of input masses. It is always computed and written to the log. A discrepancy means supports left the area; the behaviour is set by the edge switch (renormalise inside or lose mass with a warning).
+
+## How to read
+
+Density shows where measurements cluster, weighted by their reliability. A precise georeference gives a compact spot, a coarse one a diffuse and low one. The effective-sigma map shows where density is gathered from precise supports and where from smeared ones - there the trust is lower.
+
+| Parameter | Purpose | Default |
+|---|---|---|
+| Measurements | Points, lines or polygons (one type). | - |
+| Mass field | Object mass. | 1 |
+| Precision field | Point sigma or line half-width. | default sigma |
+| Cell size, m | Grid step. | 50 |
+| Area | Extent. | by layer |
+| Support beyond edge | Renormalise inside or lose mass. | renormalise |
+| Default sigma (Adv.) | When the precision field is empty. | half-cell |
+| from_m / to_m (Adv.) | Line interval cut. | whole line |
+| Auxiliary raster (Adv.) | Dasymetry for polygons. | - |
+| Append to raster (Adv.) | An existing three-band raster. | - |
+| Density | Three-band raster (density, sum m*sigma, sum m). | - |
+| Effective sigma | Effective-precision map (optional). | - |
+
+# 2.08 Create a density example (demo)
+
+The tool creates a synthetic set for 2.07 with a known total mass, to check the invariant by eye. Ten points with different sigmas (from fractions of a cell to large, mass 500), two lines (mass 200, one with a from_m/to_m interval cut), two polygons (mass 300, one for dasymetry) and an auxiliary raster. Total mass 1000.
+
+Run 2.07 on the point layer - the density integral in the log should give 500, on lines 200, on polygons 300. Layer fields: **mass**, **prec**, **from_m**, **to_m**.
+
+| Parameter | Purpose | Default |
+|---|---|---|
+| Extent | Generation bounds. | - |
+| Auxiliary raster cell, m | Step of the auxiliary raster. | 50 |
+| RNG seed (Adv.) | Example reproducibility. | 1 |
+| Demo points / lines / polygons | Three measurement layers. | - |
+| Auxiliary raster | Raster for dasymetry. | - |
 
 # 3.01 Cross-section along a line
 
@@ -1637,13 +1687,109 @@ Point layer **Subsidence profiles (trough, tours: N)**:
 - **Basin (demo)** (polygon): field **name**.
 - **Coast (demo)** (line): field **name**.
 
+## Density (demo) - tool 2.08
+
+Point layer **Demo points**:
+
+| Field | Type | Meaning, units |
+|---|---|---|
+| mass | double | measurement mass (demo, 50 per point) |
+| prec | double | uncertainty sigma, m |
+
+Line layer **Demo lines**:
+
+| Field | Type | Meaning, units |
+|---|---|---|
+| mass | double | measurement mass (demo, 100 per line) |
+| prec | double | corridor half-width, m |
+| from_m | double | interval start along the line, m (may be empty) |
+| to_m | double | interval end along the line, m (may be empty) |
+
+Polygon layer **Demo polygons**:
+
+| Field | Type | Meaning, units |
+|---|---|---|
+| mass | double | measurement mass (demo, 150 per polygon) |
+| dasy | integer | 1 - polygon for dasymetry, 0 - uniform |
+
+Auxiliary raster **Auxiliary raster (dasymetry)** - a value gradient for the dasymetric mode of 2.07, nominal units.
+
 ## Polyhedron - tool 4.07
 
 Polyhedral layer (3D faces): field **bed** (integer) - bed number, field **watertight** (integer) - watertightness, 1 yes or 0 no.
 
+# Appendix. Variable-support density: step by step
+
+A walkthrough of tools 2.07 and 2.08 from demo generation to a finished result, with an explanation of each parameter. The example shows how to check the mass invariant by eye.
+
+## Step 1. Generate the demo (2.08)
+
+Run **2.08 Create a density example (demo)**.
+
+- **Extent** - the generation bounds. Set a rectangle on the map or by a layer. Any metric extent works, for example a square a few kilometres across.
+- **Auxiliary raster cell, m** - the step of the auxiliary raster for dasymetry. Default 50, enough for the demo.
+- **RNG seed** (Adv.) - example reproducibility. With one seed the set is identical.
+
+The output is four layers: **Demo points**, **Demo lines**, **Demo polygons** and **Auxiliary raster**. The log states the embedded mass: points 500, lines 200, polygons 300, total 1000.
+
+## Step 2. Density from points (2.07)
+
+Run **2.07 Density from measurements** on the **Demo points** layer.
+
+- **Measurements** - the Demo points layer.
+- **Mass field** - **mass**. If left empty, each object mass is 1.
+- **Precision field** - **prec**. For points this is the Gaussian spot sigma in metres. The larger the sigma, the more diffuse and lower the point contribution.
+- **Cell size, m** - the result grid step. A smaller cell means a more detailed map and a longer computation. The density in mass per km2 does not depend on the cell size, only the detail does.
+- **Area** - leave empty, taken by the layer.
+- **Support beyond edge** - **Renormalise inside** keeps all mass in the area, **Lose mass** discards the part beyond the edge with a warning. To check the invariant use renormalise.
+- **Default sigma** (Adv.) - used when the precision field is empty. Zero means the half-cell.
+
+Check the log: the line **Input mass: 500. Mass on grid: 500. Discrepancy: 0**. This is the invariant - the density integral equals the sum of masses.
+
+## Step 3. Density from lines
+
+Run 2.07 on the **Demo lines** layer.
+
+- **Precision field** - **prec** - here it is the corridor half-width in metres. The line is spread into a soft-edged strip.
+- **from_m / to_m** (Adv.) - the **from_m** and **to_m** fields. One demo line has an interval set, and only its part is spread in the result. Empty fields mean the whole line.
+
+In the log the mass on grid is 200. If the lose-mass mode is on and the corridor left the edge, the discrepancy shows how much mass was lost.
+
+## Step 4. Density from polygons and dasymetry
+
+Run 2.07 on the **Demo polygons** layer.
+
+- Without an auxiliary raster the polygon mass is spread uniformly over its area.
+- **Auxiliary raster** (Adv.) - feed the demo **Auxiliary raster**. Then dasymetry turns on for polygons: mass is distributed proportionally to the raster values inside the polygon rather than evenly. If the raster is empty inside the polygon, the tool falls back to uniform and writes this to the log.
+
+The mass on grid is 300 in both modes; only the distribution shape inside the polygons changes.
+
+## Step 5. Mix types by appending
+
+To gather points, lines and polygons into one raster, run 2.07 three times in a row.
+
+- The first run is as usual, you get a three-band raster.
+- On the second and third, in the **Append to an existing raster** parameter (Adv.) point to the raster from the previous run. The tool reads the three bands, adds the new mass and returns the updated raster.
+
+After three appends the total mass on grid is 1000. Bands 2 and 3 (sum m*sigma and sum m) are service for exactly this - they let you append in series and keep the effective-sigma map exact.
+
+## Step 6. Effective sigma
+
+Set the optional **Effective sigma** output. This is the mass-weighted sigma per cell, an effective-precision map. Where density is gathered from precise supports the sigma is small. Where from smeared coarse georeferences it is large. An analogue of kriging variance for the density floor: it shows where the result can be trusted and where it rests on coarse supports.
+
+## Reading the result
+
+Band 1 of the result is density in mass per km2. Open it with a single-band pseudocolour style. Density spots are where reliable measurements cluster. The invariant in the log confirms that mass is conserved and the result is correct. The layer must be in a metric coordinate system, otherwise the tool refuses to run.
+
 # For enterprises
 
 Isoliner grows on the tasks of real mining operations. We implement custom features to match production regulations, provide guaranteed technical support contracts and integrate the module into the production cycle, including corporate database connections. Details: https://www.informpp.ru/главная-страница/предприятиям
+
+## Log and toolbar
+
+Isoliner keeps a work log in the **isoliner.log** file next to the QGIS profile. At the start of a session it records the versions of the plugin, QGIS, NumPy and GDAL, then the name of the launched tool, its parameters, the run time, and on a failure the full traceback. The computation window closes but the file remains, so it is enough to attach it when reporting.
+
+Open the log in three ways: via **Plugins - Isoliner - Log**, with the **Log** button on the **Isoliner** toolbar, or with the **Log** button in the **About** window. The same toolbar also has the 3D surface viewer and the About window.
 
 # License and support
 

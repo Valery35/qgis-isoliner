@@ -1068,6 +1068,11 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
     xd, yd, vrd = _read_points(source, zfield, feedback,
                                vmin=vmin, vmax=vmax, pct=pct, cap=cap)
     _warn_data(feedback, xd, yd, vrd)
+    try:
+        from . import trace
+        trace.data("Точек на входе: %d" % len(xd))
+    except Exception:
+        pass
 
     # --- логарифмирование: кригинг лог-нормальных величин (K, T, ...) -------
     # Кригуется ln(Z), оценка возвращается через exp (медианная оценка), а
@@ -1458,7 +1463,48 @@ def _write_declus_report(path, title, naive, decl, best_cell, sizes, means,
         f.write(html)
 
 
-class DeclusteringAlgorithm(QgsProcessingAlgorithm):
+class IsolinerAlgorithm(QgsProcessingAlgorithm):
+    """Базовый класс инструментов Isoliner. Оборачивает расчёт журналом
+    (trace): имя инструмента, параметры, время, а при сбое - трейсбек на диск
+    рядом с окном Processing. Наследники держат тело в _process."""
+
+    def processAlgorithm(self, parameters, context, feedback):
+        import time
+        from . import trace
+        name = self.displayName()
+        trace.step("Инструмент: %s" % name)
+        trace.data("Параметры: %s" % self._short_params(parameters))
+        started = time.time()
+        try:
+            result = self._process(parameters, context, feedback)
+            trace.step("Готово за %.1f с" % (time.time() - started))
+            return result
+        except Exception as exc:
+            trace.fail("%s: расчёт прерван: %s" % (name, exc), exc)
+            try:
+                feedback.reportError(
+                    "Расчёт прерван: %s\n\nПодробности в журнале:\n%s"
+                    % (exc, trace.path() or "журнал не заведён"))
+            except Exception:
+                pass
+            raise
+
+    def _process(self, parameters, context, feedback):
+        raise NotImplementedError
+
+    def _short_params(self, parameters):
+        parts = []
+        try:
+            for key, value in sorted(parameters.items()):
+                text = getattr(value, "name", None)
+                text = text() if callable(text) else (text or value)
+                parts.append("%s=%s" % (key, text))
+        except Exception:
+            return str(parameters)
+        return ", ".join(parts)
+
+
+class DeclusteringAlgorithm(IsolinerAlgorithm):
     """Ячеистая декластеризация: веса, обратные локальной плотности данных,
     и представительное (декластеризованное) среднее. Порт GSLIB declus."""
 
@@ -1540,7 +1586,7 @@ class DeclusteringAlgorithm(QgsProcessingAlgorithm):
             self.OUTPUT_HTML, self.tr("HTML-отчёт"),
             self.tr("HTML (*.html)"), optional=True, createByDefault=True))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         from . import declus as dc
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
@@ -1628,7 +1674,7 @@ class DeclusteringAlgorithm(QgsProcessingAlgorithm):
         return results
 
 
-class Kriging2DAlgorithm(QgsProcessingAlgorithm):
+class Kriging2DAlgorithm(IsolinerAlgorithm):
     INPUT, ZFIELD = "INPUT", "ZFIELD"
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
@@ -1746,7 +1792,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
             "вдали от данных."))
         self.addParameter(se)
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         parameters = _apply_profile(self, parameters, context, feedback)
@@ -1777,7 +1823,7 @@ class Kriging2DAlgorithm(QgsProcessingAlgorithm):
 # ===========================================================================
 #  Категориальный индикаторный кригинг
 # ===========================================================================
-class CategoricalIndicatorAlgorithm(QgsProcessingAlgorithm):
+class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
     """Категориальный индикаторный кригинг по текстовому/категориальному полю.
     На каждый класс строит индикатор 0/1, кригует ординарным кригингом (ядро
     KB2D), нормирует вероятности к сумме 1. Выход: многополосный растр
@@ -1860,7 +1906,7 @@ class CategoricalIndicatorAlgorithm(QgsProcessingAlgorithm):
             self.OUTPUT_CONF, self.tr("Уверенность (макс. вероятность)"),
             optional=True, createByDefault=False))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         source = self.parameterAsSource(parameters, self.INPUT, context)
@@ -2005,7 +2051,7 @@ class CategoricalIndicatorAlgorithm(QgsProcessingAlgorithm):
 # ===========================================================================
 #  2. Растр → изолинии
 # ===========================================================================
-class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
+class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
     INPUT, BAND = "INPUT", "BAND"
     INTERVAL, BASE, LEVELS = "INTERVAL", "BASE", "LEVELS"
     INDEX_EVERY, MIN_LENGTH = "INDEX_EVERY", "MIN_LENGTH"
@@ -2070,7 +2116,7 @@ class RasterToIsolinesAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessing.TypeVectorPolygon,
             optional=True, createByDefault=True))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         rl = self.parameterAsRasterLayer(parameters, self.INPUT, context)
@@ -2528,7 +2574,7 @@ def _add_cv_params(alg):
 # ===========================================================================
 #  3. Кросс-валидация вариограммы (leave-one-out)
 # ===========================================================================
-class CrossValidationAlgorithm(QgsProcessingAlgorithm):
+class CrossValidationAlgorithm(IsolinerAlgorithm):
     INPUT, ZFIELD = "INPUT", "ZFIELD"
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
@@ -2624,7 +2670,7 @@ class CrossValidationAlgorithm(QgsProcessingAlgorithm):
             self.OUTPUT_HTML, self.tr("Отчёт о кросс-валидации (HTML)"),
             self.tr("HTML files (*.html)"), optional=True, createByDefault=True))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         parameters = _apply_profile(self, parameters, context, feedback)
         source = self.parameterAsSource(parameters, self.INPUT, context)
@@ -2874,7 +2920,7 @@ def _demo_values(rng, G, w, xs, ys, ext, vmin, vmax, nf):
     return np.clip(mean + struct + noise, vmin, vmax)
 
 
-class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
+class ExampleWellsAlgorithm(IsolinerAlgorithm):
     """Генерация демонстрационного набора скважин со значением абстрактного
     компонента, имеющим заданную пространственную структуру. Подходит для
     обучения и проверки кригинга/изолиний/кросс-валидации без реальных данных."""
@@ -2998,7 +3044,7 @@ class ExampleWellsAlgorithm(QgsProcessingAlgorithm):
             "пропущен, поле dz не добавляется. По умолчанию выключено."))
         self.addParameter(dr)
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         crs = self.parameterAsExtentCrs(parameters, self.EXTENT, context)
         rect = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
@@ -3374,7 +3420,7 @@ def _write_variogram_report(path, title, series, data_var, fit, model_curves,
         fh.write(html)
 
 
-class GeophysProfilesDemoAlgorithm(QgsProcessingAlgorithm):
+class GeophysProfilesDemoAlgorithm(IsolinerAlgorithm):
     """Демонстрационные геофизические профили. Два режима: электроразведка
     (ρк, ЕП, ВП с низкоомной аномалией-пятном) и оседания (мульда сдвижения
     по турам). Дополнительно отметка z и истинное значение без шума."""
@@ -3473,7 +3519,7 @@ class GeophysProfilesDemoAlgorithm(QgsProcessingAlgorithm):
             self.OUTPUT, self.tr("Геофизические профили"),
             QgsProcessing.TypeVectorPoint))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         from . import geodemo
         feedback.pushInfo(_version_line())
         crs = self.parameterAsExtentCrs(parameters, self.EXTENT, context)
@@ -3585,7 +3631,464 @@ class GeophysProfilesDemoAlgorithm(QgsProcessingAlgorithm):
 # ===========================================================================
 #  4. Экспериментальная вариограмма (изотропная) + подбор модели
 # ===========================================================================
-class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
+def _num_attr(ft, field, default):
+    """Числовое значение поля объекта или default при пустом/нечисловом."""
+    if not field:
+        return default
+    try:
+        v = ft.attribute(field)
+        if v is None:
+            return default
+        fv = float(v)
+        return fv if np.isfinite(fv) else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _iter_points(g):
+    if QgsWkbTypes.isMultiType(g.wkbType()):
+        for p in g.asMultiPoint():
+            yield (p.x(), p.y())
+    else:
+        p = g.asPoint()
+        yield (p.x(), p.y())
+
+
+def _iter_lines(g):
+    if QgsWkbTypes.isMultiType(g.wkbType()):
+        parts = g.asMultiPolyline()
+    else:
+        parts = [g.asPolyline()]
+    for line in parts:
+        if len(line) >= 2:
+            yield np.array([(p.x(), p.y()) for p in line], float)
+
+
+def _iter_polygons(g):
+    if QgsWkbTypes.isMultiType(g.wkbType()):
+        polys = g.asMultiPolygon()
+    else:
+        polys = [g.asPolygon()]
+    for poly in polys:
+        rings = [np.array([(p.x(), p.y()) for p in ring], float)
+                 for ring in poly if len(ring) >= 3]
+        if rings:
+            yield rings
+
+
+class VariableSupportDensityAlgorithm(IsolinerAlgorithm):
+    """2.07 Плотность по замерам с переменной опорой. Замер размазывается по
+    носителю (точка+сигма, линия-коридор, полигон), масса сохраняется, плотность
+    обратна площади носителя. Выход - трёхканальный растр (плотность, Σm·σ, Σm),
+    самодостаточный для дописывания сериями."""
+    INPUT = "INPUT"
+    MASS_FIELD, PREC_FIELD = "MASS_FIELD", "PREC_FIELD"
+    FROM_FIELD, TO_FIELD = "FROM_FIELD", "TO_FIELD"
+    DEFAULT_SIGMA = "DEFAULT_SIGMA"
+    EXTENT, CELL, EDGE = "EXTENT", "CELL", "EDGE"
+    DASY, APPEND = "DASY", "APPEND"
+    OUTPUT, OUTPUT_SIGMA = "OUTPUT", "OUTPUT_SIGMA"
+    NODATA = -9999.0
+
+    def tr(self, s): return _tr(s)
+    def helpUrl(self): return _help_url()
+    def name(self): return "vardensity"
+    def displayName(self):
+        return self.tr("2.07 Плотность по замерам (переменная опора)")
+    def group(self): return self.tr(GROUP2)
+    def groupId(self): return GROUP2_ID
+    def createInstance(self): return VariableSupportDensityAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Оценка плотности, где замер задан не точкой, а носителем конечного "
+            "размера: точка с сигмой неопределённости, отрезок линии (коридор "
+            "полуширины), полигон. Единичная масса замера размазывается по "
+            "носителю. Масса сохраняется, плотность обратна площади носителя, "
+            "поэтому грубые привязки (регион, «где-то на Каме») самоослабляются "
+            "геометрически, без порогов.\n\nЭто оценка плотности (сколько и "
+            "где), не интерполяция значения - для значений остаётся кригинг. "
+            "Тип геометрии один на запуск, смешение - серией запусков в один "
+            "растр (дописывание).\n\nПоля: масса (по умолчанию 1 на объект); "
+            "точность (для точек сигма в единицах карты, для линий полуширина "
+            "коридора); для линий from_m/to_m - вырезка интервала по линейной "
+            "привязке.\n\nВыход - трёхканальный растр: канал 1 плотность (масса "
+            "на км², не зависит от размера ячейки), каналы 2-3 служебные (Σm·σ и "
+            "Σm), чтобы дописывание и карта эффективной сигмы были точны. "
+            "Необязательный второй растр - средневзвешенная сигма по ячейке "
+            "(карта эффективной точности, аналог кригинговой дисперсии).\n\n"
+            "Инвариант: интеграл плотности равен сумме масс входа, пишется в "
+            "лог. Дазиметрия для полигонов - масса пропорциональна "
+            "вспомогательному растру (население и т.п.), при пустом растре "
+            "внутри полигона откат на равномерное. Слой должен быть в "
+            "метрической системе координат."))
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Замеры (точки, линии или полигоны)")))
+        self.addParameter(QgsProcessingParameterField(
+            self.MASS_FIELD, self.tr("Поле массы (по умолчанию 1)"),
+            parentLayerParameterName=self.INPUT, optional=True,
+            type=QgsProcessingParameterField.Numeric))
+        self.addParameter(QgsProcessingParameterField(
+            self.PREC_FIELD,
+            self.tr("Поле точности (сигма точки / полуширина линии)"),
+            parentLayerParameterName=self.INPUT, optional=True,
+            type=QgsProcessingParameterField.Numeric))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELL, self.tr("Размер ячейки, м"),
+            QgsProcessingParameterNumber.Double, defaultValue=50.0,
+            minValue=1e-6))
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Область (по умолчанию по слою)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.EDGE, self.tr("Носитель за краем области"),
+            options=[self.tr("Донормировать внутри"),
+                     self.tr("Потерять массу (с предупреждением)")],
+            defaultValue=0))
+        p = QgsProcessingParameterNumber(
+            self.DEFAULT_SIGMA,
+            self.tr("Сигма по умолчанию, м (0 - полуячейка)"),
+            QgsProcessingParameterNumber.Double, defaultValue=0.0, minValue=0.0)
+        _advanced(p); self.addParameter(p)
+        for key, lab in ((self.FROM_FIELD, _tr("Поле from_m (линии, интервал)")),
+                         (self.TO_FIELD, _tr("Поле to_m (линии, интервал)"))):
+            p = QgsProcessingParameterField(
+                key, self.tr(lab), parentLayerParameterName=self.INPUT,
+                optional=True, type=QgsProcessingParameterField.Numeric)
+            _advanced(p); self.addParameter(p)
+        p = QgsProcessingParameterRasterLayer(
+            self.DASY, self.tr("Вспом. растр для дазиметрии (полигоны)"),
+            optional=True)
+        _advanced(p); self.addParameter(p)
+        p = QgsProcessingParameterRasterLayer(
+            self.APPEND,
+            self.tr("Дописать в существующий растр (3 канала)"), optional=True)
+        _advanced(p); self.addParameter(p)
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Плотность (переменная опора)")))
+        se = QgsProcessingParameterRasterDestination(
+            self.OUTPUT_SIGMA, self.tr("Эффективная сигма (необязательно)"),
+            optional=True, createByDefault=False)
+        self.addParameter(se)
+
+    def _process(self, parameters, context, feedback):
+        from . import density as D
+        feedback.pushInfo(_version_line())
+        source = self.parameterAsSource(parameters, self.INPUT, context)
+        if source is None:
+            raise QgsProcessingException(self.tr("Не задан слой замеров."))
+        crs = source.sourceCrs()
+        if crs is not None and crs.isGeographic():
+            raise QgsProcessingException(self.tr(
+                "Слой в градусах. Перепроецируйте в метрическую систему "
+                "координат."))
+        gtype = QgsWkbTypes.geometryType(source.wkbType())
+        cell = self.parameterAsDouble(parameters, self.CELL, context)
+        edge_lose = self.parameterAsEnum(parameters, self.EDGE, context) == 1
+        renorm = not edge_lose
+        dsig = self.parameterAsDouble(parameters, self.DEFAULT_SIGMA, context)
+        mass_f = self.parameterAsString(parameters, self.MASS_FIELD, context)
+        prec_f = self.parameterAsString(parameters, self.PREC_FIELD, context)
+        from_f = self.parameterAsString(parameters, self.FROM_FIELD, context)
+        to_f = self.parameterAsString(parameters, self.TO_FIELD, context)
+
+        # --- сетка: из растра дописывания либо из экстента ---
+        append_lyr = self.parameterAsRasterLayer(parameters, self.APPEND,
+                                                 context)
+        acc = snum = wsum = None
+        if append_lyr is not None:
+            ds = gdal.Open(append_lyr.source())
+            if ds is None or ds.RasterCount < 3:
+                raise QgsProcessingException(self.tr(
+                    "Растр дописывания должен иметь 3 канала (плотность, "
+                    "Σm·σ, Σm)."))
+            gt = ds.GetGeoTransform()
+            nx, ny = ds.RasterXSize, ds.RasterYSize
+            cell = abs(gt[1])
+            xmin = gt[0]; ymin = gt[3] + ny * gt[5]     # gt[5] < 0
+            gs = D.GridSpec(xmin, ymin, cell, nx, ny)
+            b1 = np.flipud(ds.GetRasterBand(1).ReadAsArray().astype(float))
+            b2 = np.flipud(ds.GetRasterBand(2).ReadAsArray().astype(float))
+            b3 = np.flipud(ds.GetRasterBand(3).ReadAsArray().astype(float))
+            b1 = np.where(b1 == self.NODATA, 0.0, b1)
+            acc = b1 * gs.cell_area_km2()               # плотность -> масса
+            snum = np.where(b2 == self.NODATA, 0.0, b2)
+            wsum = np.where(b3 == self.NODATA, 0.0, b3)
+            ds = None
+            feedback.pushInfo(self.tr("Дописывание в растр %d×%d, ячейка %.4g.")
+                              % (nx, ny, cell))
+        else:
+            ext = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+            if ext.isEmpty():
+                ext = source.sourceExtent()
+            gs = D.GridSpec.from_extent(ext.xMinimum(), ext.yMinimum(),
+                                        ext.xMaximum(), ext.yMaximum(), cell)
+            acc, snum, wsum = gs.new_acc()
+
+        # --- дазиметрический вспом. растр -> на сетку (ближайший) ---
+        aux_grid = None
+        dasy_lyr = self.parameterAsRasterLayer(parameters, self.DASY, context)
+        if dasy_lyr is not None:
+            aux_grid = self._sample_raster(dasy_lyr, gs)
+
+        log = []
+        in_mass = 0.0
+        n_obj = 0
+        for ft in source.getFeatures():
+            if feedback.isCanceled():
+                break
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            mass = _num_attr(ft, mass_f, 1.0)
+            prec = _num_attr(ft, prec_f, None)
+            in_mass += (mass if (mass and np.isfinite(mass)) else 0.0)
+            n_obj += 1
+            if gtype == QgsWkbTypes.PointGeometry:
+                for p in _iter_points(g):
+                    sig = prec if prec is not None else (dsig or None)
+                    D.add_point(acc, snum, wsum, gs, p[0], p[1], mass, sig,
+                                renorm_inside=renorm, log=log)
+            elif gtype == QgsWkbTypes.LineGeometry:
+                half = prec if prec is not None else (dsig or None)
+                fr = _num_attr(ft, from_f, None)
+                to = _num_attr(ft, to_f, None)
+                for verts in _iter_lines(g):
+                    v = verts
+                    if from_f or to_f:
+                        v = D.cut_polyline(verts, fr, to)
+                        if v is None:
+                            continue
+                    D.add_line(acc, snum, wsum, gs, v, mass, half,
+                               renorm_inside=renorm, log=log)
+            else:  # polygon
+                for rings in _iter_polygons(g):
+                    mask = D.rasterize_polygon(gs, rings)
+                    D.add_polygon(acc, snum, wsum, gs, mask, mass,
+                                  aux=aux_grid, log=log)
+
+        density, eff, total = D.finalize(acc, snum, wsum, gs,
+                                         nodata=self.NODATA)
+        # --- инвариант ---
+        feedback.pushInfo(self.tr(
+            "Объектов: %d. Масса входа: %.6g. Масса на сетке: %.6g. "
+            "Расхождение: %.3g.") % (n_obj, in_mass, total, in_mass - total))
+        if abs(in_mass - total) > 1e-6 * max(1.0, abs(in_mass)):
+            feedback.pushWarning(self.tr(
+                "Часть массы за пределами области (см. режим края)."))
+        for line in log[:50]:
+            feedback.pushInfo(line)
+
+        geotr = (gs.xmin, gs.cell, 0.0, gs.ymin + gs.ny * gs.cell, 0.0,
+                 -gs.cell)
+        wkt = None
+        if crs is not None and crs.isValid():
+            srs = osr.SpatialReference(); srs.ImportFromWkt(crs.toWkt())
+            wkt = srs.ExportToWkt()
+        drv = gdal.GetDriverByName("GTiff")
+        opt = ["COMPRESS=LZW", "TILED=YES"]
+        out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+        ds = drv.Create(out_path, gs.nx, gs.ny, 3, gdal.GDT_Float32,
+                        options=opt)
+        ds.SetGeoTransform(geotr)
+        if wkt:
+            ds.SetProjection(wkt)
+        for i, (arr, name) in enumerate((
+                (density, self.tr("плотность, масса/км²")),
+                (snum, "sum m*sigma"), (wsum, "sum m"))):
+            b = ds.GetRasterBand(i + 1)
+            b.SetDescription(name)
+            if i == 0:
+                b.SetNoDataValue(self.NODATA)
+            b.WriteArray(np.flipud(arr).astype(np.float32)); b.FlushCache()
+        ds = None
+        _set_output_name(context, out_path,
+                         self.tr("Плотность (переменная опора)"))
+        results = {self.OUTPUT: out_path}
+
+        sig_path = self.parameterAsOutputLayer(parameters, self.OUTPUT_SIGMA,
+                                               context)
+        if sig_path:
+            ds = drv.Create(sig_path, gs.nx, gs.ny, 1, gdal.GDT_Float32,
+                            options=opt)
+            ds.SetGeoTransform(geotr)
+            if wkt:
+                ds.SetProjection(wkt)
+            b = ds.GetRasterBand(1); b.SetNoDataValue(self.NODATA)
+            b.WriteArray(np.flipud(eff).astype(np.float32)); b.FlushCache()
+            ds = None
+            _set_output_name(context, sig_path,
+                             self.tr("Эффективная сигма"))
+            results[self.OUTPUT_SIGMA] = sig_path
+        return results
+
+    @staticmethod
+    def _sample_raster(layer, gs):
+        """Ближайшая выборка растра в узлы сетки gs (ориентация gs: строка 0
+        снизу)."""
+        ds = gdal.Open(layer.source())
+        if ds is None:
+            return None
+        gt = ds.GetGeoTransform()
+        arr = ds.GetRasterBand(1).ReadAsArray().astype(float)
+        nd = ds.GetRasterBand(1).GetNoDataValue()
+        ds = None
+        if nd is not None:
+            arr = np.where(arr == nd, 0.0, arr)
+        cx = gs.col_centers()
+        cy = gs.row_centers()
+        col = ((cx - gt[0]) / gt[1]).astype(int)
+        row = ((cy - gt[3]) / gt[5]).astype(int)          # gt[5] < 0
+        col = np.clip(col, 0, arr.shape[1] - 1)
+        row = np.clip(row, 0, arr.shape[0] - 1)
+        return arr[np.ix_(row, col)]
+
+
+class DensityDemoAlgorithm(IsolinerAlgorithm):
+    """2.08 Демо-генератор к 2.07. Синтетический набор с круглой суммарной
+    массой (1000) для проверки инварианта глазами: точки, линии, полигоны и
+    вспомогательный растр для дазиметрии."""
+    EXTENT, SEED = "EXTENT", "SEED"
+    OUT_POINTS, OUT_LINES = "OUT_POINTS", "OUT_LINES"
+    OUT_POLYGONS, OUT_AUX = "OUT_POLYGONS", "OUT_AUX"
+    CELL_AUX = "CELL_AUX"
+
+    def tr(self, s): return _tr(s)
+    def helpUrl(self): return _help_url()
+    def name(self): return "densitydemo"
+    def displayName(self):
+        return self.tr("2.08 Создать пример для плотности (демо)")
+    def group(self): return self.tr(GROUP2)
+    def groupId(self): return GROUP2_ID
+    def createInstance(self): return DensityDemoAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Синтетический набор для инструмента 2.07 с известной суммарной "
+            "массой, чтобы проверить инвариант глазами. Точки (масса 500, "
+            "сигмы от долей ячейки до крупных), линии (масса 200, у одной "
+            "вырезка интервала from_m/to_m), полигоны (масса 300, один под "
+            "дазиметрию) и вспомогательный растр. Итого масса 1000.\n\nЗапустите "
+            "2.07 на слое точек - интеграл плотности должен дать 500, на линиях "
+            "200, на полигонах 300. Поля: mass, prec, from_m, to_m."))
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Область (экстент)")))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELL_AUX, self.tr("Ячейка вспом. растра, м"),
+            QgsProcessingParameterNumber.Double, defaultValue=50.0,
+            minValue=1e-6))
+        p = QgsProcessingParameterNumber(
+            self.SEED, self.tr("Зерно ГСЧ (0 - случайно)"),
+            QgsProcessingParameterNumber.Integer, defaultValue=1, minValue=0)
+        _advanced(p); self.addParameter(p)
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUT_POINTS, self.tr("Демо-точки"),
+            QgsProcessing.TypeVectorPoint))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUT_LINES, self.tr("Демо-линии"),
+            QgsProcessing.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUT_POLYGONS, self.tr("Демо-полигоны"),
+            QgsProcessing.TypeVectorPolygon))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_AUX, self.tr("Вспом. растр для дазиметрии")))
+
+    def _process(self, parameters, context, feedback):
+        from . import density as D
+        feedback.pushInfo(_version_line())
+        crs = self.parameterAsExtentCrs(parameters, self.EXTENT, context)
+        rect = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        if rect.isEmpty():
+            raise QgsProcessingException(self.tr("Не задан охват."))
+        seed = self.parameterAsInt(parameters, self.SEED, context)
+        cell = self.parameterAsDouble(parameters, self.CELL_AUX, context)
+        ds = D.demo_dataset(rect.xMinimum(), rect.yMinimum(),
+                            rect.xMaximum(), rect.yMaximum(), seed=seed)
+
+        # --- точки ---
+        pf = QgsFields()
+        pf.append(QgsField("mass", QVariant.Double))
+        pf.append(QgsField("prec", QVariant.Double))
+        psink, pdest = self.parameterAsSink(
+            parameters, self.OUT_POINTS, context, pf, QgsWkbTypes.Point, crs)
+        for x, y, m, s in ds["points"]:
+            f = QgsFeature(pf)
+            f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
+            f.setAttributes([float(m), float(s)])
+            psink.addFeature(f)
+
+        # --- линии ---
+        lf = QgsFields()
+        lf.append(QgsField("mass", QVariant.Double))
+        lf.append(QgsField("prec", QVariant.Double))
+        lf.append(QgsField("from_m", QVariant.Double))
+        lf.append(QgsField("to_m", QVariant.Double))
+        lsink, ldest = self.parameterAsSink(
+            parameters, self.OUT_LINES, context, lf, QgsWkbTypes.LineString,
+            crs)
+        for ln in ds["lines"]:
+            f = QgsFeature(lf)
+            f.setGeometry(QgsGeometry.fromPolylineXY(
+                [QgsPointXY(x, y) for x, y in ln["verts"]]))
+            f.setAttributes([float(ln["mass"]), float(ln["half"]),
+                             None if ln["from_m"] is None else float(ln["from_m"]),
+                             None if ln["to_m"] is None else float(ln["to_m"])])
+            lsink.addFeature(f)
+
+        # --- полигоны ---
+        gf = QgsFields()
+        gf.append(QgsField("mass", QVariant.Double))
+        gf.append(QgsField("dasy", QVariant.Int))
+        gsink, gdest = self.parameterAsSink(
+            parameters, self.OUT_POLYGONS, context, gf, QgsWkbTypes.Polygon,
+            crs)
+        for pg in ds["polygons"]:
+            f = QgsFeature(gf)
+            rings = [[QgsPointXY(x, y) for x, y in ring] for ring in pg["rings"]]
+            f.setGeometry(QgsGeometry.fromPolygonXY(rings))
+            f.setAttributes([float(pg["mass"]), 1 if pg["dasy"] else 0])
+            gsink.addFeature(f)
+
+        # --- вспом. растр (градиент, для дазиметрии) ---
+        gs = D.GridSpec.from_extent(rect.xMinimum(), rect.yMinimum(),
+                                    rect.xMaximum(), rect.yMaximum(), cell)
+        gx = (gs.col_centers() - rect.xMinimum())
+        gx = gx / max(gx.max(), 1e-9)
+        aux = (0.2 + gx[None, :] + 0.0 * gs.row_centers()[:, None])
+        geotr = (gs.xmin, gs.cell, 0.0, gs.ymin + gs.ny * gs.cell, 0.0,
+                 -gs.cell)
+        wkt = None
+        if crs is not None and crs.isValid():
+            srs = osr.SpatialReference(); srs.ImportFromWkt(crs.toWkt())
+            wkt = srs.ExportToWkt()
+        aux_path = self.parameterAsOutputLayer(parameters, self.OUT_AUX,
+                                               context)
+        drv = gdal.GetDriverByName("GTiff")
+        rds = drv.Create(aux_path, gs.nx, gs.ny, 1, gdal.GDT_Float32,
+                         options=["COMPRESS=LZW", "TILED=YES"])
+        rds.SetGeoTransform(geotr)
+        if wkt:
+            rds.SetProjection(wkt)
+        rds.GetRasterBand(1).WriteArray(np.flipud(aux).astype(np.float32))
+        rds.GetRasterBand(1).FlushCache(); rds = None
+
+        feedback.pushInfo(self.tr(
+            "Демо создано. Масса: точки 500, линии 200, полигоны 300, итого "
+            "1000. Прогоните 2.07 на каждом слое - интеграл плотности должен "
+            "совпасть."))
+        _set_output_name(context, pdest, self.tr("Демо-точки (плотность)"))
+        _set_output_name(context, ldest, self.tr("Демо-линии (плотность)"))
+        _set_output_name(context, gdest, self.tr("Демо-полигоны (плотность)"))
+        _set_output_name(context, aux_path, self.tr("Вспом. растр (дазиметрия)"))
+        return {self.OUT_POINTS: pdest, self.OUT_LINES: ldest,
+                self.OUT_POLYGONS: gdest, self.OUT_AUX: aux_path}
+
+
+class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
     INPUT, ZFIELD, GROUP_FIELD = "INPUT", "ZFIELD", "GROUP_FIELD"
     WEIGHT_FIELD = "WEIGHT_FIELD"
     MIN_GROUP_PCT = "MIN_GROUP_PCT"
@@ -3714,7 +4217,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
             return None
         return self.parameterAsDouble(parameters, name, context)
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         source = self.parameterAsSource(parameters, self.INPUT, context)
         layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
@@ -3945,7 +4448,7 @@ class ExperimentalVariogramAlgorithm(QgsProcessingAlgorithm):
 # Порядок в этом списке на панель Processing не влияет: тулбокс сортирует
 # алгоритмы внутри группы по алфавиту отображаемого имени. Список оставлен в
 # логическом порядке только для чтения кода.
-class ProfilesAlgorithm(QgsProcessingAlgorithm):
+class ProfilesAlgorithm(IsolinerAlgorithm):
     """Управление профилями обработки: показать / сохранить вручную /
     удалить / очистить. Профиль = вариограмма (Структура 1) + наггет + отсев."""
     ACTION = "ACTION"
@@ -4033,7 +4536,7 @@ class ProfilesAlgorithm(QgsProcessingAlgorithm):
             return None
         return self.parameterAsDouble(parameters, name, context)
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         action = self.parameterAsEnum(parameters, self.ACTION, context)
         if action == 0:
@@ -4153,7 +4656,7 @@ def _write_varmap_report(path, title, m, meta, advice, feedback=None):
         fh.write(html)
 
 
-class VariogramMapAlgorithm(QgsProcessingAlgorithm):
+class VariogramMapAlgorithm(IsolinerAlgorithm):
     INPUT, ZFIELD = "INPUT", "ZFIELD"
     WEIGHT_FIELD = "WEIGHT_FIELD"
     N_BINS, MAXLAG, MIN_PAIRS = "N_BINS", "MAXLAG", "MIN_PAIRS"
@@ -4222,7 +4725,7 @@ class VariogramMapAlgorithm(QgsProcessingAlgorithm):
             self.OUTPUT_RASTER, self.tr("Растр поверхности (опц., в лаг-координатах)"),
             optional=True, createByDefault=False))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         src = self.parameterAsSource(parameters, self.INPUT, context)
         if src is None:
@@ -4443,7 +4946,7 @@ def _write_grid_tiff(path, array, geotr, crs_wkt, nodata, nx, ny,
     ds = None
 
 
-class FlowGradientAlgorithm(QgsProcessingAlgorithm):
+class FlowGradientAlgorithm(IsolinerAlgorithm):
     INPUT, BAND = "INPUT", "BAND"
     SMOOTH_RADIUS = "SMOOTH_RADIUS"
     VECTOR_STEP = "VECTOR_STEP"
@@ -4505,7 +5008,7 @@ class FlowGradientAlgorithm(QgsProcessingAlgorithm):
             createByDefault=True)
         self.addParameter(vec)
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         rl = self.parameterAsRasterLayer(parameters, self.INPUT, context)
@@ -4593,7 +5096,7 @@ class FlowGradientAlgorithm(QgsProcessingAlgorithm):
         return results
 
 
-class ExternalDriftKrigingAlgorithm(QgsProcessingAlgorithm):
+class ExternalDriftKrigingAlgorithm(IsolinerAlgorithm):
     """Кригинг с внешним дрейфом (External Drift) - регрессия-кригинг по
     сторонней переменной, известной всюду (растр). Опирается на то же ядро,
     что и «2D Kriging»: дрейф снимается регрессией, кригуются остатки, дрейф
@@ -4689,7 +5192,7 @@ class ExternalDriftKrigingAlgorithm(QgsProcessingAlgorithm):
             "своей погрешности к ней не добавляет."))
         self.addParameter(se)
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         source = self.parameterAsSource(parameters, self.INPUT, context)
@@ -4716,7 +5219,7 @@ class ExternalDriftKrigingAlgorithm(QgsProcessingAlgorithm):
         return results
 
 
-class ExceedanceProbabilityAlgorithm(QgsProcessingAlgorithm):
+class ExceedanceProbabilityAlgorithm(IsolinerAlgorithm):
     """Карта вероятности превышения порога из растров оценки и стандартной
     ошибки кригинга. Постобработка, как «Гидравлический градиент»: своего
     кригинга не делает, считает P(Z>порог) = Φ((оценка−порог)/ошибка) из уже
@@ -4775,7 +5278,7 @@ class ExceedanceProbabilityAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Растр вероятности (0…1)")))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         rl_e = self.parameterAsRasterLayer(parameters, self.ESTIMATE, context)
@@ -4857,7 +5360,7 @@ class ExceedanceProbabilityAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: out_path}
 
 
-class DarcyFluxAlgorithm(QgsProcessingAlgorithm):
+class DarcyFluxAlgorithm(IsolinerAlgorithm):
     """Удельный расход по закону Дарси. Постобработка над растром напора и
     растрами свойств пласта: к геометрии потока (градиент, направление)
     добавляет проницаемость. Скорость фильтрации q = K·|∇h| (м/сут) и расход
@@ -4963,7 +5466,7 @@ class DarcyFluxAlgorithm(QgsProcessingAlgorithm):
         return _resample_drift_to_grid(src, gt[0], gt[3] + ny * gt[5],
                                        abs(gt[1]), nx, ny, band)
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         rl = self.parameterAsRasterLayer(parameters, self.INPUT, context)
@@ -5097,7 +5600,7 @@ class DarcyFluxAlgorithm(QgsProcessingAlgorithm):
         return results
 
 
-class SectionDemoAlgorithm(QgsProcessingAlgorithm):
+class SectionDemoAlgorithm(IsolinerAlgorithm):
     """Демо-данные для разреза: три гладкие стопкой поверхности (две залежи) с
     падением и волнистой переменной мощностью, плюс линия через площадь. Готово
     для подачи в «Разрез по линии» без кригинга реальных данных."""
@@ -5182,7 +5685,7 @@ class SectionDemoAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessing.TypeVectorPolygon, optional=True,
             createByDefault=True))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         crs = self.parameterAsExtentCrs(parameters, self.EXTENT, context)
@@ -5525,7 +6028,7 @@ def _nice_ticks(lo, hi, n):
     return ticks
 
 
-class SectionAlgorithm(QgsProcessingAlgorithm):
+class SectionAlgorithm(IsolinerAlgorithm):
     """Геологический разрез по линии. На вход - линия разреза и упорядоченный
     сверху вниз набор поверхностей (кровли и подошвы из кригинга). Пласты это
     полосы между соседними поверхностями. Два выхода: 2D-чертёж в осях
@@ -5631,7 +6134,7 @@ class SectionAlgorithm(QgsProcessingAlgorithm):
         f.append(QgsField("seclen", QVariant.Double))
         return f
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         src = self.parameterAsSource(parameters, self.LINE, context)
@@ -5931,7 +6434,7 @@ class SectionAlgorithm(QgsProcessingAlgorithm):
         return res
 
 
-class BoreholesOnSectionAlgorithm(QgsProcessingAlgorithm):
+class BoreholesOnSectionAlgorithm(IsolinerAlgorithm):
     """Скважины на разрез: проекция точечного слоя скважин на линию разреза.
     Каждая скважина показывается вертикальной колонкой интервалов пластов в осях
     расстояние-высота, поверх чертежа разреза. Границы пластов берутся из
@@ -6009,7 +6512,7 @@ class BoreholesOnSectionAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessing.TypeVectorPoint, optional=True,
             createByDefault=True))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         lsrc = self.parameterAsSource(parameters, self.LINE, context)
@@ -6129,7 +6632,7 @@ class BoreholesOnSectionAlgorithm(QgsProcessingAlgorithm):
         return res
 
 
-class CompositionOnSectionAlgorithm(QgsProcessingAlgorithm):
+class CompositionOnSectionAlgorithm(IsolinerAlgorithm):
     """Состав пласта на разрезе: красит полосу одного пласта по гриду состава
     вдоль линии. Два режима. Непрерывное содержание (KCl, нерастворимый остаток)
     режется на тонкие срезы со средним значением - под градиентную заливку.
@@ -6237,7 +6740,7 @@ class CompositionOnSectionAlgorithm(QgsProcessingAlgorithm):
         ds = None
         return a, gt
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         lsrc = self.parameterAsSource(parameters, self.LINE, context)
@@ -6421,7 +6924,7 @@ def _line_points(line_geom, length, step):
     return d, xs, ys
 
 
-class SectionGridIntersectAlgorithm(QgsProcessingAlgorithm):
+class SectionGridIntersectAlgorithm(IsolinerAlgorithm):
     """Пересечение поверхностей-гридов с разрезом. По определению разреза (линия
     и vex) каждый грид выбирается вдоль линии и ложится на чертёж линией
     высота(расстояние). Так на разрез наносят водоносные горизонты, маркирующие
@@ -6472,7 +6975,7 @@ class SectionGridIntersectAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessing.TypeVectorLine, optional=True,
             createByDefault=False))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         src = self.parameterAsSource(parameters, self.LINE_DEF, context)
@@ -6541,7 +7044,7 @@ class SectionGridIntersectAlgorithm(QgsProcessingAlgorithm):
         return res
 
 
-class SectionVectorIntersectAlgorithm(QgsProcessingAlgorithm):
+class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
     """Пересечение векторных слоёв с разрезом. По определению разреза (линия и
     vex) объекты входного слоя пересекаются с линией разреза и ложатся на чертёж:
     линия без отметки - вертикаль на всю высоту в станции; линия с отметкой Z -
@@ -6612,7 +7115,7 @@ class SectionVectorIntersectAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessing.TypeVectorPolygon, optional=True,
             createByDefault=True))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         src = self.parameterAsSource(parameters, self.LINE_DEF, context)
@@ -6789,7 +7292,7 @@ class SectionVectorIntersectAlgorithm(QgsProcessingAlgorithm):
         return res
 
 
-class SectionTinIntersectAlgorithm(QgsProcessingAlgorithm):
+class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
     """Пересечение TIN (3D-граней) с разрезом. В отличие от растрового грида TIN
     из настоящих 3D-треугольников может нависать и опрокидываться: над одной
     станцией несколько отметок, и трасса заворачивается. Каждый треугольник
@@ -6840,7 +7343,7 @@ class SectionTinIntersectAlgorithm(QgsProcessingAlgorithm):
             type=QgsProcessing.TypeVectorLine, optional=True,
             createByDefault=False))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         src = self.parameterAsSource(parameters, self.LINE_DEF, context)
@@ -6968,7 +7471,7 @@ class SectionTinIntersectAlgorithm(QgsProcessingAlgorithm):
         return res
 
 
-class SectionProjectAlgorithm(QgsProcessingAlgorithm):
+class SectionProjectAlgorithm(IsolinerAlgorithm):
     """Проекция объектов на разрез. Точки, линии и полигоны проецируются на линию
     разреза: горизонтальная координата - расстояние вдоль линии до проекции,
     высота - отметка вершины (из 3D-геометрии или из поля). Результат в осях
@@ -7014,7 +7517,7 @@ class SectionProjectAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Объекты на разрезе (чертёж)")))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         src = self.parameterAsSource(parameters, self.LINE_DEF, context)
@@ -7089,7 +7592,7 @@ class SectionProjectAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: dest}
 
 
-class SectionUnprojectAlgorithm(QgsProcessingAlgorithm):
+class SectionUnprojectAlgorithm(IsolinerAlgorithm):
     """Спроецировать с разреза. Объекты, нарисованные на чертеже разреза (оси
     расстояние-высота), возвращаются в реальные координаты: горизонталь читается
     как расстояние вдоль линии (точка на линии даёт X, Y), высота - как отметка
@@ -7126,7 +7629,7 @@ class SectionUnprojectAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Объекты в плане (с отметкой Z)")))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         src = self.parameterAsSource(parameters, self.LINE_DEF, context)
@@ -7184,7 +7687,7 @@ class SectionUnprojectAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: dest}
 
 
-class ShaftUnwrapAlgorithm(QgsProcessingAlgorithm):
+class ShaftUnwrapAlgorithm(IsolinerAlgorithm):
     """Развёртка стенки шахтного ствола. Цилиндрический разрез: вокруг оси ствола
     на заданном радиусе берётся окружность с угловым шагом, и поверхности-гриды
     выбираются по ней. Развёртка ложится в оси длина дуги - высота: каждая
@@ -7246,7 +7749,7 @@ class ShaftUnwrapAlgorithm(QgsProcessingAlgorithm):
             self.OUTPUT, self.tr("Развёртка стенки (дуга × высота)"),
             type=QgsProcessing.TypeVectorLine))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         asrc = self.parameterAsSource(parameters, self.AXIS, context)
@@ -7316,7 +7819,7 @@ class ShaftUnwrapAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: dest}
 
 
-class SequentialGaussianSimAlgorithm(QgsProcessingAlgorithm):
+class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
     INPUT, FIELD = "INPUT", "FIELD"
     WEIGHT_FIELD = "WEIGHT_FIELD"
     CELL_SIZE, EXTENT = "CELL_SIZE", "EXTENT"
@@ -7410,7 +7913,7 @@ class SequentialGaussianSimAlgorithm(QgsProcessingAlgorithm):
             self.OUT_PROB, self.tr("Вероятность превышения порога"),
             optional=True, createByDefault=False))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         source = self.parameterAsSource(parameters, self.INPUT, context)
@@ -7586,7 +8089,7 @@ def _safe_filename(s, used):
     return s
 
 
-class SectionSurfacesToMeshAlgorithm(QgsProcessingAlgorithm):
+class SectionSurfacesToMeshAlgorithm(IsolinerAlgorithm):
     """Гриды поверхностей -> mesh-слои 2DM для штатного 3D-вида QGIS. Растровых
     поверхностей в 3D-сцене может быть только одна (террейн), а mesh-слоёв -
     сколько угодно, каждый на своих абсолютных Z. Инструмент пишет каждый грид
@@ -7650,7 +8153,7 @@ class SectionSurfacesToMeshAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterFolderDestination(
             self.FOLDER, self.tr("Папка для мешей (2DM)")))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         grids = self.parameterAsLayerList(parameters, self.GRIDS, context)
@@ -7716,7 +8219,7 @@ class SectionSurfacesToMeshAlgorithm(QgsProcessingAlgorithm):
         return {self.FOLDER: folder}
 
 
-class BedAssembleAlgorithm(QgsProcessingAlgorithm):
+class BedAssembleAlgorithm(IsolinerAlgorithm):
     """Собирает многоканальный грид пласта из горизонтов и параметров:
     канал 1 - кровля, канал 2 - подошва, каналы 3+ - параметры. Все входы
     приводятся к сетке кровли билинейной выборкой; имена каналов пишутся
@@ -7782,7 +8285,7 @@ class BedAssembleAlgorithm(QgsProcessingAlgorithm):
         ds = None
         return arr, gt
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         roof_l = self.parameterAsRasterLayer(parameters, self.ROOF, context)
@@ -7834,7 +8337,7 @@ class BedAssembleAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: out}
 
 
-class BedCalculatorAlgorithm(QgsProcessingAlgorithm):
+class BedCalculatorAlgorithm(IsolinerAlgorithm):
     """Подсчёт по гриду пласта: мощность из каналов кровли и подошвы,
     объём, тоннаж руды и металла, средневзвешенное содержание; сводка по
     всей площади или внутри контура. Мощность и запасы дописываются
@@ -7889,7 +8392,7 @@ class BedCalculatorAlgorithm(QgsProcessingAlgorithm):
             self.tr("HTML-файлы (*.html)"), optional=True,
             createByDefault=True))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         bed_l = self.parameterAsRasterLayer(parameters, self.BED, context)
@@ -8019,7 +8522,7 @@ class BedCalculatorAlgorithm(QgsProcessingAlgorithm):
         return res
 
 
-class BedToBlockModelAlgorithm(QgsProcessingAlgorithm):
+class BedToBlockModelAlgorithm(IsolinerAlgorithm):
     """Грид пласта -> блочная модель: точка-центроид на каждую валидную
     ячейку с атрибутами верха, низа, мощности, объёма, тоннажа и всех
     каналов параметров по их именам. Схема наращивается атрибутами
@@ -8082,7 +8585,7 @@ class BedToBlockModelAlgorithm(QgsProcessingAlgorithm):
             self.OUTPUT, self.tr("Блочная модель (центроиды)"),
             QgsProcessing.TypeVectorPoint))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         bed_l = self.parameterAsRasterLayer(parameters, self.BED, context)
@@ -8209,7 +8712,7 @@ class BedToBlockModelAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: dest}
 
 
-class DomainsToGridAlgorithm(QgsProcessingAlgorithm):
+class DomainsToGridAlgorithm(IsolinerAlgorithm):
     """Полигоны доменов -> добавочный канал грида пласта с кодом домена
     в каждой ячейке. Дальше калькулятор и блочная модель считают по
     доменам, а разность двух состояний даёт списание запасов."""
@@ -8255,7 +8758,7 @@ class DomainsToGridAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Грид пласта с каналом domain")))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         bed_l = self.parameterAsRasterLayer(parameters, self.BED, context)
@@ -8327,7 +8830,7 @@ class DomainsToGridAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: out}
 
 
-class ReserveDeltaAlgorithm(QgsProcessingAlgorithm):
+class ReserveDeltaAlgorithm(IsolinerAlgorithm):
     """Разность двух блочных моделей по совпадающим ячейкам: списание
     запасов между состояниями (было -> стало)."""
 
@@ -8373,7 +8876,7 @@ class ReserveDeltaAlgorithm(QgsProcessingAlgorithm):
             self.OUTPUT, self.tr("Разность (центроиды)"),
             QgsProcessing.TypeVectorPoint))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         before = self.parameterAsSource(parameters, self.BEFORE, context)
@@ -8422,7 +8925,7 @@ class ReserveDeltaAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: dest}
 
 
-class MinCurvatureAlgorithm(QgsProcessingAlgorithm):
+class MinCurvatureAlgorithm(IsolinerAlgorithm):
     """Гридирование методом минимальной кривизны (бигармония с натяжением).
     Поверхность как тонкая упругая пластина через данные с минимумом изгиба
     (Briggs, 1974). Часто применяется для карт геофизических полей."""
@@ -8510,7 +9013,7 @@ class MinCurvatureAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Грид (минимальная кривизна)")))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         import math
         from . import mincurv as mc
         feedback.pushInfo(_version_line())
@@ -8581,7 +9084,7 @@ class MinCurvatureAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: out_path}
 
 
-class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
+class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
     """Скользящий контроль (leave-one-out) метода гридирования: кригинг или
     минимальная кривизна. Оценивает качество метода по ошибке, как в Surfer:
     случайная выборка точек, фильтры, буфер исключения соседей."""
@@ -8730,7 +9233,7 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
             self.tr("HTML (*.html)"), optional=True, createByDefault=True)
         self.addParameter(html)
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         import math
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
@@ -9008,7 +9511,7 @@ class MethodCrossValidationAlgorithm(QgsProcessingAlgorithm):
         return results
 
 
-class FractalDimensionAlgorithm(QgsProcessingAlgorithm):
+class FractalDimensionAlgorithm(IsolinerAlgorithm):
     """Карта фрактальной размерности поверхности вариограммным методом:
     локальный наклон лог-лог вариограммы в скользящем окне даёт H,
     D = 3 - H. Гладкие участки - около 2, изрезанные - к 3."""
@@ -9065,7 +9568,7 @@ class FractalDimensionAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Фрактальная размерность (D)")))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         lyr = self.parameterAsRasterLayer(parameters, self.RASTER, context)
@@ -9112,7 +9615,7 @@ class FractalDimensionAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: out}
 
 
-class BoxCountingAlgorithm(QgsProcessingAlgorithm):
+class BoxCountingAlgorithm(IsolinerAlgorithm):
     """Box-counting: одна размерность D на бинарную маску растра."""
 
     RASTER, BAND, THRESHOLD = "RASTER", "BAND", "THRESHOLD"
@@ -9153,7 +9656,7 @@ class BoxCountingAlgorithm(QgsProcessingAlgorithm):
         self.addOutput(QgsProcessingOutputNumber(
             self.OUT_D, self.tr("Размерность D")))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         lyr = self.parameterAsRasterLayer(parameters, self.RASTER, context)
@@ -9182,7 +9685,7 @@ class BoxCountingAlgorithm(QgsProcessingAlgorithm):
         return {self.OUT_D: float(D)}
 
 
-class LineDimensionAlgorithm(QgsProcessingAlgorithm):
+class LineDimensionAlgorithm(IsolinerAlgorithm):
     """Размерность линий методом циркуля: D каждой линии атрибутом."""
 
     LINES = "LINES"
@@ -9220,7 +9723,7 @@ class LineDimensionAlgorithm(QgsProcessingAlgorithm):
             self.OUTPUT, self.tr("Объекты с размерностью"),
             QgsProcessing.TypeVectorAnyGeometry))
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         src = self.parameterAsSource(parameters, self.LINES, context)
@@ -9283,7 +9786,7 @@ class LineDimensionAlgorithm(QgsProcessingAlgorithm):
         return {self.OUTPUT: dest}
 
 
-class MinkowskiDimensionAlgorithm(QgsProcessingAlgorithm):
+class MinkowskiDimensionAlgorithm(IsolinerAlgorithm):
     """Размерность Минковского векторных объектов: box-counting сеткой
     убывающего размера прямо по линиям и границам полигонов, без
     растеризации. D каждого объекта атрибутом плюс D слоя целиком."""
@@ -9380,7 +9883,7 @@ class MinkowskiDimensionAlgorithm(QgsProcessingAlgorithm):
         return [np.array([(p.x(), p.y()) for p in part], dtype=float)
                 for part in parts if len(part) >= 2]
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         src = self.parameterAsSource(parameters, self.FEATURES, context)
@@ -9433,7 +9936,7 @@ class MinkowskiDimensionAlgorithm(QgsProcessingAlgorithm):
                 self.OUT_R2: float(R2layer)}
 
 
-class FractalDemoAlgorithm(QgsProcessingAlgorithm):
+class FractalDemoAlgorithm(IsolinerAlgorithm):
     """Демо для фрактальных инструментов: речная сеть с притоками,
     полигон водосбора и изрезанная береговая линия."""
 
@@ -9455,9 +9958,9 @@ class FractalDemoAlgorithm(QgsProcessingAlgorithm):
             "Генерирует учебные объекты для фрактальных инструментов: "
             "ветвящуюся речную сеть (поле order - порядок притока), полигон "
             "водосбора с изрезанной границей и отдельную береговую линию "
-            "(срединные смещения). Реки подавайте в 2.10 - размерность "
-            "сети; берег и границу водосбора - в 2.09 и 2.10; растеризуйте "
-            "водосбор - и он же пример для 2.08.") + _credit())
+            "(срединные смещения). Реки подавайте в 5.04 - размерность "
+            "сети; берег и границу водосбора - в 5.03 и 5.04; растеризуйте "
+            "водосбор - и он же пример для 5.02.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -9493,7 +9996,7 @@ class FractalDemoAlgorithm(QgsProcessingAlgorithm):
             pts = out
         return np.array(pts)
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         ext = self.parameterAsExtent(parameters, self.EXTENT, context)
@@ -9581,7 +10084,7 @@ class FractalDemoAlgorithm(QgsProcessingAlgorithm):
                 self.OUT_COAST: dest_c}
 
 
-class PolyhedralDemoAlgorithm(QgsProcessingAlgorithm):
+class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
     """Демо полиэдральной поверхности: тело пласта, куб или тетраэдр как
     нативный PolyhedralSurface Z (QGIS 3.40+) или TIN Z. На сборках до 3.40
     вывод деградирует до MultiPolygon Z с предупреждением. Задача - показать
@@ -9713,7 +10216,7 @@ class PolyhedralDemoAlgorithm(QgsProcessingAlgorithm):
                 "слоем.") % e)
             return False
 
-    def processAlgorithm(self, parameters, context, feedback):
+    def _process(self, parameters, context, feedback):
         from . import polyhedral as poly
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
@@ -9875,6 +10378,8 @@ ALGORITHMS = [
     ExceedanceProbabilityAlgorithm,
     DarcyFluxAlgorithm,
     SequentialGaussianSimAlgorithm,
+    VariableSupportDensityAlgorithm,
+    DensityDemoAlgorithm,
     SectionAlgorithm,
     BoreholesOnSectionAlgorithm,
     CompositionOnSectionAlgorithm,

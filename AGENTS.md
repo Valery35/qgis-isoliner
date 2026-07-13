@@ -34,6 +34,7 @@ QGIS-плагин Isoliner. Группа инструментов Processing д�
 | Файл | Роль |
 |---|---|
 | `__init__.py` | classFactory, точка входа |
+| `trace.py` | журнал работы (isoliner.log): session/step/data/warn/fail, без зависимостей от QGIS. Порт из Геоконструктора |
 | `plugin.py` | оболочка плагина, регистрация провайдера в Processing |
 | `provider.py` | QgsProcessingProvider; `i18n.init_from_qgis()` до регистрации, затем обходит `ALGORITHMS` |
 | `algorithms.py` | все классы алгоритмов + список `ALGORITHMS` (порядок задаёт панель); инструменты разреза и SGS тоже здесь |
@@ -42,6 +43,7 @@ QGIS-плагин Isoliner. Группа инструментов Processing д�
 | `hydro.py` | гидравлический градиент и направление потока (`head_gradient`, `flow_samples`) |
 | `fractal.py` | фрактальная размерность поверхности вариограммным методом (наклон лог-лог вариограммы даёт H, D = 3 - H), скользящее окно через кумулятивные суммы; box-counting, компас Ричардсона, Минковский. Чистый NumPy |
 | `mesh3d.py` | регулярный грид → треугольный меш (массивы вершин/граней, запись 2DM) и водонепроницаемое тело пласта (`bed_to_mesh_arrays`: кровля + подошва + юбка), плюс `cylinder` (боковая поверхность цилиндра для стволов скважин). Без импорта QGIS, headless-тест `tests/test_mesh3d.py` |
+| `density.py` | плотность переменной опоры (2.07): точка-гаусс/линия-коридор/полигон-маска, дискретная нормировка, два аккумулятора (Σm·σ, Σm) для эффективной сигмы, дазиметрия с откатом, cut_polyline, rasterize_polygon, demo_dataset. Инвариант массы. Чистый NumPy, тест `tests/test_density.py` (12) |
 | `geodemo.py` | генератор демо профилей: `gen_profiles` (электроразведка - ρк пятном-аномалией, ЕП, ВП, z, rho_true, 2D-фон против синхронности), `gen_subsidence` (мульда оседаний по турам, settle/settle_true), `pk_label`. Чистый NumPy, тест `tests/test_geodemo.py` |
 | `declus.py` | ячеистая декластеризация (порт GSLIB declus): `cell_declus` (веса ∝ 1/плотность, усреднение по смещениям сетки), `declus_sweep` (свип по размеру ячейки), `suggest_range`. Взвешенное normal-score живёт в `kb2d.nscore_transform(v, wts)`. Без импорта QGIS, headless-тест `tests/test_declus.py` |
 | `mincurv.py` | гридирование минимальной кривизной: `grid_points` (снап точек к узлам + старт ближайшим значением), `solve` (SOR обходом 9 цветов по бигармонии с натяжением, натуральная граница линейной экстраполяцией - плоскость точна), `loo_estimates` (LOO с тёплого старта) и `sample_bilinear`. Без импорта QGIS, headless-тест `tests/test_mincurv.py` |
@@ -55,7 +57,9 @@ QGIS-плагин Isoliner. Группа инструментов Processing д�
 | `site/isoliner_landing.html` | лендинг (9 карточек) |
 | `tests/` | pytest smoke/покрытие |
 
-## Инструменты (39, канонический порядок = `ALGORITHMS` в algorithms.py)
+БАЗОВЫЙ КЛАСС: все инструменты наследуются от `IsolinerAlgorithm(QgsProcessingAlgorithm)` - обёртка processAlgorithm журналом (trace: имя, параметры, время, трейсбек), тело каждого инструмента в `_process`, НЕ в processAlgorithm.
+
+## Инструменты (41, канонический порядок = `ALGORITHMS` в algorithms.py)
 
 Четыре группы Processing. Номер в скобках - префикс в displayName (он и задаёт
 порядок внутри группы); имя класса не меняется при переименовании. Список
@@ -83,6 +87,8 @@ displayName, поэтому ниже инструменты перечислен
 - 2.04 `FlowGradientAlgorithm` (hydro) - гидравлический градиент и направление потока
 - 2.05 `DarcyFluxAlgorithm` (hydro) - удельный расход (закон Дарси)
 - 2.06 `SequentialGaussianSimAlgorithm` (kb2d) - гауссова симуляция SGS: ансамбль реализаций, среднее/стд/квантили/вероятность; nscore + sgsim в kb2d.py
+- 2.07 `VariableSupportDensityAlgorithm` (density) - плотность по замерам с переменной опорой (точка+сигма/линия-коридор/полигон), выход 3-канальный (плотность, Σm·σ, Σm), дазиметрия, дописывание, инвариант массы
+- 2.08 `DensityDemoAlgorithm` (density) - демо к 2.07: точки/линии/полигоны + вспом. растр, круглая масса 1000
 [Группа 5 «Фрактальный анализ» (GROUP5/fractal_analysis), вынесена из группы 2]
 - 5.01 `FractalDimensionAlgorithm` (fractal) - фрактальная размерность поверхности вариограммным методом (карта D = 3 - H в скользящем окне)
 - 5.02 `BoxCountingAlgorithm` (fractal) - box-counting по маске

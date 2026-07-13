@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — thirty-nine in all:
+The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — forty-one in all:
 
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
@@ -271,6 +271,11 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **2.65.0** - work log (isoliner.log with versions, parameters and timing; traceback on failure), an Isoliner toolbar with 3D and About buttons, a 3D icon.
+- **2.64.1** - a step-by-step density appendix (2.07/2.08) and demo-layer fields in the manual.
+- **2.64.0** - new tools 2.07 "Density from measurements (variable support)" and 2.08 demo: a measurement is spread over its support (point+sigma, line corridor, polygon), mass conserved, three-band output, dasymetry.
+- **2.63.5** - fixed the missing 1.10 heading in the PDF outline.
+- **2.63.4** - the "kriging or minimum curvature" note in 1.11 strengthened with a subsidence example.
 - **2.63.3** - fixed a kriging crash on a missing Z field (a clear message instead of KeyError); added a "Demo layer fields" appendix to the manual.
 - **2.63.2** - adaptive output layer names on generation (1.11 by mode, section demo wells distinct from 1.10).
 - **2.63.1** - subsidence (1.11) capped at 2 m, uniform sign by choice, strict zeros at the edges.

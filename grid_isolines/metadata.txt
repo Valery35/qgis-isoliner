@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Includes a standalone 3D viewer (surfaces, watertight bed bodies from multiband grids, boreholes with collar masts, a section plane; pyqtgraph/PyOpenGL are bundled) and a 2DM mesh export. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=2.63.3
+version=2.65.1
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,35 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=2.63.3
+changelog=2.65.1
+    - Кнопка «Журнал» вынесена на панель инструментов и в окно «О плагине»
+      (с иконкой), открывает isoliner.log.
+    2.65.0
+    - Журнал работы: файл isoliner.log рядом с профилем QGIS. Заголовок сеанса
+      (версии плагина, QGIS, NumPy, GDAL), имя инструмента, параметры, время,
+      при сбое трейсбек. Открывается через меню и панель инструментов.
+    - Панель инструментов Isoliner с кнопками 3D-просмотра и «О плагине»,
+      добавлена иконка 3D.
+    2.64.1
+    - Руководство: добавлено пошаговое приложение «Плотность переменной опоры»
+      (2.08 демо -> 2.07 по каждому типу -> дописывание -> эффективная сигма, с
+      разбором параметров) и поля демо-слоёв 2.08 в приложение «Поля
+      демо-слоёв».
+    2.64.0
+    - Новые инструменты 2.07 «Плотность по замерам (переменная опора)» и 2.08
+      демо к ней. Замер размазывается по носителю (точка+сигма, линия-коридор,
+      полигон), масса сохраняется (инвариант в логе), выход трёхканальный для
+      дописывания и карты эффективной сигмы, дазиметрия для полигонов.
+      Попутно: поправлены устаревшие ссылки на фрактальные инструменты в
+      справке демо 5.05.
+    2.63.5
+    - Руководство: заголовок 1.10 не попадал в оглавление PDF из-за пропущенной
+      пустой строки перед ним. Исправлено, закладка восстановлена.
+    2.63.4
+    - Врезка «кригинг или минимальная кривизна» в 1.11 усилена примером
+      оседаний: мульду сдвижения кригинг раскатывает в ленту, минимальная
+      кривизна восстанавливает воронку.
+    2.63.3
     - Исправлен сбой кригинга при отсутствующем поле Z: вместо KeyError теперь
       понятное сообщение с просьбой выбрать поле значения. Добавлено
       приложение «Поля демо-слоёв» в руководство (все генераторы, с единицами).

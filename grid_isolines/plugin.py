@@ -19,6 +19,8 @@
 hasProcessingProvider=yes -> QGIS сам вызывает initProcessing(). Регистрация
 идемпотентна (без двойного добавления). Совместимо с QGIS 3.40 и 4.x.
 """
+import os
+
 from qgis.core import QgsApplication, QgsMessageLog
 
 PROVIDER_ID = "isoliner"
@@ -35,7 +37,69 @@ class GridIsolinesPlugin:
     def __init__(self, iface):
         self.iface = iface
         self.provider = None
+        self.actions = []
+        self.toolbar = None
 
+    # --- журнал ------------------------------------------------------------
+    def _plugin_version(self):
+        """Версия из metadata.txt (не дублируем в коде: разъедется)."""
+        import configparser
+        path = os.path.join(os.path.dirname(__file__), "metadata.txt")
+        parser = configparser.ConfigParser(strict=False)
+        try:
+            parser.read(path, encoding="utf-8")
+            return parser.get("general", "version").strip()
+        except Exception:
+            return "?"
+
+    def _start_log(self):
+        """Заголовок сеанса: версия плагина, QGIS, ОС, NumPy, GDAL."""
+        try:
+            from . import trace
+            base = ""
+            try:
+                base = QgsApplication.qgisSettingsDirPath()
+            except Exception:
+                base = ""
+            if not base or not os.path.isdir(base):
+                base = os.path.expanduser("~")
+            trace.set_path(os.path.join(base, "isoliner.log"), "Isoliner")
+            extra = []
+            try:
+                from qgis.core import Qgis
+                extra.append("QGIS: %s" % Qgis.QGIS_VERSION)
+            except Exception:
+                pass
+            try:
+                import numpy
+                extra.append("NumPy: %s" % numpy.__version__)
+            except Exception:
+                extra.append("NumPy: нет")
+            try:
+                from osgeo import gdal
+                extra.append("GDAL: %s" % gdal.__version__)
+            except Exception:
+                extra.append("GDAL: нет")
+            trace.session(self._plugin_version(), extra)
+            trace.step("Модуль загружен")
+        except Exception as e:
+            _log("Журнал не заведён: %s" % e)
+
+    def _open_log(self):
+        """Открыть файл журнала в системе."""
+        try:
+            from . import trace
+            from qgis.PyQt.QtGui import QDesktopServices
+            from qgis.PyQt.QtCore import QUrl
+            p = trace.path()
+            if p and os.path.exists(p):
+                QDesktopServices.openUrl(QUrl.fromLocalFile(p))
+            else:
+                _log("Журнал ещё не создан.")
+        except Exception as e:
+            _log("Не удалось открыть журнал: %s" % e)
+
+    # --- регистрация -------------------------------------------------------
     def initProcessing(self):
         reg = QgsApplication.processingRegistry()
         if reg.providerById(PROVIDER_ID) is not None:
@@ -51,37 +115,51 @@ class GridIsolinesPlugin:
 
     def initGui(self):
         self.initProcessing()
-        # Пункты меню «Модули -> Isoliner»: «О плагине», «Руководство (PDF)».
-        self.actions = []
+        self._start_log()
         try:
             from qgis.PyQt.QtGui import QIcon
             try:
-                from qgis.PyQt.QtGui import QAction  # Qt6 (QGIS 4)
+                from qgis.PyQt.QtGui import QAction   # Qt6 (QGIS 4)
             except ImportError:
-                from qgis.PyQt.QtWidgets import QAction  # Qt5 (QGIS 3)
+                from qgis.PyQt.QtWidgets import QAction   # Qt5 (QGIS 3)
             from .i18n import tr, init_from_qgis
-            from . import about
-            import os
+            from . import about, viewer3d
             init_from_qgis()
-            icon = QIcon(os.path.join(os.path.dirname(__file__), "icon.svg"))
-            from . import viewer3d
-            acts = []
-            if viewer3d.is_available():
-                a1 = QAction(tr("3D-просмотр поверхностей (бета)…"),
-                             self.iface.mainWindow())
+            here = os.path.dirname(__file__)
+            icon_main = QIcon(os.path.join(here, "icon.svg"))
+            icon_3d = QIcon(os.path.join(here, "icon_3d.svg"))
+            icon_log = QIcon(os.path.join(here, "icon_log.svg"))
 
-                def _open_viewer():
-                    viewer3d.show_viewer(self.iface)
-                a1.triggered.connect(_open_viewer)
-                acts.append(a1)
-            a2 = QAction(icon, tr("О плагине…"), self.iface.mainWindow())
-            a2.triggered.connect(lambda: about.show_about(self.iface.mainWindow()))
-            acts.append(a2)
-            for a in acts:
-                self.iface.addPluginToMenu("Isoliner", a)
-                self.actions.append(a)
+            win = self.iface.mainWindow()
+            self.toolbar = self.iface.addToolBar(tr("Isoliner"))
+            self.toolbar.setObjectName("IsolinerToolbar")
+
+            # 3D-просмотр (с иконкой) - в тулбар и меню
+            if viewer3d.is_available():
+                a3d = QAction(icon_3d,
+                              tr("3D-просмотр поверхностей (бета)…"), win)
+                a3d.setToolTip(tr("3D-просмотр поверхностей Isoliner"))
+                a3d.triggered.connect(lambda: viewer3d.show_viewer(self.iface))
+                self._add(a3d, toolbar=True)
+
+            # О плагине
+            a_about = QAction(icon_main, tr("О плагине…"), win)
+            a_about.triggered.connect(lambda: about.show_about(win))
+            self._add(a_about, toolbar=True)
+
+            # Журнал
+            a_log = QAction(icon_log, tr("Журнал…"), win)
+            a_log.setToolTip(tr("Открыть файл журнала Isoliner"))
+            a_log.triggered.connect(self._open_log)
+            self._add(a_log, toolbar=True)
         except Exception as e:
-            _log("Меню плагина не создано: %s" % e)
+            _log("Интерфейс плагина не создан: %s" % e)
+
+    def _add(self, action, toolbar=False):
+        self.iface.addPluginToMenu("Isoliner", action)
+        if toolbar and self.toolbar is not None:
+            self.toolbar.addAction(action)
+        self.actions.append(action)
 
     def unload(self):
         for a in getattr(self, "actions", []):
@@ -90,6 +168,12 @@ class GridIsolinesPlugin:
             except Exception:
                 pass
         self.actions = []
+        if self.toolbar is not None:
+            try:
+                self.toolbar.deleteLater()
+            except Exception:
+                pass
+            self.toolbar = None
         reg = QgsApplication.processingRegistry()
         prov = self.provider or reg.providerById(PROVIDER_ID)
         if prov is not None:
