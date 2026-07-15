@@ -6,19 +6,24 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Includes a standalone 3D viewer (surfaces, watertight bed bodies from multiband grids, boreholes with collar masts, a section plane; pyqtgraph/PyOpenGL are bundled) and a 2DM mesh export. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=3.1.0
+version=3.1.1
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
 tracker=https://github.com/Valery35/qgis-isoliner/issues
 repository=https://github.com/Valery35/qgis-isoliner
-tags=kriging,geostatistics,variogram,interpolation,minimum curvature,cross-validation,contour,contours,isolines,hydrogeology,geology,gslib,raster
+tags=kriging,geostatistics,variogram,interpolation,minimum curvature,cross-validation,contour,contours,isolines,hydrogeology,geology,gslib,raster,dem,terrain,topography,hydrology,watershed,flow accumulation,river network,slope,aspect,anudem,topo2raster,copernicus,gedtm30,openstreetmap
 category=Analysis
 icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=3.1.0
+changelog=3.1.1
+    - Исправлен масштаб высот GEDTM30: значения были вдесятеро меньше
+      реальных. COG хранит высоту целыми со scale-метаданными, теперь
+      источник читается через translate с флагом unscale, затем
+      перепроецируется. Высоты в настоящих метрах.
+    3.1.0
     - Инструмент 2.01 получил выбор источника рельефа. Помимо Copernicus
       GLO-30 (модель поверхности, DSM) добавлен GEDTM30 - глобальная модель
       рельефа (DTM, CC BY 4.0) от OpenGeoHub: лес и постройки сняты машинным

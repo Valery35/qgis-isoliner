@@ -106,8 +106,11 @@ class TestSources(unittest.TestCase):
         self.assertTrue(dem.GEDTM30_COG.endswith("v20250611.tif"))
         self.assertIn("gedtm_rf_m_30m", dem.GEDTM30_COG)
 
-    def test_gedtm30_scale(self):
-        self.assertEqual(dem.GEDTM30_SCALE, 10.0)
+    def test_gedtm30_nodata(self):
+        # сырой Int32 no-data COG (GDAL применит scale/unscale сам)
+        self.assertEqual(dem.GEDTM30_NODATA, -2147483647)
+        self.assertFalse(hasattr(dem, "GEDTM30_SCALE"),
+                         "деление на scale вручную убрано, unscale делает GDAL")
 
     def test_fetch_dem_has_source(self):
         import inspect

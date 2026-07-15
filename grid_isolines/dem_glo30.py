@@ -25,8 +25,9 @@ GEDTM30_COG = (
     "https://s3.opengeohub.org/global/edtm/"
     "gedtm_rf_m_30m_s_20060101_20151231_go_epsg.4326.3855_v20250611.tif"
 )
-GEDTM30_NODATA = -2147483647   # Int32 no-data по спецификации Zenodo
-GEDTM30_SCALE = 10.0           # значение в файле = высота_в_метрах * 10
+GEDTM30_NODATA = -2147483647   # Int32 no-data сырого COG (Zenodo)
+# COG несёт scale=0.1 в метаданных банда, GDAL применяет его при чтении
+# с флагом -unscale, отдавая настоящие метры. Вручную не делим.
 
 
 class DemSourceError(Exception):
@@ -117,29 +118,6 @@ def open_existing_tiles(names, gdal_module):
     return found
 
 
-def _apply_scale(path, gdal_module, scale, src_nodata, feedback=None):
-    """Привести целочисленный масштабированный грид к метрам.
-
-    GEDTM30 хранит высоту как Int32 со scale=10 (метры*10). Делим на
-    scale, пишем float32 с nodata -9999. Читаем и пишем на месте.
-    """
-    ds = gdal_module.Open(path, gdal_module.GA_Update)
-    if ds is None:
-        return
-    band = ds.GetRasterBand(1)
-    arr = band.ReadAsArray().astype("float64")
-    mask = (arr == src_nodata)
-    out = arr / float(scale)
-    out[mask] = -9999.0
-    # тип уже float32 после варпа cubic, пишем значения
-    band.WriteArray(out.astype("float32"))
-    band.SetNoDataValue(-9999.0)
-    band.FlushCache()
-    ds = None
-    if feedback:
-        feedback.pushInfo("GEDTM30: высоты приведены к метрам (scale 10).")
-
-
 def _resolve_dst_srs(osr_module, dst_epsg, dst_wkt, center_lonlat):
     """Целевая метрическая СК: WKT, EPSG или UTM по центру рамки."""
     dst_srs = osr_module.SpatialReference()
@@ -153,7 +131,7 @@ def _resolve_dst_srs(osr_module, dst_epsg, dst_wkt, center_lonlat):
 
 
 def _warp_to_metric(src_ds_or_path, out_path, extent_4326, gdal_module,
-                    osr_module, dst_srs, cell, nodata):
+                    osr_module, dst_srs, cell, nodata, dst_nodata=None):
     """Общий варп источника в метрическую СК с обрезкой по рамке."""
     lon_min, lat_min, lon_max, lat_max = extent_4326
     src_srs = osr_module.SpatialReference()
@@ -173,7 +151,7 @@ def _warp_to_metric(src_ds_or_path, out_path, extent_4326, gdal_module,
         resampleAlg="cubic",
         outputBounds=bounds,
         srcNodata=nodata,
-        dstNodata=nodata,
+        dstNodata=(dst_nodata if dst_nodata is not None else nodata),
         format="GTiff",
         creationOptions=["COMPRESS=DEFLATE", "TILED=YES", "PREDICTOR=2"],
         multithread=True,
@@ -219,10 +197,24 @@ def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
                 "и прокси, либо источник временно недоступен."
             )
         probe = None
-        _warp_to_metric(cog, out_path, extent_4326, gdal_module,
-                        osr_module, dst_srs, cell, GEDTM30_NODATA)
-        _apply_scale(out_path, gdal_module, GEDTM30_SCALE, GEDTM30_NODATA,
-                     feedback=feedback)
+        # COG хранит высоту как Int32 со scale-метаданными. Warp scale
+        # не применяет, поэтому сперва translate -unscale переводит в
+        # настоящие метры (Float32), затем warp в метрическую СК.
+        unscaled = "/vsimem/gedtm_unscaled.tif"
+        tr = gdal_module.Translate(
+            unscaled, cog,
+            options=gdal_module.TranslateOptions(
+                unscale=True, outputType=gdal_module.GDT_Float32,
+                noData=-9999.0))
+        if tr is None:
+            raise DemSourceError(
+                "Не удалось прочитать COG GEDTM30 (unscale).")
+        tr = None
+        _warp_to_metric(unscaled, out_path, extent_4326, gdal_module,
+                        osr_module, dst_srs, cell, -9999.0)
+        gdal_module.Unlink(unscaled)
+        if feedback:
+            feedback.pushInfo("GEDTM30: высоты приведены к метрам.")
         return out_path, [cog]
 
     # SOURCE_GLO30: плиточная мозаика
