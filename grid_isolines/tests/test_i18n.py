@@ -49,7 +49,7 @@ def _wrapped_constants(tree):
             continue
         try:
             val = ast.literal_eval(node.value)
-        except Exception:
+        except (ValueError, SyntaxError):  # literal_eval на не-литерале
             continue
         if isinstance(val, str):
             out.append(val)

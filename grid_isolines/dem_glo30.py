@@ -14,6 +14,20 @@ BUCKET_URL = "https://copernicus-dem-30m.s3.amazonaws.com"
 DEFAULT_CELL = 30.0
 DEFAULT_MAX_TILES = 25
 
+# Источники ЦМР
+SOURCE_GLO30 = "glo30"
+SOURCE_GEDTM30 = "gedtm30"
+
+# GEDTM30: единый глобальный COG, bare-earth DTM, CC BY 4.0.
+# Слой edtm - предсказанная высота рельефа (не uncertainty и не маска).
+# Имя по конвенции Open-Earth-Monitor, версия v20250611, EGM2008 geoid.
+GEDTM30_COG = (
+    "https://s3.opengeohub.org/global/edtm/"
+    "gedtm_rf_m_30m_s_20060101_20151231_go_epsg.4326.3855_v20250611.tif"
+)
+GEDTM30_NODATA = -2147483647   # Int32 no-data по спецификации Zenodo
+GEDTM30_SCALE = 10.0           # значение в файле = высота_в_метрах * 10
+
 
 class DemSourceError(Exception):
     """Ошибка источника ЦМР с внятным текстом для пользователя."""
@@ -103,42 +117,48 @@ def open_existing_tiles(names, gdal_module):
     return found
 
 
-def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
-              dst_epsg=None, dst_wkt=None, cell=DEFAULT_CELL,
-              max_tiles=DEFAULT_MAX_TILES, feedback=None):
-    """Полный цикл: плитки, VRT-мозаика, варп в метрическую СК.
+def _apply_scale(path, gdal_module, scale, src_nodata, feedback=None):
+    """Привести целочисленный масштабированный грид к метрам.
 
-    extent_4326: (lon_min, lat_min, lon_max, lat_max).
-    Целевая СК задаётся кодом dst_epsg либо строкой dst_wkt: WKT
-    покрывает пользовательские СК без кода EPSG (локальные шахтные
-    сетки). Без обоих берётся UTM по центру рамки.
-    Возвращает (out_path, использованные_плитки).
+    GEDTM30 хранит высоту как Int32 со scale=10 (метры*10). Делим на
+    scale, пишем float32 с nodata -9999. Читаем и пишем на месте.
     """
-    lon_min, lat_min, lon_max, lat_max = extent_4326
-    names = tiles_for_bbox(lon_min, lat_min, lon_max, lat_max, max_tiles)
+    ds = gdal_module.Open(path, gdal_module.GA_Update)
+    if ds is None:
+        return
+    band = ds.GetRasterBand(1)
+    arr = band.ReadAsArray().astype("float64")
+    mask = (arr == src_nodata)
+    out = arr / float(scale)
+    out[mask] = -9999.0
+    # тип уже float32 после варпа cubic, пишем значения
+    band.WriteArray(out.astype("float32"))
+    band.SetNoDataValue(-9999.0)
+    band.FlushCache()
+    ds = None
     if feedback:
-        feedback.pushInfo("Плиток по рамке: {}".format(len(names)))
-    paths = open_existing_tiles(names, gdal_module)
-    if feedback:
-        feedback.pushInfo("Найдено в бакете: {} из {}".format(len(paths), len(names)))
+        feedback.pushInfo("GEDTM30: высоты приведены к метрам (scale 10).")
 
-    if dst_epsg is None and dst_wkt is None:
-        dst_epsg = utm_epsg_for((lon_min + lon_max) / 2.0,
-                                (lat_min + lat_max) / 2.0)
 
-    vrt_path = "/vsimem/glo30_mosaic.vrt"
-    vrt = gdal_module.BuildVRT(vrt_path, paths)
-    if vrt is None:
-        raise DemSourceError("Не удалось собрать VRT-мозаику из плиток.")
-
-    src_srs = osr_module.SpatialReference()
-    src_srs.ImportFromEPSG(4326)
-    src_srs.SetAxisMappingStrategy(osr_module.OAMS_TRADITIONAL_GIS_ORDER)
+def _resolve_dst_srs(osr_module, dst_epsg, dst_wkt, center_lonlat):
+    """Целевая метрическая СК: WKT, EPSG или UTM по центру рамки."""
     dst_srs = osr_module.SpatialReference()
     if dst_wkt is not None:
         dst_srs.ImportFromWkt(dst_wkt)
-    else:
+    elif dst_epsg is not None:
         dst_srs.ImportFromEPSG(int(dst_epsg))
+    else:
+        dst_srs.ImportFromEPSG(utm_epsg_for(*center_lonlat))
+    return dst_srs
+
+
+def _warp_to_metric(src_ds_or_path, out_path, extent_4326, gdal_module,
+                    osr_module, dst_srs, cell, nodata):
+    """Общий варп источника в метрическую СК с обрезкой по рамке."""
+    lon_min, lat_min, lon_max, lat_max = extent_4326
+    src_srs = osr_module.SpatialReference()
+    src_srs.ImportFromEPSG(4326)
+    src_srs.SetAxisMappingStrategy(osr_module.OAMS_TRADITIONAL_GIS_ORDER)
     tr = osr_module.CoordinateTransformation(src_srs, dst_srs)
     xs, ys = [], []
     for lon, lat in ((lon_min, lat_min), (lon_min, lat_max),
@@ -147,24 +167,78 @@ def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
         xs.append(x)
         ys.append(y)
     bounds = (min(xs), min(ys), max(xs), max(ys))
-
     warp_opts = gdal_module.WarpOptions(
         dstSRS=dst_srs.ExportToWkt(),
         xRes=float(cell), yRes=float(cell),
         resampleAlg="cubic",
         outputBounds=bounds,
-        dstNodata=-32768.0,
+        srcNodata=nodata,
+        dstNodata=nodata,
         format="GTiff",
         creationOptions=["COMPRESS=DEFLATE", "TILED=YES", "PREDICTOR=2"],
         multithread=True,
     )
-    out_ds = gdal_module.Warp(out_path, vrt, options=warp_opts)
-    vrt = None
-    gdal_module.Unlink(vrt_path)
+    out_ds = gdal_module.Warp(out_path, src_ds_or_path, options=warp_opts)
     if out_ds is None:
         raise DemSourceError(
             "Перепроецирование не удалось. Проверьте доступ к сети: "
-            "варп читает данные плиток по HTTP."
+            "варп читает данные источника по HTTP."
         )
     out_ds = None
+    return out_path
+
+
+def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
+              dst_epsg=None, dst_wkt=None, cell=DEFAULT_CELL,
+              max_tiles=DEFAULT_MAX_TILES, source=SOURCE_GLO30,
+              feedback=None):
+    """Полный цикл загрузки ЦМР по рамке в метрическую СК.
+
+    extent_4326: (lon_min, lat_min, lon_max, lat_max).
+    source: SOURCE_GLO30 (Copernicus GLO-30, плиточная мозаика) или
+    SOURCE_GEDTM30 (единый глобальный COG bare-earth DTM, CC BY 4.0).
+    Целевая СК задаётся кодом dst_epsg либо строкой dst_wkt (для
+    пользовательских СК без кода EPSG). Без обоих берётся UTM по центру.
+    Возвращает (out_path, список_источников).
+    """
+    lon_min, lat_min, lon_max, lat_max = extent_4326
+    center = ((lon_min + lon_max) / 2.0, (lat_min + lat_max) / 2.0)
+    dst_srs = _resolve_dst_srs(osr_module, dst_epsg, dst_wkt, center)
+
+    if source == SOURCE_GEDTM30:
+        cog = vsicurl_path(GEDTM30_COG)
+        if feedback:
+            feedback.pushInfo("Источник: GEDTM30 (единый COG, bare-earth).")
+        try:
+            probe = gdal_module.Open(cog)
+        except RuntimeError:
+            probe = None
+        if probe is None:
+            raise DemSourceError(
+                "Не удалось открыть COG GEDTM30. Проверьте соединение "
+                "и прокси, либо источник временно недоступен."
+            )
+        probe = None
+        _warp_to_metric(cog, out_path, extent_4326, gdal_module,
+                        osr_module, dst_srs, cell, GEDTM30_NODATA)
+        _apply_scale(out_path, gdal_module, GEDTM30_SCALE, GEDTM30_NODATA,
+                     feedback=feedback)
+        return out_path, [cog]
+
+    # SOURCE_GLO30: плиточная мозаика
+    names = tiles_for_bbox(lon_min, lat_min, lon_max, lat_max, max_tiles)
+    if feedback:
+        feedback.pushInfo("Плиток по рамке: {}".format(len(names)))
+    paths = open_existing_tiles(names, gdal_module)
+    if feedback:
+        feedback.pushInfo("Найдено в бакете: {} из {}".format(
+            len(paths), len(names)))
+    vrt_path = "/vsimem/glo30_mosaic.vrt"
+    vrt = gdal_module.BuildVRT(vrt_path, paths)
+    if vrt is None:
+        raise DemSourceError("Не удалось собрать VRT-мозаику из плиток.")
+    _warp_to_metric(vrt, out_path, extent_4326, gdal_module, osr_module,
+                    dst_srs, cell, -32768.0)
+    vrt = None
+    gdal_module.Unlink(vrt_path)
     return out_path, paths

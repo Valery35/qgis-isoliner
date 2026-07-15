@@ -113,7 +113,8 @@ class TestWriteGeotiffUserCrs(unittest.TestCase):
             self.skipTest("GDAL недоступен")
         import tempfile, os as _os
         z = demo_relief.generate(nx=30, ny=25, seed=3)
-        path = tempfile.mktemp(suffix=".tif")
+        fd, path = tempfile.mkstemp(suffix=".tif")
+        _os.close(fd)
         try:
             demo_relief.write_geotiff(z, path, gdal, osr,
                                       wkt=self.LOCAL_WKT)

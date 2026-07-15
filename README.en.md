@@ -296,6 +296,8 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **3.1.0** - tool 2.01 gained a terrain-source choice: besides Copernicus GLO-30 (DSM) there is now GEDTM30 (forest-free DTM, CC BY 4.0) by OpenGeoHub, more accurate under forest canopy.
+- **3.0.4** — catalog security-scanner compatibility: narrow exception types instead of a broad except with a silent pass/continue.
 - **3.0.3** — fixed a Topo2Raster crash on QGIS 4 with single-part geometries (asMultiPoint/asMultiPolyline/asMultiPolygon).
 - **3.0.2** — topography output layers are added to the tree collapsed.
 - **3.0.1** — QGIS 4 shakedown: 2.01 and 2.10 accept user CRSs without an EPSG code (WKT into the warp), topography outputs land in a "Topography" layer-tree group, output-file descriptions in the tool help, a Topo2Raster lesson in the manual.

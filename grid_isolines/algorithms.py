@@ -79,6 +79,7 @@ from qgis.core import (
     QgsPolygon,
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
+    QgsCsException,
     QgsWkbTypes,
 )
 
@@ -10373,6 +10374,7 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
     хранилища через /vsicurl/, VRT-мозаика без швов, обязательный
     варп в метрическую СК, гидрокоррекция флажком."""
 
+    SOURCE = "SOURCE"
     EXTENT = "EXTENT"
     TARGET_CRS = "TARGET_CRS"
     CELL = "CELL"
@@ -10392,21 +10394,28 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
 
     def shortHelpString(self):
         return _help_version(self.tr(
-            "Загружает Copernicus DEM GLO-30 по рамке из открытого "
-            "хранилища, без регистрации и ключей. Плитки собираются в "
-            "мозаику без швов и перепроецируются в метрическую систему "
-            "координат с кубической интерполяцией. Сырые градусные "
-            "плитки в анализ не попадают, поэтому укрупнённый шаг "
-            "GLO-30 по долготе севернее 50 широты обрабатывается "
-            "автоматически. Флажок гидрокоррекции заполняет ложные "
-            "понижения, чтобы вода текла вниз. Выход готов для "
-            "изолиний (1.04) и всей группы Топография. Выход: GeoTIFF "
-            "float32, высоты в метрах, nodata -32768, слой попадает в "
-            "группу Топография дерева слоёв. "
-            "Данные: Copernicus DEM © ESA.") + _credit())
+            "Загружает ЦМР по рамке из открытого хранилища, без "
+            "регистрации и ключей. Два источника на выбор. Copernicus "
+            "GLO-30 - модель поверхности (DSM): высоты по кронам и "
+            "кровлям, плиточная мозаика без швов. GEDTM30 - модель "
+            "рельефа (DTM, CC BY 4.0): лес и постройки сняты машинным "
+            "обучением по ICESat-2 и GEDI, под пологом леса точнее "
+            "GLO-30, единый глобальный COG. Данные перепроецируются в "
+            "метрическую систему координат с кубической интерполяцией. "
+            "Флажок гидрокоррекции заполняет ложные понижения, чтобы "
+            "вода текла вниз. Выход готов для изолиний (1.04) и всей "
+            "группы Топография. Выход: GeoTIFF float32, высоты в метрах, "
+            "слой попадает в группу Топография дерева слоёв. "
+            "Данные: GLO-30 - Copernicus DEM © ESA, GEDTM30 - "
+            "© OpenGeoHub, CC BY 4.0.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterEnum(
+            self.SOURCE, self.tr("Источник рельефа"),
+            options=[self.tr("Copernicus GLO-30 (DSM, поверхность)"),
+                     self.tr("GEDTM30 (DTM, без леса и построек)")],
+            defaultValue=_dv(self, self.SOURCE, 0)))
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Рамка загрузки")))
         self.addParameter(QgsProcessingParameterCrs(
@@ -10470,6 +10479,9 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
         do_fill = self.parameterAsBoolean(parameters, self.FILL, context)
         epsilon = self.parameterAsDouble(parameters, self.EPSILON, context)
         max_tiles = self.parameterAsInt(parameters, self.MAX_TILES, context)
+        source_idx = self.parameterAsEnum(parameters, self.SOURCE, context)
+        source = (dem_glo30.SOURCE_GEDTM30 if source_idx == 1
+                  else dem_glo30.SOURCE_GLO30)
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT,
                                                context)
         srs_label, dst_epsg, dst_wkt = self._resolve_target_srs(
@@ -10486,7 +10498,7 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
             dem_glo30.fetch_dem(
                 bbox, out_path, gdal, osr, dst_epsg=dst_epsg,
                 dst_wkt=dst_wkt, cell=cell, max_tiles=max_tiles,
-                feedback=feedback)
+                source=source, feedback=feedback)
         except dem_glo30.DemSourceError as exc:
             raise QgsProcessingException(str(exc))
         if feedback.isCanceled():
@@ -10509,7 +10521,11 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
             feedback.pushInfo(
                 self.tr("Поднято ячеек: %d, максимальный подъём: %.2f м")
                 % (n_raised, max_raise))
-        feedback.pushInfo(self.tr("Данные: Copernicus DEM © ESA."))
+        if source == dem_glo30.SOURCE_GEDTM30:
+            feedback.pushInfo(self.tr(
+                "Данные: GEDTM30 © OpenGeoHub, CC BY 4.0."))
+        else:
+            feedback.pushInfo(self.tr("Данные: Copernicus DEM © ESA."))
         _topo_group_layer(context, out_path, self.tr("Топография"))
         return {self.OUTPUT: out_path}
 
@@ -10858,6 +10874,16 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
         return {self.OUTPUT: out_path}
 
 
+def _topo_log(msg):
+    """Тихая запись в журнал Isoliner: диагностика вместо голого pass."""
+    try:
+        from qgis.core import QgsMessageLog, Qgis
+        QgsMessageLog.logMessage(msg, "Isoliner", Qgis.Info)
+    except Exception as exc:  # журнал недоступен: не мешаем расчёту
+        import sys
+        print("Isoliner:", msg, exc, file=sys.stderr)
+
+
 class _CollapseNodePostProcessor(QgsProcessingLayerPostProcessorInterface):
     """Сворачивает узел слоя в дереве после загрузки: длинные легенды
     растров не распахиваются на всю панель. Экземпляр обязан жить
@@ -10880,8 +10906,8 @@ class _CollapseNodePostProcessor(QgsProcessingLayerPostProcessorInterface):
             node = project.layerTreeRoot().findLayer(layer.id())
             if node is not None:
                 node.setExpanded(False)
-        except Exception:
-            pass
+        except (RuntimeError, AttributeError) as exc:
+            _topo_log("не удалось свернуть узел слоя: %s" % exc)
 
 
 def _topo_group_layer(context, layer_id, name):
@@ -10896,8 +10922,8 @@ def _topo_group_layer(context, layer_id, name):
             if hasattr(details, "groupName"):
                 details.groupName = name
             details.setPostProcessor(_CollapseNodePostProcessor.instance())
-    except Exception:
-        pass
+    except (RuntimeError, AttributeError) as exc:
+        _topo_log("не удалось назначить группу слоя: %s" % exc)
 
 
 def _topo_read_dem(layer, tr):
@@ -11202,8 +11228,8 @@ class BasinsAlgorithm(IsolinerAlgorithm):
             pt = geom.asPoint()
             try:
                 pt = transform.transform(pt)
-            except Exception:
-                pass
+            except QgsCsException as exc:
+                _topo_log("точка замыкания вне области СК: %s" % exc)
             px, py = gdal.ApplyGeoTransform(inv, pt.x(), pt.y())
             c, r = int(px), int(py)
             if not (0 <= r < ny and 0 <= c < nx):
@@ -11542,7 +11568,8 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
                 continue
             try:
                 geom.transform(tf)
-            except Exception:
+            except QgsCsException as exc:
+                _topo_log("объект вне области СК, пропущен: %s" % exc)
                 continue
             try:
                 multi = geom.asMultiPolyline()
@@ -11567,7 +11594,8 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
                 continue
             try:
                 geom.transform(tf)
-            except Exception:
+            except QgsCsException as exc:
+                _topo_log("объект вне области СК, пропущен: %s" % exc)
                 continue
             try:
                 mp = geom.asMultiPoint()
@@ -11599,7 +11627,8 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
                 continue
             try:
                 geom.transform(tf)
-            except Exception:
+            except QgsCsException as exc:
+                _topo_log("объект вне области СК, пропущен: %s" % exc)
                 continue
             zv = feat[field] if field else None
             try:

@@ -45,7 +45,7 @@ Control: 1.04 over the result with the same step, overlaid on the contours of st
 
 | Tool | Input | Output | Key parameters |
 |:--|:--|:--|:--|
-| **2.01** Download DEM | map extent | GeoTIFF float32, meters | cell 30 m. CRS: empty = project or UTM. Hydro correction on |
+| **2.01** Download DEM | map extent | GeoTIFF float32, meters | source: GLO-30 (DSM) or GEDTM30 (DTM, forest removed). Cell 30 m. CRS: empty = project/UTM |
 | **2.02** OSM base map | map extent | watercourses, water bodies, peaks (ele), cliffs | coastline off. Large extent: shrink it or raise the limit |
 | **1.04** Isolines from raster | DEM | lines with ELEV | step 5-10 m. Do not raise min length: short closed lines are hilltops. Moderate smoothing. Polygons off |
 | **2.03** Topo2Raster | contours (elevation field), points, streamlines, cliffs, lakes | GeoTIFF float32 | points or contours required. Streamlines run downstream: OSM and 2.06 fit as is. Lake without a level: shore minimum |
@@ -66,4 +66,4 @@ Control: 1.04 over the result with the same step, overlaid on the contours of st
 - **Closed basins.** Karst and subsidence troughs are erased by the hydro correction: uncheck the filling.
 
 \vspace{1pt}\hrule
-{\footnotesize Data: Copernicus DEM © ESA · © OpenStreetMap contributors, ODbL. Plugin: plugins.qgis.org/plugins/grid\_isolines · The manual ships with the plugin (doc/Isoliner\_en.pdf) · Inform++ LLC · www.informpp.ru}
+{\footnotesize Data: Copernicus DEM © ESA · GEDTM30 © OpenGeoHub CC BY 4.0 · © OpenStreetMap, ODbL. Plugin: plugins.qgis.org/plugins/grid\_isolines · The manual ships with the plugin (doc/Isoliner\_en.pdf) · Inform++ LLC · www.informpp.ru}

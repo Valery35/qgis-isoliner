@@ -45,7 +45,7 @@ QGIS-плагин Isoliner. Группы инструментов Processing д�
 | `fractal.py` | фрактальная размерность поверхности вариограммным методом (наклон лог-лог вариограммы даёт H, D = 3 - H), скользящее окно через кумулятивные суммы; box-counting, компас Ричардсона, Минковский. Чистый NumPy |
 | `mesh3d.py` | регулярный грид → треугольный меш (массивы вершин/граней, запись 2DM) и водонепроницаемое тело пласта (`bed_to_mesh_arrays`: кровля + подошва + юбка), плюс `cylinder` (боковая поверхность цилиндра для стволов скважин). Без импорта QGIS, headless-тест `tests/test_mesh3d.py` |
 | `density.py` | плотность переменной опоры (2.07): точка-гаусс/линия-коридор/полигон-маска, дискретная нормировка, два аккумулятора (Σm·σ, Σm) для эффективной сигмы, дазиметрия с откатом, cut_polyline, rasterize_polygon, demo_dataset. Инвариант массы. Чистый NumPy, тест `tests/test_density.py` (12) |
-| `dem_glo30.py` | загрузчик Copernicus GLO-30 (2.01): схема имён плиток, VRT-мозаика через /vsicurl/, варп в метрическую СК, защита max_tiles, океанские плитки пропускаются. GDAL передаётся параметром, headless-тест `tests/test_dem_glo30.py` |
+| `dem_glo30.py` | загрузчик ЦМР (2.01), два источника: SOURCE_GLO30 (плиточная VRT-мозаика Copernicus) и SOURCE_GEDTM30 (единый глобальный COG bare-earth DTM, CC BY 4.0, s3.opengeohub.org, Int32 scale=10 приводится к метрам в _apply_scale). Общий варп _warp_to_metric, /vsicurl/, защита max_tiles. GDAL параметром, тест `tests/test_dem_glo30.py` |
 | `osm_overpass.py` | загрузчик топоосновы OSM (2.02): Overpass QL, зеркало при отказе, парсер (ele с запятой, незамкнутые water отброшены), клип линий по рамке. Сеть в тестах замокана: `tests/test_osm_overpass.py`, `tests/test_osm_network_mock.py` |
 | `hydro_fill.py` | заполнение понижений Планшона-Дарбу (2.04 и флажки в 2.01/2.03/2.05-2.07): 4 направленных прохода, epsilon=0 только ямы, epsilon>0 сквозной уклон через плоскости, nodata и граница - стоки. Тест `tests/test_hydro_fill.py` |
 | `topo_flow.py` | гидрология (2.05-2.07): D8 Jenson-Domingue (коды ESRI; рамка - стенка, nodata - слив), аккумуляция векторизованным обходом Кана, речная сеть со Стралером (вершины вниз по течению), бассейны прыжками указателей. Тест `tests/test_topo_flow.py` |
@@ -174,6 +174,13 @@ displayName, поэтому ниже инструменты перечислен
   выгрузочный для plugins.qgis.org без `grid_isolines/tests/` (сканер
   каталога ругается на тестовые файлы). `libs/*/tests` не трогать: libs
   заморожены и сканер проходят.
+- **Сканер безопасности каталога (bandit + secrets).** Блокирует загрузку
+  при B110/B112 (try/except/pass и try/except/continue с широким except).
+  В своём коде не оставлять голый `except Exception: pass|continue`: узкий
+  тип (QgsCsException для transform, RuntimeError/AttributeError для дерева
+  слоёв) плюс запись в журнал через `_topo_log`. Метка `# nosec` в libs
+  и старых местах сканер уважает, но новый код лучше писать чисто.
+  Проверять локально: `bandit -r grid_isolines -x grid_isolines/libs`.
 - Перед упаковкой вычистить `__pycache__/` и `*.pyc`.
 - Исходник руководства - в корневой папке `manual/`: `manual.md` (RU),
   `manual_en.md` (EN), папка `images/`, `build_pdf.sh`. Эти файлы **не** входят

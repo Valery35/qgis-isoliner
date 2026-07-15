@@ -91,5 +91,34 @@ class TestUtm(unittest.TestCase):
         self.assertEqual(dem.utm_epsg_for(-0.001, 10.0), 32630)
 
 
+
+
+class TestSources(unittest.TestCase):
+    """3.1.0: выбор источника GLO-30 или GEDTM30."""
+
+    def test_source_constants(self):
+        self.assertEqual(dem.SOURCE_GLO30, "glo30")
+        self.assertEqual(dem.SOURCE_GEDTM30, "gedtm30")
+
+    def test_gedtm30_cog_url(self):
+        self.assertTrue(dem.GEDTM30_COG.startswith(
+            "https://s3.opengeohub.org/global/edtm/"))
+        self.assertTrue(dem.GEDTM30_COG.endswith("v20250611.tif"))
+        self.assertIn("gedtm_rf_m_30m", dem.GEDTM30_COG)
+
+    def test_gedtm30_scale(self):
+        self.assertEqual(dem.GEDTM30_SCALE, 10.0)
+
+    def test_fetch_dem_has_source(self):
+        import inspect
+        params = inspect.signature(dem.fetch_dem).parameters
+        self.assertIn("source", params)
+        self.assertEqual(params["source"].default, dem.SOURCE_GLO30)
+
+    def test_vsicurl_wrap(self):
+        p = dem.vsicurl_path(dem.GEDTM30_COG)
+        self.assertTrue(p.startswith("/vsicurl/https://"))
+
+
 if __name__ == "__main__":
     unittest.main()
