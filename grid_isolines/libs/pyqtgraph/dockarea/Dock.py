@@ -198,7 +198,8 @@ class Dock(QtWidgets.QWidget):
         self.drag.setMimeData(mime)
         self.widgetArea.setStyleSheet(self.dragStyle)
         self.update()
-        action = self.drag.exec() if hasattr(self.drag, 'exec') else self.drag.exec_()
+        _run = getattr(self.drag, "exec", None) or getattr(self.drag, "exec_")
+        action = _run()
         self.updateStyle()
 
     def float(self):

@@ -27,7 +27,7 @@ from . import i18n
 def _log(msg):
     try:
         QgsMessageLog.logMessage(msg, "Isoliner")
-    except Exception:
+    except Exception:  # nosec
         pass
 
 

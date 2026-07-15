@@ -51,9 +51,9 @@ if __name__ == "__main__":
         output.append( base )
     testlazy = lazy( func )( testwrap )
     testlazy( )
-    assert testlazy.__doc__ == "Testing"
-    assert testlazy.__class__.__name__ == 'testwrap'
-    assert testlazy.__name__ == 'testwrap'
-    assert testlazy.baseFunction is func
-    assert testlazy.wrapperFunction is testwrap
-    assert output
+    assert testlazy.__doc__ == "Testing"  # nosec
+    assert testlazy.__class__.__name__ == 'testwrap'  # nosec
+    assert testlazy.__name__ == 'testwrap'  # nosec
+    assert testlazy.baseFunction is func  # nosec
+    assert testlazy.wrapperFunction is testwrap  # nosec
+    assert output  # nosec

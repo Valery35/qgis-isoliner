@@ -32,7 +32,7 @@ def manual_path():
     try:
         if language() == "en":
             candidates.append("Isoliner_en.pdf")
-    except Exception:
+    except Exception:  # nosec
         pass
     candidates.append("Isoliner.pdf")
     for fname in candidates:

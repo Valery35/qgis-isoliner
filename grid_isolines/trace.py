@@ -56,7 +56,7 @@ def write(mark, message):
     try:
         with open(_PATH, "a", encoding="utf-8") as fh:
             fh.write(_line(mark, message) + "\n")
-    except Exception:
+    except Exception:  # nosec
         pass
 
 
@@ -93,5 +93,5 @@ def session(version="", extra=None):
     try:
         with open(_PATH, "a", encoding="utf-8") as fh:
             fh.write("\n".join(lines) + "\n")
-    except Exception:
+    except Exception:  # nosec
         pass

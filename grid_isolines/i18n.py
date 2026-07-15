@@ -141,7 +141,7 @@ TRANSLATIONS = {
     'Оценивает СРЕДНЕЕ по ячейке грида, а не значение в её центре: каждая ячейка разбивается на N×N точек дискретизации, ковариации усредняются по блоку. Поверхность глаже, стандартная ошибка ниже точечной - подходит для оценки запасов и содержаний по блоку. Пробы при этом не воспроизводятся точно (среднее блока ≠ значение в точке). Выключено - обычный точечный кригинг.': 'Estimates the AVERAGE over the grid cell rather than the value at its centre: each cell is split into N×N discretization points and the covariances are averaged over the block. The surface is smoother and the standard error is lower than for point kriging - suitable for estimating reserves and grades over a block. Samples are then not reproduced exactly (the block average ≠ the value at a point). Off - ordinary point kriging.',
     'Сколько точек на сторону ячейки берётся для усреднения по блоку (всего N×N). 4×4 достаточно почти всегда; больше - точнее, но медленнее. Действует только при включённом блочном кригинге.': 'How many points per cell side are used to average over the block (N×N in total). 4×4 is almost always enough; more is more accurate but slower. Active only when block kriging is on.',
     'Блочный кригинг: дискретизация %d×%d на ячейку. Оценка - среднее по блоку, стандартная ошибка блочная (ниже точечной). Значения в узлах-пробах точно не воспроизводятся.': 'Block kriging: %d×%d discretization per cell. The estimate is the block average, the standard error is the block error (lower than point). Values at sample nodes are not reproduced exactly.',
-    '2.03 Гидравлический градиент и направление потока': '2.03 Hydraulic gradient and flow direction',
+    '3.03 Гидравлический градиент и направление потока': '3.03 Hydraulic gradient and flow direction',
     'Добавить поле напора (для градиента потока)': 'Add a head field (for flow gradient)',
     'Поле напора (head): региональный уклон + локальная вариация. Кригуйте head, затем подайте растр в «Гидравлический градиент и направление потока».': 'Head field (head): a regional slope plus local variation. Krige head, then feed the raster to "Hydraulic gradient and flow direction".',
     'Растр напора': 'Head raster',
@@ -253,7 +253,7 @@ TRANSLATIONS = {
     'Дисперсия (силл)': 'Variance (sill)',
     'лаг по северу h_y': 'north lag h_y',
     'Радиус главной оси': 'Major-axis range',
-    '2.01 Категориальный индикаторный кригинг': '2.01 Categorical indicator kriging',
+    '3.01 Категориальный индикаторный кригинг': '3.01 Categorical indicator kriging',
     'Вероятности минтипа': 'Mineral-type probabilities',
     'Вероятности по классам (многополосный)': 'Class probabilities (multiband)',
     'Добавить категориальное поле минтипа (демо замещения)': 'Add a categorical mineral-type field (replacement demo)',
@@ -487,8 +487,8 @@ TRANSLATIONS = {
     'факт': 'actual',
 
     # --- Кригинг с внешним дрейфом (External Drift) ---
-    '2.02 Кригинг с внешним дрейфом (External Drift)':
-        '2.02 External Drift Kriging',
+    '3.02 Кригинг с внешним дрейфом (External Drift)':
+        '3.02 External Drift Kriging',
     'Растр внешнего дрейфа (известен всюду)':
         'External drift raster (known everywhere)',
     'Канал растра дрейфа': 'Drift raster band',
@@ -582,8 +582,8 @@ TRANSLATIONS = {
     'Включите этот вывод, чтобы получить пару для кригинга с внешним дрейфом: растр гладкой сторонней поверхности s (известна всюду) и поле dz скважин, линейно с ней связанное. Запустите «Кригинг с внешним дрейфом» по полю dz с этим растром как дрейфом. Если вывод пропущен, поле dz не добавляется. По умолчанию выключено.':
         'Enable this output to get a pair for external drift kriging: a raster of a smooth secondary surface s (known everywhere) and a wells dz field linearly related to it. Run External Drift Kriging on dz with this raster as the drift. If the output is skipped, the dz field is not added. Off by default.',
     '1. Грид и изолинии': '1. Grid and isolines',
-    '2. Дополнительные инструменты': '2. Additional tools',
-    '2.04 Карта вероятности превышения': '2.04 Exceedance probability map',
+    '3. Дополнительные инструменты': '3. Additional tools',
+    '3.04 Карта вероятности превышения': '3.04 Exceedance probability map',
     'P(<%.4g)': 'P(<%.4g)',
     'P(>%.4g)': 'P(>%.4g)',
     'Вероятность %s · %s': 'Probability %s · %s',
@@ -606,7 +606,7 @@ TRANSLATIONS = {
     'выше порога: P(Z > порог)': 'above the threshold: P(Z > threshold)',
     'ниже': 'below',
     'ниже порога: P(Z < порог)': 'below the threshold: P(Z < threshold)',
-    '2.05 Удельный расход (закон Дарси)': '2.05 Specific discharge (Darcy law)',
+    '3.05 Удельный расход (закон Дарси)': '3.05 Specific discharge (Darcy law)',
     'Векторов потока: %d (шаг %d яч.). Поворот по «az», размер по удельному расходу.': 'Flow vectors: %d (step %d cells). Rotated by "az", sized by the specific discharge.',
     'Задайте хотя бы один растр свойства: K или T.': 'Provide at least one property raster: K or T.',
     'Канал напора': 'Head band',
@@ -626,8 +626,8 @@ TRANSLATIONS = {
     'Удельный расход подземного потока по закону Дарси. К геометрии потока (градиент напора и направление) добавляет свойства пласта, переводя безразмерный градиент в физический поток.\n\nВходы: растр напора и хотя бы один из растров свойств - коэффициент фильтрации K или водопроводимость T. Выходы: скорость фильтрации q = K·|∇h| (м/сут) и расход через единицу ширины потока Q = T·|∇h| (м²/сут), плюс направление и стрелки.\n\nКак получить K и T: кригуйте их по точкам испытаний. K и T обычно лог-нормальны (разброс на порядки), поэтому кригуйте ln(K) и ln(T), а тут включите «Растры заданы как ln». Истинная скорость воды v = q/n требует пористости и здесь не считается. Напорные и безнапорные пласты разумно криговать раздельно. Растры должны быть в одной системе координат.': 'Specific groundwater discharge by Darcy\'s law. To the flow geometry (head gradient and direction) it adds the aquifer properties, turning the dimensionless gradient into a physical flux.\n\nInputs: a head raster and at least one property raster - hydraulic conductivity K or transmissivity T. Outputs: specific discharge q = K·|∇h| (m/day) and flow per unit width Q = T·|∇h| (m²/day), plus direction and arrows.\n\nHow to get K and T: krige them from test points. K and T are usually log-normal (orders-of-magnitude spread), so krige ln(K) and ln(T) and tick \"rasters are given as ln\" here. The true water velocity v = q/n needs porosity and is not computed here. Confined and unconfined aquifers are best kriged separately. The rasters must share one coordinate system.',
     'Добавить поля K и T и напор (для удельного расхода)': 'Add K and T fields and head (for the specific discharge)',
     'Поля K и T (демо): K лог-нормально (K ≈ %.4g…%.4g м/сут), T = K·мощность. Для удельного расхода создайте калькулятором поля ln(K) и ln(T), кригуйте их, а при подаче в «Удельный расход (Дарси)» включите галку «Растры заданы как ln». Напор (head) кригуйте как обычно.': 'K and T fields (demo): K is log-normal (K ≈ %.4g…%.4g m/day), T = K·thickness. For the specific discharge, build ln(K) and ln(T) fields with the field calculator, krige them, and when feeding "Specific discharge (Darcy law)" tick "rasters are given as ln". Krige head as usual.',
-    '2.03 Карта вероятности превышения': '2.03 Exceedance probability map',
-    '2.04 Гидравлический градиент и направление потока': '2.04 Hydraulic gradient and flow direction',
+    '3.03 Карта вероятности превышения': '3.03 Exceedance probability map',
+    '3.04 Гидравлический градиент и направление потока': '3.04 Hydraulic gradient and flow direction',
     'ln (для лог-нормальных, напр. K, T)': 'ln (for log-normal, e.g. K, T)',
     'нет': 'none',
     'Преобразование значения': 'Value transform',
@@ -635,7 +635,7 @@ TRANSLATIONS = {
     'Логарифм: положительных значений недостаточно для кригинга.': 'Logarithm: not enough positive values for kriging.',
     'Логарифмирование включено: кригуется ln(Z), оценка возвращается через exp (медиана). Вариограмму, наггет и среднее простого кригинга задавайте в единицах ln. Стандартная ошибка пересчитывается в исходные единицы дельта-методом.': 'Logarithm enabled: ln(Z) is kriged and the estimate is returned via exp (median). Set the variogram, nugget and simple-kriging mean in ln units. The standard error is converted back to the original units by the delta method.',
     'Логарифмирование перед кригингом для величин с разбросом на порядки (коэффициент фильтрации, водопроводимость, содержания с длинным правым хвостом). Кригуется ln(Z), оценка возвращается через exp - это медианная (геометрическая) оценка. Стандартная ошибка пересчитывается в исходные единицы дельта-методом. Значения должны быть положительными. Избавляет от ручного создания поля ln(Z). Вариограмму и наггет при этом задавайте в единицах ln.': 'Log-transform before kriging for quantities spanning orders of magnitude (hydraulic conductivity, transmissivity, grades with a long right tail). ln(Z) is kriged and the estimate is returned via exp, which is the median (geometric) estimate. The standard error is converted back to the original units by the delta method. Values must be positive. It removes the need to build an ln(Z) field by hand. Set the variogram and nugget in ln units.',
-    '2.06 Разрез по линии': '2.06 Cross-section along a line',
+    '3.06 Разрез по линии': '3.06 Cross-section along a line',
     'В слое несколько линий, разрез построен по первой.': 'The layer has several lines; the section was built along the first.',
     'В слое нет линии.': 'The layer has no line.',
     'Вертикальное преувеличение (для чертежа)': 'Vertical exaggeration (for the drawing)',
@@ -670,9 +670,9 @@ TRANSLATIONS = {
     'Поверхность 3 (подошва нижнего пласта)': 'Surface 3 (floor of the lower bed)',
     'Поверхность 3 · подошва (демо)': 'Surface 3 · floor (demo)',
     'Разрез 1': 'Section 1',
-    '3. Разрез': '3. Cross-sections',
-    '4. Пласт и блочная модель': '4. Bed and block model',
-    '3.01 Разрез по линии': '3.01 Cross-section along a line',
+    '4. Разрез': '4. Cross-sections',
+    '5. Пласт и блочная модель': '5. Bed and block model',
+    '4.01 Разрез по линии': '4.01 Cross-section along a line',
     '3.2 Создать пример для разреза': '3.2 Create a section example',
     '3.3 Скважины на разрез': '3.3 Boreholes on a section',
     'Вертикальное преувеличение (как в разрезе)': 'Vertical exaggeration (as in the section)',
@@ -726,11 +726,11 @@ TRANSLATIONS = {
     'Значение масштаба (отношение Г:В или множитель)': 'Scale value (H:V ratio or exaggeration)',
     'множитель': 'exaggeration factor',
     'отношение Г:В (ширина:высота)': 'H:V ratio (width:height)',
-    '2. Дополнительные инструменты анализа': '2. Additional analysis tools',
+    '3. Дополнительные инструменты анализа': '3. Additional analysis tools',
     '3.2 Скважины на разрез': '3.2 Boreholes on a section',
     '3.3 Состав пласта на разрез': '3.3 Bed composition on a section',
     '3.4 Создать пример для разреза': '3.4 Create a section example',
-    '3.04 Пересечение поверхностей с разрезом': '3.04 Intersect surfaces with the section',
+    '4.04 Пересечение поверхностей с разрезом': '4.04 Intersect surfaces with the section',
     '3.5 Проекция объектов на разрез': '3.5 Project objects onto the section',
     '3.6 Спроецировать с разреза': '3.6 Unproject from the section',
     '3.7 Развёртка стенки ствола': '3.7 Unwrap a shaft wall',
@@ -794,14 +794,14 @@ TRANSLATIONS = {
     'Количество отметок высоты на осях': 'Number of elevation ticks on the axes',
     'Таблица углов разреза': 'Section corner table',
     'Таблица углов: азимут и расстояние (чертёж)': 'Corner table: azimuth and distance (drawing)',
-    '3.02 Скважины на разрезе': '3.02 Boreholes on the section',
-    '3.03 Состав пласта на разрезе': '3.03 Bed composition on the section',
+    '4.02 Скважины на разрезе': '4.02 Boreholes on the section',
+    '4.03 Состав пласта на разрезе': '4.03 Bed composition on the section',
     '3.5 Проекция объектов на разрез (бета)': '3.5 Project objects onto the section (beta)',
     '3.6 Спроецировать с разреза (бета)': '3.6 Unproject from the section (beta)',
     '3.7 Развёртка стенки ствола (бета)': '3.7 Unwrap a shaft wall (beta)',
     'Масштаб взят из определения разреза: vex = %.4g.': 'Scale taken from the section definition: vex = %.4g.',
     'Определение разреза (для общего масштаба, опционально)': 'Section definition (for a shared scale, optional)',
-    '2.06 Гауссова симуляция (SGS)': '2.06 Gaussian simulation (SGS)',
+    '3.06 Гауссова симуляция (SGS)': '3.06 Gaussian simulation (SGS)',
     'SGS P10': 'SGS P10',
     'SGS P90': 'SGS P90',
     'SGS вероятность превышения': 'SGS exceedance probability',
@@ -834,12 +834,12 @@ TRANSLATIONS = {
     'гауссова': 'gaussian',
     'сферическая': 'spherical',
     'экспоненциальная': 'exponential',
-    '3.05 Пересечение векторов с разрезом': '3.05 Vector intersection with the section',
-    '3.07 Проекция объектов на разрез (бета)': '3.07 Project objects onto the section (beta)',
-    '3.08 Спроецировать с разреза (бета)': '3.08 Unproject from the section (beta)',
-    '3.09 Развёртка стенки ствола (бета)': '3.09 Shaft wall unwrap (beta)',
-    '3.10 Создать пример для разреза': '3.10 Create a section example',
-    '4.04 Поверхности в 3D (меши)': '4.04 Surfaces to 3D (meshes)',
+    '4.05 Пересечение векторов с разрезом': '4.05 Vector intersection with the section',
+    '4.07 Проекция объектов на разрез (бета)': '4.07 Project objects onto the section (beta)',
+    '4.08 Спроецировать с разреза (бета)': '4.08 Unproject from the section (beta)',
+    '4.09 Развёртка стенки ствола (бета)': '4.09 Shaft wall unwrap (beta)',
+    '4.10 Создать пример для разреза': '4.10 Create a section example',
+    '5.04 Поверхности в 3D (меши)': '5.04 Surfaces to 3D (meshes)',
     'Экспортирует гриды поверхностей в mesh-слои стандартного формата '
     '2DM (MDAL). Такие слои понимают профильный инструмент QGIS, '
     'mesh-калькулятор, штатный 3D-вид и сторонние программы, а пачка '
@@ -916,7 +916,7 @@ TRANSLATIONS = {
     'Окраска поверхностей атрибутом (растр)': 'Colour surfaces by attribute (raster)',
     'Канал параметра пласта (0 - палитра)': 'Bed parameter band (0 - palette)',
     'канал %d пласта': "bed's band %d",
-    '4.01 Собрать грид пласта': '4.01 Assemble a bed grid',
+    '5.01 Собрать грид пласта': '5.01 Assemble a bed grid',
     'Собирает многоканальный грид пласта по конвенции плагина: '
     'канал 1 - кровля, канал 2 - подошва, каналы 3 и далее - '
     'параметры (содержание, минтип и любые другие). Кровля задаёт '
@@ -942,7 +942,7 @@ TRANSLATIONS = {
     'Параметры (растры, берётся канал 1)': 'Parameters (rasters, band 1 is taken)',
     'Грид пласта': 'Bed grid',
     'Грид пласта записан: каналов %d.': 'Bed grid written: %d bands.',
-    '4.02 Калькулятор пласта': '4.02 Bed calculator',
+    '5.02 Калькулятор пласта': '5.02 Bed calculator',
     'Считает по многоканальному гриду пласта (канал 1 - кровля, '
     'канал 2 - подошва): мощность, объём, тоннаж руды через '
     'плотность и, если задан канал содержания, средневзвешенное по '
@@ -981,13 +981,13 @@ TRANSLATIONS = {
     'Запасы металла': 'Metal reserves',
     'Ячеек с отрицательной мощностью': 'Cells with a negative thickness',
     'Калькулятор пласта': 'Bed calculator',
-    '4.03 Грид пласта в блочную модель': '4.03 Bed grid to a block model',
+    '5.03 Грид пласта в блочную модель': '5.03 Bed grid to a block model',
     'Переводит многоканальный грид пласта в блочную модель: точку-центроид на каждую валидную ячейку. Атрибуты: строка и столбец ячейки, координаты, верх (top), низ (bot), мощность (thick), объём (vol), тоннаж руды (ore_t) через плотность и все каналы параметров под их именами из описаний.\n\nДальше работает векторный аппарат QGIS: фильтры выражениями, join внешних таблиц, калькулятор полей - модель наращивается атрибутами без пересоздания. Контур ограничивает выгрузку подсчётным блоком или доменом.\n\nПараметр «Слоёв по вертикали» делит каждую колонку на N блоков между кровлей и подошвой: у каждого свои z_from, z_to, номер слоя lay и доля объёма. Содержание копируется в под-блоки (по вертикали оно не разбурено). Это заготовка настоящей 3D-модели.\n\nПлотность берётся из числа выше или, если задан «Канал плотности», из этого канала грида поячеечно - для переменной по площади плотности руды.':
         'Turns a multiband bed grid into a block model: a centroid point per valid cell. Attributes: the cell row and column, the coordinates, the top, the bottom (bot), the thickness (thick), the volume (vol), the ore tonnage (ore_t) via the density and all the parameter bands under their names from the descriptions.\n\nThen the QGIS vector toolbox works: expression filters, joins of external tables, the field calculator - the model grows by attributes without a rebuild. The contour limits the export to a reserve block or a domain.\n\nThe "Vertical layers" parameter splits every column into N blocks between the roof and the bottom: each gets its own z_from, z_to, the layer number lay and a share of the volume. The content is copied into the sub-blocks (it is not drilled vertically). This is a groundwork for a true 3D model.\n\nThe density is taken from the number above or, if a "Density band" is set, from that grid band per cell - for an areally variable ore density.',
     'Блочная модель (центроиды)': 'Block model (centroids)',
     'Блочная модель: %s': 'Block model: %s',
     'Блоков выгружено: %d.': 'Blocks exported: %d.',
-    '4.05 Домены в канал пласта': '4.05 Domains to a bed band',
+    '5.05 Домены в канал пласта': '5.05 Domains to a bed band',
     'Растеризует полигоны доменов в добавочный канал грида пласта: '
     'каждой ячейке присваивается код домена, в который она попадает '
     '(0 - вне доменов). Код берётся из числового поля слоя или, если '
@@ -1015,7 +1015,7 @@ TRANSLATIONS = {
     'Грид пласта с каналом domain': 'Bed grid with a domain band',
     'Грид не открылся.': 'The grid did not open.',
     'Домены записаны в канал %d. Ячеек в доменах: %d.': 'Domains written to band %d. Cells in domains: %d.',
-    '4.06 Разность запасов (списание)': '4.06 Reserve difference (write-off)',
+    '5.06 Разность запасов (списание)': '5.06 Reserve difference (write-off)',
     'Считает разность двух блочных моделей по ячейкам с одинаковыми '
     'row и col: сколько запаса убыло между состояниями «было» и '
     '«стало». Для каждой ячейки вычитается выбранное поле (по '
@@ -1043,7 +1043,7 @@ TRANSLATIONS = {
     'Слоёв по вертикали (деление колонки)': 'Vertical layers (column split)',
     'Канал плотности (пусто - брать значение выше)': 'Density band (empty - use the value above)',
 
-    '2.07 Фрактальная размерность': '2.07 Fractal dimension',
+    '3.07 Фрактальная размерность': '3.07 Fractal dimension',
     'Считает карту фрактальной размерности поверхности '
     'вариограммным методом: в скользящем окне строится лог-лог '
     'вариограмма по лагам 1..N ячеек, её наклон даёт показатель '
@@ -1078,7 +1078,7 @@ TRANSLATIONS = {
     'Изолинии по карте D: «1.2 Изолинии из растра», канал 1.': 'Isolines over the D map: "1.2 Isolines from a raster", band 1.',
     'Окно или лаги велики для этого грида.': 'The window or the lags are too large for this grid.',
     'Глобально: D = %.3f, H = %.3f.': 'Globally: D = %.3f, H = %.3f.',
-    '2.08 Box-counting маски': '2.08 Mask box-counting',
+    '3.08 Box-counting маски': '3.08 Mask box-counting',
     'Классический box-counting: растр бинаризуется порогом '
     '(объект - значения больше порога), маска покрывается ячейками '
     'убывающего размера, наклон log N от log(1/размер) даёт одну '
@@ -1161,13 +1161,13 @@ TRANSLATIONS = {
     'водосбора с изрезанной границей и отдельную береговую линию '
     '(срединные смещения). Реки подавайте в 2.10 - размерность '
     'сети; берег и границу водосбора - в 2.09 и 2.10; растеризуйте '
-    'водосбор - и он же пример для 2.08.':
+    'водосбор - и он же пример для 3.08.':
         'Generates study features for the fractal tools: a branching river '
         'network (the order field - the tributary order), a basin polygon '
         'with a rugged boundary and a separate coastline (midpoint '
         'displacements). Feed the rivers into 2.10 - the network '
         'dimension; the coast and the basin boundary - into 2.09 and 2.10; '
-        'rasterise the basin - and it doubles as an example for 2.08.',
+        'rasterise the basin - and it doubles as an example for 3.08.',
     'Охват': 'Extent',
     'Зерно генератора': 'Generator seed',
     'Реки (демо)': 'Rivers (demo)',
@@ -1256,7 +1256,7 @@ TRANSLATIONS = {
     'Наносит векторные объекты на разрез по точному пересечению с линией разреза, в осях расстояние-высота.\n\nПравило по типу объекта. Линия БЕЗ отметки высоты (плоская в плане - разлом, граница, контур) даёт вертикаль на всю высоту в станции пересечения: известно где, неизвестно на какой глубине. Линия С отметкой (3D, координата Z - наклонный объект, контур поверхности) даёт точку на реальной высоте в месте пересечения. Полигон (зона в плане - замещение, шахтное поле, лицензия) даёт вертикальную полосу на интервале, где разрез идёт сквозь зону.\n\nЛиния и vex берутся из определения разреза. Высота рамки тоже берётся из определения (его пишет «Разрез по линии»), поэтому для объектов без Z подавать ничего не нужно. Если в определении высоты нет, она берётся из чертежа разреза или из диапазона Z в дополнительных параметрах.\n\nВ отличие от «Проекции объектов на разрез» (приблизительной, по коридору) это точное пересечение.': 'Places vector objects on the section by exact intersection with the section line, in distance-elevation axes.\n\nRule by object type. A line WITHOUT an elevation (flat in plan - fault, boundary, contour) gives a full-height vertical at the crossing station: the where is known, the depth is not. A line WITH an elevation (3D, a Z coordinate - an inclined object, a surface contour) gives a point at the real elevation of the crossing. A polygon (a plan zone - replacement, mine field, licence) gives a vertical band over the interval where the section runs through the zone.\n\nThe line and vex are taken from the section definition. The frame height is taken from the definition too (written by "Cross-section along a line"), so nothing needs to be supplied for objects without Z. If the definition has no height, it is taken from the section drawing or from the Z range in the advanced parameters.\n\nUnlike "Project objects onto the section" (approximate, corridor-based) this is an exact intersection.',
     'Слои для пересечения (линии и полигоны)': 'Layers to intersect (lines and polygons)',
     'Нужны определение разреза и хотя бы один слой для пересечения.': 'A section definition and at least one layer to intersect are required.',
-    '3.06 Пересечение TIN с разрезом': '3.06 Intersect a TIN with the section',
+    '4.06 Пересечение TIN с разрезом': '4.06 Intersect a TIN with the section',
     'Грани TIN (слои 3D-полигонов, PolygonZ)': 'TIN faces (layers of 3D polygons, PolygonZ)',
     'Меш-слой (2.5D, для общности)': 'Mesh layer (2.5D, for generality)',
     'Трасса TIN на разрезе (чертёж)': 'TIN trace on the section (drawing)',
@@ -1267,7 +1267,7 @@ TRANSLATIONS = {
     'Слой «%s» без 3D-полигонов (нет Z) - пропущен.': 'Layer "%s" has no 3D polygons (no Z) - skipped.',
     'Меш не прочитан: %s': 'Mesh not read: %s',
     'Трасса пуста: TIN не пересекает линию разреза или нет 3D-граней.': 'Empty trace: the TIN does not cross the section line or there are no 3D faces.',
-    'Режет TIN (поверхность из 3D-треугольников) разрезом и кладёт трассу на чертёж в осях расстояние-высота.\n\nГлавное отличие от «Пересечения поверхностей» (3.04, гриды): грид это z = f(x,y), одно значение на точку, опрокинутое он не возьмёт. TIN из настоящих 3D-граней может нависать: над одной станцией несколько отметок, и трасса заворачивается - складки с опрокинутыми крыльями ложатся как есть.\n\nВход - слои 3D-полигонов (PolygonZ, грани TIN; не треугольники разбиваются веером) и/или меш-слой. Линия и vex берутся из определения разреза, высота - с самих граней, поэтому для TIN ничего задавать не нужно.\n\nВнимание: меш QGIS это 2.5D (z как скаляр на вершине), опрокинутое в нём не представимо. Нависание дают только настоящие 3D-грани от геомоделлера.': 'Cuts a TIN (a surface of 3D triangles) with the section and places the trace on the drawing in distance-elevation axes.\n\nThe key difference from "Intersect surfaces" (3.04, grids): a grid is z = f(x,y), one value per point, and cannot represent overturning. A TIN of true 3D faces can overhang: several elevations above one station, and the trace folds back - recumbent folds with overturned limbs come out as they are.\n\nInputs are layers of 3D polygons (PolygonZ, TIN faces; non-triangles are fan-split) and/or a mesh layer. The line and vex come from the section definition, the height from the faces themselves, so nothing needs to be set for a TIN.\n\nNote: a QGIS mesh is 2.5D (z as a scalar per vertex), overturning is not representable in it. Overhangs come only from true 3D faces from a geomodeller.',
+    'Режет TIN (поверхность из 3D-треугольников) разрезом и кладёт трассу на чертёж в осях расстояние-высота.\n\nГлавное отличие от «Пересечения поверхностей» (4.04, гриды): грид это z = f(x,y), одно значение на точку, опрокинутое он не возьмёт. TIN из настоящих 3D-граней может нависать: над одной станцией несколько отметок, и трасса заворачивается - складки с опрокинутыми крыльями ложатся как есть.\n\nВход - слои 3D-полигонов (PolygonZ, грани TIN; не треугольники разбиваются веером) и/или меш-слой. Линия и vex берутся из определения разреза, высота - с самих граней, поэтому для TIN ничего задавать не нужно.\n\nВнимание: меш QGIS это 2.5D (z как скаляр на вершине), опрокинутое в нём не представимо. Нависание дают только настоящие 3D-грани от геомоделлера.': 'Cuts a TIN (a surface of 3D triangles) with the section and places the trace on the drawing in distance-elevation axes.\n\nThe key difference from "Intersect surfaces" (4.04, grids): a grid is z = f(x,y), one value per point, and cannot represent overturning. A TIN of true 3D faces can overhang: several elevations above one station, and the trace folds back - recumbent folds with overturned limbs come out as they are.\n\nInputs are layers of 3D polygons (PolygonZ, TIN faces; non-triangles are fan-split) and/or a mesh layer. The line and vex come from the section definition, the height from the faces themselves, so nothing needs to be set for a TIN.\n\nNote: a QGIS mesh is 2.5D (z as a scalar per vertex), overturning is not representable in it. Overhangs come only from true 3D faces from a geomodeller.',
     'Готово: шесть поверхностей (пять пластов: три вмещающих и два промышленных), линия и скважины. Поверхности и линию подайте в «Разрез по линии»; скважины с полями h1...h6 и линию - в «Скважины на разрез». Разлом, маркер с Z и зона - для «Пересечения векторов с разрезом», опрокинутая TIN - для «Пересечения TIN с разрезом».': 'Done: six surfaces (five beds: three host and two ore), a line and boreholes. Feed the surfaces and the line into "Cross-section along a line"; the boreholes with fields h1...h6 and the line into "Boreholes on the section". The fault, the Z marker and the zone are for "Vector intersection with the section", the overturned TIN for "Intersect a TIN with the section".',
     'Опрокинутая TIN (3D-грани для пересечения)': 'Overturned TIN (3D faces for intersection)',
     'Опрокинутая TIN (демо)': 'Overturned TIN (demo)',
@@ -1280,9 +1280,9 @@ TRANSLATIONS = {
     'Исходный код': 'Source code',
     'Сообщить об ошибке': 'Report an issue',
     'Руководство не найдено.': 'Manual not found.',
-    # 4.07 Создать пример полиэдра (демо)
-    '4.07 Создать пример полиэдра (бета)':
-        '4.07 Create a polyhedral example (beta)',
+    # 5.07 Создать пример полиэдра (демо)
+    '5.07 Создать пример полиэдра (бета)':
+        '5.07 Create a polyhedral example (beta)',
     'Пример': 'Example',
     'Тело пласта': 'Bed body',
     'Куб': 'Cube',
@@ -1477,10 +1477,10 @@ TRANSLATIONS = {
     '45° - идеал': '45° is ideal',
     'Best Fit (оценка по факту): наклон %.3f, сдвиг %+.3g, угол %.1f°': 'Best fit (estimate vs fact): slope %.3f, intercept %+.3g, angle %.1f°',
     'серая - идеал (1:1), синяя - регрессия': 'grey - ideal (1:1), blue - regression',
-    'Ячеистая декластеризация (порт GSLIB declus). Когда пробы сгущены неравномерно - одни блоки разбурены плотнее, - наивная глобальная статистика смещается в сторону переразведанных участков: если гуще бурили богатые зоны, среднее и гистограмма завышены. Инструмент даёт каждой пробе вес, обратный локальной плотности (в скоплении меньше, на отшибе больше), и считает представительное декластеризованное среднее.\n\nРазмер ячейки подбирается автоматически (свип по размерам, выбор по минимуму декластеризованного среднего) либо задаётся вручную. На регулярной сети декластеризация ничего не меняет - веса равны.\n\nВыход: слой точек с полем весов wt и HTML-отчёт (сводка, гистограмма сырая против взвешенной, кривая среднего). Декластеризованное среднее - готовая оценка для подсчёта запасов и для «Среднего» простого кригинга (1.1). Поле wt подаётся в гауссову симуляцию (2.06) для взвешенной гистограммы.':
-        'Cell declustering (a port of GSLIB declus). When samples are clustered unevenly - some blocks drilled denser - the naive global statistics shift toward the over-sampled areas: if rich zones were drilled denser, the mean and histogram are overstated. The tool gives each sample a weight inversely proportional to the local density (less in a cluster, more on its own) and computes a representative declustered mean.\n\nThe cell size is chosen automatically (a sweep over sizes, picking the minimum declustered mean) or set manually. On a regular grid declustering changes nothing - the weights are equal.\n\nOutput: a point layer with a wt weight field and an HTML report (summary, raw-vs-weighted histogram, the mean curve). The declustered mean is a ready estimate for reserve calculation and for the Mean of simple kriging (1.1). The wt field feeds the Gaussian simulation (2.06) for a weighted histogram.',
-    'Декластеризованное среднее - представительная оценка для подсчёта запасов и для «Среднего» простого кригинга. Поле весов wt подаётся в SGS (2.06) для взвешенной гистограммы.':
-        'The declustered mean is a representative estimate for reserve calculation and for the Mean of simple kriging. The wt weight field feeds SGS (2.06) for a weighted histogram.',
+    'Ячеистая декластеризация (порт GSLIB declus). Когда пробы сгущены неравномерно - одни блоки разбурены плотнее, - наивная глобальная статистика смещается в сторону переразведанных участков: если гуще бурили богатые зоны, среднее и гистограмма завышены. Инструмент даёт каждой пробе вес, обратный локальной плотности (в скоплении меньше, на отшибе больше), и считает представительное декластеризованное среднее.\n\nРазмер ячейки подбирается автоматически (свип по размерам, выбор по минимуму декластеризованного среднего) либо задаётся вручную. На регулярной сети декластеризация ничего не меняет - веса равны.\n\nВыход: слой точек с полем весов wt и HTML-отчёт (сводка, гистограмма сырая против взвешенной, кривая среднего). Декластеризованное среднее - готовая оценка для подсчёта запасов и для «Среднего» простого кригинга (1.1). Поле wt подаётся в гауссову симуляцию (3.06) для взвешенной гистограммы.':
+        'Cell declustering (a port of GSLIB declus). When samples are clustered unevenly - some blocks drilled denser - the naive global statistics shift toward the over-sampled areas: if rich zones were drilled denser, the mean and histogram are overstated. The tool gives each sample a weight inversely proportional to the local density (less in a cluster, more on its own) and computes a representative declustered mean.\n\nThe cell size is chosen automatically (a sweep over sizes, picking the minimum declustered mean) or set manually. On a regular grid declustering changes nothing - the weights are equal.\n\nOutput: a point layer with a wt weight field and an HTML report (summary, raw-vs-weighted histogram, the mean curve). The declustered mean is a ready estimate for reserve calculation and for the Mean of simple kriging (1.1). The wt field feeds the Gaussian simulation (3.06) for a weighted histogram.',
+    'Декластеризованное среднее - представительная оценка для подсчёта запасов и для «Среднего» простого кригинга. Поле весов wt подаётся в SGS (3.06) для взвешенной гистограммы.':
+        'The declustered mean is a representative estimate for reserve calculation and for the Mean of simple kriging. The wt weight field feeds SGS (3.06) for a weighted histogram.',
     '1.0 Декластеризация (веса)': '1.0 Declustering (weights)',
     '== Декластеризация ==': '== Declustering ==',
     'plotly недоступен, отчёт без графиков (%s).': 'plotly unavailable, report without charts (%s).',
@@ -1536,12 +1536,12 @@ TRANSLATIONS = {
     'Поле весов декластеризации (из 1.01, необязательно)': 'Declustering weight field (from 1.01, optional)',
     'Доли классов взвешены декластеризацией (поле «%s»).': 'Class proportions weighted by declustering (field "%s").',
     'Метрики взвешены декластеризацией (поле «%s»).': 'Metrics weighted by declustering (field "%s").',
-    '5. Фрактальный анализ': '5. Fractal analysis',
-    '5.01 Фрактальная размерность': '5.01 Fractal dimension',
-    '5.02 Box-counting маски': '5.02 Box-counting of masks',
-    '5.03 Размерность линий и границ': '5.03 Dimension of lines and boundaries',
-    '5.04 Размерность Минковского (векторы)': '5.04 Minkowski dimension (vectors)',
-    '5.05 Создать пример для фракталов (демо)': '5.05 Create a fractal example (demo)',
+    '6. Фрактальный анализ': '6. Fractal analysis',
+    '6.01 Фрактальная размерность': '6.01 Fractal dimension',
+    '6.02 Box-counting маски': '6.02 Box-counting of masks',
+    '6.03 Размерность линий и границ': '6.03 Dimension of lines and boundaries',
+    '6.04 Размерность Минковского (векторы)': '6.04 Minkowski dimension (vectors)',
+    '6.05 Создать пример для фракталов (демо)': '6.05 Create a fractal example (demo)',
     'Создаёт точечный слой геофизических профилей электроразведки для обучения и проверки инструментов без реальных данных. Несколько параллельных профилей с пикетами, вдоль которых заданы кажущееся сопротивление ρк (Ом·м) и потенциал естественного поля ЕП (мВ).\n\nВ данные заложена низкоомная аномалия - обводнённая или замещённая зона, где ρк проваливается с фоновых десятков Ом·м до единиц, а ЕП даёт отрицательный минимум. Аномалия вытянута поперёк профилей, поэтому проявляется при интерполяции ρк изолиниями: точки -> 2D Kriging по полю rho_k -> карта сопротивления -> изолинии, оконтуривающие аномалию.\n\nОбласть задаётся экстентом. Фоновое и минимальное ρк, амплитуду ЕП и шум можно изменить в разделе «Дополнительно».\n\nПоля результата: profile (номер профиля), picket_m (пикет в метрах от начала профиля), pk (метка ПК), rho_k (ρк, Ом·м), sp (ЕП, мВ).':
         'Creates a point layer of electrical-prospecting geophysical profiles for learning and testing the tools without real data. Several parallel profiles with pickets carrying apparent resistivity rho_k (Ohm*m) and self-potential SP (mV).\n\nThe data contains a low-resistivity anomaly - a water-bearing or replaced zone where rho_k drops from a background of tens of Ohm*m to units, and SP shows a negative minimum. The anomaly is elongated across the profiles, so it shows up when rho_k is interpolated into isolines: points -> 2D Kriging on rho_k -> a resistivity map -> isolines outlining the anomaly.\n\nThe area is set by an extent. The background and minimum rho_k, the SP amplitude and the noise can be changed under Advanced.\n\nOutput fields: profile (profile number), picket_m (picket in metres from the profile start), pk (a ПК label), rho_k (rho_k, Ohm*m), sp (SP, mV).',
     '1.11 Создать пример геофизических профилей (демо)': '1.11 Create a geophysical-profiles example (demo)',
@@ -1594,12 +1594,12 @@ TRANSLATIONS = {
     'Скважины разреза (демо)': 'Section wells (demo)',
     'Оценка плотности, где замер задан не точкой, а носителем конечного размера: точка с сигмой неопределённости, отрезок линии (коридор полуширины), полигон. Единичная масса замера размазывается по носителю. Масса сохраняется, плотность обратна площади носителя, поэтому грубые привязки (регион, «где-то на Каме») самоослабляются геометрически, без порогов.\n\nЭто оценка плотности (сколько и где), не интерполяция значения - для значений остаётся кригинг. Тип геометрии один на запуск, смешение - серией запусков в один растр (дописывание).\n\nПоля: масса (по умолчанию 1 на объект); точность (для точек сигма в единицах карты, для линий полуширина коридора); для линий from_m/to_m - вырезка интервала по линейной привязке.\n\nВыход - трёхканальный растр: канал 1 плотность (масса на км², не зависит от размера ячейки), каналы 2-3 служебные (Σm·σ и Σm), чтобы дописывание и карта эффективной сигмы были точны. Необязательный второй растр - средневзвешенная сигма по ячейке (карта эффективной точности, аналог кригинговой дисперсии).\n\nИнвариант: интеграл плотности равен сумме масс входа, пишется в лог. Дазиметрия для полигонов - масса пропорциональна вспомогательному растру (население и т.п.), при пустом растре внутри полигона откат на равномерное. Слой должен быть в метрической системе координат.':
         'Density estimation where a measurement is given not by a point but by a finite-size support: a point with an uncertainty sigma, a line segment (a corridor of half-width), a polygon. The unit mass of a measurement is spread over its support. Mass is conserved and density is inverse to the support area, so coarse georeferencing (a region, "somewhere on the Kama") self-attenuates geometrically, without thresholds.\n\nThis is density estimation (how much and where), not value interpolation - kriging remains for values. One geometry type per run; mix by a series of runs into one raster (append).\n\nFields: mass (default 1 per object); precision (for points the sigma in map units, for lines the corridor half-width); for lines from_m/to_m cut an interval by linear referencing.\n\nOutput is a three-band raster: band 1 density (mass per km2, independent of cell size), bands 2-3 service (sum m*sigma and sum m) so that append and the effective-sigma map stay exact. Optional second raster - mass-weighted sigma per cell (effective precision map, an analogue of kriging variance).\n\nInvariant: the density integral equals the sum of input masses, written to the log. Dasymetry for polygons - mass proportional to an auxiliary raster (population etc.); if the raster is empty inside the polygon, fall back to uniform. The layer must be in a metric coordinate system.',
-    'Синтетический набор для инструмента 2.07 с известной суммарной массой, чтобы проверить инвариант глазами. Точки (масса 500, сигмы от долей ячейки до крупных), линии (масса 200, у одной вырезка интервала from_m/to_m), полигоны (масса 300, один под дазиметрию) и вспомогательный растр. Итого масса 1000.\n\nЗапустите 2.07 на слое точек - интеграл плотности должен дать 500, на линиях 200, на полигонах 300. Поля: mass, prec, from_m, to_m.':
-        'A synthetic set for tool 2.07 with a known total mass, to check the invariant by eye. Points (mass 500, sigmas from fractions of a cell to large), lines (mass 200, one with a from_m/to_m interval cut), polygons (mass 300, one for dasymetry) and an auxiliary raster. Total mass 1000.\n\nRun 2.07 on the point layer - the density integral should give 500, on lines 200, on polygons 300. Fields: mass, prec, from_m, to_m.',
-    'Демо создано. Масса: точки 500, линии 200, полигоны 300, итого 1000. Прогоните 2.07 на каждом слое - интеграл плотности должен совпасть.':
-        'Demo created. Mass: points 500, lines 200, polygons 300, total 1000. Run 2.07 on each layer - the density integral should match.',
-    '2.07 Плотность по замерам (переменная опора)': '2.07 Density from measurements (variable support)',
-    '2.08 Создать пример для плотности (демо)': '2.08 Create a density example (demo)',
+    'Синтетический набор для инструмента 3.07 с известной суммарной массой, чтобы проверить инвариант глазами. Точки (масса 500, сигмы от долей ячейки до крупных), линии (масса 200, у одной вырезка интервала from_m/to_m), полигоны (масса 300, один под дазиметрию) и вспомогательный растр. Итого масса 1000.\n\nЗапустите 3.07 на слое точек - интеграл плотности должен дать 500, на линиях 200, на полигонах 300. Поля: mass, prec, from_m, to_m.':
+        'A synthetic set for tool 3.07 with a known total mass, to check the invariant by eye. Points (mass 500, sigmas from fractions of a cell to large), lines (mass 200, one with a from_m/to_m interval cut), polygons (mass 300, one for dasymetry) and an auxiliary raster. Total mass 1000.\n\nRun 3.07 on the point layer - the density integral should give 500, on lines 200, on polygons 300. Fields: mass, prec, from_m, to_m.',
+    'Демо создано. Масса: точки 500, линии 200, полигоны 300, итого 1000. Прогоните 3.07 на каждом слое - интеграл плотности должен совпасть.':
+        'Demo created. Mass: points 500, lines 200, polygons 300, total 1000. Run 3.07 on each layer - the density integral should match.',
+    '3.07 Плотность по замерам (переменная опора)': '3.07 Density from measurements (variable support)',
+    '3.08 Создать пример для плотности (демо)': '3.08 Create a density example (demo)',
     'Вспом. растр (дазиметрия)': 'Auxiliary raster (dasymetry)',
     'Вспом. растр для дазиметрии': 'Auxiliary raster for dasymetry',
     'Вспом. растр для дазиметрии (полигоны)': 'Auxiliary raster for dasymetry (polygons)',
@@ -1636,11 +1636,162 @@ TRANSLATIONS = {
     'Эффективная сигма (необязательно)': 'Effective sigma (optional)',
     'Ячейка вспом. растра, м': 'Auxiliary raster cell, m',
     'плотность, масса/км²': 'density, mass/km2',
-    'Генерирует учебные объекты для фрактальных инструментов: ветвящуюся речную сеть (поле order - порядок притока), полигон водосбора с изрезанной границей и отдельную береговую линию (срединные смещения). Реки подавайте в 5.04 - размерность сети; берег и границу водосбора - в 5.03 и 5.04; растеризуйте водосбор - и он же пример для 5.02.':
-        'Generates training objects for the fractal tools: a branching river network (the order field - tributary order), a catchment polygon with a rugged boundary and a separate coastline (midpoint displacement). Feed the rivers into 5.04 - network dimension; the coast and the catchment boundary into 5.03 and 5.04; rasterise the catchment - it is also an example for 5.02.',
+    'Генерирует учебные объекты для фрактальных инструментов: ветвящуюся речную сеть (поле order - порядок притока), полигон водосбора с изрезанной границей и отдельную береговую линию (срединные смещения). Реки подавайте в 6.04 - размерность сети; берег и границу водосбора - в 6.03 и 6.04; растеризуйте водосбор - и он же пример для 6.02.':
+        'Generates training objects for the fractal tools: a branching river network (the order field - tributary order), a catchment polygon with a rugged boundary and a separate coastline (midpoint displacement). Feed the rivers into 6.04 - network dimension; the coast and the catchment boundary into 6.03 and 6.04; rasterise the catchment - it is also an example for 6.02.',
     'Журнал…': 'Log…',
     'Открыть файл журнала Isoliner': 'Open the Isoliner log file',
     '3D-просмотр поверхностей Isoliner': 'Isoliner 3D surface viewer',
     'Журнал': 'Log',
     'Журнал ещё не создан.': 'The log has not been created yet.',
+    'Карта плотности (переменная опора)': 'Density map (variable support)',
+    'Карта плотности…': 'Density map…',
+    'Карта плотности': 'Density map',
+    'Живой предпросмотр плотности с переменной опорой': 'Live preview of variable-support density',
+    'Замеры': 'Measurements',
+    'Поле массы': 'Mass field',
+    'Поле точности': 'Precision field',
+    'Сигма по умолчанию, м': 'Default sigma, m',
+    '0 - полуячейка': '0 - half-cell',
+    'Ячейка растра, м': 'Raster cell, m',
+    'Размер ячейки итогового растра': 'Cell size of the resulting raster',
+    'Носитель за краем': 'Support beyond the edge',
+    'Потерять массу': 'Lose mass',
+    'Поле from_m (линии)': 'Field from_m (lines)',
+    'Поле to_m (линии)': 'Field to_m (lines)',
+    'Вспом. растр (дазиметрия)': 'Auxiliary raster (dasymetry)',
+    'Построить изолинии плотности': 'Build density isolines',
+    'Слой эффективной сигмы (доверие)': 'Effective-sigma layer (trust)',
+    'Демо': 'Demo',
+    'Записать растр': 'Write raster',
+    'Закрыть': 'Close',
+    '(нет)': '(none)',
+    'Слой не выбран.': 'No layer selected.',
+    'Нет данных для предпросмотра.': 'No data for the preview.',
+    'Объектов: %d.  Масса входа: %.6g.  На сетке: %.6g.  Потеряно на краю: %.2f%%':
+        'Objects: %d.  Input mass: %.6g.  On grid: %.6g.  Lost at the edge: %.2f%%',
+    'Предпросмотр %d×%d, максимум %.4g масса/км². Полный расчёт - по кнопке «Записать растр».':
+        'Preview %d×%d, maximum %.4g mass/km2. Full computation - via the "Write raster" button.',
+    'Предпросмотр не построен: %s': 'Preview failed: %s',
+    'Приблизьте карту к нужной области.': 'Zoom the map to the area you need.',
+    'Демо создано: масса точек 500, линий 200, полигонов 300. Выберите слой и смотрите предпросмотр.':
+        'Demo created: mass of points 500, lines 200, polygons 300. Select a layer and watch the preview.',
+    'Изолинии плотности': 'Density isolines',
+    'Эффективная сигма (доверие)': 'Effective sigma (trust)',
+    'Эффективная сигма постоянна (%.4g): у слоя одинаковая точность, карта доверия вырождена.':
+        'Effective sigma is constant (%.4g): the layer has uniform precision, the trust map is degenerate.',
+    # --- 2. Топография ---
+    '2. Топография': '2. Topography',
+    '2.01 Загрузка ЦМР по рамке': '2.01 Download DEM by extent',
+    '2.02 Загрузка топоосновы по рамке': '2.02 Download base topography by extent',
+    '2.04 Заполнение понижений': '2.04 Fill depressions',
+    '2.10 Демо-рельеф': '2.10 Demo relief',
+    'Epsilon уклона при заполнении, м': 'Slope epsilon for filling, m',
+    'Epsilon уклона, м (0: только ямы)': 'Slope epsilon, m (0: pits only)',
+    'Входная ЦМР': 'Input DEM',
+    'Выберите целевую СК с кодом EPSG.': 'Choose a target CRS with an EPSG code.',
+    'Высота, ячеек': 'Height, cells',
+    'Гидрологическая коррекция (заполнение понижений)': 'Hydrological correction (fill depressions)',
+    'Гидрологическая коррекция...': 'Hydrological correction...',
+    'Готово: %dx%d ячеек, зерно %d.': 'Done: %dx%d cells, seed %d.',
+    'Данные: Copernicus DEM © ESA.': 'Data: Copernicus DEM © ESA.',
+    'Данные: © участники OpenStreetMap, ODbL.': 'Data: © OpenStreetMap contributors, ODbL.',
+    'Демо-рельеф': 'Demo relief',
+    'Компактный int16 (для поставки демо)': 'Compact int16 (for demo shipping)',
+    'Не выбран ни один слой для загрузки.': 'No layer selected for download.',
+    'Не удалось открыть входной растр через GDAL.': 'Failed to open the input raster via GDAL.',
+    'Поднято ячеек: %d, максимальный подъём: %.2f м': 'Raised cells: %d, maximum raise: %.2f m',
+    'Получено объектов (%s): %d': 'Features received (%s): %d',
+    'Предел площади рамки, кв. градусов': 'Extent area limit, square degrees',
+    'Предел числа плиток 1x1 градус': 'Limit of 1x1 degree tiles',
+    'Рамка загрузки': 'Download extent',
+    'СК выхода (метрическая)': 'Output CRS (metric)',
+    'Таймаут запроса, с': 'Request timeout, s',
+    'ЦМР (метрическая СК)': 'DEM (metric CRS)',
+    'ЦМР без понижений': 'DEM without depressions',
+    'Целевая СК (пусто: СК проекта или UTM по центру)': 'Target CRS (empty: project CRS or UTM by center)',
+    'Целевая СК должна быть метрической, градусные гриды в анализ не пускаем.': 'The target CRS must be metric, degree grids are not allowed into the analysis.',
+    'Ширина, ячеек': 'Width, cells',
+    'Водотоки (тальвеги)': 'Watercourses (streamlines)',
+    'Водоёмы': 'Water bodies',
+    'Вершины с отметками': 'Peaks with elevations',
+    'Обрывы и насыпи': 'Cliffs and embankments',
+    'Береговая линия': 'Coastline',
+    'Водотоки': 'Watercourses',
+    'Водоёмы (полигоны)': 'Water bodies (polygons)',
+    'Вершины': 'Peaks',
+    'Обрывы и насыпи (линии)': 'Cliffs and embankments (lines)',
+    'Береговая линия (линии)': 'Coastline (lines)',
+
+    # --- 2. Топография, расчётные инструменты ---
+    '2.05 Сток и аккумуляция (D8)': '2.05 Flow and accumulation (D8)',
+    '2.06 Речная сеть': '2.06 River network',
+    '2.07 Бассейны и водоразделы': '2.07 Basins and watersheds',
+    '2.08 Уклон и экспозиция': '2.08 Slope and aspect',
+    '2.09 Вершины': '2.09 Peaks',
+    'Аккумуляция, ячеек': 'Accumulation, cells',
+    'Бассейнов: %d': 'Basins: %d',
+    'Бассейны (полигоны)': 'Basins (polygons)',
+    'Бассейны (растр меток)': 'Basins (label raster)',
+    'Вершины (точки)': 'Peaks (points)',
+    'Заполнить понижения перед расчётом': 'Fill depressions before computing',
+    'Звеньев сети: %d': 'Network links: %d',
+    'Максимальная аккумуляция: %d ячеек': 'Maximum accumulation: %d cells',
+    'Минимальное превышение, м': 'Minimum drop, m',
+    'Найдено вершин: %d': 'Peaks found: %d',
+    'Направления стока (коды ESRI)': 'Flow directions (ESRI codes)',
+    'Ни одна точка замыкания не попала на грид.': 'No pour point falls on the grid.',
+    'Порог аккумуляции устья, ячеек (без точек)': 'Mouth accumulation threshold, cells (without points)',
+    'Порог аккумуляции, ячеек': 'Accumulation threshold, cells',
+    'Радиус окна, м': 'Window radius, m',
+    'Радиус притяжки точек, м': 'Point snap radius, m',
+    'Разметка бассейнов...': 'Labeling basins...',
+    'Речная сеть': 'River network',
+    'Точек замыкания принято: %d': 'Pour points accepted: %d',
+    'Точки замыкания (пусто: устья)': 'Pour points (empty: mouths)',
+    'Трассировка сети...': 'Tracing the network...',
+    'Уклон, градусы': 'Slope, degrees',
+    'Экспозиция, градусы': 'Aspect, degrees',
+    'Заполнение понижений...': 'Filling depressions...',
+    'Направления стока D8...': 'D8 flow directions...',
+    'Аккумуляция...': 'Accumulation...',
+    'Ячейка ЦМР не квадратная, переинтерполируйте грид.': 'The DEM cell is not square, resample the grid.',
+
+    # --- 2.03 Topo2Raster ---
+    '2.03 Topo2Raster (рельеф из векторов)': '2.03 Topo2Raster (terrain from vectors)',
+    'Во входных слоях не нашлось ни одного узла с высотой.': 'No node with elevation found in the input layers.',
+    'Готово: %dx%d ячеек.': 'Done: %dx%d cells.',
+    'Заполнить понижения в итоге': 'Fill depressions in the result',
+    'Итераций сглаживания на уровень': 'Smoothing iterations per level',
+    'Минимальное падение тальвега, м/ячейку': 'Minimum streamline drop, m/cell',
+    'Мультисеточная интерполяция...': 'Multigrid interpolation...',
+    'Нужен хотя бы один слой с высотами: точки или изолинии.': 'At least one layer with elevations is required: points or contours.',
+    'Обрывы (барьеры сглаживания)': 'Cliffs (smoothing barriers)',
+    'Озёра (плоскости)': 'Lakes (flat planes)',
+    'Охват (пусто: по слоям)': 'Extent (empty: from layers)',
+    'Поле высоты изолиний': 'Contour elevation field',
+    'Поле высоты точек': 'Point elevation field',
+    'Поле уровня озёр (пусто: по берегу)': 'Lake level field (empty: from shore)',
+    'Рельеф': 'Terrain',
+    'СК первого слоя должна быть метрической, градусные гриды в анализ не пускаем.': 'The CRS of the first layer must be metric, degree grids are not allowed into the analysis.',
+    'Тальвеги (вниз по течению)': 'Streamlines (downstream)',
+    'Точки высот': 'Elevation points',
+    'Узлов с высотой: %d': 'Nodes with elevation: %d',
+    'Укажите поле высоты изолиний.': 'Set the contour elevation field.',
+    'Укажите поле высоты точек.': 'Set the point elevation field.',
+
+    # --- 2. Топография: обкатка 3.0.1 ---
+    'Топография': 'Topography',
+    'Целевая СК: %s': 'Target CRS: %s',
+    'Нужна метрическая СК.': 'A metric CRS is required.',
+    'Загружает Copernicus DEM GLO-30 по рамке из открытого хранилища, без регистрации и ключей. Плитки собираются в мозаику без швов и перепроецируются в метрическую систему координат с кубической интерполяцией. Сырые градусные плитки в анализ не попадают, поэтому укрупнённый шаг GLO-30 по долготе севернее 50 широты обрабатывается автоматически. Флажок гидрокоррекции заполняет ложные понижения, чтобы вода текла вниз. Выход готов для изолиний (1.04) и всей группы Топография. Выход: GeoTIFF float32, высоты в метрах, nodata -32768, слой попадает в группу Топография дерева слоёв. Данные: Copernicus DEM © ESA.': 'Downloads Copernicus DEM GLO-30 by extent from an open store, no registration or keys. Tiles are mosaicked seamlessly and reprojected into a metric CRS with cubic resampling. Raw degree tiles never enter the analysis, so the coarser GLO-30 longitude step north of 50 latitude is handled automatically. The hydrological correction checkbox fills spurious depressions so water flows downhill. The output is ready for isolines (1.04) and the whole Topography group. Output: a float32 GeoTIFF, elevations in meters, nodata -32768, the layer lands in the Topography group of the layer tree. Data: Copernicus DEM © ESA.',
+    'Загружает по рамке из OpenStreetMap слои для работы с рельефом: водотоки (в OSM рисуются вниз по течению, это готовые тальвеги), водоёмы как плоскости постоянной высоты, вершины с отметками ele, обрывы и насыпи как линии разрыва, береговую линию. Выход в СК проекта. Публичные серверы Overpass имеют лимиты, для больших территорий уменьшайте рамку. Водоёмы берутся из замкнутых контуров way, составные мультиполигоны пока пропускаются. Выход: до пяти слоёв в группе Топография. Общие поля name и osm_id, у водотоков дополнительно waterway, у водоёмов water, у вершин ele (высота, м), у обрывов kind. Данные: © участники OpenStreetMap, ODbL.': 'Downloads terrain-related layers from OpenStreetMap by extent: watercourses (drawn downstream in OSM, ready-made streamlines), water bodies as constant-elevation planes, peaks with ele marks, cliffs and embankments as breaklines, the coastline. Output is in the project CRS. Public Overpass servers have limits, shrink the extent for large areas. Water bodies come from closed ways, compound multipolygons are skipped for now. Output: up to five layers in the Topography group. Common fields name and osm_id, watercourses also carry waterway, water bodies water, peaks ele (elevation, m), cliffs kind. Data: © OpenStreetMap contributors, ODbL.',
+    'Строит рельеф из векторных данных мультисеточной интерполяцией от грубой сетки к тонкой, по мотивам ANUDEM. Каждый тип входа работает своим ограничением: точки высот и изолинии - жёсткие узлы, тальвеги - принудительное падение вниз по течению (вершины линий должны идти вниз по течению, водотоки OSM и выход инструмента 2.06 подходят как есть), обрывы - барьер сглаживания, поверхности по сторонам независимы, озёра - горизонтальные плоскости: с высотой в поле приколоты к ней, без высоты уровень берётся по минимуму берега. Нужен хотя бы один слой с высотами: точки или изолинии. Все слои приводятся к СК первого заданного слоя, она должна быть метрической. Финальное заполнение понижений флажком. Выход: GeoTIFF float32, высоты в метрах, nodata -9999, слой в группе Топография.': 'Builds terrain from vector data by multigrid interpolation from a coarse grid to a fine one, in the spirit of ANUDEM. Every input type works as its own constraint: elevation points and contours are hard nodes, streamlines force a downstream drop (line vertices must run downstream, OSM watercourses and the output of tool 2.06 fit as is), cliffs are smoothing barriers with independent surfaces on both sides, lakes are horizontal planes: with a field value they are pinned to it, without one the level is taken from the shore minimum. At least one layer with elevations is required: points or contours. All layers are brought to the CRS of the first given layer, which must be metric. Final depression filling by checkbox. Output: a float32 GeoTIFF, elevations in meters, nodata -9999, the layer in the Topography group.',
+    'Заполняет ложные понижения ЦМР методом Планшона-Дарбу, чтобы поток не останавливался в ямах. Epsilon задаёт минимальный уклон на плоских участках. При нулевом значении поднимаются только настоящие ямы ровно до уровня слива, при положительном дополнительно строится сквозной уклон через плоскости. Ячейки на границе грида и рядом с nodata считаются стоками. В отчёт выводится число поднятых ячеек и максимальный подъём. Выход: GeoTIFF float32 с сеткой и nodata входа, слой в группе Топография.': 'Fills spurious DEM depressions with the Planchon-Darboux method so flow does not stop in pits. Epsilon sets the minimum slope on flat areas. With zero only true pits are raised exactly to the spill level, with a positive value a through slope is also built across flats. Cells on the grid border and next to nodata are treated as outlets. The report shows the number of raised cells and the maximum raise. Output: a float32 GeoTIFF with the input grid and nodata, the layer in the Topography group.',
+    'Считает направления стока D8 (Jenson-Domingue) и аккумуляцию: сколько ячеек стекает в каждую, включая её саму. Направления кодируются как в ArcGIS: E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128, сток=0. Береговая ячейка льёт в nodata, ячейка на рамке уходит с грида только без более низкого соседа внутри. Флажок заполнения понижений включён по умолчанию: на сырой ЦМР поток останавливается в ямах. Выход: два растра в группе Топография, направления GeoTIFF byte (nodata 255) и аккумуляция GeoTIFF float32 в ячейках (nodata -1).': 'Computes D8 flow directions (Jenson-Domingue) and accumulation: how many cells drain into each one, itself included. Directions are coded as in ArcGIS: E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128, sink=0. A shore cell pours into nodata, a cell on the frame leaves the grid only without a lower neighbor inside. The fill checkbox is on by default: on a raw DEM flow stops in pits. Output: two rasters in the Topography group, directions as a byte GeoTIFF (nodata 255) and accumulation as a float32 GeoTIFF in cells (nodata -1).',
+    'Извлекает речную сеть: ячейки с аккумуляцией не ниже порога связываются в звенья от истоков и слияний вниз по течению. Вершины линий идут вниз по течению, как водотоки в OSM, выход годится тальвегами для Topo2Raster. Поля: порядок Стралера, аккумуляция в замыкании звена, длина. Порог в ячейках: площадь водосбора истока, делённая на площадь ячейки. Для ЦМР 30 м порог 1000 даёт начало рек с водосбора около 0.9 кв. км. Выход: линейный слой в группе Топография с полями order, acc_out и length_m.': 'Extracts the river network: cells with accumulation at or above the threshold are linked from heads and junctions downstream. Line vertices run downstream, like OSM watercourses, so the output works as streamlines for Topo2Raster. Fields: Strahler order, accumulation at the link outlet, length. Threshold is in cells: head catchment area divided by cell area. For a 30 m DEM a threshold of 1000 starts rivers at a catchment of about 0.9 sq. km. Output: a line layer in the Topography group with fields order, acc_out and length_m.',
+    'Делит территорию на бассейны. С точками замыкания каждая точка притягивается к ячейке с наибольшей аккумуляцией в радиусе притяжки и собирает весь свой водосбор. Без точек бассейны строятся от устьев: ячеек, откуда поток покидает грид, с аккумуляцией не ниже порога. Границы полигонов - водоразделы. Ячейки, не попавшие ни в один бассейн, получают метку 0 и в полигоны не выводятся. Выход: полигоны в группе Топография с полями basin и area_m2, опционально растр меток GeoTIFF int32 (nodata 0).': 'Divides the area into basins. With pour points every point snaps to the cell with the highest accumulation within the snap radius and collects its whole catchment. Without points basins are built from mouths: cells where flow leaves the grid with accumulation at or above the threshold. Polygon boundaries are the watersheds. Cells outside every basin get label 0 and are not exported to polygons. Output: polygons in the Topography group with fields basin and area_m2, optionally a label raster as an int32 GeoTIFF (nodata 0).',
+    'Уклон в градусах и экспозиция по ядру Horn 3x3, как в gdaldem. Экспозиция - азимут спуска в градусах от севера по часовой стрелке, у плоских ячеек -1. Ячейки nodata и их соседи получают nodata: ядро через дыры не считаем. Выход: два растра GeoTIFF float32 в группе Топография, nodata -9999.': 'Slope in degrees and aspect with the Horn 3x3 kernel, as in gdaldem. Aspect is the downslope azimuth in degrees from north clockwise, flat cells get -1. Nodata cells and their neighbors get nodata: the kernel is not computed across holes. Output: two float32 GeoTIFF rasters in the Topography group, nodata -9999.',
+    'Находит вершины: ячейки, самые высокие в квадратном окне заданного радиуса, с превышением над минимумом окна не меньше порога. Радиус отсекает второстепенные макушки рядом с главной, превышение отсекает кочки на равнине. Выход: точечный слой в группе Топография с полями z (высота, м) и drop (превышение, м).': 'Finds peaks: cells that are the highest in a square window of the given radius, with a drop over the window minimum at or above the threshold. The radius suppresses secondary tops next to the main one, the drop suppresses bumps on a plain. Output: a point layer in the Topography group with fields z (elevation, m) and drop (drop, m).',
+    'Создаёт синтетический рельеф: наклонная равнина, холмы, извилистая долина с постоянным падением. Рельеф детерминирован по зерну. Между холмами осознанно остаются локальные понижения, чтобы инструменту заполнения было что показывать. Служебный инструмент для примеров руководства и работы без сети, живые данные даёт инструмент 2.01. Выход: GeoTIFF float32 (или int16 флажком) в группе Топография.': 'Creates synthetic terrain: a tilted plain, hills, a winding valley with constant fall. The relief is deterministic by seed. Local depressions are left between the hills on purpose so the filling tool has something to show. A utility tool for manual examples and offline work, live data comes from tool 2.01. Output: a float32 GeoTIFF (or int16 by checkbox) in the Topography group.',
+
 }

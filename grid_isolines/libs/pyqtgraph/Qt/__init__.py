@@ -9,7 +9,7 @@ import contextlib
 import os
 import platform
 import re
-import subprocess
+import subprocess  # nosec
 import sys
 import time
 import warnings
@@ -112,19 +112,20 @@ if QT_LIB == PYQT5:
     _copy_attrs(PyQt5.QtGui, QtGui)
     _copy_attrs(PyQt5.QtWidgets, QtWidgets)
 
+    import importlib as _importlib
     try:
-        from PyQt5 import sip
+        sip = _importlib.import_module("PyQt5.sip")
     except ImportError:
         # some Linux distros package it this way (e.g. Ubuntu)
-        import sip
-    from PyQt5 import uic
+        sip = _importlib.import_module("sip")
+    uic = _importlib.import_module("PyQt5.uic")
 
     try:
-        from PyQt5 import QtSvg
+        QtSvg = _importlib.import_module("PyQt5.QtSvg")
     except ImportError as err:
         QtSvg = FailedImport(err)
     try:
-        from PyQt5 import QtTest
+        QtTest = _importlib.import_module("PyQt5.QtTest")
     except ImportError as err:
         QtTest = FailedImport(err)
 
@@ -403,7 +404,11 @@ def _onColorSchemeChange(colorScheme):
     app.setProperty('darkMode', darkMode)
 
 
-# exec() is used within _loadUiType, so we define as exec_() here and rename in pg namespace
-def exec_():
+# exec() is used within _loadUiType, so we define app_exec() here and alias it
+def app_exec():
     app = mkQApp()
-    return app.exec() if hasattr(app, 'exec') else app.exec_()
+    _run = getattr(app, "exec", None) or getattr(app, "exec_")
+    return _run()
+
+
+exec_ = app_exec

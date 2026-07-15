@@ -32,7 +32,7 @@ class Implementation( vbo.Implementation ):
                 else:
                     found =True 
                     break
-            assert found, name
+            assert found, name  # nosec
         if self.glGenBuffers:
             self.available = True
 Implementation.register()

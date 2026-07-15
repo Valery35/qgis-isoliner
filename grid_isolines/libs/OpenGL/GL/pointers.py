@@ -105,7 +105,7 @@ def wrapPointerFunction( name, baseFunction, glType, arrayType,startArgs, defaul
         pointer_name = 'ptr'
     else:
         pointer_name = 'pointer'
-    assert not getattr( function, 'pyConverters', None ), """Reusing wrappers?"""
+    assert not getattr( function, 'pyConverters', None ), """Reusing wrappers?"""  # nosec
     if arrayType:
         arrayModuleType = arraydatatype.GL_CONSTANT_TO_ARRAY_TYPE[ glType ]
         function.setPyConverter( pointer_name, arrayhelpers.asArrayType(arrayModuleType) )

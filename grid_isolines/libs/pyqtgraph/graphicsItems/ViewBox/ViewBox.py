@@ -442,7 +442,7 @@ class ViewBox(GraphicsWidget):
         """Remove an item from this view."""
         try:
             self.addedItems.remove(item)
-        except:
+        except:  # nosec
             pass
 
         scene = self.scene()

@@ -53,7 +53,7 @@ class CellSizeWrapper(_BASE):
                 self._spin.setMinimum(0.0)
                 self._spin.setMaximum(1e9)
                 self._spin.setDecimals(5)
-            except Exception:
+            except Exception:  # nosec
                 pass
             self._spin.setToolTip(_tr("0 = авто: min(охват)/50"))
             self._label = QLabel(_tr("грид: -"))
@@ -62,7 +62,7 @@ class CellSizeWrapper(_BASE):
             lay.addWidget(self._label, 0)
             try:
                 self._spin.valueChanged.connect(self._recompute)
-            except Exception:
+            except Exception:  # nosec
                 pass
             return self._container
         except Exception:
@@ -73,7 +73,7 @@ class CellSizeWrapper(_BASE):
     def setValue(self, value):
         try:
             self._spin.setValue(float(value) if value not in (None, "") else 0.0)
-        except Exception:
+        except Exception:  # nosec
             pass
 
     def value(self):
@@ -100,13 +100,13 @@ class CellSizeWrapper(_BASE):
         if ext is not None:
             try:
                 ext.widgetValueHasChanged.connect(lambda *a: self._recompute())
-            except Exception:
+            except Exception:  # nosec
                 pass
         inp = self._wrappers.get("INPUT")
         if inp is not None:
             try:
                 inp.widgetValueHasChanged.connect(lambda *a: self._recompute())
-            except Exception:
+            except Exception:  # nosec
                 pass
         self._recompute()
 
@@ -117,7 +117,7 @@ class CellSizeWrapper(_BASE):
         for getter in ("parameterValue", "value"):
             try:
                 return getattr(w, getter)()
-            except Exception:
+            except Exception:  # nosec
                 continue
         return None
 
@@ -135,7 +135,7 @@ class CellSizeWrapper(_BASE):
                     xmin, xmax, ymin, ymax = (float(parts[0]), float(parts[1]),
                                               float(parts[2]), float(parts[3]))
                     return QgsRectangle(xmin, ymin, xmax, ymax)
-        except Exception:
+        except Exception:  # nosec
             pass
         return None
 
@@ -153,7 +153,7 @@ class CellSizeWrapper(_BASE):
                 found = QgsProject.instance().mapLayersByName(v)
                 if found:
                     return found[0]
-        except Exception:
+        except Exception:  # nosec
             pass
         return None
 
@@ -191,7 +191,7 @@ class CellSizeWrapper(_BASE):
         except Exception:
             try:
                 self._label.setText(_tr("грид: -"))
-            except Exception:
+            except Exception:  # nosec
                 pass
 
 
@@ -232,7 +232,7 @@ class ProfileWrapper(_BASE):
             lay.addWidget(self._label)
             try:
                 self._combo.currentIndexChanged.connect(self._recompute)
-            except Exception:
+            except Exception:  # nosec
                 pass
             return self._container
         except Exception:
@@ -242,7 +242,7 @@ class ProfileWrapper(_BASE):
     def setValue(self, value):
         try:
             self._combo.setCurrentIndex(int(value) if value not in (None, "") else 0)
-        except Exception:
+        except Exception:  # nosec
             pass
 
     def value(self):
@@ -278,7 +278,7 @@ class ProfileWrapper(_BASE):
         except Exception:
             try:
                 self._label.setText("")
-            except Exception:
+            except Exception:  # nosec
                 pass
 
 

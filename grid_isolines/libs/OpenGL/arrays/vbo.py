@@ -319,7 +319,7 @@ if VBO is None:
 
         def create_buffers(self):
             """Create the internal buffer(s)"""
-            assert not self.buffers, """Already created the buffer"""
+            assert not self.buffers, """Already created the buffer"""  # nosec
             self.buffers = [long(self.implementation.glGenBuffers(1))]
             self.target = self.resolve(self.target)
             self.usage = self.resolve(self.usage)
@@ -336,7 +336,7 @@ if VBO is None:
             over with glBufferData or by updating the already-transferred
             data with glBufferSubData.
             """
-            assert self.buffers, """Should do create_buffers before copy_data"""
+            assert self.buffers, """Should do create_buffers before copy_data"""  # nosec
             if self.copied:
                 if self._copy_segments:
                     while self._copy_segments:
@@ -390,7 +390,7 @@ if VBO is None:
             """Add an integer to this VBO (create a VBOOffset)"""
             if hasattr(other, 'offset'):
                 other = other.offset
-            assert isinstance(
+            assert isinstance(  # nosec
                 other, integer_types
             ), """Only know how to add integer/long offsets"""
             return VBOOffset(self, other)
@@ -508,7 +508,7 @@ def _cleaner(vbo):
     def clean(ref):
         try:
             _cleaners.pop(vbo)
-        except Exception as err:
+        except Exception as err:  # nosec
             pass
         else:
             vbo.implementation.glUnmapBuffer(vbo.target)

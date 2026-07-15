@@ -4,7 +4,7 @@
 # © 2026 ООО «Информ++» (www.informpp.ru).
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
-"""Плотность по замерам с переменной опорой (инструмент 2.07).
+"""Плотность по замерам с переменной опорой (инструмент 3.07).
 
 Замер задан не точкой, а носителем конечного размера: точка с сигмой
 неопределённости, отрезок линии (коридор полуширины), полигон. Единичная масса
@@ -231,7 +231,7 @@ def rasterize_polygon(gs, rings):
 
 
 def demo_dataset(xmin, ymin, xmax, ymax, seed=1):
-    """Учебный набор с круглой суммарной массой для проверки инварианта 2.07.
+    """Учебный набор с круглой суммарной массой для проверки инварианта 3.07.
     10 точек с разными сигмами (масса 500), 2 линии (масса 200, у одной вырезка
     интервала), 2 полигона (масса 300, один под дазиметрию). Итого 1000."""
     rng = np.random.default_rng(seed if seed and seed > 0 else None)
@@ -260,3 +260,50 @@ def demo_dataset(xmin, ymin, xmax, ymax, seed=1):
              dict(rings=box(0.58, 0.90, 0.55, 0.88), mass=150.0, dasy=True)]
     return dict(points=pts, lines=lines, polygons=polys, total=1000.0,
                 total_points=500.0, total_lines=200.0, total_polygons=300.0)
+
+
+# Палитра для предпросмотра (тёмно-синий -> зелёный -> жёлтый).
+_RAMP = np.array([
+    (68, 1, 84), (72, 40, 120), (62, 74, 137), (49, 104, 142),
+    (38, 130, 142), (31, 158, 137), (53, 183, 121), (109, 205, 89),
+    (180, 222, 44), (253, 231, 37)], float)
+
+
+def colorize(dens, nodata=-9999.0, p_lo=2.0, p_hi=98.0):
+    """Плотность -> RGBA (uint8) для предпросмотра. Нули и nodata прозрачны,
+    диапазон обрезается по процентилям, чтобы одиночные пики не съедали шкалу.
+    Возвращает массив ny×nx×4."""
+    a = np.asarray(dens, float)
+    rgba = np.zeros(a.shape + (4,), dtype=np.uint8)
+    valid = np.isfinite(a) & (a != nodata) & (a > 0)
+    if not valid.any():
+        return rgba
+    lo = float(np.percentile(a[valid], p_lo))
+    hi = float(np.percentile(a[valid], p_hi))
+    if hi <= lo:
+        hi = lo + 1e-12
+    t = np.clip((a - lo) / (hi - lo), 0.0, 1.0)
+    idx = t * (len(_RAMP) - 1)
+    i0 = np.floor(idx).astype(int)
+    i1 = np.minimum(i0 + 1, len(_RAMP) - 1)
+    f = (idx - i0)[..., None]
+    col = _RAMP[i0] * (1.0 - f) + _RAMP[i1] * f
+    rgba[..., :3] = np.clip(col, 0, 255).astype(np.uint8)
+    rgba[..., 3] = np.where(valid, 255, 0).astype(np.uint8)
+    return rgba
+
+
+def nice_interval(vmin, vmax, n=10):
+    """Круглый шаг изолиний под диапазон: 1, 2 или 5 на порядок. Возвращает 0,
+    если диапазон вырожден."""
+    lo, hi = float(vmin), float(vmax)
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        return 0.0
+    raw = (hi - lo) / max(int(n), 1)
+    if raw <= 0:
+        return 0.0
+    mag = 10.0 ** np.floor(np.log10(raw))
+    for m in (1.0, 2.0, 5.0, 10.0):
+        if raw <= m * mag:
+            return float(m * mag)
+    return float(10.0 * mag)

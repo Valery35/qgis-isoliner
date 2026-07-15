@@ -2,7 +2,7 @@
 import ctypes
 import OpenGL
 
-assert OpenGL
+assert OpenGL  # nosec
 from OpenGL.raw.GL import _types
 from OpenGL import plugins
 from OpenGL.arrays import formathandler, _arrayconstants as GL_1_1

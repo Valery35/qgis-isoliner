@@ -29,7 +29,7 @@ PROVIDER_ID = "isoliner"
 def _log(msg):
     try:
         QgsMessageLog.logMessage(msg, "Isoliner")
-    except Exception:
+    except Exception:  # nosec
         pass
 
 
@@ -68,7 +68,7 @@ class GridIsolinesPlugin:
             try:
                 from qgis.core import Qgis
                 extra.append("QGIS: %s" % Qgis.QGIS_VERSION)
-            except Exception:
+            except Exception:  # nosec
                 pass
             try:
                 import numpy
@@ -123,16 +123,26 @@ class GridIsolinesPlugin:
             except ImportError:
                 from qgis.PyQt.QtWidgets import QAction   # Qt5 (QGIS 3)
             from .i18n import tr, init_from_qgis
-            from . import about, viewer3d
+            from . import about, viewer3d, densityview
             init_from_qgis()
             here = os.path.dirname(__file__)
             icon_main = QIcon(os.path.join(here, "icon.svg"))
             icon_3d = QIcon(os.path.join(here, "icon_3d.svg"))
             icon_log = QIcon(os.path.join(here, "icon_log.svg"))
+            icon_den = QIcon(os.path.join(here, "icon_density.svg"))
 
             win = self.iface.mainWindow()
             self.toolbar = self.iface.addToolBar(tr("Isoliner"))
             self.toolbar.setObjectName("IsolinerToolbar")
+
+            # Карта плотности (живой предпросмотр 3.07)
+            if densityview.is_available():
+                a_den = QAction(icon_den, tr("Карта плотности…"), win)
+                a_den.setToolTip(tr(
+                    "Живой предпросмотр плотности с переменной опорой"))
+                a_den.triggered.connect(
+                    lambda: densityview.show_view(self.iface))
+                self._add(a_den, toolbar=True)
 
             # 3D-просмотр (с иконкой) - в тулбар и меню
             if viewer3d.is_available():
@@ -151,7 +161,7 @@ class GridIsolinesPlugin:
             a_log = QAction(icon_log, tr("Журнал…"), win)
             a_log.setToolTip(tr("Открыть файл журнала Isoliner"))
             a_log.triggered.connect(self._open_log)
-            self._add(a_log, toolbar=True)
+            self._add(a_log, toolbar=False)     # только меню, панель не грузим
         except Exception as e:
             _log("Интерфейс плагина не создан: %s" % e)
 
@@ -165,13 +175,13 @@ class GridIsolinesPlugin:
         for a in getattr(self, "actions", []):
             try:
                 self.iface.removePluginMenu("Isoliner", a)
-            except Exception:
+            except Exception:  # nosec
                 pass
         self.actions = []
         if self.toolbar is not None:
             try:
                 self.toolbar.deleteLater()
-            except Exception:
+            except Exception:  # nosec
                 pass
             self.toolbar = None
         reg = QgsApplication.processingRegistry()

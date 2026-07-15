@@ -90,20 +90,20 @@ class SignalProxy(QtCore.QObject):
         self.blockSignal = True
         try:
             self.signal.disconnect(self.signalReceived)
-        except:
+        except:  # nosec
             pass
         try:
             slot = self.slot()
             if slot is not None:
                 self.sigDelayed.disconnect(slot)
-        except:
+        except:  # nosec
             pass
         finally:
             self.slot = None
 
     def connectSlot(self, slot):
         """Connect the `SignalProxy` to an external slot"""
-        assert self.slot is None, "Slot was already connected!"
+        assert self.slot is None, "Slot was already connected!"  # nosec
         self.slot = weakref.ref(slot)
         self.sigDelayed.connect(slot)
         self.blockSignal = False

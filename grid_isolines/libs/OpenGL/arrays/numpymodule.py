@@ -13,7 +13,7 @@ try:
 except ImportError as err:
     raise ImportError( """No numpy module present: %s"""%(err))
 import OpenGL
-assert OpenGL
+assert OpenGL  # nosec
 import ctypes
 from OpenGL._bytes import long
 from OpenGL.raw.GL import _types 

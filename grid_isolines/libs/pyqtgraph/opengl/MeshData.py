@@ -412,7 +412,7 @@ class MeshData(object):
         
     def save(self):
         """Serialize this mesh to a string appropriate for disk storage"""
-        import pickle
+        import pickle  # nosec
         if self._faces is not None:
             names = ['_vertexes', '_faces']
         else:

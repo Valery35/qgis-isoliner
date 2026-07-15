@@ -175,6 +175,32 @@ def test_demo_dataset_round_mass():
 
 
 
+def test_colorize_rgba():
+    g = np.zeros((10, 10))
+    g[5, 5] = 100.0
+    g[5, 6] = 50.0
+    r = D.colorize(g)
+    assert r.shape == (10, 10, 4)
+    assert int(r[0, 0, 3]) == 0                 # нули прозрачны
+    assert int(r[5, 5, 3]) == 255               # данные непрозрачны
+    assert tuple(r[5, 5, :3]) != tuple(r[5, 6, :3])   # градация цвета
+    empty = D.colorize(np.zeros((4, 4)))
+    assert empty.sum() == 0                     # пустой грид не падает
+    nd = D.colorize(np.full((3, 3), -9999.0))
+    assert nd[..., 3].sum() == 0                # nodata прозрачна
+
+
+
+
+def test_nice_interval():
+    assert D.nice_interval(0.0, 0.76) == 0.1      # ~7 уровней
+    assert D.nice_interval(0.0, 100.0) == 10.0
+    assert D.nice_interval(0.0, 1.0) == 0.1
+    assert D.nice_interval(3.0, 3.0) == 0.0        # вырожден -> 0
+    iv = D.nice_interval(0.0, 0.0007)
+    assert iv > 0 and 0.0007 / iv >= 5             # адекватно мелкому диапазону
+
+
 def _run():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

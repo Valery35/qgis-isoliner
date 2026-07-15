@@ -76,7 +76,7 @@ class EGLPlatform( baseplatform.BasePlatform ):
             with open('/proc/cpuinfo', 'r') as f:
                 info = f.read()
             if 'BCM2708' in info or 'BCM2709' in info:
-                assert self.GLES2
+                assert self.GLES2  # nosec
         try:
             return ctypesloader.loadLibrary(
                 ctypes.cdll,

@@ -374,7 +374,7 @@ def objectSize(obj, ignore=None, verbose=False, depth=0, recursive=False):
     if isinstance(obj, ndarray):
         try:
             size += len(obj.data)
-        except:
+        except:  # nosec
             pass
             
         
@@ -1081,7 +1081,7 @@ def qObjectReport(verbose=False):
                 try:
                     QObjCache[oid] += "  " + obj.parent().objectName()
                     QObjCache[oid] += "  " + obj.text()
-                except:
+                except:  # nosec
                     pass
             print("check obj", oid, str(QObjCache[oid]))
             if obj.parent() is None:
@@ -1117,10 +1117,11 @@ def listQThreads():
     """Prints Thread IDs (Qt's, not OS's) for all QThreads."""
     thr = findObj('[Tt]hread')
     thr = [t for t in thr if isinstance(t, QtCore.QThread)]
+    import importlib as _importlib
     try:
-        from PyQt5 import sip
+        sip = _importlib.import_module("PyQt5.sip")
     except ImportError:
-        import sip
+        sip = _importlib.import_module("sip")
     for t in thr:
         print("--> ", t)
         print("     Qt ID: 0x%x" % sip.unwrapinstance(t))

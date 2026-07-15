@@ -1,0 +1,113 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API",
+  "elements": [
+    {
+      "type": "way",
+      "id": 1001,
+      "tags": {"waterway": "river", "name": "Кама"},
+      "geometry": [
+        {"lat": 58.01, "lon": 56.20},
+        {"lat": 58.02, "lon": 56.22},
+        {"lat": 58.03, "lon": 56.25}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 1002,
+      "tags": {"waterway": "stream"},
+      "geometry": [
+        {"lat": 58.05, "lon": 56.10},
+        {"lat": 58.06, "lon": 56.12}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 1003,
+      "tags": {"waterway": "drain", "name": "не наш тип"},
+      "geometry": [
+        {"lat": 58.00, "lon": 56.00},
+        {"lat": 58.01, "lon": 56.01}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 2001,
+      "tags": {"natural": "water", "water": "lake", "name": "Озеро"},
+      "geometry": [
+        {"lat": 58.10, "lon": 56.30},
+        {"lat": 58.11, "lon": 56.31},
+        {"lat": 58.10, "lon": 56.32},
+        {"lat": 58.09, "lon": 56.31},
+        {"lat": 58.10, "lon": 56.30}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 2002,
+      "tags": {"natural": "water"},
+      "geometry": [
+        {"lat": 58.20, "lon": 56.40},
+        {"lat": 58.21, "lon": 56.41},
+        {"lat": 58.22, "lon": 56.42}
+      ]
+    },
+    {
+      "type": "node",
+      "id": 3001,
+      "lat": 58.15,
+      "lon": 56.35,
+      "tags": {"natural": "peak", "name": "Гора", "ele": "381"}
+    },
+    {
+      "type": "node",
+      "id": 3002,
+      "lat": 58.16,
+      "lon": 56.36,
+      "tags": {"natural": "peak", "ele": "409,5 m"}
+    },
+    {
+      "type": "node",
+      "id": 3003,
+      "lat": 58.17,
+      "lon": 56.37,
+      "tags": {"natural": "peak", "ele": "высоко"}
+    },
+    {
+      "type": "way",
+      "id": 4001,
+      "tags": {"natural": "cliff"},
+      "geometry": [
+        {"lat": 58.30, "lon": 56.50},
+        {"lat": 58.31, "lon": 56.51}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 4002,
+      "tags": {"man_made": "embankment"},
+      "geometry": [
+        {"lat": 58.32, "lon": 56.52},
+        {"lat": 58.33, "lon": 56.53}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 5001,
+      "tags": {"natural": "coastline"},
+      "geometry": [
+        {"lat": 58.40, "lon": 56.60},
+        {"lat": 58.41, "lon": 56.61}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 6001,
+      "tags": {"highway": "residential"},
+      "geometry": [
+        {"lat": 58.50, "lon": 56.70},
+        {"lat": 58.51, "lon": 56.71}
+      ]
+    }
+  ]
+}

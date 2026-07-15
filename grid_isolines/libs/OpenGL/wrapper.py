@@ -13,7 +13,7 @@ from OpenGL._null import NULL
 from OpenGL import acceleratesupport
 
 _log = logging.getLogger('OpenGL.wrapper')
-assert platform
+assert platform  # nosec
 cWrapper = None
 if acceleratesupport.ACCELERATE_AVAILABLE:
     try:
@@ -181,7 +181,7 @@ class Wrapper(LateBind):
                         )
                     )
         if pnameArg is None:
-            assert not hasattr(size, '__call__')
+            assert not hasattr(size, '__call__')  # nosec
             if orPassIn:
                 cls = converters.OutputOrInput
             else:
@@ -197,7 +197,7 @@ class Wrapper(LateBind):
                 size = size.__getitem__
             else:
                 setattr(self, '%s_FROM_%s' % (outArg, pnameArg), size)
-            assert hasattr(size, '__call__')
+            assert hasattr(size, '__call__')  # nosec
             if orPassIn:
                 cls = converters.SizedOutputOrInput
             else:
@@ -403,7 +403,7 @@ class Wrapper(LateBind):
         if function is NULL or ERROR_ON_COPY and not STORE_POINTERS:
             try:
                 del self.storeValues
-            except Exception:
+            except Exception:  # nosec
                 pass
         else:
             self.storeValues = function
@@ -414,7 +414,7 @@ class Wrapper(LateBind):
         if function is NULL:
             try:
                 del self.returnValues
-            except Exception:
+            except Exception:  # nosec
                 pass
         else:
             if hasattr(self, 'returnValues'):

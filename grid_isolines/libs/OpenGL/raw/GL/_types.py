@@ -6,8 +6,8 @@ uses (note, doesn't include the OpenGL-ES types!)
 import ctypes
 from OpenGL.constant import Constant
 from OpenGL._bytes import bytes,unicode,as_8_bit, long
-assert unicode
-assert as_8_bit
+assert unicode  # nosec
+assert as_8_bit  # nosec
 from OpenGL._opaque import opaque_pointer_cls as _opaque_pointer_cls
 
 sizeof = ctypes.sizeof

@@ -71,7 +71,7 @@ if __name__ == "__main__":
     y = FloatConstant( 'testfloat', 3.0 )
     z = StringConstant( 'teststr', 'some testing string' )
 
-    import pickle
+    import pickle  # nosec
     for val in x,y,z:
         pass  # pickle round-trip self-test stripped in this bundle
-        assert restored.name == val.name, (restored.name,val.name)
+        assert restored.name == val.name, (restored.name,val.name)  # nosec

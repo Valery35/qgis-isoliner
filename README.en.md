@@ -4,58 +4,83 @@
 
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
-A Processing-provider plugin for interpolating point data and building isolines.
-The tools are split into four Processing groups — **"Grid and isolines"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Bed and block model"** — forty-one in all:
+A Processing-provider plugin for interpolating point data, building isolines and working with terrain.
+The tools are split into six Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"**, **"Bed and block model"** and **"Fractal analysis"** — fifty-one in all:
 
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
-**Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) and include your QGIS version, what you did, and attach the data or project to reproduce it — that makes the bug easy to repeat and faster to fix.
+**Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) with your QGIS version, what you were doing, and data or a project to reproduce — it makes the bug easier to repeat and faster to fix.
 
-### "Grid and isolines" group
+### "1. Grid and isolines" group
 
-- **1.1 2D Kriging (points → raster)** — ordinary/simple kriging over a point layer, point or block, with trend removal and an optional log transform (for log-normal K, T). Core: GSLIB KB2D.
-- **1.2 Isolines from raster** — isolines (lines) and contour polygons (bands between isolines) whose boundaries coincide with the lines.
-- **1.3 Variogram (experimental)** — isotropic experimental variogram from points with model fitting (nugget, sill, range) and an HTML report. Lets you set the variogram from the shape of the cloud rather than by eye.
-- **1.4 Variogram map (anisotropy)** — γ(h_x, h_y) surface: anisotropy shows as an ellipse. Estimates the major-axis azimuth, anisotropy ratio and range to feed into kriging.
-- **1.5 Variogram cross-validation** — leave-one-out check: validate and tune kriging parameters by error, not by eye.
-- **1.7 Create sample wells (demo)** — generates a training point layer with roof, thickness and a grade. Adds fields for the related tools: head, a categorical mineral type, and, as a separate output, a drift surface (raster) with a dz field.
-- **1.6 Processing profiles** — named sets of "variogram (Structure 1) + outlier removal" saved by Variogram and Cross-validation and applied by 2D Kriging. Global storage, list management.
+- **1.01 Declustering (weights)** — cell declustering (GSLIB declus): weights inverse to local density, a representative mean for reserves and SK. Auto or manual cell size, HTML report.
+- **1.02 2D Kriging (points -> raster)** — ordinary/simple kriging, point or block, with trend removal, the kriging standard error and outlier trimming. The core is GSLIB KB2D.
+- **1.03 Minimum curvature (points -> raster)** — a deterministic alternative to kriging without a variogram: biharmonic with tension, anisotropy. Common for geophysical field maps.
+- **1.04 Isolines from raster** — isolines (lines) and contour polygons (bands between isolines) whose boundaries coincide with the lines.
+- **1.05 Variogram (experimental)** — an isotropic experimental variogram with model fitting (nugget, sill, range) and an HTML report. Accepts weights from 1.01.
+- **1.06 Variogram map (anisotropy)** — the γ(h_x, h_y) surface: anisotropy shows as an ellipse. Estimates the azimuth, the anisotropy ratio and the range for kriging.
+- **1.07 Variogram cross-validation** — leave-one-out control: tuning kriging parameters by the ME/RMSE/MSDR/R metrics rather than by eye.
+- **1.08 Method cross-validation (LOO)** — comparing methods (kriging or minimum curvature) Surfer-style: a random subset, area filters, a neighbor exclusion buffer, an HTML report.
+- **1.09 Processing profiles** — named "variogram + trimming" sets saved by the variogram tools and loaded into 2D Kriging. A global store.
+- **1.10 Create sample wells (demo)** — a training point layer: roof, thickness, grade, rock type, head, a drift surface.
+- **1.11 Create a geophysical-profiles example (demo)** — two modes: resistivity survey (an apparent-resistivity anomaly spot, SP, IP) and subsidence (a trough by survey rounds).
 
-### "Additional analysis tools" group
+### "2. Topography" group
 
-- **2.01 Categorical indicator kriging** — for a categorical field (mineral type, lithotype) it builds a 0/1 indicator per class, krige each with the KB2D core and normalises the probabilities. Outputs: a multiband probability raster, a zone map and a confidence raster.
-- **2.2 External Drift Kriging** — estimation from points when the field is related to a secondary variable known everywhere as a raster (the structural surface of an adjacent seam, a coarse model, a seismic attribute). The drift is removed by regression, the residuals are kriged, and the drift is added back from the raster. The same regression-kriging scheme as trend removal, only here the drift is a function of the external value, not of the coordinates.
-- **2.03 Exceedance probability map** — from the kriging estimate and standard-error rasters it builds P(Z>threshold) = Φ((estimate−threshold)/error) under a normal local distribution. A post-processor, runs no kriging of its own. Cut-off grades, risk zones.
-- **2.04 Hydraulic gradient and flow direction** — from a head raster it builds the hydraulic gradient |∇h|, the flow-direction azimuth (down-gradient) and a point layer of flow vectors (styled as arrows automatically). Hydrogeology without permeability (with permeability — 2.5).
-- **2.05 Specific discharge (Darcy law)** — from a head raster and aquifer-property rasters (K, T) it computes the specific discharge q = K·|∇h| (m/day) and the flow per width Q = T·|∇h| (m²/day). A post-processor, runs no kriging of its own (krige K and T in log space).
-- **2.06 Gaussian simulation (SGS)** — sequential Gaussian simulation: an ensemble of equally probable realizations instead of a single smoothed estimate. Mean (E-type), standard deviation, P10/P50/P90 quantiles and an exceedance-probability map — uncertainty, not just the mean. Pure NumPy on top of the kriging core.
-- **2.07 Fractal dimension** — a D = 3 - H map by the variogram method in a sliding window; smooth tends to 2, rugged to 3, the steps highlight disturbances and block boundaries.
-- **2.08 Mask box-counting** — one dimension D per binary mask (a raster threshold); replacement and workings outlines compared by a number.
-- **2.09 Line and boundary dimension** — D of every line by the divider method; an oversmoothing diagnostic for isolines.
-- **2.10 Minkowski dimension (vectors)** — box-counting straight over lines and polygon boundaries, no rasterisation; D_mink per feature and the D of the whole layer (a river-network dimension).
-- **2.11 Create a fractal example (demo)** — a river network with tributary orders, a basin with a rugged boundary and a coastline.
+- **2.01 Download DEM by extent** — Copernicus DEM GLO-30 from an open store, no registration or keys: a seamless mosaic, reprojection into a metric CRS, hydrological correction by a checkbox.
+- **2.02 Download base topography by extent** — OpenStreetMap layers for terrain work: watercourses (ready streamlines), water bodies, peaks with elevations, cliffs and embankments, the coastline.
+- **2.03 Topo2Raster (terrain from vectors)** — terrain from points, contours, streamlines, cliffs and lakes by multigrid interpolation in the spirit of ANUDEM: a membrane frame plus minimum-curvature polishing.
+- **2.04 Fill depressions** — the Planchon-Darboux method with a tunable epsilon: pits only up to the spill level, or a through slope across flats.
+- **2.05 Flow and accumulation (D8)** — flow directions in ArcGIS codes and accumulation by a vectorized sweep. A 2000×2000 grid in seconds.
+- **2.06 River network** — links from heads and junctions downstream, the Strahler order, the output fits 2.03 as streamlines.
+- **2.07 Basins and watersheds** — from pour points snapped to the accumulation maximum, or automatically from mouths. Polygons and a label raster.
+- **2.08 Slope and aspect** — the Horn 3×3 kernel as in gdaldem, aspect as the downslope azimuth, flat cells flagged.
+- **2.09 Peaks** — local maxima with two filters: the radius suppresses secondary tops, the drop cuts off bumps.
+- **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work.
 
-### "Cross-sections" group
+### "3. Additional analysis tools" group
 
-- **3.01 Cross-section along a line** — from a line and a top-to-bottom set of surfaces it builds a geological section: beds as bands between adjacent surfaces. Two outputs — a distance × elevation drawing (for a layout) and a 3D PolygonZ fence (for the 3D Map View). Several beds at once.
-- **3.02 Boreholes on the section** — projects boreholes onto the section line and draws them as columns of bed intervals on top of the drawing. Bed boundaries from chosen elevation fields, distant ones cut off by a corridor, labelled by borehole number.
-- **3.03 Bed composition on the section** — colours a bed band by a composition grid along the line. Continuous content (KCl, HO) is cut into slices for a gradient, categorical mineral type merges into facies zones (replacement zones visible). One bed at a time, 2D and 3D outputs.
-- **3.04 Intersect surfaces with the section** — places surface grids onto the section as lines (water tables, marker surfaces, anomalies). Line and vex from the section definition.
-- **3.05 Vector intersection with the section** — lines and polygons onto the section by exact intersection: a line without Z gives a full-height vertical, a line with Z a point at the elevation, a polygon a band over the zone interval.
-- **3.06 Intersect a TIN with the section** — cuts the section through a surface of 3D faces (PolygonZ) and/or a mesh. Unlike a grid it takes overhangs and overturning: several elevations above one station, the trace folds.
-- **3.07 Project objects onto the section (beta)** — projects points, lines and polygons onto the section line (elevation from 3D or a field), corridor filter. Generalises the borehole projection.
-- **3.08 Unproject from the section (beta)** — reverse projection: objects drawn on the drawing are returned to real coordinates with a Z elevation.
-- **3.09 Unwrap a shaft wall (beta)** — a cylindrical section: a circle around the axis with an angular step, surfaces give intersection lines with the wall in arc-elevation axes.
-- **3.10 Create a section example** — six stacked surfaces (five beds: three host and two industrial), a line and boreholes along it (h1...h6 elevation fields), to try the cross-section and boreholes on a section at once without kriging.
-- **4.04 Surfaces to 3D (meshes)** — surface grids to 2DM mesh layers for the built-in QGIS 3D view (a scene holds one raster terrain but any number of meshes), with a vertical Z transform (scale and offset) and node thinning.
-- **4.05 Domains to a bed band** — zone polygons into the grid domain band: sum and filter by domains.
-- **4.06 Reserve difference (write-off)** — the difference of two block models, the sum of delta = written-off tonnage.
-- **4.01 Assemble a bed grid** — a multiband grid by the convention (roof, bottom, parameters) from separate rasters; the inputs are resampled to the roof grid, the band names go into the descriptions.
-- **4.02 Bed calculator** — the thickness, the volume, the ore and metal tonnage, the thickness-weighted content over a bed grid; a contour summary, an HTML report, the "thickness" and "reserves" bands are appended to the grid.
-- **4.03 Bed grid to a block model** — a centroid per cell with top/bot/thick/vol/ore_t and all the parameter bands by name; filters, joins and the field calculator grow the model without rebuilding.
+- **3.01 Categorical indicator kriging** — builds 0/1 indicators per class of a categorical field (rock type, lithotype), kriges and normalizes the probabilities. Output: a probability raster, a zone map, a confidence raster.
+- **3.02 External Drift Kriging** — estimation when the field is tied to an external quantity known everywhere as a raster. The drift is removed by regression, the residuals are kriged.
+- **3.03 Exceedance probability map** — builds P(Z>threshold) from the estimate and kriging-error rasters. Cut-off grades, risk zones.
+- **3.04 Hydraulic gradient and flow direction** — from a head raster builds |∇h|, the flow azimuth and a point layer of flow vectors styled with arrows.
+- **3.05 Specific discharge (Darcy law)** — from a head raster and K, T rasters computes the filtration velocity and the discharge per width.
+- **3.06 Gaussian simulation (SGS)** — an ensemble of equally probable realizations: E-type, standard deviation, P10/P50/P90 quantiles, exceedance probability.
+- **3.07 Density from measurements (variable support)** — a measurement is spread over its support (point+sigma, line corridor, polygon mask) with mass preserved, dasymetric refinement, effective sigma.
+- **3.08 Create a density example (demo)** — points, lines and polygons with a round total mass to verify the invariant.
 
-Suitable for roof elevations, thicknesses, geomechanical properties, chemistry
-and any numeric attribute.
+### "4. Cross-sections" group
+
+- **4.01 Cross-section along a line** — a geological section along a line and a stack of surfaces: beds as bands, two outputs (a distance×elevation drawing and a 3D fence of PolygonZ).
+- **4.02 Boreholes on the section** — projects boreholes onto the section line as interval columns, corridor filtering, labels.
+- **4.03 Bed composition on the section** — paints the bed band by a composition grid: continuous grade as slices, categorical rock type as facies zones.
+- **4.04 Intersect surfaces with the section** — surface grids onto the section as lines (aquifers, marker surfaces).
+- **4.05 Vector intersection with the section** — lines and polygons by exact intersection: a line without Z as a vertical, with Z as a point, a polygon as a band.
+- **4.06 Intersect a TIN with the section** — cuts 3D faces and meshes with the section: overhangs and overturned folds are reproduced.
+- **4.07 Project objects onto the section (beta)** — points, lines and polygons onto the section drawing, the elevation from 3D or a field.
+- **4.08 Unproject from the section (beta)** — the reverse projection of objects drawn on the section back into real coordinates with Z.
+- **4.09 Shaft wall unwrap (beta)** — a cylindrical section around an axis in arc-elevation axes.
+- **4.10 Create a section example** — a stack of surfaces, a line and boreholes with elevation fields, to try the section without kriging.
+
+### "5. Bed and block model" group
+
+- **5.01 Assemble a bed grid** — the roof, the bottom and parameters into one multiband raster by the convention, band names in descriptions.
+- **5.02 Bed calculator** — thickness, volume, ore and metal tonnage, weighted mean grade, a summary by outline, an HTML report.
+- **5.03 Bed grid to a block model** — a centroid per cell with geometry attributes and all parameter bands.
+- **5.04 Surfaces to 3D (meshes)** — grids into 2DM mesh layers for the built-in QGIS 3D view, a vertical Z transform, node thinning.
+- **5.05 Domains to a bed band** — zone polygons into a domain band: counting and filtering by domains.
+- **5.06 Reserve difference (write-off)** — the difference of two block models, the delta sum is the written-off tonnage.
+- **5.07 Create a polyhedral example (beta)** — a bed body, a suite or a primitive as a native PolyhedralSurface Z (QGIS 3.40+).
+
+### "6. Fractal analysis" group
+
+- **6.01 Fractal dimension** — a D = 3 − H map by the variogram method in a moving window: contrasts highlight faults and block boundaries.
+- **6.02 Box-counting of masks** — one D per binary mask: replacement and workings outlines compared by a number.
+- **6.03 Dimension of lines and boundaries** — D of each line by the divider method: diagnostics of oversmoothed isolines.
+- **6.04 Minkowski dimension (vectors)** — box-counting directly over lines and polygon boundaries, without rasterization.
+- **6.05 Create a fractal example (demo)** — a river network with tributary orders, a catchment with a ragged boundary, a coastline.
+
+Suitable for bed elevations, thicknesses, rock properties, chemistry and any numeric attribute.
 
 ## Installation
 
@@ -271,6 +296,10 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **3.0.3** — fixed a Topo2Raster crash on QGIS 4 with single-part geometries (asMultiPoint/asMultiPolyline/asMultiPolygon).
+- **3.0.2** — topography output layers are added to the tree collapsed.
+- **3.0.1** — QGIS 4 shakedown: 2.01 and 2.10 accept user CRSs without an EPSG code (WKT into the warp), topography outputs land in a "Topography" layer-tree group, output-file descriptions in the tool help, a Topo2Raster lesson in the manual.
+- **3.0.0** — a new "2. Topography" group (ten tools): Copernicus GLO-30 DEM download by extent without registration, an OSM base map, Topo2Raster from vectors in the spirit of ANUDEM, depression filling, D8 flow and accumulation, a river network with Strahler orders, basins, slope and aspect, peaks, a demo relief. The labels of the former groups shifted (additional 3, cross-sections 4, bed 5, fractals 6), tool identifiers unchanged.
 - **2.65.0** - work log (isoliner.log with versions, parameters and timing; traceback on failure), an Isoliner toolbar with 3D and About buttons, a 3D icon.
 - **2.64.1** - a step-by-step density appendix (2.07/2.08) and demo-layer fields in the manual.
 - **2.64.0** - new tools 2.07 "Density from measurements (variable support)" and 2.08 demo: a measurement is spread over its support (point+sigma, line corridor, polygon), mass conserved, three-band output, dasymetry.

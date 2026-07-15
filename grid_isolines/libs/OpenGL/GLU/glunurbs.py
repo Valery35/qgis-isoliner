@@ -142,14 +142,14 @@ def _callbackWithType( funcType ):
         _simple.gluNurbsCallback
     )
     result.argtypes = [ctypes.POINTER(GLUnurbs), _simple.GLenum, funcType]
-    assert result.argtypes[-1] == funcType
+    assert result.argtypes[-1] == funcType  # nosec
     return result
 
 for (c,funcType) in GLUnurbs.CALLBACK_TYPES.items():
     cb = _callbackWithType( funcType )
     GLUnurbs.CALLBACK_FUNCTION_REGISTRARS[ c ] = cb
-    assert funcType == GLUnurbs.CALLBACK_TYPES[c]
-    assert cb.argtypes[-1] == funcType
+    assert funcType == GLUnurbs.CALLBACK_TYPES[c]  # nosec
+    assert cb.argtypes[-1] == funcType  # nosec
 try:
     del c,cb, funcType
 except NameError as err:

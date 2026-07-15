@@ -65,7 +65,7 @@ def _import_gl():
     try:
         import pyqtgraph.opengl as gl
         return gl
-    except Exception:
+    except Exception:  # nosec
         pass
     import sys
     if os.path.isdir(LIBS_DIR) and LIBS_DIR not in sys.path:
@@ -181,9 +181,9 @@ def _build_dialog(parent):
         _POLYGON_GT = Qgis.GeometryType.Polygon
     except Exception:  # старые QGIS 3
         from qgis.core import QgsWkbTypes
-        _POINT_GT = QgsWkbTypes.PointGeometry
-        _LINE_GT = QgsWkbTypes.LineGeometry
-        _POLYGON_GT = QgsWkbTypes.PolygonGeometry
+        _POINT_GT = QgsWkbTypes.GeometryType.PointGeometry
+        _LINE_GT = QgsWkbTypes.GeometryType.LineGeometry
+        _POLYGON_GT = QgsWkbTypes.GeometryType.PolygonGeometry
     from qgis.PyQt.QtCore import Qt
     from qgis.PyQt.QtWidgets import (
         QDialog, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
@@ -226,7 +226,7 @@ def _build_dialog(parent):
                 flag = getattr(getattr(Qt, "WindowType", Qt),
                                "WindowMinMaxButtonsHint")
                 self.setWindowFlags(self.windowFlags() | flag)
-            except Exception:
+            except Exception:  # nosec
                 pass
 
             self._opts = {}          # id слоя -> персональные настройки
@@ -400,7 +400,7 @@ def _build_dialog(parent):
                          QImage.Format.Format_RGBA8888
                          if hasattr(QImage, "Format")
                          and hasattr(QImage.Format, "Format_RGBA8888")
-                         else QImage.Format_RGBA8888)
+                         else QImage.Format.Format_RGBA8888)
             self.legend_pix.setPixmap(QPixmap.fromImage(img))
             self.legend_txt.setText("%.4g … %.4g" % (vmin, vmax))
             self.legend_pix.show()
@@ -576,7 +576,7 @@ def _build_dialog(parent):
                         continue
                     try:
                         v, f = poly.wkt_to_tris(g.asWkt())
-                    except Exception:
+                    except Exception:  # nosec
                         continue
                     if not len(f):
                         continue
@@ -872,7 +872,7 @@ def _build_dialog(parent):
             if self._pick_marker is not None:
                 try:
                     self.view.removeItem(self._pick_marker)
-                except Exception:
+                except Exception:  # nosec
                     pass
             r = pk["span"] * 0.006
             sph = gl.MeshData.sphere(rows=8, cols=8, radius=r)
@@ -890,7 +890,7 @@ def _build_dialog(parent):
             if self._pick_marker is not None:
                 try:
                     self.view.removeItem(self._pick_marker)
-                except Exception:
+                except Exception:  # nosec
                     pass
                 self._pick_marker = None
             layers = self._checked_layers()
