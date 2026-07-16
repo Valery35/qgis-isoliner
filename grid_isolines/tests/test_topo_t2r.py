@@ -191,5 +191,52 @@ class TestDeterminism(unittest.TestCase):
         self.assertTrue(np.array_equal(a, b))
 
 
+class TestVariableShoreline(unittest.TestCase):
+    """Переменный урез озёр: три приоритета высоты."""
+
+    def _base_points(self):
+        pts = []
+        for x in (0, 3000):
+            for y in (0, 3000):
+                pts.append([x, y, 120 - x / 3000.0 * 20])
+        return np.array(pts, float)
+
+    def _ring(self):
+        return np.array([[500, 1400], [2500, 1400], [2500, 1600],
+                         [500, 1600], [500, 1400]], float)
+
+    def _val(self, z, x0, ytop, xm, ym):
+        c = int((xm - x0) / 30)
+        r = int((ytop - ym) / 30)
+        return z[r, c]
+
+    def test_sloped_shoreline_from_ring_z(self):
+        # Z вершин падают с запада на восток - урез наклонный
+        ring_z = np.array([102, 99, 99, 102, 102], float)
+        lakes = [([self._ring()], None, [ring_z])]
+        z, x0, yt = t2r.topo2raster(self._base_points(), [], [], lakes,
+                                    (0, 0, 3000, 3000), cell=30)
+        west = self._val(z, x0, yt, 600, 1500)
+        east = self._val(z, x0, yt, 2400, 1500)
+        self.assertGreater(west, east + 1.5)
+
+    def test_flat_lake_from_equal_ring_z(self):
+        ring_z = np.array([100, 100, 100, 100, 100], float)
+        lakes = [([self._ring()], None, [ring_z])]
+        z, x0, yt = t2r.topo2raster(self._base_points(), [], [], lakes,
+                                    (0, 0, 3000, 3000), cell=30)
+        west = self._val(z, x0, yt, 600, 1500)
+        east = self._val(z, x0, yt, 2400, 1500)
+        self.assertLess(abs(west - east), 0.5)
+
+    def test_legacy_tuple_still_works(self):
+        # старый формат (кольца, z) без ring_z
+        lakes = [([self._ring()], 105.0)]
+        z, x0, yt = t2r.topo2raster(self._base_points(), [], [], lakes,
+                                    (0, 0, 3000, 3000), cell=30)
+        val = self._val(z, x0, yt, 1500, 1500)
+        self.assertAlmostEqual(val, 105.0, delta=0.5)
+
+
 if __name__ == "__main__":
     unittest.main()

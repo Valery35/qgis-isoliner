@@ -543,7 +543,9 @@ def style_density(layer):
                  (0.50, QColor(31, 158, 137)), (0.75, QColor(109, 205, 89)),
                  (1.00, QColor(253, 231, 37))]
         ramp = QgsColorRampShader(lo, hi)
-        ramp.setColorRampType(QgsColorRampShader.Interpolated)
+        ramp.setColorRampType(getattr(
+            getattr(QgsColorRampShader, "Type", QgsColorRampShader),
+            "Interpolated"))
         items = [QgsColorRampShader.ColorRampItem(
             lo + t * (hi - lo), c, "%.4g" % (lo + t * (hi - lo)))
             for t, c in stops]

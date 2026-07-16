@@ -296,6 +296,8 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **3.2.0** - 2.03 supports a variable water edge (river slope from polygon node Z), 2.04 reworked into "Terrain preparation" with FPDEMS smoothing (edge-preserving), a smoothing checkbox added to 2.01.
+- **3.1.1** - fixed GEDTM30 height scale (was ten times too small): the COG is read via translate -unscale.
 - **3.1.0** - tool 2.01 gained a terrain-source choice: besides Copernicus GLO-30 (DSM) there is now GEDTM30 (forest-free DTM, CC BY 4.0) by OpenGeoHub, more accurate under forest canopy.
 - **3.0.4** — catalog security-scanner compatibility: narrow exception types instead of a broad except with a silent pass/continue.
 - **3.0.3** — fixed a Topo2Raster crash on QGIS 4 with single-part geometries (asMultiPoint/asMultiPolyline/asMultiPolygon).

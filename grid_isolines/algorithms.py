@@ -98,7 +98,7 @@ from .fractal import (fractal_dimension_map, fractal_dimension_global,
                       minkowski_dimension)
 from . import dem_glo30, osm_overpass, demo_relief
 from .hydro_fill import fill_depressions, DEFAULT_EPSILON
-from . import topo_flow, topo_surface, topo_t2r
+from . import topo_flow, topo_surface, topo_t2r, topo_smooth
 
 GROUP = _tr("1. Грид и изолинии")
 GROUP_ID = "grid_isolines"
@@ -10378,6 +10378,7 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
     EXTENT = "EXTENT"
     TARGET_CRS = "TARGET_CRS"
     CELL = "CELL"
+    SMOOTH = "SMOOTH"
     FILL = "FILL"
     EPSILON = "EPSILON"
     MAX_TILES = "MAX_TILES"
@@ -10428,6 +10429,10 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.CELL, dem_glo30.DEFAULT_CELL),
             minValue=1.0))
         self.addParameter(QgsProcessingParameterBoolean(
+            self.SMOOTH,
+            self.tr("Сгладить рельеф (FPDEMS, сохраняет бровки)"),
+            defaultValue=_dv(self, self.SMOOTH, False)))
+        self.addParameter(QgsProcessingParameterBoolean(
             self.FILL,
             self.tr("Гидрологическая коррекция (заполнение понижений)"),
             defaultValue=_dv(self, self.FILL, True)))
@@ -10476,6 +10481,7 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
         bbox = (ext.xMinimum(), ext.yMinimum(),
                 ext.xMaximum(), ext.yMaximum())
         cell = self.parameterAsDouble(parameters, self.CELL, context)
+        do_smooth = self.parameterAsBoolean(parameters, self.SMOOTH, context)
         do_fill = self.parameterAsBoolean(parameters, self.FILL, context)
         epsilon = self.parameterAsDouble(parameters, self.EPSILON, context)
         max_tiles = self.parameterAsInt(parameters, self.MAX_TILES, context)
@@ -10503,6 +10509,21 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
             raise QgsProcessingException(str(exc))
         if feedback.isCanceled():
             return {}
+
+        if do_smooth:
+            feedback.pushInfo(self.tr("Сглаживание рельефа (FPDEMS)..."))
+            ds = gdal.Open(out_path, gdal.GA_Update)
+            band = ds.GetRasterBand(1)
+            z = band.ReadAsArray().astype(np.float64)
+            nodata = band.GetNoDataValue()
+            mask = (z == nodata) if nodata is not None else None
+            z = topo_smooth.smooth_fpdems(z, cell, nodata_mask=mask,
+                                          feedback=feedback)
+            if mask is not None:
+                z[mask] = nodata
+            band.WriteArray(z.astype(np.float32))
+            band.FlushCache()
+            ds = None
 
         if do_fill:
             feedback.pushInfo(self.tr("Гидрологическая коррекция..."))
@@ -10706,9 +10727,14 @@ class TopobaseDownloadAlgorithm(IsolinerAlgorithm):
 
 
 class TopoFillDepressionsAlgorithm(IsolinerAlgorithm):
-    """2.04 Заполнение понижений: Planchon-Darboux с epsilon."""
+    """2.04 Подготовка рельефа: заполнение понижений и сглаживание."""
 
     INPUT = "INPUT"
+    DO_SMOOTH = "DO_SMOOTH"
+    SMOOTH_FILTER = "SMOOTH_FILTER"
+    SMOOTH_DIFF = "SMOOTH_DIFF"
+    SMOOTH_ITER = "SMOOTH_ITER"
+    DO_FILL = "DO_FILL"
     EPSILON = "EPSILON"
     OUTPUT = "OUTPUT"
 
@@ -10716,41 +10742,84 @@ class TopoFillDepressionsAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return TopoFillDepressionsAlgorithm()
     def name(self): return "fill_depressions"
     def displayName(self):
-        return self.tr("2.04 Заполнение понижений")
+        return self.tr("2.04 Подготовка рельефа")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
         return _help_version(self.tr(
-            "Заполняет ложные понижения ЦМР методом Планшона-Дарбу, "
-            "чтобы поток не останавливался в ямах. Epsilon задаёт "
-            "минимальный уклон на плоских участках. При нулевом "
-            "значении поднимаются только настоящие ямы ровно до уровня "
-            "слива, при положительном дополнительно строится сквозной "
-            "уклон через плоскости. Ячейки на границе грида и рядом с "
-            "nodata считаются стоками. В отчёт выводится число "
-            "поднятых ячеек и максимальный подъём. Выход: GeoTIFF "
-            "float32 с сеткой и nodata входа, слой в группе "
-            "Топография.") + _credit())
+            "Готовит ЦМР к анализу двумя независимыми модификациями, "
+            "каждая своим флажком. Сглаживание рельефа (FPDEMS, метод "
+            "Линдсея и др. 2019) убирает избыточную шероховатость "
+            "спутниковых моделей, но сохраняет бровки, стенки террас и "
+            "берега рек: работает не с высотами, а с полем нормалей "
+            "поверхности, поэтому не заваливает структурные линии, в "
+            "отличие от среднего и гауссова фильтров. Порог различия "
+            "нормалей меньше - агрессивнее сохранение граней. "
+            "Заполнение понижений (Планшона-Дарбу) поднимает ложные "
+            "ямы, чтобы поток не останавливался. Epsilon задаёт "
+            "минимальный уклон на плоскостях: ноль поднимает только "
+            "ямы до слива, положительное строит сквозной уклон, нужный "
+            "для D8. Порядок: сначала сглаживание, потом заполнение. "
+            "Выход: GeoTIFF float32, слой в группе Топография.")
+            + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
         self.addParameter(QgsProcessingParameterRasterLayer(
             self.INPUT, self.tr("Входная ЦМР")))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.DO_SMOOTH,
+            self.tr("Сгладить рельеф (FPDEMS, сохраняет бровки)"),
+            defaultValue=_dv(self, self.DO_SMOOTH, False)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SMOOTH_FILTER, self.tr("Сглаживание: окно нормалей, ячеек"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.SMOOTH_FILTER,
+                             topo_smooth.DEFAULT_FILTER_SIZE),
+            minValue=3, maxValue=51)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SMOOTH_DIFF,
+            self.tr("Сглаживание: порог различия нормалей, град"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.SMOOTH_DIFF,
+                             topo_smooth.DEFAULT_NORM_DIFF),
+            minValue=1.0, maxValue=89.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SMOOTH_ITER, self.tr("Сглаживание: число проходов"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.SMOOTH_ITER,
+                             topo_smooth.DEFAULT_ELEV_ITERS),
+            minValue=1, maxValue=20)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.DO_FILL, self.tr("Заполнить понижения"),
+            defaultValue=_dv(self, self.DO_FILL, True)))
         self.addParameter(QgsProcessingParameterNumber(
             self.EPSILON, self.tr("Epsilon уклона, м (0: только ямы)"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.EPSILON, DEFAULT_EPSILON),
             minValue=0.0))
         self.addParameter(QgsProcessingParameterRasterDestination(
-            self.OUTPUT, self.tr("ЦМР без понижений")))
+            self.OUTPUT, self.tr("Подготовленная ЦМР")))
 
     def _process(self, parameters, context, feedback):
         layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
+        do_smooth = self.parameterAsBoolean(parameters, self.DO_SMOOTH,
+                                            context)
+        sm_filter = self.parameterAsInt(parameters, self.SMOOTH_FILTER,
+                                        context)
+        sm_diff = self.parameterAsDouble(parameters, self.SMOOTH_DIFF,
+                                         context)
+        sm_iter = self.parameterAsInt(parameters, self.SMOOTH_ITER, context)
+        do_fill = self.parameterAsBoolean(parameters, self.DO_FILL, context)
         epsilon = self.parameterAsDouble(parameters, self.EPSILON, context)
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT,
                                                context)
+        if not do_smooth and not do_fill:
+            raise QgsProcessingException(self.tr(
+                "Выберите хотя бы одну модификацию: сглаживание или "
+                "заполнение понижений."))
         gdal.UseExceptions()
         src = gdal.Open(layer.source())
         if src is None:
@@ -10760,10 +10829,25 @@ class TopoFillDepressionsAlgorithm(IsolinerAlgorithm):
         z = band.ReadAsArray().astype(np.float64)
         nodata = band.GetNoDataValue()
         mask = (z == nodata) if nodata is not None else None
-        filled, n_raised, max_raise = fill_depressions(
-            z, nodata_mask=mask, epsilon=epsilon, feedback=feedback)
+        cell = abs(src.GetGeoTransform()[1])
+
+        if do_smooth:
+            feedback.pushInfo(self.tr("Сглаживание рельефа (FPDEMS)..."))
+            z = topo_smooth.smooth_fpdems(
+                z, cell, nodata_mask=mask, elev_iters=sm_iter,
+                filter_size=sm_filter, norm_diff_deg=sm_diff,
+                feedback=feedback)
+
+        if do_fill:
+            feedback.pushInfo(self.tr("Заполнение понижений..."))
+            z, n_raised, max_raise = fill_depressions(
+                z, nodata_mask=mask, epsilon=epsilon, feedback=feedback)
+            feedback.pushInfo(
+                self.tr("Поднято ячеек: %d, максимальный подъём: %.2f м")
+                % (n_raised, max_raise))
+
         if mask is not None:
-            filled[mask] = nodata
+            z[mask] = nodata
         driver = gdal.GetDriverByName("GTiff")
         dst = driver.Create(out_path, src.RasterXSize, src.RasterYSize, 1,
                             gdal.GDT_Float32,
@@ -10773,13 +10857,10 @@ class TopoFillDepressionsAlgorithm(IsolinerAlgorithm):
         out_band = dst.GetRasterBand(1)
         if nodata is not None:
             out_band.SetNoDataValue(nodata)
-        out_band.WriteArray(filled.astype(np.float32))
+        out_band.WriteArray(z.astype(np.float32))
         out_band.FlushCache()
         dst = None
         src = None
-        feedback.pushInfo(
-            self.tr("Поднято ячеек: %d, максимальный подъём: %.2f м")
-            % (n_raised, max_raise))
         _topo_group_layer(context, out_path, self.tr("Топография"))
         return {self.OUTPUT: out_path}
 
@@ -10878,7 +10959,9 @@ def _topo_log(msg):
     """Тихая запись в журнал Isoliner: диагностика вместо голого pass."""
     try:
         from qgis.core import QgsMessageLog, Qgis
-        QgsMessageLog.logMessage(msg, "Isoliner", Qgis.Info)
+        QgsMessageLog.logMessage(
+            msg, "Isoliner",
+            getattr(getattr(Qgis, "MessageLevel", Qgis), "Info"))
     except Exception as exc:  # журнал недоступен: не мешаем расчёту
         import sys
         print("Isoliner:", msg, exc, file=sys.stderr)
@@ -11487,9 +11570,13 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             "принудительное падение вниз по течению (вершины линий "
             "должны идти вниз по течению, водотоки OSM и выход "
             "инструмента 2.06 подходят как есть), обрывы - барьер "
-            "сглаживания, поверхности по сторонам независимы, озёра - "
-            "горизонтальные плоскости: с высотой в поле приколоты к "
-            "ней, без высоты уровень берётся по минимуму берега. "
+            "сглаживания, поверхности по сторонам независимы, урез "
+            "воды - по трём приоритетам на каждый объект: у полигона с "
+            "трёхмерными вершинами урез интерполируется по их высотам "
+            "и наклоняется вдоль русла, у полигона с отметкой в поле "
+            "держится плоскостью, без того и другого уровень берётся "
+            "по минимуму берега. Разнотипные объекты в одном слое "
+            "разбираются каждый своей веткой. "
             "Нужен хотя бы один слой с высотами: точки или изолинии. "
             "Все слои приводятся к СК первого заданного слоя, она "
             "должна быть метрической. Финальное заполнение понижений "
@@ -11519,10 +11606,11 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             self.BREAKLINES, self.tr("Обрывы (барьеры сглаживания)"),
             [QgsProcessing.SourceType.TypeVectorLine], optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            self.LAKES, self.tr("Озёра (плоскости)"),
+            self.LAKES, self.tr("Озёра и урез воды"),
             [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterField(
-            self.LAKES_FIELD, self.tr("Поле уровня озёр (пусто: по берегу)"),
+            self.LAKES_FIELD,
+            self.tr("Поле отметки уреза (пусто: Z узлов или берег)"),
             parentLayerParameterName=self.LAKES, optional=True,
             type=QgsProcessingParameterField.DataType.Numeric))
         self.addParameter(QgsProcessingParameterExtent(
@@ -11619,12 +11707,20 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
         return pts
 
     def _collect_lakes(self, source, field, target_crs, context):
+        """Собрать озёра с приоритетом высоты на каждый объект.
+
+        Возвращает список (кольца, z, ring_z): ring_z несёт высоты
+        вершин, если геометрия трёхмерная (переменный урез), иначе
+        None. z - отметка из поля, иначе None. Слой может смешивать
+        3D-полигоны, полигоны с полем и обычные, каждый идёт своей
+        веткой в ядре."""
         lakes = []
         tf = self._transformer(source, target_crs, context)
         for feat in source.getFeatures():
             geom = feat.geometry()
             if geom.isEmpty():
                 continue
+            has_z = geom.constGet().is3D() if geom.constGet() else False
             try:
                 geom.transform(tf)
             except QgsCsException as exc:
@@ -11641,10 +11737,41 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             for rings in polys:
                 arr = [np.array([[p.x(), p.y()] for p in ring])
                        for ring in rings if len(ring) >= 4]
-                if arr:
-                    lakes.append((arr, float(zv) if zv is not None
-                                  else None))
+                if not arr:
+                    continue
+                ring_z = None
+                if has_z:
+                    ring_z = self._ring_z_from_geometry(feat, target_crs,
+                                                        context, arr)
+                lakes.append((arr, float(zv) if zv is not None else None,
+                              ring_z))
         return lakes
+
+    @staticmethod
+    def _ring_z_from_geometry(feat, target_crs, context, arr):
+        """Высоты вершин колец из 3D-геометрии, по одному массиву на
+        кольцо в порядке arr. Трансформация XY уже применена к плоским
+        координатам, а Z берём из исходной геометрии по индексу вершины.
+        """
+        geom = feat.geometry()
+        abstract = geom.constGet()
+        if abstract is None or not abstract.is3D():
+            return None
+        ring_z = []
+        zs = []
+        for p in abstract.vertices():
+            zs.append(p.z())
+        # раскладываем плоский список Z по кольцам согласно их длинам
+        idx = 0
+        for ring in arr:
+            n = len(ring)
+            chunk = zs[idx:idx + n]
+            idx += n
+            if len(chunk) == n and any(z == z for z in chunk):
+                ring_z.append(np.array(chunk, dtype=float))
+            else:
+                ring_z.append(None)
+        return ring_z if any(r is not None for r in ring_z) else None
 
     # --- расчёт ------------------------------------------------------
 

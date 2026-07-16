@@ -150,6 +150,56 @@ def _erode4(mask):
     return m
 
 
+def _interp_ring_surface(rings, ring_z, mask, x0, y_top, cell, shape):
+    """Поверхность переменного уреза по Z-высотам вершин кольца.
+
+    Для наклонного уреза реки: высота вершин полигона задаёт урез
+    вдоль берега, внутри маски высота интерполируется методом обратных
+    взвешенных расстояний (IDW) по этим вершинам. Плоское озеро с
+    одинаковыми Z даёт плоскость, река с падающими Z - наклон.
+
+    rings: список колец (K, 2). ring_z: список массивов высот вершин,
+    по одному на кольцо. Возвращает массив shape с высотами в ячейках
+    маски (вне маски нули, они не используются).
+    """
+    xs = []
+    zs = []
+    for ring, zr in zip(rings, ring_z):
+        if zr is None:
+            continue
+        ring = np.asarray(ring, dtype=np.float64)
+        zr = np.asarray(zr, dtype=np.float64)
+        n = min(len(ring), len(zr))
+        for i in range(n):
+            if np.isfinite(zr[i]):
+                xs.append(ring[i])
+                zs.append(zr[i])
+    if not xs:
+        return None
+    pts = np.array(xs)
+    vals = np.array(zs)
+
+    ny, nx = shape
+    rr, cc = np.nonzero(mask)
+    if rr.size == 0:
+        return None
+    cx = x0 + (cc + 0.5) * cell
+    cy = y_top - (rr + 0.5) * cell
+
+    surf = np.zeros(shape, dtype=np.float64)
+    # IDW степени 2, блоками чтобы не раздувать память
+    block = 4096
+    for start in range(0, rr.size, block):
+        sl = slice(start, start + block)
+        dx = cx[sl][:, None] - pts[None, :, 0]
+        dy = cy[sl][:, None] - pts[None, :, 1]
+        d2 = dx * dx + dy * dy
+        d2 = np.where(d2 < 1e-6, 1e-6, d2)
+        w = 1.0 / d2
+        surf[rr[sl], cc[sl]] = (w * vals[None, :]).sum(axis=1) / w.sum(axis=1)
+    return surf
+
+
 def _shore_ring(mask):
     """Ячейки снаружи маски, примыкающие к ней по 4 соседям."""
     grow = mask.copy()
@@ -302,7 +352,14 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
         уплотнённые изолинии вместе)
     streams: список ломаных (K, 2), вершины вниз по течению
     breaklines: список ломаных (K, 2)
-    lakes: список (кольца, z или None), кольца - список (K, 2)
+    lakes: список озёр. Каждое - (кольца, z, ring_z), где кольца это
+        список (K, 2). Приоритет высоты: (1) ring_z задан (список Z по
+        вершинам каждого кольца) - переменный урез интерполируется
+        вдоль границы, река получает наклон; (2) z задан числом -
+        горизонтальная плоскость; (3) оба None - уровень по минимуму
+        берега. Разнотипные объекты в одном слое обрабатываются каждый
+        своей веткой. Для совместимости принимается и старый кортеж
+        (кольца, z) - тогда ring_z считается None.
     extent: (xmin, ymin, xmax, ymax) в метрической СК
     cell: размер ячейки итогового грида, м
 
@@ -340,10 +397,19 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
         streams_flat = [s for s in streams_flat if s.size > 1]
 
         lake_masks = []
-        for rings, lz in (lakes or ()):
+        for lake in (lakes or ()):
+            if len(lake) == 3:
+                rings, lz, ring_z = lake
+            else:
+                rings, lz = lake
+                ring_z = None
             m = polygon_mask(rings, x0, y_top, lcell, lshape)
             if m.any():
-                lake_masks.append((m, lz))
+                surf = None
+                if ring_z is not None:
+                    surf = _interp_ring_surface(
+                        rings, ring_z, m, x0, y_top, lcell, lshape)
+                lake_masks.append((m, lz, surf))
 
         if z is None:
             z = _initial_fill(np.where(pin, pval, 0.0), pin)
@@ -351,9 +417,13 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
             z = _upsample(z, lshape)
             z[pin] = pval[pin]
 
-        # озеро с высотой сразу колом, без высоты уровень позже
-        for m, lz in lake_masks:
-            if lz is not None:
+        # приоритет 1 (переменный урез по узлам) и 2 (плоскость) - колом
+        for m, lz, surf in lake_masks:
+            if surf is not None:
+                pin |= m
+                pval[m] = surf[m]
+                z[m] = surf[m]
+            elif lz is not None:
                 pin |= m
                 pval[m] = float(lz)
                 z[m] = float(lz)
@@ -363,9 +433,9 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
         z = _relax(z, pin, pval, barrier, max(5, iters // 2),
                    streams_flat, min_drop, feedback)
 
-        # уровень безымянных озёр: минимум прилегающего берега
-        for m, lz in lake_masks:
-            if lz is None:
+        # приоритет 3: уровень по минимуму прилегающего берега
+        for m, lz, surf in lake_masks:
+            if surf is None and lz is None:
                 ring = _shore_ring(m)
                 level = float(z[ring].min()) if ring.any() else \
                     float(z[m].min())

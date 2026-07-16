@@ -48,8 +48,8 @@ Control: 1.04 over the result with the same step, overlaid on the contours of st
 | **2.01** Download DEM | map extent | GeoTIFF float32, meters | source: GLO-30 (DSM) or GEDTM30 (DTM, forest removed). Cell 30 m. CRS: empty = project/UTM |
 | **2.02** OSM base map | map extent | watercourses, water bodies, peaks (ele), cliffs | coastline off. Large extent: shrink it or raise the limit |
 | **1.04** Isolines from raster | DEM | lines with ELEV | step 5-10 m. Do not raise min length: short closed lines are hilltops. Moderate smoothing. Polygons off |
-| **2.03** Topo2Raster | contours (elevation field), points, streamlines, cliffs, lakes | GeoTIFF float32 | points or contours required. Streamlines run downstream: OSM and 2.06 fit as is. Lake without a level: shore minimum |
-| **2.04** Fill depressions | DEM | DEM without pits | epsilon 0.001 m gives a through slope across flats (needed for D8). 0: pits only |
+| **2.03** Topo2Raster | contours (elevation field), points, streamlines, cliffs, lakes | GeoTIFF float32 | points or contours required. Streamlines run downstream: OSM and 2.06 fit as is. Edge: node Z (river slope) > field elevation (plane) > shore minimum |
+| **2.04** Terrain preparation | DEM | prepared DEM | FPDEMS smoothing (edge-preserving) and/or depression filling (epsilon 0.001 for D8). Both by checkboxes |
 | **2.05** Flow D8 | DEM | directions (ArcGIS codes, byte) + accumulation (cells, float32) | codes: E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128, sink=0 |
 | **2.06** River network | DEM | lines: order (Strahler), acc\_out, length\_m | threshold = head catchment / cell area. 1000 at 30 m ≈ 0.9 km² |
 | **2.07** Basins | DEM, pour points (opt.) | polygons: basin, area\_m2 (+ label raster) | without points: from mouths by threshold. Point snap to the accumulation max, 150 m |
