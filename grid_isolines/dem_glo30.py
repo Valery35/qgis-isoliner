@@ -166,6 +166,30 @@ def _warp_to_metric(src_ds_or_path, out_path, extent_4326, gdal_module,
     return out_path
 
 
+GEDTM_WINDOW_MARGIN = 0.05   # градусов поля вокруг рамки, ~180 ячеек
+
+
+def gedtm_window(extent_4326, ds_bounds, margin=GEDTM_WINDOW_MARGIN):
+    """Окно projWin (ulx, uly, lrx, lry) для translate по глобальному COG.
+
+    extent_4326: (lon_min, lat_min, lon_max, lat_max) рамки запроса.
+    ds_bounds: (lon0, lat0, lon1, lat1) углов датасета из геотрансформа
+    (порядок произвольный, нормализуется здесь). Рамка расширяется на
+    margin и зажимается в границы датасета. Возвращает None, если
+    пересечения нет. Без окна translate -unscale разворачивает весь
+    глобальный COG (терабайты) - см. падение 4.0.0 на GEDTM30.
+    """
+    lon_min, lat_min, lon_max, lat_max = extent_4326
+    b_lon0, b_lat0, b_lon1, b_lat1 = ds_bounds
+    ulx = max(lon_min - margin, min(b_lon0, b_lon1))
+    lrx = min(lon_max + margin, max(b_lon0, b_lon1))
+    uly = min(lat_max + margin, max(b_lat0, b_lat1))
+    lry = max(lat_min - margin, min(b_lat0, b_lat1))
+    if not (ulx < lrx and lry < uly):
+        return None
+    return (ulx, uly, lrx, lry)
+
+
 def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
               dst_epsg=None, dst_wkt=None, cell=DEFAULT_CELL,
               max_tiles=DEFAULT_MAX_TILES, source=SOURCE_GLO30,
@@ -196,16 +220,38 @@ def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
                 "Не удалось открыть COG GEDTM30. Проверьте соединение "
                 "и прокси, либо источник временно недоступен."
             )
+        # Границы самого COG - окно ниже зажимается в них.
+        gt = probe.GetGeoTransform()
+        ds_lon0 = gt[0]
+        ds_lat0 = gt[3]
+        ds_lon1 = gt[0] + gt[1] * probe.RasterXSize
+        ds_lat1 = gt[3] + gt[5] * probe.RasterYSize
         probe = None
         # COG хранит высоту как Int32 со scale-метаданными. Warp scale
         # не применяет, поэтому сперва translate -unscale переводит в
         # настоящие метры (Float32), затем warp в метрическую СК.
+        # ВАЖНО: только окно по рамке (с полем под кубический ресемплинг).
+        # Без projWin translate разворачивает весь глобальный COG -
+        # терабайты, отказ по месту на диске.
+        win = gedtm_window(
+            (lon_min, lat_min, lon_max, lat_max),
+            (ds_lon0, ds_lat0, ds_lon1, ds_lat1))
+        if win is None:
+            raise DemSourceError(
+                "Рамка не пересекается с покрытием GEDTM30.")
+        ulx, uly, lrx, lry = win
         unscaled = "/vsimem/gedtm_unscaled.tif"
-        tr = gdal_module.Translate(
-            unscaled, cog,
-            options=gdal_module.TranslateOptions(
-                unscale=True, outputType=gdal_module.GDT_Float32,
-                noData=-9999.0))
+        try:
+            tr = gdal_module.Translate(
+                unscaled, cog,
+                options=gdal_module.TranslateOptions(
+                    unscale=True, outputType=gdal_module.GDT_Float32,
+                    noData=-9999.0,
+                    projWin=[ulx, uly, lrx, lry]))
+        except RuntimeError as exc:
+            raise DemSourceError(
+                "Не удалось прочитать COG GEDTM30 (unscale): "
+                "{}".format(exc))
         if tr is None:
             raise DemSourceError(
                 "Не удалось прочитать COG GEDTM30 (unscale).")

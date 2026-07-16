@@ -6,7 +6,7 @@ toc-title: "Contents"
 
 # Introduction
 
-Isoliner is a Processing provider for interpolating point data, building isolines and working with terrain. The kriging core is the KB2D algorithm from GSLIB. The tools are split into six groups: **Grid and isolines** - the main processing flow from declustering to isolines, **Topography** - terrain from open data and hydrological analysis, **Additional analysis tools** - specialised computations from indicator kriging to variable-support density, **Cross-sections** - building geological sections, **Bed and block model** - multiband bed grids and reserve calculation, **Fractal analysis** - dimensions of surfaces, masks and lines.
+Isoliner is a Processing provider for interpolating point data, building isolines and working with terrain. The kriging core is the KB2D algorithm from GSLIB. The tools are split into five groups: **Grid and isolines** - the main processing flow from declustering to isolines, **Topography** - terrain from open data and hydrological analysis, **Additional analysis tools** - specialised computations from indicator kriging to variable-support density, **Cross-sections** - building geological sections, **Fractal analysis** - dimensions of surfaces, masks and lines.
 
 **2D Kriging (points → raster)** - ordinary or simple kriging over a point layer.
 
@@ -33,13 +33,13 @@ A few terms used below. A variogram describes how much more strongly values diff
 The main way is from the official QGIS repository. Open Plugins → Manage and Install Plugins → the **All** tab, type "Isoliner" in the search, select the plugin and click **Install**. When installed from the repository, QGIS itself reports new versions and updates the plugin at the press of a button.
 
 
-Raster band choice in all the tools is a drop-down with band names: a bed assembled by tool 5.01 shows roof, bottom and the parameter layer names in the lists.
+Raster band choice in all the tools is a drop-down with band names: a multiband bed grid shows roof, bottom and the parameter layer names in the lists.
 
-![The Isoliner provider in the Processing toolbox.](images/toolbox_tree.png){width=52%}
+![The Isoliner provider in the Processing toolbox: five tool groups.](images/toolbox_tree_en.png){height=20cm}
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
-After installation the tools appear in the **Processing** panel: provider **Isoliner**, groups **Grid and isolines**, **Topography**, **Additional analysis tools**, **Cross-sections**, **Bed and block model** and **Fractal analysis**. Requirements: QGIS 3.16+. There are no external dependencies - only NumPy, GDAL and the built-in Processing algorithms shipped with QGIS are used.
+After installation the tools appear in the **Processing** panel: provider **Isoliner**, groups **Grid and isolines**, **Topography**, **Additional analysis tools**, **Cross-sections** and **Fractal analysis**. Requirements: QGIS 3.16+. There are no external dependencies - only NumPy, GDAL and the built-in Processing algorithms shipped with QGIS are used.
 
 ## Updating
 
@@ -112,8 +112,6 @@ Main parameters:
 | Clip mask | Your own polygon instead of the hull (takes priority) - handy for concave areas. | - |
 | Load processing profile | Substitutes a saved profile (nugget, variogram structure, outliers) over the dialog fields. The list refreshes when the window opens. | (none) |
 
-![The 2D Kriging dialog: main parameters. On the right - the short built-in help.](images/ui_kriging_main.png){width=82%}
-
 ![For each node only wells within the search radius are taken, and no more than the set number of nearest ones. Points beyond the radius do not take part.](images/search_radius.png){width=56%}
 
 ## Automatic values
@@ -133,8 +131,6 @@ Kriging computes the whole rectangular extent, so outside the data area the valu
 ![The variogram scheme: nugget C0, structural contribution C, sill (C0+C) and correlation range a.](images/variogram.png){width=85%}
 
 Kriging relies on a variogram model - it describes how strongly the Z values in two points differ depending on the distance between them. By this model a weight is assigned to each neighbouring well. The model is set in the **Advanced Parameters** section.
-
-![The Advanced Parameters section of the 2D Kriging dialog: nugget C0, one variogram structure (model, sill, range, azimuth, anisotropy) and outlier removal at the end.](images/ui_kriging_adv.png){width=82%}
 
 Variogram model: nugget C0, sill (C0 + C) and correlation range a.
 
@@ -276,8 +272,6 @@ The output is an ordinary grid ready for **1.04 Isolines from raster**. The log 
 
 Builds isolines (lines) and, by default, contour polygons. Levels are set by a uniform step or by an explicit list. Parameters:
 
-![The Isolines from raster dialog.](images/ui_isolines.png){width=82%}
-
 | Parameter | What it sets | Default / advice |
 |---|---|---|
 | Raster | The input raster (e.g. a kriging result). | - |
@@ -343,7 +337,22 @@ The nugget and contributions in the tool are set in absolute units of the parame
 
 ## Parameters
 
-![The Variogram (experimental) dialog, scrolled to the Advanced Parameters section: model fitting, one structure (model, sill, range, azimuth, anisotropy), outlier removal at the end and the Save profile as field.](images/variogram_dialog.png){width=82%}
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Points with values | Input point layer. | - |
+| Z value field | Attribute the variogram is built on. | - |
+| Grouping field (adv.) | Separate variograms by category (e.g. survey type). | - |
+| Declustering weight field (adv.) | Weights from 1.01 for a weighted estimate. | - |
+| Number of lags | Number of distance bins. | - |
+| Maximum distance | Upper distance bound. 0 = half of the extent diagonal. | 0 |
+| Fit model | Automatic model fitting to the experimental points (recommended). | on |
+| Model to fit (adv.) | Model type: spherical, exponential, Gaussian, power. | - |
+| Robust estimator (adv.) | Cressie-Hawkins estimator, less sensitive to outliers. | off |
+| Outliers: clip percentile (adv.) | Removal of extreme values by percentile. 0 = off. | 0 |
+| Cap to bound instead of removing (adv.) | Capping: an extreme is clipped to the threshold, not removed. | off |
+| Save profile as | Name of the "variogram + outlier removal" profile to apply in kriging. Empty = do not save. | - |
+| Variogram table | Output: lag, γ value, number of pairs. | - |
+| Report (HTML) | Output: pair-cloud and model plot. | - |
 
 | Parameter | What it sets | Default / advice |
 |----------|-----------|----------------------|
@@ -437,8 +446,6 @@ Anisotropy is read from the shape of the dark area. If it is round - the structu
 
 ## Parameters
 
-![The Variogram map (anisotropy) dialog with the Advanced Parameters section expanded.](images/ui_varmap.png){width=58%}
-
 | Parameter | What it sets | Default / advice |
 |----------|-----------|----------------------|
 | Points with values | A point layer of wells or samples. | - |
@@ -481,8 +488,6 @@ If the data are clustered unevenly, set the optional **wt** weight field from to
 ![What the cross-validation HTML report looks like: on the left the "estimate vs actual" chart with the diagonal and metrics (example - KCl for the KrII seam), on the right the error histogram. A dense cloud along the diagonal - the model works. A band at an actual value near 0 - replacement zones. The histogram is symmetric about 0 - no bias.](images/krii_crossval.png){width=98%}
 
 The tool checks how well the variogram is fitted, by the leave-one-out method: each well in turn is excluded, its value is predicted by kriging from all the rest, and compared with the actual one. This way the parameters (nugget, range, model) are tuned by error rather than subjectively.
-
-![The Variogram cross-validation dialog. The Well number field enables well labels in the report.](images/ui_crossval.png){width=82%}
 
 Parameters:
 
@@ -586,8 +591,6 @@ A profile is a named set of processing settings for one parameter: the variogram
 
 Profiles are stored globally in the QGIS settings, so they are available across all projects: build a seam's model once - apply it anywhere. A profile describes one variogram structure - exactly as much as kriging uses.
 
-![The Processing profiles dialog: the action, the choice of profile with its parameters in the line below and the manual-entry fields in the Advanced Parameters section.](images/ui_profiles.png){width=82%}
-
 ## Where profiles come from
 
 - **Variogram** - the **Save profile as** field. The fitted model is saved. The curve is built isotropic, so the azimuth and axes are written as neutral (0 and 1) - anisotropy is set later.
@@ -616,8 +619,6 @@ Below the profile drop-down, in the line beneath it, the parameters of the chose
 # 1.10 Create sample wells (demo)
 
 The **Create sample wells (demo)** tool builds a point layer with random coordinates and three structured fields: the absolute roof elevation (roof), the thickness (thick) and the grade of an abstract component X (%). The roof and thickness ranges are set after the model of an industrial seam (KrII). The tool is meant for learning and testing kriging, isolines and cross-validation without real data.
-
-![The Create sample wells (demo) dialog.](images/ui_demo.png){width=82%}
 
 Parameters:
 
@@ -655,6 +656,8 @@ Result fields:
 | mintype | text | Mineral type (silvinite, partial replacement, rock salt). Only with the mineral-type checkbox. |
 | dz | number | A value linearly related to the drift surface. Only when the drift-surface output is enabled. |
 
+
+The full list of output-layer fields is in the **Sample wells (demo)** appendix section ("Demo-layer fields" at the end of the manual).
 
 # 1.11 Create a geophysical-profiles example (demo)
 
@@ -706,9 +709,26 @@ All output layers of the group land in the **Topography** group of the layer tre
 
 ![The full chain of the group on the demo relief: hillshade, the river network with width by Strahler order (2.06), basin boundaries (2.07) and peaks (2.09).](images/topo_chain_demo.png){width=88%}
 
+The full list of output-layer fields is in the **Electrical-prospecting / Subsidence profiles** appendix section ("Demo-layer fields" at the end of the manual).
+
 # 2.01 Download DEM by extent
 
 Downloads a DEM by extent from an open store, no registration or keys, from one of two sources. One-degree tiles are mosaicked seamlessly and reprojected into a metric coordinate system with cubic resampling. Raw degree tiles never enter the analysis, so the GLO-30 peculiarity north of latitude 50 (a coarser longitude step) is handled automatically.
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Terrain source | GLO-30 (Copernicus, DSM: heights over canopy and roofs) or GEDTM30 (DTM with forest and buildings removed, machine learning from ICESat-2/GEDI). | GLO-30 |
+| Download extent | Extent in any CRS, converted to degrees automatically. | - |
+| Target CRS | Metric output CRS. Empty = project CRS if metric, otherwise UTM by extent center. | empty |
+| Cell size, m | Output grid step after reprojection. | 30 |
+| Smooth terrain (FPDEMS) | Edge-preserving smoothing (see below). off = raw source raster. | off |
+| Hydrological correction | Filling of false depressions so water flows down. Uncheck for karst and subsidence troughs. | on |
+| Smoothing: normals window, cells (adv.) | Side of the normals filter window, odd. | 11 |
+| Smoothing: normals difference threshold, deg (adv.) | Edge-preservation strictness: lower = more aggressive preservation. | 15 |
+| Smoothing: number of passes (adv.) | Outer elevation-rebuild steps. | 2 |
+| Slope epsilon for filling, m (adv.) | Minimum slope on flats. 0 = raise pits to the outlet only. | 0.001 |
+| Limit of 1x1 degree tiles (adv.) | Guard against an oversized extent for GLO-30. | 25 |
+| DEM (metric CRS) | Output float32 raster, layer in the Topography group. | - |
 
 **Terrain source** is the key choice. **Copernicus GLO-30** is a digital surface model (DSM): heights are taken over the top of canopy and rooftops, distributed as one-degree tiles. **GEDTM30** is a digital terrain model (DTM) by OpenGeoHub under CC BY 4.0: forest and buildings are removed by machine learning from ICESat-2 and GEDI data, so under forest canopy GEDTM30 is markedly more accurate, confirmed by independent validation. It is distributed as a single global cloud-optimized GeoTIFF. For forested terrain the DTM is usually preferable, for open areas the difference is small.
 
@@ -726,6 +746,14 @@ A network failure or an extent entirely in the ocean ends with a clear message r
 
 The vector twin of the DEM downloader: for the same extent it fetches terrain-related layers from OpenStreetMap.
 
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Download extent | Extent of the OSM Overpass request. Keep it modest - large requests are cut by the server. | - |
+| Extent area limit, square degrees | Guard against an oversized request. | 0.5 |
+| Request timeout, s | Overpass response wait; on failure the tool switches to a mirror. | 90 |
+
+Output layers: watercourses, water bodies (planes), peaks with the **ele** field, cliffs (barriers). All land in the Topography group.
+
 - **Watercourses** - rivers, streams and canals. In OSM watercourses are drawn downstream, so the layer fits 2.03 as streamlines without preparation.
 - **Water bodies** - closed outlines of lakes and ponds, constant-elevation planes for 2.03. Compound multipolygons (large lakes assembled from several ways) are skipped by the first version.
 - **Peaks with elevations** - natural=peak points with the ele elevation, ready summit marks for 2.03 and a control for 2.09.
@@ -737,6 +765,26 @@ Output is in the project CRS, lines are clipped to the extent. Public Overpass s
 # 2.03 Topo2Raster (terrain from vectors)
 
 Builds terrain from vector data by multigrid interpolation from a coarse grid to a fine one, in the spirit of ANUDEM. The tool covers the classic task: digitized contour lines of a topographic plan, spot elevations, rivers and lakes are at hand, and a correct grid is needed.
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Elevation points | Layer of spot heights (e.g. peaks from 2.09). | - |
+| Point elevation field | Z attribute of the points. | - |
+| Isolines | Contour layer (digitized plan or 1.04 over a DEM). | - |
+| Contour elevation field | Level attribute of the contours. | ELEV |
+| Streamlines (downstream) | River lines, vertices pointing downstream. The 2.06 network and OSM fit as is. | - |
+| Cliffs (smoothing barriers) | Lines along which the drop is not smeared. | - |
+| Lakes and water edge | Water-body planes. | - |
+| Water-edge elevation field | Water-edge elevation. Empty = node Z (slope) or shore minimum. | empty |
+| Extent | Output extent. Empty = from input layers. | empty |
+| Cell size, m | Output grid step. | 30 |
+| Fill depressions in the result | Hydrological correction of the result. | on |
+| Smoothing iterations per level (adv.) | Passes of internal field smoothing. | 60 |
+| Minimum streamline drop, m/cell (adv.) | Guaranteed slope along rivers. | 0.01 |
+| Slope epsilon for filling, m (adv.) | Minimum slope on flats during filling. | 0.001 |
+| Terrain | Output float32 raster. | - |
+
+Points or isolines are required (at least one elevation source). Water-edge priority: node Z (river slope) over the elevation field (plane), field over shore minimum.
 
 Every input type works as its own constraint:
 
@@ -755,6 +803,19 @@ The default extent is taken from the layers with a two-cell margin. All layers a
 
 Prepares a DEM for analysis with two independent modifications, each toggled by its own checkbox, in a fixed order: smoothing first, then filling.
 
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Terrain raster to prepare. | - |
+| Smooth terrain (FPDEMS) | Edge-preserving smoothing (see below). | off |
+| Fill depressions | Filling of false pits (Planchon-Darboux). | on |
+| Slope epsilon, m (0: pits only) | Minimum slope on flats. 0 = raise pits to the outlet, above zero = a through slope for D8. | 0.001 |
+| Smoothing: normals window, cells (adv.) | Side of the normals filter window, odd. | 11 |
+| Smoothing: normals difference threshold, deg (adv.) | Edge-preservation strictness: lower = more aggressive. | 15 |
+| Smoothing: number of passes (adv.) | Outer elevation-rebuild steps. | 2 |
+| Prepared DEM | Output float32 raster. | - |
+
+Order: smoothing first, then filling. Both modifications are independent, each with its own checkbox.
+
 **Smooth terrain (FPDEMS)** removes the excessive roughness of satellite models. Satellite DEMs are noisy, and ordinary filters - mean, median, Gaussian - cut the noise together with edges, terrace walls and banks: the breaks get flattened. FPDEMS (Lindsay, Francioni, Cockburn, 2019) works differently. It operates on the field of surface normals rather than heights directly: it first computes each cell's normal, then smooths the normal field so that a neighbour enters the average with a weight the larger the closer its normal is to the central one. At an edge the neighbours' normals diverge sharply, the weight drops, the edge is preserved. After that the heights are pulled towards the smoothed normal field. As a result flat areas are smoothed while structural lines stand. The **normals-difference threshold** (in **Advanced**) controls the strictness: a smaller value preserves edges more aggressively, a larger one smooths more overall. The method was originally proposed for lidar DEMs but is equally useful for satellite ones.
 
 **Fill depressions** with the Planchon-Darboux method raises spurious pits so flow does not stop. Depressions in raster models are most often interpolation and noise artifacts, and hydrological analysis without filling breaks at the first pit. **Slope epsilon** controls the mode: with zero only true pits are raised exactly to the spill level, flat areas stay flat. With a positive value (0.001 m by default) a through slope is additionally built across flats, and D8 becomes defined on them. Flow and accumulation need a positive epsilon. Cells on the grid border and next to nodata are treated as outlets. The report prints the number of raised cells and the maximum raise - a handy indicator of the source DEM quality.
@@ -767,6 +828,14 @@ The same smoothing checkbox is present in DEM download (2.01) for a quick path r
 
 Computes flow directions over eight neighbors (D8, Jenson-Domingue) and accumulation: how many cells drain into each one, itself included. Directions are coded as in ArcGIS: E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128, sink=0, nodata=255.
 
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Terrain raster. | - |
+| Fill depressions before computing | Hydrological correction before D8, otherwise flow stalls in pits. | on |
+| Slope epsilon for filling, m (adv.) | Minimum slope on flats. | 0.001 |
+| Flow directions (ESRI codes) | Output: byte direction raster. E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128, sink=0. | - |
+| Accumulation, cells | Output: float32, number of upstream cells. | - |
+
 The border semantics are deliberate. A cell on the grid frame leaves the grid only when it has no lower neighbor inside, otherwise flows running along the edge would break. A shore cell, on the contrary, pours into an adjacent nodata (the sea, a cutout) even when a lower land neighbor exists.
 
 The **Fill depressions before computing** checkbox is on by default: on a raw DEM flow stops in pits and accumulation breaks. The computation is fully vectorized, a 2000×2000 grid takes seconds.
@@ -774,6 +843,14 @@ The **Fill depressions before computing** checkbox is on by default: on a raw DE
 # 2.06 River network
 
 Extracts the river network from a DEM: cells with accumulation at or above the threshold are linked from heads and junctions downstream.
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Terrain raster. | - |
+| Accumulation threshold, cells | Minimum catchment cells to start a channel. A denser network = a lower threshold. 1000 at 30 m is about 0.9 sq km. | 1000 |
+| Fill depressions before computing | Hydrological correction before tracing. | on |
+| Slope epsilon for filling, m (adv.) | Minimum slope on flats. | 0.001 |
+| River network | Output: lines with order (Strahler), acc_out, length_m. Vertices point downstream. | - |
 
 The **accumulation threshold** is set in cells and means the catchment area where a river starts: the head catchment area divided by the cell area. For a 30 m DEM a threshold of 1000 starts rivers at a catchment of about 0.9 sq. km. A smaller threshold gives a denser network.
 
@@ -783,6 +860,17 @@ Output fields: **order** - the Strahler order (1 at heads, growing where two equ
 
 Divides the territory into drainage basins, polygon boundaries are the watersheds.
 
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Terrain raster. | - |
+| Pour points | Basin outlet points. Empty = basins from mouths by threshold. | empty |
+| Mouth accumulation threshold, cells | Threshold for mouths when no points are given. | 1000 |
+| Fill depressions before computing | Hydrological correction before the computation. | on |
+| Point snap radius, m (adv.) | An outlet point snaps to the accumulation maximum within this radius. | 150 |
+| Slope epsilon for filling, m (adv.) | Minimum slope on flats. | 0.001 |
+| Basins (polygons) | Output: polygons with basin, area_m2. | - |
+| Basins (label raster) | Output: integer basin-label raster. | - |
+
 Two modes. With **pour points** every point snaps to the cell with the highest accumulation within the snap radius (otherwise a point placed by eye next to a river would collect a tiny hillslope basin) and gathers the whole catchment above itself. Without points the basins are built automatically from mouths: cells where flow leaves the grid with accumulation at or above the threshold. Cells outside every basin get label 0 and are not exported to polygons.
 
 Output fields: **basin** - the basin number, **area_m2** - the area by cell count. A label raster can be written additionally. Labeling runs by pointer jumping over the flow graph, so even long winding catchments take a fraction of a second.
@@ -791,11 +879,24 @@ Output fields: **basin** - the basin number, **area_m2** - the area by cell coun
 
 Slope in degrees and aspect with the Horn 3×3 kernel, as in gdaldem. Aspect is the downslope azimuth in degrees from north clockwise: north 0, east 90. Flat cells get an aspect of -1 so they are not confused with north-facing ones. Nodata cells and their neighbors get nodata: the 3×3 kernel is not computed across holes.
 
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Terrain raster. | - |
+| Slope, degrees | Output: slope raster (Horn 3x3, as gdaldem). | - |
+| Aspect, degrees | Output: downslope azimuth, flats = -1. | - |
+
 ![Slope (left) and aspect (right) of the demo relief. The cyclic aspect palette stitches 0 and 360 degrees.](images/topo_slope_aspect.png){width=92%}
 
 # 2.09 Peaks
 
 Finds peaks: cells that are the highest in a square window of the given radius, with a drop over the window minimum at or above the threshold.
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Terrain raster. | - |
+| Window radius, m | Suppression of secondary peaks within this radius. | 500 |
+| Minimum drop, m | Cuts small bumps below the threshold above their surroundings. | 20 |
+| Peaks (points) | Output: points with z, drop. The cure for tops above the last closed contour. | - |
 
 The two filters work as a pair. The **window radius** suppresses secondary tops next to the main one: of two peaks closer than the radius the higher one remains. The **minimum drop** suppresses bumps on a plain: a local maximum rising a meter above its surroundings does not count as a peak. Flat tops give a single peak rather than a scatter.
 
@@ -805,13 +906,21 @@ Output fields: **z** - the elevation, **drop** - the drop over the window minimu
 
 A utility generator: synthetic terrain from a tilted plain, hills and a winding valley with a constant fall. The relief is deterministic by seed, and local depressions are left between the hills on purpose so the filling tool has something to show. All figures of this chapter are built on it.
 
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Width, cells | Demo grid size along X. | 300 |
+| Height, cells | Demo grid size along Y. | 300 |
+| Cell size, m | Demo grid step. | 30 |
+| Generator seed | Reproducibility of the random relief. | 42 |
+| Output CRS (metric) | Coordinate system of the demo raster. | EPSG:32640 |
+| Compact int16 (adv.) | Integer output for demo shipping. | off |
+| Demo relief | Output raster. | - |
+
 The tool exists for the manual examples, tests and offline work. Live data comes from 2.01. The **Compact int16** checkbox outputs the raster in whole meters for shipping demo fragments.
 
 # 3.01 Categorical indicator kriging
 
 The **Categorical indicator kriging** tool builds a probability map from a categorical field: mineral type, lithotype, any text class. Unlike ordinary kriging, which interpolates a number, here it estimates how likely each class is at every point of the area. This is what you need where the type matters rather than the magnitude: where to expect replacement, where the seam composition changes, where the boundary between varieties runs.
-
-![The Categorical indicator kriging dialog.](images/ui_categorical_en.png){width=80%}
 
 Parameters:
 
@@ -850,8 +959,6 @@ With an uneven network you can set the optional **wt** weight field from tool **
 The **External Drift Kriging** tool estimates a field from points when that field is systematically related to a quantity already known everywhere as a raster. Such a raster is called the drift. It can be the structural surface of an adjacent seam, a coarse regional model, a surface built on a sparse grid, or a seismic attribute. Ordinary kriging sees only the wells themselves, whereas here knowledge of the shape of the field between them is added, and the estimate leans on that shape where there are no wells.
 
 The tool sits in the **Additional analysis tools** group and rests on the same engine as **2D Kriging**. The kriging mathematics does not change. What changes is only what the regional component is removed against.
-
-![The **External Drift Kriging** tool window: the point layer, the Z field, the secondary-surface raster as the drift, and the drift degree. Search, anisotropy and clipping are under **Advanced**, as in **2D Kriging**.](images/ui_external_drift_en.png){width=82%}
 
 Parameters:
 
@@ -916,8 +1023,6 @@ A convenient way to fit the residual variogram without leaving the tool is not y
 The **Exceedance probability map** tool answers not "how much" but "how likely the value exceeds a threshold". From the kriging estimate raster and its standard-error raster it builds a probability raster from 0 to 1: in each cell the probability that the true value is above a given threshold.
 
 The tool sits in the **Additional analysis tools** group and works as a post-processing step, like the hydraulic gradient. It runs no kriging of its own and does not touch the **2D Kriging** window, it takes ready rasters. So it works equally with the output of ordinary kriging and of external drift kriging.
-
-![The **Exceedance probability map** tool window: the kriging estimate raster, the standard-error raster of the same run, the side and the threshold. The raster bands are under **Advanced**.](images/ui_exceedance_en.png){width=82%}
 
 ## How it is computed
 
@@ -997,8 +1102,6 @@ To walk the whole path without real data, switch on **Add a head field** in **Cr
 
 The **Specific discharge** tool adds permeability to the flow geometry. The hydraulic gradient shows where and how steeply the head falls, but not how much water flows. Darcy's law links these through the aquifer properties: the higher the permeability and the steeper the gradient, the larger the flux. From a head raster and aquifer-property rasters the tool builds a physical flux rather than a dimensionless gradient.
 
-![The 2.5 dialog: the head raster, the K/T property rasters and the discharge, flux and direction outputs.](images/ui_darcy_en.png){width=55%}
-
 The tool sits in the **Additional analysis tools** group and works as a post-processing step. It runs no kriging of its own: the property rasters are prepared separately by kriging from test points.
 
 ## What is computed
@@ -1038,8 +1141,6 @@ Kriging gives a single smoothed surface and an estimation variance. Sequential G
 ![An SGS ensemble of realizations and the mean and uncertainty derived from it.](images/sgsim.png)
 
 How it works. The values are mapped to normal scores and the simulation runs in Gaussian space. The grid nodes are visited in random order; at each node simple kriging on the neighbours and already-simulated points gives a local mean and variance, a value is drawn from that normal distribution and immediately becomes conditioning for the next nodes. Boreholes are snapped to the nearest nodes and frozen across all realizations. At the end each realization is back-transformed to the original units. The normal-score variogram is fitted automatically with a sill close to one.
-
-![The 2.6 dialog: the points, value field, number of realizations and advanced simulation parameters.](images/ui_sgs_en.png){width=52%}
 
 ## Parameters
 
@@ -1154,11 +1255,11 @@ Run 3.07 on the point layer - the density integral in the log should give 500, o
 | Demo points / lines / polygons | Three measurement layers. | - |
 | Auxiliary raster | Raster for dasymetry. | - |
 
+The full list of output-layer fields is in the **Density (demo)** appendix section ("Demo-layer fields" at the end of the manual).
+
 # 4.01 Cross-section along a line
 
 The **Cross-section along a line** tool builds a geological section from a set of surfaces. It is not just a profile curve but beds as filled bands between a roof and a floor. The surfaces are usually obtained by kriging, and the tool assembles them into a section along a given line.
-
-![The 4.01 dialog: the section line, surfaces top to bottom, the vertical scale and the drawing outputs.](images/ui_section_line_en.png){width=52%}
 
 The tool sits in the **Cross-sections** group and works as a post-processing step over ready rasters. It runs no kriging of its own.
 
@@ -1186,7 +1287,7 @@ The effective exaggeration is printed to the log. For an exact overlay of layers
 |---|---|
 | vex | Vertical exaggeration of the drawing. |
 | step | Stationing step, m (the polyline vertices are always included). |
-| zmin, zmax | The elevation range of the drawing - the section plane in the 3D viewer uses it too. |
+| zmin, zmax | The elevation range of the drawing. |
 
 **Section (3D fence)** - vertical PolygonZ polygons along the trace, one per bed:
 
@@ -1226,8 +1327,6 @@ A plain profile curve over a single grid is built by the native **Elevation Prof
 
 The **Boreholes on the section** tool projects boreholes onto the section line and shows them as columns of bed intervals on top of the drawing from **Cross-section along a line**. It sits in the **Cross-sections** group.
 
-![The 4.02 dialog: the line, section definition, boreholes, bed-boundary fields and the corridor.](images/ui_section_wells_en.png){width=58%}
-
 Each borehole is placed at the distance along the line where its projection falls. The bed boundaries are taken from the chosen elevation fields: on each borehole their values are sorted in descending order, and adjacent pairs give the bed intervals. So the order of field selection and gaps (NULL) do not matter. Each interval gets a bed number, and the column gets the borehole number from the label field.
 
 ## Corridor and exaggeration
@@ -1253,8 +1352,6 @@ Colour the intervals by bed number to match the section bands, and label the col
 # 4.03 Bed composition on the section
 
 The **Bed composition on the section** tool colours the band of one bed by a composition grid along the line. It takes a roof, a floor and a composition grid, runs no kriging of its own, and works one bed at a time. It sits in the **Cross-sections** group.
-
-![The 4.03 dialog: the line, the bed roof and floor, the composition grid and the mode (content or class).](images/ui_section_comp_en.png){width=55%}
 
 This is how the lithological composition change inside an industrial bed is shown along the section. The composition grid is prepared separately: the content by ordinary kriging, the mineral type by indicator kriging (the **Categorical indicator kriging** tool).
 
@@ -1303,8 +1400,6 @@ A corner table is produced optionally - a polygon layer below the section. The c
 
 The **Intersect surfaces with the section** tool places surface grids onto the section as lines in distance-elevation axes. Each grid is sampled along the definition line, and its trace lies on the drawing next to the beds. The line and vex come from the section definition, so the match with the section is automatic.
 
-![The 4.04 dialog: the section definition and the list of surface grids.](images/ui_section_surfaces_en.png){width=58%}
-
 This is how water tables, marker surfaces, the salt roof and anomaly surfaces are placed on the section. The inputs are the section definition and a list of grids, the output is lines in the section axes (and optionally 3D lines in real coordinates).
 
 The object-projection, unprojection and shaft-unwrap tools are marked **(beta)**: they work, but their interface and example set are still being refined.
@@ -1323,8 +1418,6 @@ The object-projection, unprojection and shaft-unwrap tools are marked **(beta)**
 # 4.05 Vector intersection with the section
 
 While 4.04 places surfaces as grids, this tool places **vector** objects on the section by exact intersection with the section line. The result type depends on the object.
-
-![The 4.05 dialog: the layers to intersect, the section drawing and three outputs (verticals, points, zone bands).](images/ui_section_vectors_en.png){width=58%}
 
 A line **without an elevation** (flat in plan - a fault, a boundary, a contour) gives a **full-height vertical** at the crossing station. Where the section crosses it horizontally is known, the depth is not, so the mark spans the whole frame. A line **with a Z elevation** (a 3D object, an inclined one, a surface contour) gives a **point** at the real elevation of the crossing - a roof contour with an elevation, for instance, lands as a point exactly on the bed. A polygon (a plan zone - replacement, a mine field, a licence) gives a **vertical band** over the interval where the section runs through the zone.
 
@@ -1351,8 +1444,6 @@ Empty outputs are not created: each object type goes only into its own layer.
 
 A raster grid (4.04) is `z = f(x, y)`, one elevation per plan point. It cannot represent an overturned fold at all: above one point such a fold has several elevations of the same surface. This tool cuts the section through a **TIN** - a surface of true 3D triangles that can overhang.
 
-![The 4.06 dialog: TIN faces from PolygonZ and an optional mesh layer.](images/ui_section_tin_en.png){width=58%}
-
 The mechanics are pure geometry. The section is a vertical curtain along the polyline. Each TIN triangle is intersected with the vertical plane of its segment, giving a segment (station along the line, real elevation), and all segments are assembled into the surface trace. Overhang comes out naturally: several segments at different elevations above one station, and the trace folds - the limbs of an overturned fold come out as they are.
 
 The inputs are layers of **3D polygons** (PolygonZ, TIN faces; non-triangles are fan-split into triangles) and optionally a **mesh layer**. The line and vex come from the section definition, the height from the faces themselves, so nothing needs to be set for a TIN. Besides the drawing trace you can also get it in real 3D coordinates.
@@ -1375,11 +1466,25 @@ Supply at least one of the two inputs - TIN faces or a mesh.
 
 The **Project objects onto the section** tool projects points, lines and polygons onto the section line. For each vertex the horizontal coordinate is the distance along the line to its projection, the height is the elevation from the 3D geometry or from a chosen field. Distant objects are cut off by a corridor.
 
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Section definition | Section line with the vex field (vertical exaggeration). | - |
+| Objects to project | Layer whose objects are projected onto the section plane. | - |
+| Elevation field | Z attribute if the object geometry has no Z. | - |
+| Corridor from the line | Width of the capture band from the section line. 0 = all objects. | 0 |
+| Objects on the section (drawing) | Output: objects in section-drawing coordinates. | - |
+
 This generalises the borehole projection to any objects: anomalies, sampling points, traces, outlines. The result is in the section axes, placed on top of the drawing.
 
 # 4.08 Unproject from the section (beta)
 
 The **Unproject from the section** tool does the reverse: objects drawn on the section drawing are returned to real coordinates. The horizontal coordinate of a vertex is read as the distance along the line (giving the plan), the height as the elevation Z = height / vex. The line and vex come from the same definition the drawing was built with.
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Section definition | Section line with the vex field. | - |
+| Objects from the section drawing | Objects in drawing coordinates to return to plan. | - |
+| Objects in plan (with Z elevation) | Output: objects in plan coordinates with restored elevation. | - |
 
 So an object drawn by hand on the section - an ore outline, a fault, a boundary - gets back into the plan and into 3D with a Z elevation.
 
@@ -1387,17 +1492,26 @@ So an object drawn by hand on the section - an ore outline, a fault, a boundary 
 
 The **Shaft wall unwrap** tool builds a cylindrical section. Around the shaft axis at a given radius a circle is taken with an angular step (1 degree by default), and the surface grids are sampled along it. The unwrap lies in axes of arc length along the circle and elevation.
 
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Shaft axis (collar point) | Collar point of the shaft. | - |
+| Shaft radius, map units | Radius of the wall unwrap. | 4 |
+| Surface grids (markers) | Surface grids whose elevations are drawn on the unwrap. | - |
+| Angular step, degrees | Step of the wall traversal by azimuth. | 1 |
+| Vertical scale | Vertical-exaggeration mode (H:V ratio or multiplier). | ratio |
+| Scale value | Exaggeration number for the chosen mode. | 10 |
+| Raster sampling (adv.) | How the value is sampled from the surface grid. | - |
+| Wall unwrap (arc × elevation) | Output: shaft-wall unwrap. | - |
+
 Each marker surface gives the line of its intersection with the shaft wall - where the beds dip the lines are tilted and wavy. The axis is set by a collar point layer, the radius is in map units, the vertical scale is as in the section.
 
 # 4.10 Create a section example
 
 The **Create a section example** tool prepares a complete training set for the **Cross-sections** group, so its tools can be tried without kriging real data. In the panel it stands last in the **Cross-sections** group.
 
-![The 4.10 dialog: the extent, six surfaces labelled roof/floor, the line, boreholes and composition grids.](images/ui_section_demo_en.png){width=52%}
-
 A single run outputs six stacked surfaces with a dip and variable thickness (five interbedded beds, the 2nd and 4th industrial and thin), a polyline section line across the area, boreholes along the line with surface-elevation fields h1...h6, and a multiband grid per industrial bed. The bed-grid band convention: band 1 - the roof, band 2 - the bottom, bands 3 and further - parameters (here the content and the mineral type with a replacement zone; the content fields of the beds are independent, stochastic). One file describes the whole bed - like a block model where new parameters are added as bands. For the intersection tools it adds demo vectors: a fault without an elevation, a marker contour with Z, a replacement zone, and an overturned TIN fold from PolygonZ 3D faces.
 
-![The multiband bed-grid convention: bands 1-2 carry the geometry (roof and bottom), bands 3+ the parameters; one file feeds 4.03, the 3D viewer and 5.04.](images/bed_grid_scheme_en.png){width=70%}
+![The multiband bed-grid convention: bands 1-2 carry the geometry (roof and bottom), bands 3+ the parameters; one file feeds tool 4.03.](images/bed_grid_scheme_en.png){width=70%}
 
 ## Demo layers and their attributes
 
@@ -1428,126 +1542,9 @@ The workflow is shown in section 4.01: the surfaces go into **Cross-section alon
 | Fault, Z marker, zone | Demo vectors for 4.05: a line without Z, a contour with Z, a zone polygon. | on request |
 | Overturned TIN | 3D faces of an overturned fold for 4.06. | on request |
 
-# 5.01 Assemble a bed grid
+The full list of output-layer fields is in the **Section data** appendix section ("Demo-layer fields" at the end of the manual).
 
-A production bridge to the multiband-grid convention: the tool assembles a bed from separate rasters that usually come out of kriging one by one - the roof, the bottom, the content, the mineral type. The roof sets the output grid, the bottom and the parameters are resampled to it bilinearly, so the input grids may have different grids and resolutions. The band names are written into the descriptions: roof, bottom, then the names of the parameter layers - the band drop-downs in the 3D viewer will show them by name.
-
-One assembled file feeds **Bed composition on the section** (bands 1/2/3), the **3D viewer** (bed bodies, colouring by an own band) and the mesh export.
-
-## Parameters
-
-| Parameter | What it sets | Default / advice |
-|---|---|---|
-| Roof (raster) | Sets the output grid and band 1. | - |
-| Bottom (raster) | Band 2; resampled to the roof grid. | - |
-| Parameters | A batch of rasters - bands 3 and further, band 1 of each is taken. | empty |
-| Roof / bottom band (Adv.) | The band number in the input rasters. | 1 |
-| Bed grid | A multiband GeoTIFF by the convention. | - |
-
-# 5.02 Bed calculator
-
-The reserve tool of the block model: over a bed grid it computes the thickness (band 1 minus band 2), the volume, the ore tonnage via the density and, if a content band is set, the thickness-weighted mean content and the metal tonnage. The summary covers the whole bed area or the inside of a contour - polygons of a reserve block or a domain, holes are honoured.
-
-The result is twofold: a bed grid with the appended bands "thickness" and "ore, t/cell" (ready for colouring in the 3D viewer) and an HTML report with the summary; the same numbers are printed to the log. Cells with a negative thickness (crossing surfaces) are zeroed and reported as a separate row - an indicator of interpolation problems.
-
-![The calculator HTML report: area, thickness, volume, ore and metal reserves, the weighted content.](images/bed_calc_report.png){width=70%}
-
-## Parameters
-
-| Parameter | What it sets | Default / advice |
-|---|---|---|
-| Bed grid | A multiband grid by the convention. | - |
-| Content band | The band with the content; empty - compute without metal. | 3 |
-| Ore density | t/m³ to convert the volume into tonnage. | 2.1 |
-| Reserve contour | Polygons of a block or a domain, optional. | empty |
-| Bed grid with thickness and reserves | The output grid with two new bands. | - |
-| Report (HTML) | The summary file. | on request |
-
-# 5.03 Bed grid to a block model
-
-A bridge from the raster form to the vector one: every valid cell of a bed grid becomes a centroid point. The attributes: bid, row and col, the x and y coordinates, top, bot, thick, vol, ore_t (via the density) and all the parameter bands under their names from the band descriptions.
-
-From there the standard QGIS vector machinery works: expression filters (say, "content > 20 AND mintype = 1"), joins of tables from external databases, the field calculator - the model grows by attributes without rebuilding, and the schema with top and bot is ready for a future split of a column into several vertical blocks. The reserve contour limits the export to a block or a domain.
-
-![The tool dialog: the bed grid, the density, an optional contour.](images/ui_bed_to_block.png){width=74%}
-
-![A block model of 40 thousand centroids: top, bot, thick, vol, ore_t and the parameter bands under their names.](images/block_model_table.png){width=92%}
-
-## Parameters
-
-| Parameter | What it sets | Default / advice |
-|---|---|---|
-| Bed grid | A multiband grid by the convention. | - |
-| Ore density | t/m³ for the ore_t attribute. | 2.1 |
-| Reserve contour | Polygons, optional. | empty |
-| Block model (centroids) | A point layer with the block attributes. | - |
-
-# 5.05 Domains to a bed band
-
-The tool rasterises domain polygons (reserve blocks, replacement zones, mining contours) into an extra band of the bed grid: each cell gets the code of the domain it falls into, zero - outside the domains. The code is taken from a numeric field of the layer, or, if no field is set, it is the feature order number from one. The source grid bands are kept, the **domain** band is appended last.
-
-Then the domain works as an ordinary parameter: the bed calculator sums over the domain contour, the block model is filtered by an expression on the code. The key scenario is **reserve write-off**: compute the reserves over the contour before and after the mining and subtract one from the other, and the difference of two block models is automated by tool 5.06.
-
-| Parameter | What it sets | Default |
-|---|---|---|
-| Bed grid | A multiband grid. | - |
-| Domain polygons | Zone or block contours. | - |
-| Domain code field (Adv.) | A numeric code field, empty - order number. | - |
-| Bed grid with a domain band | The same grid plus the domain band. | - |
-
-# 5.06 Reserve difference (write-off)
-
-The tool computes the difference of two block models over the cells with the same **row** and **col** (and **lay** if the models are split vertically): how much reserve was lost between the "before" and "after" states. For each cell the chosen field, **ore_t** by default, is subtracted, the result is centroid points with the **before**, **after** and **delta** (before minus after) fields. The total write-off is printed to the log.
-
-This is the direct path of operational write-off: the model before mining the chambers minus the model after, the sum of **delta** over the contour gives the written-off tonnage. The models must be built from the same grid so that the row and col split matches.
-
-| Parameter | What it sets | Default |
-|---|---|---|
-| The "before" model | The block model before the change. | - |
-| The "after" model | The block model after. | - |
-| Reserve field (Adv.) | What to subtract. | ore_t |
-| Difference (centroids) | Points with delta, before, after. | - |
-
-# 5.04 Surfaces to 3D (meshes)
-
-The **Surfaces to 3D (meshes)** tool exports a batch of grids into mesh layers of the standard 2DM format (MDAL). Such layers are understood by the QGIS profile tool, the mesh calculator, the built-in 3D view and third-party software, so a stack of horizons goes to meshes in a single run, without manual conversions.
-
-A vertical transform is applied to the elevations on write: Z' = Z × scale + offset. The scale gives vertical exaggeration, the offset and the Z spacing unfold a collapsed stack into a readable shelf. Cells without data are skipped: no node is written and triangles are built only over quads whose four corners are valid.
-
-## Parameters
-
-| Parameter | What it sets | Default / advice |
-|---|---|---|
-| Surface grids | A batch of rasters, each becomes a separate 2DM. | - |
-| Z scale | Vertical exaggeration of the elevations on write. | 1 |
-| Z offset | A common vertical shift. | 0 |
-| Z spacing | Every next grid shifts one step down. | 0 |
-| Node thinning (Adv.) | Every Nth node - for large grids. | 1 |
-| Elevation band (Adv.) | The band with elevations, for multiband grids. | 1 |
-| Folder for meshes (2DM) | Where to write the files; the layers are loaded into the project. | - |
-
-# 5.07 Create a polyhedral example (beta)
-
-The tool builds a single demonstration polyhedron so you can see how a closed volumetric shell looks in QGIS. Four examples are available: **Bed body** (an analytic fold-lens between a roof and a floor), **Suite** (a stack of folded beds, each bed loaded as a separate **Suite: bed k** layer for visibility control and coloured on its own), **Cube** and **Tetrahedron**. The bed-body shell is watertight: the roof, the reversed floor and the side skirt are stitched into a closed surface with no holes. The output layer name follows the example (**Bed (demo)**, **Suite x3 (demo)**, **Cube (demo)**, **Tetrahedron (demo)**) so the objects are distinct in the **Bodies** tab list.
-
-From QGIS 3.40 on, the output is written as a native **PolyhedralSurface Z** (or **TIN Z** if the flag is set). Older builds have no such geometry type, so the object degrades to **MultiPolygon Z** with a warning in the log; the faces are the same, only the layer type differs. The result carries the fields **name**, **kind**, **patches** (face count) and **watertight**.
-
-The plan position and size come from the **extent (map view)**, like the other generators: the body is centred in the extent and takes its smaller side. Vertically the body runs from the base elevation (floor) up to that elevation plus the thickness. The geometry type is flat, so Z is not visible in the 2D map view. The Z range is printed to the log, and the body itself is best viewed in **Plugins - Isoliner - 3D surface viewer**, the **Bodies** tab.
-
-This is a first step towards the future **bed body -> PolyhedralSurface** bridge: for now the tool only shows the geometry type on simple examples, while volumetric boolean operations on bed bodies are the next step (via QSFCGAL in QGIS 3.40 and newer).
-
-| Parameter | What it sets | Default |
-|---|---|---|
-| Example | Bed body, Suite, Cube or Tetrahedron. | Bed body |
-| Extent (map view) | Plan placement and size of the example. | map view |
-| Thickness | Vertical thickness of the body, map units. | 25 |
-| Bed body resolution | Grid density of the bed body (cells per side). | 8 |
-| Base elevation (Adv.) | Floor elevation, map units. | 0 |
-| Beds in the suite (Adv.) | How many beds in the Suite example. | 3 |
-| TIN instead of PolyhedralSurface | Write as a triangulated surface. | no |
-| Polyhedron (layer) | The result with the fields name, kind, patches, watertight. | - |
-
-# 6.01 Fractal dimension
+# 5.01 Fractal dimension
 
 The tool computes a fractal-dimension map of a surface by the variogram method, native to the plugin: a log-log variogram over lags of one to N cells is built in a sliding window, its slope gives the Hurst exponent H, and the dimension D = 3 - H. Smooth differentiable areas give D near 2, rugged and noisy ones tend to 3; the values themselves matter less than their steps - they highlight zones of tectonic disturbance, block boundaries and changes of the roof relief character.
 
@@ -1565,7 +1562,7 @@ A small window (5-8 cells) reveals the microstructure and local disturbances, a 
 
 ## Workflow
 
-A bed roof from kriging → **6.01** with a window of 8 → the D grid → **1.04 Isolines from a raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS; the demo surfaces fit as they are.
+A bed roof from kriging → **5.01** with a window of 8 → the D grid → **1.04 Isolines from a raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS; the demo surfaces fit as they are.
 
 ## Parameters
 
@@ -1578,7 +1575,7 @@ A bed roof from kriging → **6.01** with a window of 8 → the D grid → **1.0
 | Write H (Adv.) | Add H as band 2. | off |
 | Fractal dimension | A D grid (and H if checked). | - |
 
-# 6.02 Mask box-counting
+# 5.02 Mask box-counting
 
 Classic box-counting for binary masks: the raster is binarised by a threshold (the object - values above it), the mask is covered by cells of a decreasing size, the slope of log N versus log(1/size) gives one dimension D for the whole mask. A linear object gives D near 1, a blob - near 2, rugged outlines of replacement zones or mined-out areas fall in between. The accuracy on finite masks is about ±0.1, so the method is good for comparing masks with each other rather than as an absolute measure. The result is printed to the log with a table of sizes and counts and returned as the number D - usable further in Processing models.
 
@@ -1594,7 +1591,7 @@ The mineral-type band of a bed grid with a threshold between the class codes, an
 | Threshold | The object/background boundary. | 0.5 |
 | Band (Adv.) | The raster band. | 1 |
 
-# 6.03 Line and boundary dimension
+# 5.03 Line and boundary dimension
 
 The dimension of every line by the divider (Richardson) method: the line is walked with chords of a decreasing span, the slope of log N versus log r gives D. A straight line gives one, a rugged line - more. Polygons are accepted alongside lines - the exterior ring of the boundary is measured, so the ruggedness of zone and basin outlines is computed without a prior conversion. The output is the same features with the D and steps fields, the mean D is printed to the log; short lines get an empty D. The method is checked on references: the Koch curve gives 1.262 against the theoretical 1.2619.
 
@@ -1611,13 +1608,11 @@ The ruggedness of zone outlines in plan, comparing the digitising detail of boun
 | Lines | A line layer (isolines, outlines). | - |
 | Lines with the dimension | The same lines with the D and steps fields. | - |
 
-# 6.04 Minkowski dimension (vectors)
+# 5.04 Minkowski dimension (vectors)
 
 Box-counting directly over vectors, no rasterisation: lines and polygon boundaries are covered by a grid of a decreasing size, the slope of log N versus log(1/size) gives the Minkowski dimension. A straight line and a smooth boundary give D near one, a river network - 1.1-1.5, a heavily rugged coastline - up to 1.3 and above. Every feature gets the D_mink and D_r2 fields (the log-log fit quality: below 0.85 the estimate cannot be trusted), and separately the D of the layer as one set is computed and printed to the log: for a river network that is the dimension of the network as a whole, regularly higher than that of the individual branches.
 
-The method complements the divider of 6.03: the divider measures the sinuosity of one line, Minkowski - the plane filling by a set of features. The dimension is also returned as a number output for Processing models.
-
-![The 6.04 dialog: K, the grid offsets and the densify factor under the advanced parameters.](images/ui_minkowski.png){width=74%}
+The method complements the divider of 5.03: the divider measures the sinuosity of one line, Minkowski - the plane filling by a set of features. The dimension is also returned as a number output for Processing models.
 
 ![Demo rivers labelled by the per-branch D_mink: nearly smooth branches give values around one, the network as a whole - higher.](images/rivers_dmink.png){width=88%}
 
@@ -1628,75 +1623,15 @@ The method complements the divider of 6.03: the divider measures the sinuosity o
 | Grid offsets per size (Adv.) | Random shifts, the minimal cover is taken - removes the grid alignment. | 3 |
 | Densify factor (Adv.) | The sampling step along segments as a cell fraction; 0 - vertices only. | 0.5 |
 
-# 6.05 Create a fractal example (demo)
+# 5.05 Create a fractal example (demo)
 
-A generator of study features for the whole fractal five: a branching river network with an order field (the tributary order), a basin polygon with a rugged boundary and a separate coastline built by midpoint displacements. Feed the rivers into 6.04 - you get the network dimension; the coast and the basin boundary - into 6.03 and 6.04 and compare the divider with Minkowski; rasterise the basin with the standard tool - and it doubles as an example for 6.02.
+A generator of study features for the whole fractal five: a branching river network with an order field (the tributary order), a basin polygon with a rugged boundary and a separate coastline built by midpoint displacements. Feed the rivers into 5.04 - you get the network dimension; the coast and the basin boundary - into 5.03 and 5.04 and compare the divider with Minkowski; rasterise the basin with the standard tool - and it doubles as an example for 5.02.
 
 | Parameter | What it sets | Default |
 |---|---|---|
 | Extent | The generation area. | - |
 | Seed (Adv.) | The example repeatability. | 1 |
 
-
-# 3D surface viewer (beta)
-
-The plugin has its own 3D window: **Plugins - Isoliner - 3D surface viewer (beta)…** It does not depend on the built-in QGIS 3D view: the render runs on pyqtgraph and PyOpenGL bundled with the plugin, nothing to install.
-
-The left panel has two tabs. **Layers** - the project rasters and the per-layer settings. **Vectors** - the section plane and the boreholes. Below the tabs live the scene-wide settings: the vertical exaggeration, the Z spacing, the opacity, the **Top view** and **Side view** buttons, **PNG snapshot…** and **Update the scene**. On the right is the scene: rotate with the mouse, zoom with the wheel. Large grids are automatically thinned to about 60 thousand nodes.
-
-![A stack of surfaces coloured by an attribute grid; the scale bar with the range sits under the buttons.](images/viewer_surfaces_stack.png){width=78%}
-
-## The Layers tab: the set and the layer settings
-
-The list shows all the project rasters. The **Filter layers…** line narrows the list by a substring, the **All** and **None** buttons check and uncheck the rows visible after the filter - the scene set is assembled by hand in seconds even in a project with dozens of rasters. The checks survive a list refresh.
-
-Under the list is the **Layer settings** panel for the selected row, individual per layer:
-
-- **Mode**: Auto (a multiband grid is drawn as a body, a singleband one as a surface), Surface (forced, any band as heights), Bed body.
-- **Elevation band (Z)** - a drop-down of this raster's bands with their names.
-- **Colouring** - a single list: Palette, Custom colour, then the layer's own bands by name, then the project rasters. Picking an external raster enables the **Attribute band**, and Custom colour enables the swatch to the right of the list: a click opens the colour picker, the colour lives in the layer settings.
-
-The colouring priority: the own band, then the external raster, then the palette. The scale is one per scene, the bar with the range appears under the buttons, no-data cells are grey.
-
-![The **Layers** tab: the filter, the **All** and **None** buttons, a set of two bed bodies and the **Layer settings** panel of the selected layer.](images/viewer_layers_tab.png){width=86%}
-
-![The band lists show the names from the grid descriptions: roof, bottom, content, mineral type.](images/viewer_band_list.png){width=86%}
-
-## Bed bodies
-
-In the Auto mode a multiband grid by the convention is read as a body: band 1 - the roof, band 2 - the bottom, the volume is closed by a side skirt along the data boundary, a watertight body results. Beds assembled by tool **5.01** show their band names in the lists: roof, bottom, then the names of the parameter layers. Bodies and plain surfaces live in one scene.
-
-![Two bed bodies, each coloured by its own grade band; boreholes pierce the stack.](images/viewer_bodies_grade.png){width=78%}
-
-## The Vectors tab: boreholes and the section
-
-![The **Vectors** tab: the section plane, the boreholes, the label field and the elevation fields; the scene shows the section ribbon with boreholes on a bed body.](images/viewer_vectors_tab.png){width=86%}
-
-**Boreholes (points)**: pick a layer and check the numeric elevation fields, fields like h1…h6 are checked automatically. Every borehole is a stem of cylindrical segments between neighbouring elevations, the intervals coloured by stratigraphic position (the order of the checked fields), so the same horizon reads in one colour across all boreholes. Above the collar there is a mast with a ball: the mast lifts the collar above the roof by two percent of the scene span, the borehole stays visible even where the stem goes inside an opaque body.
-
-**Borehole label field** adds text above the masts: fields like name and well are guessed automatically, "(none)" switches the labels off. The labels are thinned automatically: if a labelled borehole is already nearby, the text is skipped, and dense well stocks stay readable. The cap is 500 labels.
-
-![Borehole labels above the masts with automatic thinning. The **Vectors** tab with the label field on the left, the bed bodies coloured with custom colours.](images/viewer_well_labels.png){width=86%}
-
-**Section plane (line)** accepts any line layer. The best input is the **Section definition** from tool 4.01: the ribbon takes the height range from its zmin and zmax fields. For an arbitrary line the ribbon stretches over the scene span with a margin. Polylines and multiple lines are supported, the bends are drawn by the vertices. A bright trace runs along the ribbon over the surfaces, and for bodies from the **Bodies** tab a section contour is drawn where the vertical curtain along the line cuts the body.
-
-![Bed bodies, boreholes and the section plane in one scene: the block model stitched with the section.](images/viewer_ribbon_wells.png){width=78%}
-
-## The Bodies tab: polyhedra and polygons with Z
-
-The **Bodies** tab shows polygon layers that carry a Z elevation (polyhedral surfaces, TIN, MultiPolygon Z) as volumetric bodies right in the scene, next to surfaces and bed bodies. Tick the layers you want and press **Rebuild scene**. The geometry of each feature is broken into triangles as a separate mesh and coloured on its own, so a suite of several beds comes out multi-coloured, and the tab also takes the examples from tool 5.07 and any third-party bodies with Z. The same vertical exaggeration and transparency apply to bodies as to surfaces, so a polyhedron and a stack of horizons read at one scale.
-
-## Querying the scene by a click
-
-When a section plane is set, a **section trace** runs along its line over every surface - a bright red thread of the plane intersecting the roof and the bottom. The trace shows exactly where the section cuts each bed.
-
-A click on a surface or a body (without dragging - the rotation is unaffected) queries the block model: a ray is cast from the camera through the cursor, the nearest intersection with the relief is found, and the status line prints the layer name, the point coordinates and the values of all the bands by name, plus the thickness for a bed. The hit is marked with a red ball until the next click or a scene rebuild.
-
-<!-- SCREENSHOT: viewer_pick.png | A click on a bed body: the red ball on the surface, the status line reads the full band readout -->
-
-## The rest
-
-**Top view** and **Side view** set orthogonal views, **PNG snapshot…** saves a frame of the scene to a file for reports and presentations. The Z spacing spreads the surfaces into a stack, the opacity helps to look inside the bodies.
 
 # Typical situations and solutions
 
@@ -1717,22 +1652,6 @@ This section is a hands-on practicum on the demo data: short working cycles (les
 1. A new QGIS project.
 2. **1.10 Create a well example (demo)** - demo wells with elevation and content fields appear.
 3. **4.10 Create a cross-section example** - the section line, the zone polygon, the ready beds "Bed 1 (demo)" and "Bed 2 (demo)" and separate roof and bottom surfaces.
-
-The ready "Bed 1 (demo)" is already a multiband grid by the convention (band 1 roof, 2 bottom, 3 content), it suits all the lessons below without assembly.
-
-## Test 1. Reserve write-off: domains, split, difference
-
-The goal is to make sure the "domains - block model - difference" chain computes the write-off correctly. It checks tools 5.05, 5.03 and 5.06.
-
-**Step A. Domains to a band (5.05).** Bed grid = "Bed 1 (demo)", polygons = "Zone (demo, polygon)", the code field empty. The log will show "Cells in domains: N" above zero. Open the result in the 3D viewer, colour it by the **domain** band - the zone lights up with code 1, zero outside it, the colour boundary matches the polygon contour.
-
-**Step D. Tonnage conservation on the split (5.03).** Build a block model from "Bed 1 (demo)" with **Vertical layers = 1**. In the attribute table right-click the **ore_t** field, open the statistics and note the sum. Build the same model with **layers = 5** and take the ore_t sum again. The sums must match to the last digits, and the second model has exactly five times more rows. This is the key check: splitting a column into layers neither creates nor loses reserve.
-
-**Step E. The control zero (5.06).** Run "5.06 Reserve difference" feeding the same model both as "before" and "after", the ore_t field. The log must show a total write-off of exactly zero. This checks that subtracting identical states gives no false write-off.
-
-**Step F. Mining emulation (5.06).** Duplicate the block model (right-click the layer, Duplicate), name it "after". In the edit mode zero the ore_t field of several centroids, having first noted their total reserve as a control number. Save the edits. Run 5.06: "before" is the original model, "after" is the modified one. The total write-off in the log must equal the zeroed reserve. The modified points have a positive **delta**, **before** equal to the old value, **after** equal to zero, the rest have delta zero. The write-off within an arbitrary contour is obtained by selecting the difference points with a polygon and summing delta over the selection - that is the tonnage going into the report.
-
-**Test result.** If step A matched the boundary to the contour, step D gave equal sums, step E a zero, step F a match with the control number, then the whole write-off chain is correct. After that the same steps D and F should be repeated on a real bed: the demo data is clean, while the real one brings gaps and degenerate cells, and checking on it is the last step before production use.
 
 ## Lesson. Topo2Raster: terrain from contours, step by step
 
@@ -1826,7 +1745,7 @@ Point layer **Subsidence profiles (trough, tours: N)**:
 - **Zone (demo, polygon)** (polygon): **name**.
 - **Overturned TIN (demo)** (3D faces): **name**.
 
-## Fractal data - tool 6.05
+## Fractal data - tool 5.05
 
 - **Rivers (demo)** (lines): field **order** (integer) - tributary order in the network hierarchy.
 - **Basin (demo)** (polygon): field **name**.
@@ -1858,10 +1777,6 @@ Polygon layer **Demo polygons**:
 | dasy | integer | 1 - polygon for dasymetry, 0 - uniform |
 
 Auxiliary raster **Auxiliary raster (dasymetry)** - a value gradient for the dasymetric mode of 3.07, nominal units.
-
-## Polyhedron - tool 5.07
-
-Polyhedral layer (3D faces): field **bed** (integer) - bed number, field **watertight** (integer) - watertightness, 1 yes or 0 no.
 
 # Appendix. Variable-support density: step by step
 
@@ -1934,7 +1849,7 @@ Isoliner grows on the tasks of real mining operations. We implement custom featu
 
 Isoliner keeps a work log in the **isoliner.log** file next to the QGIS profile. At the start of a session it records the versions of the plugin, QGIS, NumPy and GDAL, then the name of the launched tool, its parameters, the run time, and on a failure the full traceback. The computation window closes but the file remains, so it is enough to attach it when reporting.
 
-Open the log via **Plugins - Isoliner - Log** or with the **Log** button in the **About** window. The **Isoliner** toolbar holds the density map, the 3D surface viewer and the About window.
+Open the log via **Plugins - Isoliner - Log** or with the **Log** button in the **About** window. The **Isoliner** toolbar holds the density map and the About window.
 
 # License and support
 

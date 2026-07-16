@@ -18,7 +18,7 @@ header-includes:
 
 \begin{center}
 {\Large\sffamily\bfseries Isoliner · Topography: from DEM to catchments}\\[1pt]
-{\small A cheat sheet for the "2. Topography" group · QGIS 3.16+ · Isoliner plugin v3 · pure NumPy, no GRASS or SAGA}
+{\small A cheat sheet for the "2. Topography" group · QGIS 3.16+ · Isoliner plugin v4 · pure NumPy, no GRASS or SAGA}
 \end{center}
 
 \vspace{2pt}

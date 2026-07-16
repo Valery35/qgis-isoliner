@@ -123,11 +123,10 @@ class GridIsolinesPlugin:
             except ImportError:
                 from qgis.PyQt.QtWidgets import QAction   # Qt5 (QGIS 3)
             from .i18n import tr, init_from_qgis
-            from . import about, viewer3d, densityview
+            from . import about, densityview
             init_from_qgis()
             here = os.path.dirname(__file__)
             icon_main = QIcon(os.path.join(here, "icon.svg"))
-            icon_3d = QIcon(os.path.join(here, "icon_3d.svg"))
             icon_log = QIcon(os.path.join(here, "icon_log.svg"))
             icon_den = QIcon(os.path.join(here, "icon_density.svg"))
 
@@ -143,14 +142,6 @@ class GridIsolinesPlugin:
                 a_den.triggered.connect(
                     lambda: densityview.show_view(self.iface))
                 self._add(a_den, toolbar=True)
-
-            # 3D-просмотр (с иконкой) - в тулбар и меню
-            if viewer3d.is_available():
-                a3d = QAction(icon_3d,
-                              tr("3D-просмотр поверхностей (бета)…"), win)
-                a3d.setToolTip(tr("3D-просмотр поверхностей Isoliner"))
-                a3d.triggered.connect(lambda: viewer3d.show_viewer(self.iface))
-                self._add(a3d, toolbar=True)
 
             # О плагине
             a_about = QAction(icon_main, tr("О плагине…"), win)

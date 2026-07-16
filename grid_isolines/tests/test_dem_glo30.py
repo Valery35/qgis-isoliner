@@ -125,3 +125,35 @@ class TestSources(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestGedtmWindow(unittest.TestCase):
+    """4.0.1: окно translate для GEDTM30 - защита от разворота всего COG."""
+
+    GLOBAL = (-180.0, 82.0, 180.0, -56.0)   # порядок как в геотрансформе
+
+    def test_window_covers_extent_with_margin(self):
+        ext = (56.0, 59.0, 57.0, 59.5)
+        ulx, uly, lrx, lry = dem.gedtm_window(ext, self.GLOBAL)
+        self.assertAlmostEqual(ulx, 55.95)
+        self.assertAlmostEqual(lrx, 57.05)
+        self.assertAlmostEqual(uly, 59.55)
+        self.assertAlmostEqual(lry, 58.95)
+        self.assertLess(lrx - ulx, 2.0, "окно должно быть локальным")
+
+    def test_window_clamped_to_dataset(self):
+        ext = (179.99, 81.99, 180.5, 83.0)
+        ulx, uly, lrx, lry = dem.gedtm_window(ext, self.GLOBAL)
+        self.assertLessEqual(lrx, 180.0)
+        self.assertLessEqual(uly, 82.0)
+
+    def test_no_intersection_gives_none(self):
+        self.assertIsNone(dem.gedtm_window(
+            (0.0, -80.0, 1.0, -70.0), self.GLOBAL))
+
+    def test_fetch_dem_translate_uses_projwin(self):
+        """projWin обязан уходить в TranslateOptions - регресс 4.0.0."""
+        import inspect
+        src = inspect.getsource(dem.fetch_dem)
+        self.assertIn("projWin", src)
+        self.assertIn("gedtm_window", src)

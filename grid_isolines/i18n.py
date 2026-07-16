@@ -658,26 +658,21 @@ TRANSLATIONS = {
     'билинейно': 'bilinear',
     'ближайший': 'nearest',
     '1.8 Создать пример для разреза': '1.8 Create a section example',
-    'Готовый пример для инструмента «Разрез по линии». Строит три гладкие поверхности, лежащие стопкой (кровля верхней залежи, общая граница, подошва нижней), с региональным падением и волнистой переменной мощностью, и линию через площадь.\n\nПодайте три поверхности сверху вниз (1, 2, 3) и линию в «Разрез по линии». Получите два пласта на чертеже и 3D-забор. Кригинг для демо не нужен, поверхности уже растровые.': 'A ready example for the Cross-section along a line tool. It builds three smooth stacked surfaces (the roof of the upper bed, the shared boundary, the floor of the lower bed) with a regional dip and wavy variable thickness, and a line across the area.\n\nFeed the three surfaces top to bottom (1, 2, 3) and the line into Cross-section along a line. You get two beds on the drawing and a 3D fence. No kriging is needed for the demo, the surfaces are already rasters.',
     'Готово: три поверхности (две залежи) и линия. Подайте поверхности сверху вниз (1, 2, 3) и линию в «Разрез по линии».': 'Done: three surfaces (two beds) and a line. Feed the surfaces top to bottom (1, 2, 3) and the line into Cross-section along a line.',
     'Зерно генератора (0 = случайно)': 'Generator seed (0 = random)',
     'Линия разреза (демо)': 'Section line (demo)',
     'Не задан экстент.': 'No extent is set.',
-    'Поверхность 1 (кровля верхнего пласта)': 'Surface 1 (roof of the upper bed)',
     'Поверхность 1 · кровля (демо)': 'Surface 1 · roof (demo)',
     'Поверхность 2 (подошва верхнего / кровля нижнего)': 'Surface 2 (floor of the upper / roof of the lower)',
     'Поверхность 2 · граница (демо)': 'Surface 2 · boundary (demo)',
-    'Поверхность 3 (подошва нижнего пласта)': 'Surface 3 (floor of the lower bed)',
     'Поверхность 3 · подошва (демо)': 'Surface 3 · floor (demo)',
     'Разрез 1': 'Section 1',
     '4. Разрез': '4. Cross-sections',
-    '5. Пласт и блочная модель': '5. Bed and block model',
     '4.01 Разрез по линии': '4.01 Cross-section along a line',
     '3.2 Создать пример для разреза': '3.2 Create a section example',
     '3.3 Скважины на разрез': '3.3 Boreholes on a section',
     'Вертикальное преувеличение (как в разрезе)': 'Vertical exaggeration (as in the section)',
     'Готово: три поверхности (две залежи), линия и скважины. Поверхности и линию подайте в «Разрез по линии»; скважины с полями h1, h2, h3 и линию - в «Скважины на разрез».': 'Done: three surfaces (two beds), a line and boreholes. Feed the surfaces and the line into Cross-section along a line; feed the boreholes with the h1, h2, h3 fields and the line into Boreholes on a section.',
-    'Готовый пример для инструмента «Разрез по линии». Строит три гладкие поверхности, лежащие стопкой (кровля верхней залежи, общая граница, подошва нижней), с региональным падением и волнистой переменной мощностью, и линию через площадь.\n\nПодайте три поверхности сверху вниз (1, 2, 3) и линию в «Разрез по линии». Получите два пласта на чертеже и 3D-забор. Кригинг для демо не нужен, поверхности уже растровые. Заодно выдаются скважины вдоль линии с отметками поверхностей (h1, h2, h3) для инструмента «Скважины на разрез».': 'A ready example for the Cross-section along a line tool. It builds three smooth stacked surfaces (the roof of the upper bed, the shared boundary, the floor of the lower bed) with a regional dip and wavy variable thickness, and a line across the area.\n\nFeed the three surfaces top to bottom (1, 2, 3) and the line into Cross-section along a line. You get two beds on the drawing and a 3D fence. No kriging is needed for the demo, the surfaces are already rasters. It also outputs boreholes along the line with surface elevations (h1, h2, h3) for the Boreholes on a section tool.',
     'Интервалы пластов скважин (чертёж)': 'Borehole bed intervals (drawing)',
     'Коридор от линии, ед. карты (0 = все скважины)': 'Corridor from the line, map units (0 = all boreholes)',
     'Не задана линия или скважины.': 'No line or boreholes are set.',
@@ -691,8 +686,6 @@ TRANSLATIONS = {
     'Скважины на разрезе (интервалы)': 'Boreholes on the section (intervals)',
     'Спроецировано скважин: %d (интервалов %d), пропущено вне коридора %d.': 'Boreholes projected: %d (intervals %d), skipped outside the corridor %d.',
     'Устья скважин (подписи)': 'Borehole collars (labels)',
-    'Готовый пример для инструментов разреза. Строит шесть гладких поверхностей, лежащих стопкой, с региональным падением и волнистой переменной мощностью. Между ними пять пластов в переслаивании: три вмещающих и два промышленных (2-й и 4-й, тонкие).\n\nПодайте шесть поверхностей сверху вниз (1...6) и линию в «Разрез по линии». Получите пять пластов на чертеже и 3D-забор. Кригинг для демо не нужен, поверхности уже растровые. Заодно выдаются скважины вдоль линии с отметками поверхностей (h1...h6) для инструмента «Скважины на разрез».': 'A ready example for the section tools. It builds six smooth stacked surfaces with a regional dip and wavy variable thickness. Between them are five interbedded beds: three host beds and two industrial beds (the 2nd and 4th, thin).\n\nFeed the six surfaces top to bottom (1...6) and the line into Cross-section along a line. You get five beds on the drawing and a 3D fence. No kriging is needed for the demo, the surfaces are already rasters. It also outputs boreholes along the line with surface elevations (h1...h6) for the Boreholes on a section tool.',
-    'Готово: шесть поверхностей (пять пластов: три вмещающих и два промышленных), линия и скважины. Поверхности и линию подайте в «Разрез по линии»; скважины с полями h1...h6 и линию - в «Скважины на разрез».': 'Done: six surfaces (five beds: three host and two industrial), a line and boreholes. Feed the surfaces and the line into Cross-section along a line; feed the boreholes with the h1...h6 fields and the line into Boreholes on a section.',
     'Поверхность 1 (кровля верхней вмещающей)': 'Surface 1 (roof of the upper host)',
     'Поверхность 2 (кровля 1-го промышленного)': 'Surface 2 (roof of the 1st industrial)',
     'Поверхность 3 (подошва 1-го промышленного)': 'Surface 3 (floor of the 1st industrial)',
@@ -704,7 +697,6 @@ TRANSLATIONS = {
     'Поверхность 4 · кровля 2-го пром. (демо)': 'Surface 4 · roof of 2nd industrial (demo)',
     'Поверхность 5 · подошва 2-го пром. (демо)': 'Surface 5 · floor of 2nd industrial (demo)',
     'Поверхность 6 · подошва (демо)': 'Surface 6 · floor (demo)',
-    '3.4 Состав пласта на разрез': '3.4 Bed composition on a section',
     'Готовый пример для инструментов разреза. Строит шесть гладких поверхностей, лежащих стопкой, с региональным падением и волнистой переменной мощностью. Между ними пять пластов в переслаивании: три вмещающих и два промышленных (2-й и 4-й, тонкие).\n\nПодайте шесть поверхностей сверху вниз (1...6) и линию в «Разрез по линии». Получите пять пластов на чертеже и 3D-забор. Кригинг для демо не нужен, поверхности уже растровые. Заодно выдаются скважины вдоль линии с отметками поверхностей (h1...h6) для инструмента «Скважины на разрез», а также по многоканальному гриду на каждый промышленный пласт. Конвенция каналов: 1 кровля, 2 подошва, 3+ параметры (здесь содержание и минтип, независимые стохастические поля). Пласт как блочная модель: один файл кормит «Состав пласта на разрез» (каналы 1/2/3) и 3D-просмотр.': 'A ready example for the section tools. It builds six smooth stacked surfaces with a regional dip and wavy variable thickness. Between them are five interbedded beds: three host beds and two industrial beds (the 2nd and 4th, thin).\n\nFeed the six surfaces top to bottom (1...6) and the line into Cross-section along a line. You get five beds on the drawing and a 3D fence. No kriging is needed for the demo, the surfaces are already rasters. It also outputs boreholes along the line with surface elevations (h1...h6) for the Boreholes on a section tool, and a multiband grid per industrial bed. The band convention: 1 roof, 2 bottom, 3+ parameters (here content and mineral type, independent stochastic fields). A bed as a block model: one file feeds Bed composition on a section (bands 1/2/3) and the 3D viewer.',
     'Грид состава (содержание или класс)': 'Composition grid (content or class)',
     'Красит полосу одного пласта на разрезе по гриду состава вдоль линии. Берёт кровлю, подошву и грид состава, свой кригинг не делает.\n\nРежим «непрерывное» (содержание KCl, нерастворимый остаток): полоса режется на тонкие вертикальные срезы, каждый со средним значением, под градиентную заливку.\n\nРежим «категориальное» (минеральный тип, фации - сильвинит, замещение, галит): смежные срезы одного класса сливаются в фациальные зоны, под заливку по категориям. Зоны замещения видны как смена цвета вдоль линии.\n\nЗапускайте по каждому промышленному пласту отдельно. Вертикальное преувеличение задавайте таким же, как в «Разрез по линии».': 'Colours the band of one bed on the section by a composition grid along the line. It takes a roof, a floor and a composition grid, and runs no kriging of its own.\n\nThe \'continuous\' mode (KCl content, insoluble residue): the band is cut into thin vertical slices, each with a mean value, for a graduated fill.\n\nThe \'categorical\' mode (mineral type, facies - sylvinite, replacement, halite): adjacent slices of the same class merge into facies zones, for a categorized fill. Replacement zones show as a colour change along the line.\n\nRun it for each industrial bed separately. Set the vertical exaggeration the same as in Cross-section along a line.',
@@ -728,7 +720,6 @@ TRANSLATIONS = {
     'отношение Г:В (ширина:высота)': 'H:V ratio (width:height)',
     '3. Дополнительные инструменты анализа': '3. Additional analysis tools',
     '3.2 Скважины на разрез': '3.2 Boreholes on a section',
-    '3.3 Состав пласта на разрез': '3.3 Bed composition on a section',
     '3.4 Создать пример для разреза': '3.4 Create a section example',
     '4.04 Пересечение поверхностей с разрезом': '4.04 Intersect surfaces with the section',
     '3.5 Проекция объектов на разрез': '3.5 Project objects onto the section',
@@ -839,50 +830,16 @@ TRANSLATIONS = {
     '4.08 Спроецировать с разреза (бета)': '4.08 Unproject from the section (beta)',
     '4.09 Развёртка стенки ствола (бета)': '4.09 Shaft wall unwrap (beta)',
     '4.10 Создать пример для разреза': '4.10 Create a section example',
-    '5.04 Поверхности в 3D (меши)': '5.04 Surfaces to 3D (meshes)',
-    'Экспортирует гриды поверхностей в mesh-слои стандартного формата '
-    '2DM (MDAL). Такие слои понимают профильный инструмент QGIS, '
-    'mesh-калькулятор, штатный 3D-вид и сторонние программы, а пачка '
-    'горизонтов кровля-подошва уходит в меши без ручных '
-    'конвертаций.\n\nК отметкам при записи '
-    'применяется вертикальное преобразование Z\' = Z * масштаб + смещение: '
-    'масштаб даёт вертикальное преувеличение, смещение разносит горизонты '
-    'по высоте. Разнос по Z сдвигает каждый следующий грид на шаг вниз, '
-    'превращая слипшуюся стопку в читаемую этажерку. Прореживание '
-    'уменьшает количество узлов на крупных гридах.\n\n'
-    'Слои загружаются в проект и получают 3D-отображение автоматически. '
-    'Если сцена уже открыта, включите новые слои в её списке. Ячейки без '
-    'данных пропускаются.':
-        'Exports surface grids into mesh layers of the standard 2DM '
-        'format (MDAL). Such layers are understood by the QGIS profile '
-        'tool, the mesh calculator, the built-in 3D view and third-party '
-        'software, and a stack of top-bottom horizons goes to meshes '
-        'without manual conversions.\n\nA vertical transform Z\' = Z * scale + offset is '
-        'applied on write: the scale gives vertical exaggeration, the offset '
-        'separates horizons in height. The Z spacing shifts every next grid '
-        'one step down, turning a collapsed stack into a readable shelf. '
-        'Thinning reduces the node count on '
-        'large grids.\n\nThe layers are loaded into the project and get 3D '
-        'rendering automatically. If a scene is already open, enable the new '
-        'layers in its layer list. Cells without data are skipped.',
     'Масштаб Z (вертикальное преувеличение)': 'Z scale (vertical exaggeration)',
     'Смещение Z': 'Z offset',
     'Разнос по Z (шаг на каждый следующий грид)': 'Z spacing (step per next grid)',
     'Прореживание узлов (каждый N-й)': 'Node thinning (every Nth)',
-    'Папка для мешей (2DM)': 'Folder for meshes (2DM)',
     'Нужен хотя бы один грид.': 'At least one grid is required.',
     'Грид не открылся: %s': 'Grid could not be opened: %s',
     'Грид пропущен (мал или пуст): %s': 'Grid skipped (too small or empty): %s',
     'Меш записан: %s (узлов %d, треугольников %d).':
         'Mesh written: %s (%d nodes, %d triangles).',
     'Слой меша не загрузился: %s': 'Mesh layer failed to load: %s',
-    'Поверхности 3D': '3D surfaces',
-    '3D-просмотр поверхностей (бета)…': '3D surface viewer (beta)…',
-    '3D-просмотр поверхностей': '3D surface viewer',
-    '3D-просмотр недоступен в этой установке плагина.':
-        'The 3D viewer is not available in this plugin installation.',
-    'Isoliner - 3D-просмотр поверхностей (бета)': 'Isoliner - 3D surface viewer (beta)',
-    'Обновить сцену': 'Update the scene',
     'Вертикальное преувеличение': 'Vertical exaggeration',
     'Разнос по Z (шаг вниз)': 'Z spacing (step down)',
     'Поверхности (растры проекта):': 'Surfaces (project rasters):',
@@ -914,64 +871,16 @@ TRANSLATIONS = {
     'Канал высот (Z)': 'Elevation band (Z)',
     'Канал атрибута': 'Attribute band',
     'Окраска поверхностей атрибутом (растр)': 'Colour surfaces by attribute (raster)',
-    'Канал параметра пласта (0 - палитра)': 'Bed parameter band (0 - palette)',
-    'канал %d пласта': "bed's band %d",
-    '5.01 Собрать грид пласта': '5.01 Assemble a bed grid',
-    'Собирает многоканальный грид пласта по конвенции плагина: '
-    'канал 1 - кровля, канал 2 - подошва, каналы 3 и далее - '
-    'параметры (содержание, минтип и любые другие). Кровля задаёт '
-    'сетку результата; подошва и параметры билинейно приводятся к '
-    'ней, поэтому исходные гриды могут иметь разные сетки. Имена '
-    'каналов записываются в описания: «кровля», «подошва», далее '
-    'имена слоёв параметров.\n\nОдин собранный файл кормит '
-    '«Состав пласта на разрез» (каналы 1/2/3), 3D-просмотр (тела '
-    'пластов) и экспорт в меши - это шаг к блочной модели, где '
-    'новые параметры добавляются каналами.':
-        'Assembles a multiband bed grid by the plugin convention: '
-        'band 1 - the roof, band 2 - the bottom, bands 3 and further - '
-        'parameters (content, mineral type and any others). The roof sets '
-        'the output grid; the bottom and the parameters are resampled to it '
-        'bilinearly, so the input grids may have different grids. The band '
-        'names are written into the descriptions: roof, bottom, then the '
-        'names of the parameter layers.\n\nOne assembled file feeds Bed '
-        'composition on a section (bands 1/2/3), the 3D viewer (bed bodies) '
-        'and the mesh export - a step towards a block model where new '
-        'parameters are added as bands.',
     'Кровля (растр)': 'Roof (raster)',
     'Подошва (растр)': 'Bottom (raster)',
     'Параметры (растры, берётся канал 1)': 'Parameters (rasters, band 1 is taken)',
-    'Грид пласта': 'Bed grid',
-    'Грид пласта записан: каналов %d.': 'Bed grid written: %d bands.',
-    '5.02 Калькулятор пласта': '5.02 Bed calculator',
-    'Считает по многоканальному гриду пласта (канал 1 - кровля, '
-    'канал 2 - подошва): мощность, объём, тоннаж руды через '
-    'плотность и, если задан канал содержания, средневзвешенное по '
-    'мощности содержание и тоннаж металла. Сводка - по всей площади '
-    'пласта или внутри контура (полигоны подсчётного блока, '
-    'домена).\n\nРезультат - грид пласта с дописанными каналами '
-    '«мощность» и «запасы руды, т/ячейку» и HTML-отчёт со сводкой. '
-    'Ячейки с мощностью меньше нуля (пересечение поверхностей) '
-    'обнуляются и считаются отдельно.':
-        'Computes over a multiband bed grid (band 1 - the roof, band 2 - '
-        'the bottom): the thickness, the volume, the ore tonnage via the '
-        'density and, if a content band is set, the thickness-weighted '
-        'mean content and the metal tonnage. The summary covers the whole '
-        'bed area or the inside of a contour (polygons of a reserve block '
-        'or a domain).\n\nThe result is a bed grid with the appended '
-        'bands "thickness" and "ore, t/cell" plus an HTML report. Cells '
-        'with a negative thickness (crossing surfaces) are zeroed and '
-        'counted separately.',
-    'Грид пласта (канал 1 кровля, канал 2 подошва)': 'Bed grid (band 1 roof, band 2 bottom)',
     'Канал содержания (пусто - без содержания)': 'Content band (empty - no content)',
     'Плотность руды, т/м³': 'Ore density, t/m³',
     'Контур подсчёта (полигоны, необязательно)': 'Reserve contour (polygons, optional)',
-    'Грид пласта с мощностью и запасами': 'Bed grid with thickness and reserves',
     'Отчёт (HTML)': 'Report (HTML)',
     'HTML-файлы (*.html)': 'HTML files (*.html)',
-    'Нужен многоканальный грид пласта (каналы 1 и 2).': 'A multiband bed grid is required (bands 1 and 2).',
     'Канал содержания вне грида.': 'The content band is outside the grid.',
     'мощность': 'thickness',
-    'запасы руды, т/ячейку': 'ore, t/cell',
     'Площадь подсчёта': 'Computed area',
     'Мощность средняя / мин / макс': 'Thickness mean / min / max',
     'Объём': 'Volume',
@@ -980,65 +889,14 @@ TRANSLATIONS = {
     'Содержание (взвешенное по мощности)': 'Content (thickness-weighted)',
     'Запасы металла': 'Metal reserves',
     'Ячеек с отрицательной мощностью': 'Cells with a negative thickness',
-    'Калькулятор пласта': 'Bed calculator',
-    '5.03 Грид пласта в блочную модель': '5.03 Bed grid to a block model',
-    'Переводит многоканальный грид пласта в блочную модель: точку-центроид на каждую валидную ячейку. Атрибуты: строка и столбец ячейки, координаты, верх (top), низ (bot), мощность (thick), объём (vol), тоннаж руды (ore_t) через плотность и все каналы параметров под их именами из описаний.\n\nДальше работает векторный аппарат QGIS: фильтры выражениями, join внешних таблиц, калькулятор полей - модель наращивается атрибутами без пересоздания. Контур ограничивает выгрузку подсчётным блоком или доменом.\n\nПараметр «Слоёв по вертикали» делит каждую колонку на N блоков между кровлей и подошвой: у каждого свои z_from, z_to, номер слоя lay и доля объёма. Содержание копируется в под-блоки (по вертикали оно не разбурено). Это заготовка настоящей 3D-модели.\n\nПлотность берётся из числа выше или, если задан «Канал плотности», из этого канала грида поячеечно - для переменной по площади плотности руды.':
-        'Turns a multiband bed grid into a block model: a centroid point per valid cell. Attributes: the cell row and column, the coordinates, the top, the bottom (bot), the thickness (thick), the volume (vol), the ore tonnage (ore_t) via the density and all the parameter bands under their names from the descriptions.\n\nThen the QGIS vector toolbox works: expression filters, joins of external tables, the field calculator - the model grows by attributes without a rebuild. The contour limits the export to a reserve block or a domain.\n\nThe "Vertical layers" parameter splits every column into N blocks between the roof and the bottom: each gets its own z_from, z_to, the layer number lay and a share of the volume. The content is copied into the sub-blocks (it is not drilled vertically). This is a groundwork for a true 3D model.\n\nThe density is taken from the number above or, if a "Density band" is set, from that grid band per cell - for an areally variable ore density.',
-    'Блочная модель (центроиды)': 'Block model (centroids)',
-    'Блочная модель: %s': 'Block model: %s',
     'Блоков выгружено: %d.': 'Blocks exported: %d.',
-    '5.05 Домены в канал пласта': '5.05 Domains to a bed band',
-    'Растеризует полигоны доменов в добавочный канал грида пласта: '
-    'каждой ячейке присваивается код домена, в который она попадает '
-    '(0 - вне доменов). Код берётся из числового поля слоя или, если '
-    'поле не задано, это порядковый номер объекта от 1. Каналы '
-    'исходного грида сохраняются, канал «domain» дописывается '
-    'последним.\n\nДальше домен работает как обычный параметр: '
-    'калькулятор пласта считает по контуру домена, блочная модель '
-    'фильтруется по коду. Списание запасов - это разность двух '
-    'состояний домена: посчитайте запасы по контуру до и после '
-    'погашения, вычтите. Контуры доменов должны лежать в той же '
-    'системе координат, что и грид.':
-        'Rasterises domain polygons into an extra band of the bed grid: '
-        'each cell gets the code of the domain it falls into (0 - outside '
-        'the domains). The code is taken from a numeric field of the layer '
-        'or, if no field is set, it is the feature order number from 1. The '
-        'source grid bands are kept, the "domain" band is appended last.'
-        '\n\nThen the domain works as an ordinary parameter: the bed '
-        'calculator sums over the domain contour, the block model is '
-        'filtered by the code. Reserve write-off is the difference of two '
-        'domain states: compute the reserves over the contour before and '
-        'after the mining, subtract. The domain contours must be in the '
-        'same CRS as the grid.',
     'Полигоны доменов': 'Domain polygons',
     'Поле кода домена (число, необязательно)': 'Domain code field (numeric, optional)',
-    'Грид пласта с каналом domain': 'Bed grid with a domain band',
     'Грид не открылся.': 'The grid did not open.',
     'Домены записаны в канал %d. Ячеек в доменах: %d.': 'Domains written to band %d. Cells in domains: %d.',
-    '5.06 Разность запасов (списание)': '5.06 Reserve difference (write-off)',
-    'Считает разность двух блочных моделей по ячейкам с одинаковыми '
-    'row и col: сколько запаса убыло между состояниями «было» и '
-    '«стало». Для каждой ячейки вычитается выбранное поле (по '
-    'умолчанию ore_t), результат - точки со значениями delta '
-    '(было минус стало), before и after.\n\nЭто прямой путь '
-    'оперативного списания: модель до погашения камер минус модель '
-    'после - и сумма delta по контуру даёт списанный тоннаж. Модели '
-    'должны быть построены из одного грида (совпадающая нарезка row '
-    'и col).':
-        'Computes the difference of two block models over the cells with '
-        'the same row and col: how much reserve was lost between the '
-        '"before" and "after" states. For each cell the chosen field '
-        '(ore_t by default) is subtracted, the result is points with delta '
-        '(before minus after), before and after values.\n\nThis is the '
-        'direct path of operational write-off: the model before mining the '
-        'chambers minus the model after - and the sum of delta over the '
-        'contour gives the written-off tonnage. The models must be built '
-        'from the same grid (a matching row and col split).',
     'Модель «было» (центроиды)': 'The "before" model (centroids)',
     'Модель «стало» (центроиды)': 'The "after" model (centroids)',
-    'Поле запаса': 'Reserve field',
     'Разность (центроиды)': 'Difference (centroids)',
-    'Суммарное списание по полю %s: %.6g.': 'Total write-off by the %s field: %.6g.',
 
     'Слоёв по вертикали (деление колонки)': 'Vertical layers (column split)',
     'Канал плотности (пусто - брать значение выше)': 'Density band (empty - use the value above)',
@@ -1197,24 +1055,19 @@ TRANSLATIONS = {
     'Режим': 'Mode',
     'Авто': 'Auto',
     'Поверхность': 'Surface',
-    'Тело пласта': 'Bed body',
     'Канал окраски (0 - палитра)': 'Colour band (0 - palette)',
     'Внешний атрибут (растр)': 'External attribute (raster)',
     'канал %d': 'band %d',
     'Окраска': 'Colouring',
     'Палитра': 'Palette',
     'Поле подписи скважин': 'Borehole label field',
-    'Свой цвет': 'Custom colour',
     'Задать свой цвет': 'Set a custom colour',
-    'Свой цвет слоя': 'Custom layer colour',
 
 
 
 
 
 
-    'Тела пластов (канал 1 кровля, канал 2 подошва)': 'Bed bodies (band 1 roof, band 2 bottom)',
-    'Тел пластов: %d.': 'Bed bodies: %d.',
     'Плоскость разреза (линия)': 'Section plane (line)',
     'Плоскостей разреза: %d.': 'Section planes: %d.',
 
@@ -1240,7 +1093,6 @@ TRANSLATIONS = {
     'Нужны определение разреза и слой для пересечения.': 'A section definition and a layer to intersect are required.',
     'Пересечения: точек %d, вертикалей %d, полос %d.': 'Intersections: %d points, %d verticals, %d bands.',
     'Для объектов без отметки Z нужна высота рамки: подайте чертёж разреза или задайте диапазон Z. Такие объекты пропущены.': 'Objects without a Z elevation need a frame height: supply the section drawing or set a Z range. Such objects were skipped.',
-    'Наносит векторные объекты на разрез по точному пересечению с линией разреза, в осях расстояние-высота.\n\nПравило по типу объекта. Линия БЕЗ отметки высоты (плоская в плане - разлом, граница, контур) даёт вертикаль на всю высоту в станции пересечения: известно где, неизвестно на какой глубине. Линия С отметкой (3D, координата Z - наклонный объект, контур поверхности) даёт точку на реальной высоте в месте пересечения. Полигон (зона в плане - замещение, шахтное поле, лицензия) даёт вертикальную полосу на интервале, где разрез идёт сквозь зону.\n\nЛиния и vex берутся из определения разреза. Высота вертикалей и полос (для объектов без Z) берётся из чертежа разреза, если он подан, иначе из диапазона Z в дополнительных параметрах.\n\nВ отличие от «Проекции объектов на разрез» (приблизительной, по коридору) это точное пересечение.': 'Places vector objects on the section by exact intersection with the section line, in distance-elevation axes.\n\nRule by object type. A line WITHOUT an elevation (flat in plan - fault, boundary, contour) gives a full-height vertical at the crossing station: the where is known, the depth is not. A line WITH an elevation (3D, a Z coordinate - an inclined object, a surface contour) gives a point at the real elevation of the crossing. A polygon (a plan zone - replacement, mine field, licence) gives a vertical band over the interval where the section runs through the zone.\n\nThe line and vex are taken from the section definition. The height of verticals and bands (for objects without Z) is taken from the section drawing if supplied, otherwise from the Z range in the advanced parameters.\n\nUnlike "Project objects onto the section" (approximate, corridor-based) this is an exact intersection.',
     'Разлом для пересечения (2D-линия)': 'Fault for intersection (2D line)',
     'Маркер с отметкой Z (3D-линия)': 'Marker with Z elevation (3D line)',
     'Зона замещения для пересечения (полигон)': 'Replacement zone for intersection (polygon)',
@@ -1250,7 +1102,6 @@ TRANSLATIONS = {
     'Маркер K (с Z)': 'Marker K (with Z)',
     'Зона (демо, полигон)': 'Zone (demo, polygon)',
     'Зона замещения': 'Replacement zone',
-    'Готово: шесть поверхностей (пять пластов: три вмещающих и два промышленных), линия и скважины. Поверхности и линию подайте в «Разрез по линии»; скважины с полями h1...h6 и линию - в «Скважины на разрез». Разлом, маркер с Z и зона - для «Пересечения векторов с разрезом».': 'Done: six surfaces (five beds: three host and two ore), a line and boreholes. Feed the surfaces and the line into "Cross-section along a line"; the boreholes with fields h1...h6 and the line into "Boreholes on the section". The fault, the Z marker and the zone are for "Vector intersection with the section".',
     'Высота рамки из определения: %.4g..%.4g.': 'Frame height from the definition: %.4g..%.4g.',
     'Для объектов без отметки Z нужна высота рамки. Возьмите определение от «Разрез по линии» (в нём уже есть высота) либо подайте чертёж разреза или задайте диапазон Z. Такие объекты пропущены.': 'Objects without a Z elevation need a frame height. Use a definition from "Cross-section along a line" (it already carries the height), or supply the section drawing or set a Z range. Such objects were skipped.',
     'Наносит векторные объекты на разрез по точному пересечению с линией разреза, в осях расстояние-высота.\n\nПравило по типу объекта. Линия БЕЗ отметки высоты (плоская в плане - разлом, граница, контур) даёт вертикаль на всю высоту в станции пересечения: известно где, неизвестно на какой глубине. Линия С отметкой (3D, координата Z - наклонный объект, контур поверхности) даёт точку на реальной высоте в месте пересечения. Полигон (зона в плане - замещение, шахтное поле, лицензия) даёт вертикальную полосу на интервале, где разрез идёт сквозь зону.\n\nЛиния и vex берутся из определения разреза. Высота рамки тоже берётся из определения (его пишет «Разрез по линии»), поэтому для объектов без Z подавать ничего не нужно. Если в определении высоты нет, она берётся из чертежа разреза или из диапазона Z в дополнительных параметрах.\n\nВ отличие от «Проекции объектов на разрез» (приблизительной, по коридору) это точное пересечение.': 'Places vector objects on the section by exact intersection with the section line, in distance-elevation axes.\n\nRule by object type. A line WITHOUT an elevation (flat in plan - fault, boundary, contour) gives a full-height vertical at the crossing station: the where is known, the depth is not. A line WITH an elevation (3D, a Z coordinate - an inclined object, a surface contour) gives a point at the real elevation of the crossing. A polygon (a plan zone - replacement, mine field, licence) gives a vertical band over the interval where the section runs through the zone.\n\nThe line and vex are taken from the section definition. The frame height is taken from the definition too (written by "Cross-section along a line"), so nothing needs to be supplied for objects without Z. If the definition has no height, it is taken from the section drawing or from the Z range in the advanced parameters.\n\nUnlike "Project objects onto the section" (approximate, corridor-based) this is an exact intersection.',
@@ -1281,36 +1132,13 @@ TRANSLATIONS = {
     'Сообщить об ошибке': 'Report an issue',
     'Руководство не найдено.': 'Manual not found.',
     # 5.07 Создать пример полиэдра (демо)
-    '5.07 Создать пример полиэдра (бета)':
-        '5.07 Create a polyhedral example (beta)',
     'Пример': 'Example',
-    'Тело пласта': 'Bed body',
     'Куб': 'Cube',
     'Тетраэдр': 'Tetrahedron',
-    'Разбиение тела пласта (ячеек по стороне)':
-        'Bed body resolution (cells per side)',
     'Размер, ед. карты': 'Size, map units',
     'Выдать как TIN (триангулировать)': 'Output as TIN (triangulate)',
     'X начала': 'X of origin',
     'Y начала': 'Y of origin',
-    'Полиэдр (демо)': 'Polyhedral (demo)',
-    'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть '
-    'сам тип геометрии в 3D и проверить его на своей сборке QGIS. Варианты '
-    'примера: тело пласта (водонепроницаемая оболочка из кровли, подошвы и '
-    'боковой юбки - тот же приём, что и в будущем экспорте тела пласта), куб '
-    'и тетраэдр. Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же '
-    'работает плагин QSFCGAL (резка и булевы операции над телами). На более '
-    'старых сборках вывод деградирует до MultiPolygon Z. Флаг TIN выдаёт '
-    'триангулированную поверхность (тип TIN Z).':
-        'Creates a demonstration polyhedral surface so you can see the '
-        'geometry type in 3D and check it on your QGIS build. Example '
-        'options: a bed body (a watertight shell of roof, floor and side '
-        'skirt, the same approach as the upcoming bed-body export), a cube '
-        'and a tetrahedron. A native PolyhedralSurface Z is available from '
-        'QGIS 3.40, where the QSFCGAL plugin also works (cutting and boolean '
-        'operations on bodies). On older builds the output degrades to '
-        'MultiPolygon Z. The TIN flag outputs a triangulated surface '
-        '(TIN Z type).',
     'Не удалось собрать геометрию из WKT.':
         'Could not build geometry from WKT.',
     'Нативный тип {0} на этой сборке недоступен - вывод как MultiPolygon Z. '
@@ -1334,39 +1162,14 @@ TRANSLATIONS = {
         'Base elevation (floor), map units',
     'Диапазон Z: %.3f .. %.3f (ед. карты).':
         'Z range: %.3f .. %.3f (map units).',
-    'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть сам тип геометрии в 3D и проверить его на своей сборке QGIS. Варианты примера: тело пласта (водонепроницаемая оболочка из кровли, подошвы и боковой юбки - тот же приём, что и в будущем экспорте тела пласта), куб и тетраэдр. Плановое положение и размер берутся из охвата (окна вида), по вертикали тело занимает от отметки залегания до отметки плюс мощность. Тип геометрии плоский, поэтому в 2D-виде Z не виден - диапазон Z печатается в журнал, а само тело удобно смотреть в окне Модули - Isoliner - 3D-просмотр поверхностей, вкладка Тела. Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же работает плагин QSFCGAL (резка и булевы операции над телами). На более старых сборках вывод деградирует до MultiPolygon Z. Флаг TIN выдаёт триангулированную поверхность (тип TIN Z).':
-        'Creates a demonstration polyhedral surface so you can see the geometry type in 3D and check it on your QGIS build. Example options: a bed body (a watertight shell of roof, floor and side skirt, the same approach as the upcoming bed-body export), a cube and a tetrahedron. The plan position and size come from the extent (map view); vertically the body spans from the base elevation up to that elevation plus the thickness. The geometry type is flat, so Z is not visible in the 2D view - the Z range is printed to the log, and the body itself is best viewed in Plugins - Isoliner - 3D surface viewer, the Bodies tab. A native PolyhedralSurface Z is available from QGIS 3.40, where the QSFCGAL plugin also works (cutting and boolean operations on bodies). On older builds the output degrades to MultiPolygon Z. The TIN flag outputs a triangulated surface (TIN Z type).',
-    'Полигональные слои с Z (полиэдр, TIN, MultiPolygon Z). Отметьте тела для показа и нажмите «Обновить сцену».':
-        'Polygon layers with Z (polyhedral, TIN, MultiPolygon Z). Tick the bodies to show and press «Rebuild scene».',
-    'Отметьте растр на вкладке «Слои» или тело на вкладке «Тела».':
-        'Tick a raster on the «Layers» tab or a body on the «Bodies» tab.',
-    'Тела':
-        'Bodies',
     'Тел: %d.':
         'Bodies: %d.',
-    'Складчатый пласт': 'Folded bed',
-    'Свита (стопка пластов)': 'Suite (stack of beds)',
-    'Пластов в свите': 'Beds in the suite',
-    'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть сам тип геометрии в 3D и проверить его на своей сборке QGIS. Варианты примера: тело пласта, складчатый пласт (фолд-трейн из антиклиналей и синклиналей), свита (стопка пластов), куб и тетраэдр. Тело пласта - водонепроницаемая оболочка из кровли, подошвы и боковой юбки, тот же приём, что и в будущем экспорте тела пласта. Плановое положение и размер берутся из охвата (окна вида), по вертикали тело занимает от отметки залегания до отметки плюс мощность. Тип геометрии плоский, поэтому в 2D-виде Z не виден - диапазон Z печатается в журнал, а само тело удобно смотреть в окне Модули - Isoliner - 3D-просмотр поверхностей, вкладка Тела. Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же работает плагин QSFCGAL (резка и булевы операции над телами). На более старых сборках вывод деградирует до MultiPolygon Z. Флаг TIN выдаёт триангулированную поверхность (тип TIN Z).':
-        'Creates a demonstration polyhedral surface so you can see the geometry type in 3D and check it on your QGIS build. Example options: a bed body, a folded bed (a fold train of anticlines and synclines), a suite (a stack of beds), a cube and a tetrahedron. The bed body is a watertight shell of roof, floor and side skirt, the same approach as the upcoming bed-body export. The plan position and size come from the extent (map view); vertically the body spans from the base elevation up to that elevation plus the thickness. The geometry type is flat, so Z is not visible in the 2D view - the Z range is printed to the log, and the body itself is best viewed in Plugins - Isoliner - 3D surface viewer, the Bodies tab. A native PolyhedralSurface Z is available from QGIS 3.40, where the QSFCGAL plugin also works (cutting and boolean operations on bodies). On older builds the output degrades to MultiPolygon Z. The TIN flag outputs a triangulated surface (TIN Z type).',
-    'Пласт (демо)': 'Bed (demo)',
-    'Складчатый пласт (демо)': 'Folded bed (demo)',
     'Свита x%d (демо)': 'Suite x%d (demo)',
     'Куб (демо)': 'Cube (demo)',
     'Тетраэдр (демо)': 'Tetrahedron (demo)',
     'Объектов: %d, граней всего: %d.': 'Objects: %d, faces total: %d.',
-    'Свита (стопка складчатых пластов)':
-        'Suite (stack of folded beds)',
-    'Свита: пласт %d':
-        'Suite: bed %d',
-    'Свита загружена отдельными слоями по пласту: %d.':
-        'Suite loaded as separate per-bed layers: %d.',
     'Не удалось разнести свиту по слоям (%s) - вывод одним слоем.':
         'Could not split the suite into layers (%s) - output as one layer.',
-    'Не задан выходной слой. Укажите «Полиэдр (демо)» (например, временный слой).':
-        'No output layer is set. Specify "Polyhedral (demo)" (for example, a temporary layer).',
-    'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть сам тип геометрии в 3D и проверить его на своей сборке QGIS. Варианты примера: тело пласта, свита (стопка складчатых пластов, каждый пласт грузится отдельным слоем для управления видимостью и красится своим цветом), куб и тетраэдр. Тело пласта - водонепроницаемая оболочка из кровли, подошвы и боковой юбки, тот же приём, что и в будущем экспорте тела пласта. Плановое положение и размер берутся из охвата (окна вида), по вертикали тело занимает от отметки залегания до отметки плюс мощность. Тип геометрии плоский, поэтому в 2D-виде Z не виден - диапазон Z печатается в журнал, а само тело удобно смотреть в окне Модули - Isoliner - 3D-просмотр поверхностей, вкладка Тела. Нативный PolyhedralSurface Z доступен с QGIS 3.40, там же работает плагин QSFCGAL (резка и булевы операции над телами). На более старых сборках вывод деградирует до MultiPolygon Z. Флаг TIN выдаёт триангулированную поверхность (тип TIN Z).':
-        'Creates a demonstration polyhedral surface so you can see the geometry type in 3D and check it on your QGIS build. Example options: a bed body, a suite (a stack of folded beds, each bed loaded as a separate layer for visibility control and coloured on its own), a cube and a tetrahedron. The bed body is a watertight shell of roof, floor and side skirt, the same approach as the upcoming bed-body export. The plan position and size come from the extent (map view); vertically the body spans from the base elevation up to that elevation plus the thickness. The geometry type is flat, so Z is not visible in the 2D view - the Z range is printed to the log, and the body itself is best viewed in Plugins - Isoliner - 3D surface viewer, the Bodies tab. A native PolyhedralSurface Z is available from QGIS 3.40, where the QSFCGAL plugin also works (cutting and boolean operations on bodies). On older builds the output degrades to MultiPolygon Z. The TIN flag outputs a triangulated surface (TIN Z type).',
     '1.8 Минимальная кривизна (точки → растр)':
         '1.8 Minimum curvature (points -> raster)',
     'Анизотропия (отношение осей Y/X)':
@@ -1536,12 +1339,12 @@ TRANSLATIONS = {
     'Поле весов декластеризации (из 1.01, необязательно)': 'Declustering weight field (from 1.01, optional)',
     'Доли классов взвешены декластеризацией (поле «%s»).': 'Class proportions weighted by declustering (field "%s").',
     'Метрики взвешены декластеризацией (поле «%s»).': 'Metrics weighted by declustering (field "%s").',
-    '6. Фрактальный анализ': '6. Fractal analysis',
-    '6.01 Фрактальная размерность': '6.01 Fractal dimension',
-    '6.02 Box-counting маски': '6.02 Box-counting of masks',
-    '6.03 Размерность линий и границ': '6.03 Dimension of lines and boundaries',
-    '6.04 Размерность Минковского (векторы)': '6.04 Minkowski dimension (vectors)',
-    '6.05 Создать пример для фракталов (демо)': '6.05 Create a fractal example (demo)',
+    '5. Фрактальный анализ': '5. Fractal analysis',
+    '5.01 Фрактальная размерность': '5.01 Fractal dimension',
+    '5.02 Box-counting маски': '5.02 Box-counting of masks',
+    '5.03 Размерность линий и границ': '5.03 Dimension of lines and boundaries',
+    '5.04 Размерность Минковского (векторы)': '5.04 Minkowski dimension (vectors)',
+    '5.05 Создать пример для фракталов (демо)': '5.05 Create a fractal example (demo)',
     'Создаёт точечный слой геофизических профилей электроразведки для обучения и проверки инструментов без реальных данных. Несколько параллельных профилей с пикетами, вдоль которых заданы кажущееся сопротивление ρк (Ом·м) и потенциал естественного поля ЕП (мВ).\n\nВ данные заложена низкоомная аномалия - обводнённая или замещённая зона, где ρк проваливается с фоновых десятков Ом·м до единиц, а ЕП даёт отрицательный минимум. Аномалия вытянута поперёк профилей, поэтому проявляется при интерполяции ρк изолиниями: точки -> 2D Kriging по полю rho_k -> карта сопротивления -> изолинии, оконтуривающие аномалию.\n\nОбласть задаётся экстентом. Фоновое и минимальное ρк, амплитуду ЕП и шум можно изменить в разделе «Дополнительно».\n\nПоля результата: profile (номер профиля), picket_m (пикет в метрах от начала профиля), pk (метка ПК), rho_k (ρк, Ом·м), sp (ЕП, мВ).':
         'Creates a point layer of electrical-prospecting geophysical profiles for learning and testing the tools without real data. Several parallel profiles with pickets carrying apparent resistivity rho_k (Ohm*m) and self-potential SP (mV).\n\nThe data contains a low-resistivity anomaly - a water-bearing or replaced zone where rho_k drops from a background of tens of Ohm*m to units, and SP shows a negative minimum. The anomaly is elongated across the profiles, so it shows up when rho_k is interpolated into isolines: points -> 2D Kriging on rho_k -> a resistivity map -> isolines outlining the anomaly.\n\nThe area is set by an extent. The background and minimum rho_k, the SP amplitude and the noise can be changed under Advanced.\n\nOutput fields: profile (profile number), picket_m (picket in metres from the profile start), pk (a ПК label), rho_k (rho_k, Ohm*m), sp (SP, mV).',
     '1.11 Создать пример геофизических профилей (демо)': '1.11 Create a geophysical-profiles example (demo)',
@@ -1636,11 +1439,10 @@ TRANSLATIONS = {
     'Эффективная сигма (необязательно)': 'Effective sigma (optional)',
     'Ячейка вспом. растра, м': 'Auxiliary raster cell, m',
     'плотность, масса/км²': 'density, mass/km2',
-    'Генерирует учебные объекты для фрактальных инструментов: ветвящуюся речную сеть (поле order - порядок притока), полигон водосбора с изрезанной границей и отдельную береговую линию (срединные смещения). Реки подавайте в 6.04 - размерность сети; берег и границу водосбора - в 6.03 и 6.04; растеризуйте водосбор - и он же пример для 6.02.':
-        'Generates training objects for the fractal tools: a branching river network (the order field - tributary order), a catchment polygon with a rugged boundary and a separate coastline (midpoint displacement). Feed the rivers into 6.04 - network dimension; the coast and the catchment boundary into 6.03 and 6.04; rasterise the catchment - it is also an example for 6.02.',
+    'Генерирует учебные объекты для фрактальных инструментов: ветвящуюся речную сеть (поле order - порядок притока), полигон водосбора с изрезанной границей и отдельную береговую линию (срединные смещения). Реки подавайте в 5.04 - размерность сети; берег и границу водосбора - в 5.03 и 5.04; растеризуйте водосбор - и он же пример для 5.02.':
+        'Generates training objects for the fractal tools: a branching river network (the order field - tributary order), a catchment polygon with a rugged boundary and a separate coastline (midpoint displacement). Feed the rivers into 5.04 - network dimension; the coast and the catchment boundary into 5.03 and 5.04; rasterise the catchment - it is also an example for 5.02.',
     'Журнал…': 'Log…',
     'Открыть файл журнала Isoliner': 'Open the Isoliner log file',
-    '3D-просмотр поверхностей Isoliner': 'Isoliner 3D surface viewer',
     'Журнал': 'Log',
     'Журнал ещё не создан.': 'The log has not been created yet.',
     'Карта плотности (переменная опора)': 'Density map (variable support)',

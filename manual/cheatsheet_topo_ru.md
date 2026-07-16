@@ -18,7 +18,7 @@ header-includes:
 
 \begin{center}
 {\Large\sffamily\bfseries Isoliner · Топография: от ЦМР до водосборов}\\[1pt]
-{\small Шпаргалка по группе «2. Топография» · QGIS 3.16+ · плагин Isoliner v3 · чистый NumPy, без GRASS и SAGA}
+{\small Шпаргалка по группе «2. Топография» · QGIS 3.16+ · плагин Isoliner v4 · чистый NumPy, без GRASS и SAGA}
 \end{center}
 
 \vspace{2pt}
