@@ -157,3 +157,48 @@ class TestGedtmWindow(unittest.TestCase):
         src = inspect.getsource(dem.fetch_dem)
         self.assertIn("projWin", src)
         self.assertIn("gedtm_window", src)
+
+
+class TestDstAxisOrder(unittest.TestCase):
+    """4.0.1: целевая СК с осями northing,easting (GSK-2011) не должна
+    давать переставленную геопривязку. Регресс: растр улетал в зеркальную
+    точку, «приблизить к слою» вело в пустоту."""
+
+    def setUp(self):
+        try:
+            from osgeo import osr
+        except Exception:
+            self.skipTest("osgeo недоступен")
+        self.osr = osr
+
+    def test_gsk2011_axis_order_easting_first(self):
+        osr = self.osr
+        # рамка в Пермском крае, зона 10 GSK-2011
+        dst = dem._resolve_dst_srs(osr, 20910, None, (57.0, 57.75))
+        src = osr.SpatialReference()
+        src.ImportFromEPSG(4326)
+        src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        tr = osr.CoordinateTransformation(src, dst)
+        x, y, _ = tr.TransformPoint(57.0, 57.75)
+        # easting с ложным смещением 10.5 млн должен идти ПЕРВЫМ (по X),
+        # northing (~6.4 млн) - вторым (по Y). Без фикса было наоборот.
+        self.assertGreater(x, 10_000_000, "easting должен быть по оси X")
+        self.assertLess(y, 10_000_000, "northing должен быть по оси Y")
+        self.assertGreater(y, 6_000_000)
+
+    def test_resolve_sets_traditional_order(self):
+        osr = self.osr
+        dst = dem._resolve_dst_srs(osr, 20910, None, (57.0, 57.75))
+        self.assertEqual(dst.GetAxisMappingStrategy(),
+                         osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+    def test_utm_unaffected(self):
+        osr = self.osr
+        # UTM 40N: easting уже первый, фикс не должен ничего сломать
+        dst = dem._resolve_dst_srs(osr, 32640, None, (57.0, 57.75))
+        src = osr.SpatialReference()
+        src.ImportFromEPSG(4326)
+        src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        tr = osr.CoordinateTransformation(src, dst)
+        x, y, _ = tr.TransformPoint(57.0, 57.75)
+        self.assertGreater(y, x, "в UTM northing больше easting на этой широте")

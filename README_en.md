@@ -286,6 +286,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 bilingual (EN/RU).
 
+- **4.0.1** — fixed DEM georeferencing in 2.01 for CRSs with northing-easting axis order (GSK-2011 and other Gauss-Kruger, Krassovsky): the raster no longer flies to a mirror location, and "Zoom to layer" works. UTM was not affected.
 - **4.0.0** — the 3D part moved to a separate Isoliner 3D module (publication pending): the 3D viewer, the "Bed and block model" group (5.01-5.07), 2DM meshes, polyhedra and the bundled pyqtgraph/PyOpenGL. The package slimmed from ~12 to ~8 MB. Fractal tools renumbered from 6.xx to 5.xx; tool identifiers unchanged, user models keep working. Version 3.2.0 with the full former functionality stays in the catalog.
 - **3.2.0** - 2.03 supports a variable water edge (river slope from polygon node Z), 2.04 reworked into "Terrain preparation" with FPDEMS smoothing (edge-preserving), a smoothing checkbox added to 2.01.
 - **3.1.1** - fixed GEDTM30 height scale (was ten times too small): the COG is read via translate -unscale.
