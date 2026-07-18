@@ -127,6 +127,13 @@ def _resolve_dst_srs(osr_module, dst_epsg, dst_wkt, center_lonlat):
         dst_srs.ImportFromEPSG(int(dst_epsg))
     else:
         dst_srs.ImportFromEPSG(utm_epsg_for(*center_lonlat))
+    # ВАЖНО: традиционный порядок осей (easting, northing) на целевой СК.
+    # Многие СК (GSK-2011 и другие Гаусс-Крюгер, Крассовский, RD/Amersfoort)
+    # объявляют оси в порядке northing, easting. Без этой строки
+    # CoordinateTransformation и Warp пишут геотрансформу с переставленными
+    # X/Y, растр улетает в зеркальную точку, а «приблизить к слою» в QGIS
+    # ведёт в пустоту. UTM с осями easting, northing этим не страдал.
+    dst_srs.SetAxisMappingStrategy(osr_module.OAMS_TRADITIONAL_GIS_ORDER)
     return dst_srs
 
 
@@ -138,13 +145,40 @@ def _warp_to_metric(src_ds_or_path, out_path, extent_4326, gdal_module,
     src_srs.ImportFromEPSG(4326)
     src_srs.SetAxisMappingStrategy(osr_module.OAMS_TRADITIONAL_GIS_ORDER)
     tr = osr_module.CoordinateTransformation(src_srs, dst_srs)
+    # Габарит берём по плотно семплированному периметру рамки, а не по
+    # 4 углам. Для UTM хватило бы углов, но у края зоны, на большой рамке
+    # или при пересечении осевого меридиана прямоугольник по углам может
+    # недооценить истинный габарит. Периметр ловит min/max надёжно.
     xs, ys = [], []
-    for lon, lat in ((lon_min, lat_min), (lon_min, lat_max),
-                     (lon_max, lat_min), (lon_max, lat_max)):
-        x, y, _ = tr.TransformPoint(lon, lat)
-        xs.append(x)
-        ys.append(y)
+    n = 32  # точек на сторону
+    for i in range(n + 1):
+        t = i / float(n)
+        # верхняя и нижняя стороны (по долготе), левая и правая (по широте)
+        pts = (
+            (lon_min + (lon_max - lon_min) * t, lat_min),
+            (lon_min + (lon_max - lon_min) * t, lat_max),
+            (lon_min, lat_min + (lat_max - lat_min) * t),
+            (lon_max, lat_min + (lat_max - lat_min) * t),
+        )
+        for lon, lat in pts:
+            x, y, _ = tr.TransformPoint(lon, lat)
+            if not (math.isfinite(x) and math.isfinite(y)):
+                continue
+            xs.append(x)
+            ys.append(y)
+    if not xs or not ys:
+        raise DemSourceError(
+            "Не удалось спроецировать рамку в целевую СК. "
+            "Проверьте, что рамка попадает в область действия выбранной СК."
+        )
     bounds = (min(xs), min(ys), max(xs), max(ys))
+    # Защита от вырожденного габарита (нулевая ширина или высота).
+    if not (bounds[2] - bounds[0] > 0 and bounds[3] - bounds[1] > 0):
+        raise DemSourceError(
+            "Рамка вырождается в выбранной СК (нулевой габарит). "
+            "Выберите СК, подходящую для этой территории, "
+            "или оставьте целевую СК пустой (тогда возьмётся UTM по центру)."
+        )
     warp_opts = gdal_module.WarpOptions(
         dstSRS=dst_srs.ExportToWkt(),
         xRes=float(cell), yRes=float(cell),

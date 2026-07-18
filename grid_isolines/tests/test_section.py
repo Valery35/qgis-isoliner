@@ -7,51 +7,25 @@
 # Тесты разреза по линии. Чистая геометрия/выборка, без QGIS:
 #     python grid_isolines/tests/test_section.py
 #
-# Помощники _sample_grid_points и _valid_runs продублированы здесь один в один
-# с algorithms.py (там их нельзя импортировать без QGIS), чтобы проверить
-# математику выборки и разбиения независимо.
+# Помощники выборки и разбиения импортируются из grid_isolines.section_core.
+# Раньше они дублировались здесь, потому что жили в algorithms.py и тянули
+# QGIS. Теперь ядро чистое, копии не нужны.
 import os
 import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(_HERE))          # сама папка плагина
+sys.path.insert(0, os.path.join(_HERE, "..", ".."))  # родитель, для пакета
 
 
-def _sample_grid_points(arr, gt, xs, ys, bilinear=True):
-    ny, nx = arr.shape
-    fx = (xs - gt[0]) / gt[1] - 0.5
-    fy = (ys - gt[3]) / gt[5] - 0.5
-
-    def gather(ix, iy):
-        out = np.full(len(xs), np.nan)
-        ok = (ix >= 0) & (ix < nx) & (iy >= 0) & (iy < ny)
-        out[ok] = arr[iy[ok], ix[ok]]
-        return out
-
-    if not bilinear:
-        return gather(np.round(fx).astype(int), np.round(fy).astype(int))
-    x0 = np.floor(fx).astype(int); y0 = np.floor(fy).astype(int)
-    tx = fx - x0; ty = fy - y0
-    v00 = gather(x0, y0); v10 = gather(x0 + 1, y0)
-    v01 = gather(x0, y0 + 1); v11 = gather(x0 + 1, y0 + 1)
-    return (v00 * (1 - tx) * (1 - ty) + v10 * tx * (1 - ty)
-            + v01 * (1 - tx) * ty + v11 * tx * ty)
-
-
-def _valid_runs(mask):
-    out = []; i, n = 0, len(mask)
-    while i < n:
-        if mask[i]:
-            j = i
-            while j < n and mask[j]:
-                j += 1
-            if j - i >= 2:
-                out.append((i, j - 1))
-            i = j
-        else:
-            i += 1
-    return out
+# Помощники берём из чистого ядра плагина, а не из копии: ядро не тянет QGIS,
+# поэтому тест проверяет тот самый код, который поедет заказчику.
+from grid_isolines.section_core import (  # noqa: E402
+    sample_grid_points as _sample_grid_points,
+    valid_runs as _valid_runs,
+)
 
 
 def _linear_grid(a, b, c, nx=20, ny=15, cell=5.0, x0=1000.0, y0=2000.0):
@@ -173,5 +147,276 @@ def _run_all():
     print("\nALL %d TESTS PASSED" % len(fns))
 
 
+
+
+
+# --- Инженерная СК чертежа разреза (4.0.2) ------------------------------------
+# Регресс: слои чертежа создавались с пустой СК, подхватывали СК проекта и на
+# реальных данных (местные СК, координаты в сотнях тысяч) уходили за кадр -
+# «объекты есть, на карте пусто». Чертёж должен получать инженерную (локальную)
+# СК, которую QGIS не перепроецирует.
+
+import ast as _ast
+import unittest as _unittest
+import re as _re
+
+
+def _extract_draw_wkt():
+    src = open(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "algorithms.py"), encoding="utf-8").read()
+    m = _re.search(r"_SECTION_DRAW_WKT\s*=\s*\((.*?)\)\n", src, _re.S)
+    assert m, "_SECTION_DRAW_WKT не найдена"
+    # склеить строковые литералы
+    parts = _re.findall(r"'([^']*)'", m.group(1))
+    return "".join(parts)
+
+
+class TestSectionDrawCrs(_unittest.TestCase):
+
+    def test_wkt_is_local_not_geographic(self):
+        try:
+            from osgeo import osr
+        except Exception:
+            self.skipTest("osgeo недоступен")
+        srs = osr.SpatialReference()
+        rc = srs.SetFromUserInput(_extract_draw_wkt())
+        self.assertEqual(rc, 0, "инженерная WKT не разобралась")
+        self.assertFalse(srs.IsGeographic(), "чертёж не должен быть географическим")
+        self.assertFalse(srs.IsProjected(), "чертёж не должен быть проектным")
+        self.assertTrue(srs.IsLocal(), "чертёж должен быть локальной/инженерной СК")
+
+    def test_section_group_has_no_empty_crs(self):
+        """В классах разреза стоки чертежа не должны создаваться с пустой
+        QgsCoordinateReferenceSystem() - только через _section_draw_crs()."""
+        src = open(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "algorithms.py"), encoding="utf-8").read()
+        tree = _ast.parse(src)
+        section_classes = {
+            "SectionAlgorithm", "BoreholesOnSectionAlgorithm",
+            "CompositionOnSectionAlgorithm", "SectionGridIntersectAlgorithm",
+            "SectionVectorIntersectAlgorithm", "SectionTinIntersectAlgorithm",
+            "SectionProjectAlgorithm", "ShaftUnwrapAlgorithm",
+        }
+        offenders = []
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.ClassDef) and node.name in section_classes:
+                body = _ast.get_source_segment(src, node)
+                # пустой вызов конструктора без аргументов
+                if _re.search(r"QgsCoordinateReferenceSystem\(\s*\)", body):
+                    offenders.append(node.name)
+        self.assertFalse(
+            offenders, "пустая СК в классах разреза: %s" % offenders)
+
+
+
+
+class TestSurfaceTreeOrder(_unittest.TestCase):
+    """4.0.x: порядок поверхностей берётся из дерева слоёв проекта, слои вне
+    дерева стабильно уходят в конец. Логика идиомы (без QGIS)."""
+
+    @staticmethod
+    def _resort(layer_ids, tree_ids):
+        order = {lid: i for i, lid in enumerate(tree_ids)}
+        tail = len(order)
+        return sorted(layer_ids, key=lambda i: order.get(i, tail))
+
+    def test_reorders_to_tree(self):
+        tree = ["B_top", "B_bottom", "AB_top", "AB_bottom"]
+        picked = ["AB_bottom", "B_top", "B_bottom", "AB_top"]
+        self.assertEqual(self._resort(picked, tree), tree)
+
+    def test_external_layers_go_last_stably(self):
+        tree = ["B_top", "B_bottom"]
+        picked = ["X1", "B_bottom", "X2", "B_top"]
+        res = self._resort(picked, tree)
+        self.assertEqual(res[:2], ["B_top", "B_bottom"])
+        # сторонние сохраняют относительный порядок
+        self.assertEqual(res[2:], ["X1", "X2"])
+
+    def test_algorithm_declares_tree_order_param(self):
+        import re as _re2
+        src = open(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "algorithms.py"),
+            encoding="utf-8").read()
+        self.assertIn('TREE_ORDER = "TREE_ORDER"', src)
+        self.assertIn("findLayers()", src)
+
+
+class TreeOrderWiring(_unittest.TestCase):
+    """Статические проверки по исходнику: порядок слоёв задаётся явно там, где
+    он несёт смысл, и стопка поверхностей демо перечислена сверху вниз."""
+
+    def setUp(self):
+        path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "algorithms.py")
+        with open(path, encoding="utf-8") as fh:
+            self.src = fh.read()
+
+    def test_demo_and_section_request_explicit_order(self):
+        self.assertIn("order=True", self.src)
+        self.assertIn("GRP_SECTION_DEMO, ordered, order=True", self.src)
+        self.assertIn("GRP_SECTION, ordered, force=True, order=True", self.src)
+
+    def test_demo_surface_keys_go_top_down(self):
+        blk = self.src.split("ordered_keys = (self.LINE")[1].split(")")[0]
+        pos = [blk.index("self.SURF%d" % k) for k in range(1, 7)]
+        self.assertEqual(pos, sorted(pos), "поверхности не по порядку 1...6")
+
+    def test_demo_rasters_below_vectors(self):
+        blk = self.src.split("ordered_keys = (self.LINE")[1].split(")")[0]
+        self.assertLess(blk.index("self.ZONE"), blk.index("self.SURF1"))
+        self.assertLess(blk.index("self.TIN"), blk.index("self.BED1"))
+
+    def test_demo_makes_three_lines(self):
+        for nm in ("Разрез 1", "Разрез 2", "Разрез 3"):
+            self.assertIn('self.tr("%s")' % nm, self.src)
+
+    def test_sort_helper_is_idempotent_guarded(self):
+        # перестановка не должна происходить, если порядок уже верный
+        self.assertIn("if all(a is b for a, b in zip(children, want)):",
+                      self.src)
+
+    def test_sort_inserts_clones_before_removing_originals(self):
+        """Регресс 4.0.3: обратный порядок стирал слои из проекта.
+
+        Реестровый мост удаляет слой, если при удалении узла слоя больше нет
+        нигде в дереве. Значит вставка копий обязана идти до удаления
+        оригиналов, иначе группа остаётся пустой.
+        """
+        blk = self.src.split("def _sort_group_by_order")[1]
+        blk = blk.split("def _set_group")[0]
+        i_ins = blk.index("grp.insertChildNodes(0, clones)")
+        i_rem = blk.index("grp.removeChildNode(n)")
+        self.assertLess(i_ins, i_rem,
+                        "копии вставляются после удаления оригиналов")
+
+    def test_sort_mutes_registry_bridge(self):
+        blk = self.src.split("def _sort_group_by_order")[1]
+        blk = blk.split("def _set_group")[0]
+        self.assertIn("layerTreeRegistryBridge()", blk)
+        self.assertIn("setEnabled(False)", blk)
+        self.assertIn("setEnabled(True)", blk)
+        self.assertIn("finally:", blk)
+
+
+# Запуск: сперва функциональные тесты, затем классы unittest. Раньше вызов
+# unittest.main() стоял в середине файла, и классы, объявленные ниже, не
+# выполнялись вообще. Единая точка входа в конце файла закрывает эту дыру.
+
+
+class BatchWiring(_unittest.TestCase):
+    """Статические проверки проводки пакетного режима в 4.01."""
+
+    def setUp(self):
+        path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "algorithms.py")
+        with open(path, encoding="utf-8") as fh:
+            self.src = fh.read()
+        tree = _ast.parse(self.src)
+        self.cls = [n for n in tree.body if isinstance(n, _ast.ClassDef)
+                    and n.name == "SectionAlgorithm"][0]
+
+    def _proc(self):
+        return [n for n in self.cls.body if isinstance(n, _ast.FunctionDef)
+                and n.name == "_process"][0]
+
+    def test_batch_parameters_declared(self):
+        init = [n for n in self.cls.body if isinstance(n, _ast.FunctionDef)
+                and n.name == "initAlgorithm"][0]
+        body = _ast.get_source_segment(self.src, init)
+        for p in ("self.BATCH", "self.NAMEFLD", "self.LAYOUT",
+                  "self.NCOLS", "self.GAP"):
+            self.assertIn(p, body, p)
+
+    def test_sec_fields_in_every_output(self):
+        body = _ast.get_source_segment(self.src, self.cls)
+        self.assertEqual(body.count('QgsField("sec", QVariant.String)'), 4)
+        self.assertEqual(body.count('QgsField("sec_id", QVariant.Int)'), 4)
+
+    def test_definition_carries_layout_offset(self):
+        body = _ast.get_source_segment(self.src, self.cls)
+        self.assertIn('QgsField("ox", QVariant.Double)', body)
+        self.assertIn('QgsField("oy", QVariant.Double)', body)
+
+    def test_common_vex_used_not_per_section(self):
+        body = _ast.get_source_segment(self.src, self._proc())
+        self.assertIn("_sc.common_vex(samples, vmode, vscale)", body)
+        self.assertIn("_sc.build_section(None, surfs, vex=vex", body)
+
+    def test_fence_3d_is_not_offset(self):
+        """Забор стоит в реальных координатах, раскладка его не двигает."""
+        body = _ast.get_source_segment(self.src, self._proc())
+        blk = body.split("# 3D: вертикальная стенка")[1].split("nbed += 1")[0]
+        self.assertNotIn("+ ox", blk)
+        self.assertNotIn("+ oy", blk)
+
+    def test_drawing_is_offset(self):
+        body = _ast.get_source_segment(self.src, self._proc())
+        blk = body.split("if sink2d is not None:")[1].split("# 3D:")[0]
+        self.assertIn("+ ox", blk)
+        self.assertIn("+ oy", blk)
+
+    def test_three_scale_modes_everywhere(self):
+        self.assertEqual(
+            self.src.count('self.tr("отношение масштабов Г:В (1:N)")'), 4)
+
+
+class ChildToolsBatch(_unittest.TestCase):
+    """Дочерние инструменты разреза читают все определения слоя, а не первое,
+    и переносят имя разреза в атрибуты."""
+
+    CONVERTED = ("SectionGridIntersectAlgorithm",
+                 "SectionVectorIntersectAlgorithm",
+                 "SectionTinIntersectAlgorithm")
+
+    def setUp(self):
+        path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "algorithms.py")
+        with open(path, encoding="utf-8") as fh:
+            self.src = fh.read()
+        self.tree = _ast.parse(self.src)
+
+    def _cls(self, name):
+        found = [n for n in self.tree.body
+                 if isinstance(n, _ast.ClassDef) and n.name == name]
+        self.assertTrue(found, "класс %s не найден" % name)
+        return _ast.get_source_segment(self.src, found[0])
+
+    def test_reader_returns_all_definitions(self):
+        self.assertIn("def _read_section_defs(", self.src)
+        for key in ('"sec"', '"sec_id"', '"ox"', '"oy"', '"vex"'):
+            self.assertIn(key, self.src.split("def _read_section_defs(")[1]
+                          .split("def ")[0], key)
+
+    def test_reader_is_tolerant_to_old_layers(self):
+        """Слои прежних версий без новых полей должны читаться как раньше."""
+        blk = self.src.split("def _def_num(")[1].split("def _read_section_defs")[0]
+        self.assertIn("if name not in names:", blk)
+        self.assertIn("return fallback", blk)
+
+    def test_converted_tools_loop_over_definitions(self):
+        for name in self.CONVERTED:
+            body = self._cls(name)
+            self.assertIn("_defs_or_raise(", body, name)
+            self.assertNotIn("_read_section_def(", body, name)
+
+    def test_converted_tools_tag_outputs(self):
+        for name in self.CONVERTED:
+            body = self._cls(name)
+            self.assertIn('QgsField("sec", QVariant.String)', body, name)
+            self.assertIn('QgsField("sec_id", QVariant.Int)', body, name)
+
+    def test_converted_tools_apply_layout_offset(self):
+        for name in self.CONVERTED:
+            body = self._cls(name)
+            self.assertIn('dd["ox"]', body, name)
+            self.assertIn('dd["oy"]', body, name)
+
+    def test_mixed_vex_is_reported(self):
+        blk = self.src.split("def _log_defs(")[1].split("\ndef ")[0]
+        self.assertIn("pushWarning", blk)
+
+
 if __name__ == "__main__":
     _run_all()
+    _unittest.main()

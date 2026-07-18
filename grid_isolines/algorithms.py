@@ -37,6 +37,7 @@ from osgeo import gdal, osr
 from qgis.PyQt.QtCore import QUrl, QVariant
 
 from .i18n import tr as _tr  # двуязычие RU/EN (нужен до module-level констант)
+from . import section_core as _sc  # чистое ядро разреза, без QGIS
 from qgis.core import (
     QgsProcessing,
     QgsProcessingAlgorithm,
@@ -44,6 +45,7 @@ from qgis.core import (
     QgsProcessingUtils,
     QgsProcessingLayerPostProcessorInterface,
     QgsProject,
+    QgsLayerTree,
     QgsSettings,
     QgsFeatureRequest,
     QgsExpression,
@@ -146,11 +148,87 @@ def _set_output_name(context, path, name):
         pass
 
 
-def _set_group(context, group, paths, force=False, history=None):
+ORDER_PROP = "isoliner/tree_order"
+
+
+def _sort_group_by_order(group_name):
+    """Выстроить слои группы по номеру, записанному в свойство слоя.
+
+    Processing складывает выходы в реестр отложенной загрузки по пути файла, а
+    у временных выходов путь случайный, поэтому порядок появления слоёв в
+    дереве не определён и к порядку объявления параметров отношения не имеет.
+    Для разреза это не косметика: 4.01 по умолчанию берёт порядок поверхностей
+    из дерева, и перемешанное дерево даёт пласты между не теми парами.
+
+    Функция идемпотентна и вызывается после загрузки каждого слоя: сколько бы
+    слоёв ни успело приехать, группа выстраивается заново, и после последнего
+    порядок верен независимо от того, кто пришёл первым. Слои без номера
+    (чужие или из прошлых прогонов) сохраняют относительный порядок и уходят в
+    конец, сортировка устойчивая.
+    """
+    try:
+        project = QgsProject.instance()
+        if project is None:
+            return
+        grp = project.layerTreeRoot().findGroup(group_name)
+        if grp is None:
+            return
+        children = list(grp.children())
+        if not children:
+            return
+        # во вложенные группы не лезем: там порядок задаёт кто-то другой
+        if any(not QgsLayerTree.isLayer(n) for n in children):
+            return
+
+        def raw_of(node):
+            lyr = node.layer()
+            return lyr.customProperty(ORDER_PROP, None) if lyr else None
+
+        want = _sc.order_sorted(children, raw_of)   # сортировка устойчива
+        if all(a is b for a, b in zip(children, want)):
+            return                            # уже по порядку, дерево не трогаем
+
+        # Порядок операций здесь критичен. Реестровый мост QGIS при удалении
+        # узла проверяет, остался ли слой где-то в дереве, и если не остался -
+        # удаляет слой из проекта (так работает удаление из панели слоёв).
+        # Поэтому сначала вставляем копии и только потом убираем оригиналы:
+        # слой ни на мгновение не пропадает из дерева. Обратный порядок стирает
+        # слои целиком, группа остаётся пустой.
+        bridge = None
+        try:
+            bridge = project.layerTreeRegistryBridge()
+        except Exception:  # nosec - в старых сборках моста может не быть
+            bridge = None
+        if bridge is not None:
+            try:
+                bridge.setEnabled(False)
+            except Exception:  # nosec
+                bridge = None
+        try:
+            clones = [n.clone() for n in want]
+            grp.insertChildNodes(0, clones)
+            for n in children:
+                grp.removeChildNode(n)
+        finally:
+            if bridge is not None:
+                try:
+                    bridge.setEnabled(True)
+                except Exception:  # nosec
+                    pass
+    except Exception:  # nosec - перестановка в дереве не должна ронять прогон
+        pass
+
+
+def _set_group(context, group, paths, force=False, history=None, order=False):
     """Кладёт загружаемые слои в фиксированную группу дерева (если группа уже
     есть, фреймворк добавляет в неё, новую не плодит; при force - даже для одного
     слоя). Заодно на выходы без собственного пост-процессора вешает финализатор:
-    свернуть растр и записать историю создания."""
+    свернуть растр и записать историю создания.
+
+    При order=True порядок списка paths становится порядком слоёв в группе:
+    каждому слою пишется номер, и группа пересортировывается после загрузки.
+    Нужно там, где порядок несёт смысл (стопка поверхностей сверху вниз).
+    """
     paths = list(paths)
     if group and (force or len(paths) >= 2):
         for p in paths:
@@ -159,7 +237,7 @@ def _set_group(context, group, paths, force=False, history=None):
                     context.layerToLoadOnCompletionDetails(p).groupName = group
             except Exception:  # nosec
                 pass
-    for p in paths:
+    for i, p in enumerate(paths):
         try:
             if not (p and context.willLoadLayerOnCompletion(p)) or p in _PP_PATHS:
                 continue
@@ -171,7 +249,9 @@ def _set_group(context, group, paths, force=False, history=None):
                 has_pp = False
             if has_pp:
                 continue
-            pp = _FinalizePostProcessor(history or [])
+            pp = _FinalizePostProcessor(history or [],
+                                        order=(i if order and group else None),
+                                        group=(group if order else None))
             _KEEP_ALIVE.append(pp)
             det.setPostProcessor(pp)
             _PP_PATHS.add(p)
@@ -220,13 +300,23 @@ def _finalize_layer(layer, history):
 
 class _FinalizePostProcessor(QgsProcessingLayerPostProcessorInterface):
     """Пост-процессор по умолчанию для выходов без своего пост-процессора:
-    сворачивает растр и пишет историю создания."""
-    def __init__(self, history):
+    сворачивает растр, пишет историю создания и, если задан номер, выстраивает
+    группу дерева по номерам."""
+    def __init__(self, history, order=None, group=None):
         super().__init__()
         self.history = history
+        self.order = order
+        self.group = group
 
     def postProcessLayer(self, layer, context, feedback):
         _finalize_layer(layer, self.history)
+        if self.order is None or not self.group:
+            return
+        try:
+            layer.setCustomProperty(ORDER_PROP, int(self.order))
+        except Exception:  # nosec
+            return
+        _sort_group_by_order(self.group)
 
 
 def _provenance(alg, parameters=None):
@@ -424,6 +514,37 @@ def _help_url():
         if os.path.exists(p):
             return QUrl.fromLocalFile(p).toString()
     return ""
+
+
+# Инженерная (местная декартова) СК для чертежей разреза. Координаты чертежа
+# абстрактны: X - расстояние вдоль линии, Y - высота с вертикальным
+# преувеличением, географической привязки у них нет. С пустой СК слой
+# подхватывает СК проекта, и на реальных данных (местные СК, координаты в
+# сотнях тысяч и миллионах) геометрия чертежа сидит у нуля - вне кадра карты,
+# отсюда «объекты есть, а на карте пусто». Инженерная СК (тип LOCAL / ENGCRS,
+# без проекции) не перепроецируется на подложку, слой встаёт в своих
+# координатах независимо от проекта. Понятна и QGIS 3.16, и 4.x.
+_SECTION_DRAW_WKT = (
+    'ENGCRS["Isoliner section drawing",'
+    'EDATUM["Section drawing datum"],'
+    'CS[Cartesian,2],'
+    'AXIS["distance (D)",unspecified,ORDER[1],LENGTHUNIT["metre",1]],'
+    'AXIS["elevation (H)",unspecified,ORDER[2],LENGTHUNIT["metre",1]]]'
+)
+
+
+def _section_draw_crs():
+    """Инженерная СК для слоёв чертежа разреза (см. комментарий выше).
+
+    При неудаче создания (экзотическая сборка GDAL) возвращает пустую СК -
+    прежнее поведение, не хуже чем было.
+    """
+    crs = QgsCoordinateReferenceSystem()
+    try:
+        crs.createFromWkt(_SECTION_DRAW_WKT)
+    except Exception:  # nosec
+        pass
+    return crs
 
 
 # --- запоминание введённых значений (в сессии и между запусками) ----------
@@ -5658,7 +5779,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.SURF6, self.tr("Поверхность 6 (подошва нижней вмещающей)")))
         self.addParameter(QgsProcessingParameterFeatureSink(
-            self.LINE, self.tr("Линия разреза"),
+            self.LINE, self.tr("Линии разрезов (3 шт.)"),
             type=QgsProcessing.SourceType.TypeVectorLine))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.WELLS, self.tr("Скважины вдоль линии (с отметками поверхностей)"),
@@ -5785,15 +5906,29 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
                         p0.y() + 0.68 * diry - 0.85 * amp * ny)
         lg = QgsGeometry.fromPolylineXY([p0, pa, pb, p1])
         L = float(lg.length())
+        # Ещё две линии для пакетной генерации: короткая прямая ниже по
+        # площади и наклонная с одним изломом. Все три идут вкрест падения,
+        # поэтому дают осмысленные разрезы, но разной длины и разного числа
+        # углов - на них видно и раскладку, и единый вертикальный масштаб.
+        q0 = QgsPointXY(xmin + 0.12 * W, ymin + 0.72 * H)
+        q1 = QgsPointXY(xmin + 0.62 * W, ymin + 0.88 * H)
+        lg2 = QgsGeometry.fromPolylineXY([q0, q1])
+        r0 = QgsPointXY(xmin + 0.20 * W, ymin + 0.08 * H)
+        rm = QgsPointXY(xmin + 0.55 * W, ymin + 0.14 * H)
+        r1 = QgsPointXY(xmax - 0.08 * W, ymin + 0.34 * H)
+        lg3 = QgsGeometry.fromPolylineXY([r0, rm, r1])
         fields = QgsFields()
         fields.append(QgsField("name", QVariant.String))
         sink, dest = self.parameterAsSink(
             parameters, self.LINE, context, fields, QgsWkbTypes.Type.LineString, crs)
-        ft = QgsFeature(fields)
-        ft.setGeometry(lg)
-        ft.setAttributes([self.tr("Разрез 1")])
-        sink.addFeature(ft)
-        _set_output_name(context, dest, self.tr("Линия разреза (демо)"))
+        for geom, nm in ((lg, self.tr("Разрез 1")),
+                         (lg2, self.tr("Разрез 2")),
+                         (lg3, self.tr("Разрез 3"))):
+            ft = QgsFeature(fields)
+            ft.setGeometry(geom)
+            ft.setAttributes([nm])
+            sink.addFeature(ft)
+        _set_output_name(context, dest, self.tr("Линии разрезов (демо)"))
         results[self.LINE] = dest
 
         # скважины вдоль ломаной: позиция по длине линии плюс малый отступ в
@@ -5933,99 +6068,51 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
 
         feedback.pushInfo(_tr(
             "Готово: шесть поверхностей (пять пластов: три вмещающих и два "
-            "промышленных), линия и скважины. Поверхности и линию подайте в "
-            "«Разрез по линии»; скважины с полями h1...h6 и линию - в «Скважины "
-            "на разрез». Разлом, маркер с Z и зона - для «Пересечения векторов с "
-            "разрезом», опрокинутая TIN - для «Пересечения TIN с разрезом»."))
+            "промышленных), три линии разрезов и скважины. Поверхности "
+            "уже лежат в дереве стопкой сверху вниз, порядок для «Разреза "
+            "по линии» задавать не нужно. Инструмент строит разрез по "
+            "первой линии слоя, остальные две ждут пакетной генерации. "
+            "Скважины с полями h1...h6 и линию подайте в «Скважины на "
+            "разрез». Разлом, маркер с Z и зона - для «Пересечения векторов "
+            "с разрезом», опрокинутая TIN - для «Пересечения TIN с разрезом»."))
         _save_values(self, _saved)
-        _set_group(context, GRP_SECTION_DEMO, list(results.values()), history=_provenance(self, parameters))
+        # Порядок в дереве задаём явно. Во-первых, 4.01 по умолчанию читает
+        # порядок поверхностей отсюда, и стопка обязана идти сверху вниз
+        # (1 кровля ... 6 подошва). Во-вторых, растры выше векторов закрыли бы
+        # линию и скважины, поэтому векторы идут первыми.
+        ordered_keys = (self.LINE, self.WELLS, self.FAULT, self.MARKER,
+                        self.ZONE, self.TIN, self.BED1, self.BED2,
+                        self.SURF1, self.SURF2, self.SURF3,
+                        self.SURF4, self.SURF5, self.SURF6)
+        ordered = [results[k] for k in ordered_keys if k in results]
+        ordered += [v for k, v in results.items() if k not in ordered_keys]
+        _set_group(context, GRP_SECTION_DEMO, ordered, order=True,
+                   history=_provenance(self, parameters))
         return results
 
 
-def _sample_grid_points(arr, gt, xs, ys, bilinear=True):
-    """Выборка значений растра в точках (xs, ys). arr содержит nan на месте
-    nodata. Возвращает массив z (nan вне покрытия). Билинейно или ближайший."""
-    ny, nx = arr.shape
-    fx = (xs - gt[0]) / gt[1] - 0.5
-    fy = (ys - gt[3]) / gt[5] - 0.5
-
-    def gather(ix, iy):
-        out = np.full(len(xs), np.nan)
-        ok = (ix >= 0) & (ix < nx) & (iy >= 0) & (iy < ny)
-        out[ok] = arr[iy[ok], ix[ok]]
-        return out
-
-    if not bilinear:
-        return gather(np.round(fx).astype(int), np.round(fy).astype(int))
-    x0 = np.floor(fx).astype(int)
-    y0 = np.floor(fy).astype(int)
-    tx = fx - x0
-    ty = fy - y0
-    v00 = gather(x0, y0)
-    v10 = gather(x0 + 1, y0)
-    v01 = gather(x0, y0 + 1)
-    v11 = gather(x0 + 1, y0 + 1)
-    return (v00 * (1 - tx) * (1 - ty) + v10 * tx * (1 - ty)
-            + v01 * (1 - tx) * ty + v11 * tx * ty)
-
-
-def _valid_runs(mask):
-    """Непрерывные участки True длиной >= 2 точек: список (i0, i1) включительно."""
-    out = []
-    i, n = 0, len(mask)
-    while i < n:
-        if mask[i]:
-            j = i
-            while j < n and mask[j]:
-                j += 1
-            if j - i >= 2:
-                out.append((i, j - 1))
-            i = j
-        else:
-            i += 1
-    return out
+# Помощники выборки и разбиения живут в чистом ядре section_core (без QGIS).
+# Здесь оставлены короткие имена, чтобы остальные инструменты не переписывать.
+_sample_grid_points = _sc.sample_grid_points
+_valid_runs = _sc.valid_runs
 
 
 def _section_vex(feedback, aspect_mode, scale, length, dz):
-    """Множитель вертикального масштаба. В режиме Г:В считается из длины линии и
-    вертикального размаха так, чтобы чертёж имел заданное отношение ширина:высота;
-    иначе scale - прямой множитель. Печатает фактический vex в журнал."""
+    """Множитель вертикального масштаба. Считает ядро, здесь только строка в
+    журнал инструмента (она же попадает на скриншот при слепой проверке)."""
+    mode = _sc.VMODE_ASPECT if aspect_mode else _sc.VMODE_FACTOR
+    vex = _sc.vex_from_mode(mode, scale, length, dz)
     if aspect_mode:
-        vex = (length / (scale * dz)) if (dz and dz > 0 and scale > 0) else 1.0
         feedback.pushInfo(_tr(
             "Вертикальный масштаб: отношение Г:В ~ %.4g:1, множитель vex ~ %.4g.")
             % (scale, vex))
     else:
-        vex = scale or 1.0
         feedback.pushInfo(_tr(
             "Вертикальный масштаб: множитель vex = %.4g.") % vex)
     return vex
 
 
-def _nice_ticks(lo, hi, n):
-    """Хорошо округлённые отметки между lo и hi. Шаг выбирается из ряда
-    1, 2, 2.5, 5, 10 (×10^k) так, чтобы количество отметок было ближе всего к n."""
-    if not (hi > lo) or n < 2:
-        return []
-    raw = (hi - lo) / (n - 1)
-    mag = 10.0 ** math.floor(math.log10(raw))
-    best = None
-    for f in (1, 2, 2.5, 5, 10):
-        step = f * mag
-        start = math.ceil(lo / step) * step
-        cnt = int(math.floor((hi - start) / step + 1e-9)) + 1
-        if cnt < 1:
-            continue
-        score = abs(cnt - n)
-        if best is None or score < best[0]:
-            best = (score, step)
-    step = best[1]
-    v = math.ceil(lo / step) * step
-    ticks = []
-    while v <= hi + step * 1e-6:
-        ticks.append(round(v, 6))
-        v += step
-    return ticks
+_nice_ticks = _sc.nice_ticks
 
 
 class SectionAlgorithm(IsolinerAlgorithm):
@@ -6037,6 +6124,9 @@ class SectionAlgorithm(IsolinerAlgorithm):
     растры-поверхности."""
 
     LINE, SURFACES = "LINE", "SURFACES"
+    TREE_ORDER = "TREE_ORDER"
+    BATCH, NAMEFLD = "BATCH", "NAMEFLD"
+    LAYOUT, NCOLS, GAP = "LAYOUT", "NCOLS", "GAP"
     STEP, VMODE, VEXAG, SAMPLING = "STEP", "VMODE", "VEXAG", "SAMPLING"
     OUTPUT_2D, OUTPUT_3D, OUTPUT_DEF = "OUTPUT_2D", "OUTPUT_3D", "OUTPUT_DEF"
     OUTPUT_CORNERS, OUTPUT_CORNERS_V = "OUTPUT_CORNERS", "OUTPUT_CORNERS_V"
@@ -6057,10 +6147,32 @@ class SectionAlgorithm(IsolinerAlgorithm):
             "задаются списком и упорядочиваются сверху вниз (кровля, подошва, "
             "следующая кровля и так далее). Пласты строятся как полосы между "
             "соседними поверхностями, поэтому N поверхностей дают N−1 пластов.\n"
+            "\nПо умолчанию порядок поверхностей берётся из дерева слоёв "
+            "проекта (сверху вниз), совпадая с панелью слоёв. Снимите галочку "
+            "**Порядок поверхностей из дерева слоёв проекта**, чтобы задать "
+            "порядок вручную отметками в списке.\n"
+            "\nПо умолчанию разрез строится по каждой линии слоя. Все разрезы "
+            "попадают в один комплект слоёв и различаются полями **sec** (имя) "
+            "и **sec_id**, поэтому подписи и фильтры делаются выражением по "
+            "полю, а стили не назначаются заново. Имя берётся из поля линии, "
+            "если оно задано, иначе нумеруется по порядку.\n"
+            "\nНа чертеже разрезы разводятся раскладкой в общей чертёжной "
+            "системе координат. Стопкой - у всех общий ноль расстояний, в ряд - "
+            "общая отметка высоты, сеткой - и то и другое по строкам и "
+            "столбцам. Шаг решётки берётся от самого крупного габарита плюс "
+            "зазор, поэтому чертежи не пересекаются по построению. "
+            "Вертикальный масштаб на весь прогон один, иначе разрезы были бы "
+            "несопоставимы.\n"
+            "\nВертикальный масштаб задаётся тремя способами. Отношение "
+            "масштабов Г:В (1:N) - привычная для чертежа запись, вертикальный "
+            "масштаб крупнее горизонтального в N раз. Множитель - то же число "
+            "напрямую. Отношение габаритов чертежа - множитель подбирается так, "
+            "чтобы ширина относилась к высоте как задано.\n"
             "\nДва выхода. Чертёж разреза - полигоны в осях расстояние вдоль "
             "линии и высота, с вертикальным преувеличением для макета и печати. "
             "Забор 3D - те же полосы как вертикальные стенки PolygonZ в реальных "
-            "координатах, для просмотра в 3D Map View рядом с поверхностями.\n\n"
+            "координатах, для просмотра в 3D Map View рядом с поверхностями. "
+            "Забор раскладкой не смещается, он стоит в реальных координатах.\n\n"
             "Поверхности обычно получают кригингом (кровля, подошва пласта). "
             "Линию рисуют как обычный линейный слой. Расстояние и высота берутся "
             "в единицах карты. Свой кригинг инструмент не выполняет.") + _credit())
@@ -6073,14 +6185,39 @@ class SectionAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterMultipleLayers(
             self.SURFACES, self.tr("Поверхности сверху вниз (кровли и подошвы)"),
             layerType=QgsProcessing.SourceType.TypeRaster))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.TREE_ORDER,
+            self.tr("Порядок поверхностей из дерева слоёв проекта"),
+            defaultValue=_dv(self, self.TREE_ORDER, True)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.BATCH, self.tr("Разрез по каждой линии слоя"),
+            defaultValue=_dv(self, self.BATCH, True)))
+        self.addParameter(QgsProcessingParameterField(
+            self.NAMEFLD, self.tr("Поле имени разреза (необязательно)"),
+            parentLayerParameterName=self.LINE, optional=True))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.LAYOUT, self.tr("Раскладка нескольких разрезов"),
+            options=[self.tr("стопкой сверху вниз"),
+                     self.tr("в ряд слева направо"),
+                     self.tr("сеткой")],
+            defaultValue=_dv(self, self.LAYOUT, 0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.NCOLS, self.tr("Столбцов в сетке"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.NCOLS, 2), minValue=1, maxValue=20)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.GAP, self.tr("Зазор между разрезами, доля от габарита"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.GAP, 0.15), minValue=0.0)))
         self.addParameter(QgsProcessingParameterNumber(
             self.STEP, self.tr("Шаг выборки вдоль линии, ед. карты (0 = по ячейке)"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.STEP, 0.0), minValue=0.0))
         self.addParameter(QgsProcessingParameterEnum(
             self.VMODE, self.tr("Вертикальный масштаб"),
-            options=[self.tr("отношение Г:В (ширина:высота)"),
-                     self.tr("множитель")],
+            options=[self.tr("отношение Г:В (ширина:высота чертежа)"),
+                     self.tr("множитель"),
+                     self.tr("отношение масштабов Г:В (1:N)")],
             defaultValue=_dv(self, self.VMODE, 0)))
         self.addParameter(QgsProcessingParameterNumber(
             self.VEXAG, self.tr("Значение масштаба (отношение Г:В или множитель)"),
@@ -6127,6 +6264,8 @@ class SectionAlgorithm(IsolinerAlgorithm):
 
     def _fields(self):
         f = QgsFields()
+        f.append(QgsField("sec", QVariant.String))
+        f.append(QgsField("sec_id", QVariant.Int))
         f.append(QgsField("bed", QVariant.Int))
         f.append(QgsField("top", QVariant.String))
         f.append(QgsField("bot", QVariant.String))
@@ -6144,32 +6283,81 @@ class SectionAlgorithm(IsolinerAlgorithm):
         if not layers or len(layers) < 2:
             raise QgsProcessingException(self.tr(
                 "Нужно минимум две поверхности (кровля и подошва)."))
+        # Порядок поверхностей задаёт, какая полоса чей пласт. По умолчанию
+        # берём его из дерева слоёв проекта (сверху вниз), а не из порядка
+        # отметок в виджете - так порядок совпадает с панелью слоёв и не
+        # сбивается при повторных запусках. Снятая галочка оставляет ручной
+        # порядок виджета.
+        use_tree = self.parameterAsBoolean(parameters, self.TREE_ORDER, context)
+        if use_tree:
+            project = context.project() or QgsProject.instance()
+            if project is not None:
+                root = project.layerTreeRoot()
+                order = {}
+                for i, node in enumerate(root.findLayers()):
+                    lyr = node.layer()
+                    if lyr is not None:
+                        order[lyr.id()] = i
+                # стабильная сортировка: слои вне дерева (добавленные файлом
+                # прямо в виджете) сохраняют относительный порядок в конце.
+                tail = len(order)
+                layers = sorted(
+                    layers, key=lambda L: order.get(L.id(), tail))
+                missing = [L.name() for L in layers if L.id() not in order]
+                if missing:
+                    feedback.pushWarning(_tr(
+                        "Часть поверхностей не найдена в дереве слоёв, их "
+                        "порядок оставлен как в списке: %s")
+                        % ", ".join(missing))
+            else:
+                feedback.pushWarning(_tr(
+                    "Порядок из дерева включён, но проект недоступен - "
+                    "оставлен порядок из списка."))
         step = self.parameterAsDouble(parameters, self.STEP, context)
-        aspect_mode = self.parameterAsEnum(parameters, self.VMODE, context) == 0
+        vmode_idx = self.parameterAsEnum(parameters, self.VMODE, context)
+        aspect_mode = vmode_idx == 0
+        vmode = (_sc.VMODE_ASPECT if vmode_idx == 0 else
+                 _sc.VMODE_FACTOR if vmode_idx == 1 else _sc.VMODE_SCALES)
         vscale = self.parameterAsDouble(parameters, self.VEXAG, context) or 1.0
         bilinear = self.parameterAsEnum(parameters, self.SAMPLING, context) == 0
+        batch = self.parameterAsBoolean(parameters, self.BATCH, context)
+        name_fld = self.parameterAsString(parameters, self.NAMEFLD, context)
+        layout = self.parameterAsEnum(parameters, self.LAYOUT, context)
+        ncols = self.parameterAsInt(parameters, self.NCOLS, context) or 2
+        gap = self.parameterAsDouble(parameters, self.GAP, context)
 
-        # линия: берём первый линейный объект
-        line_geom = None
-        nfeat = 0
+        # Линии разреза. В пакетном режиме берём все объекты слоя, иначе
+        # только первый. Выборка «только выделенные» отрабатывает штатно на
+        # уровне источника, отдельного параметра для неё не нужно.
+        lines = []
         for ft in src.getFeatures():
             g = ft.geometry()
-            if g is not None and not g.isEmpty():
-                nfeat += 1
-                if line_geom is None:
-                    line_geom = QgsGeometry(g)
-        if line_geom is None:
+            if g is None or g.isEmpty():
+                continue
+            nm = None
+            if name_fld:
+                try:
+                    raw = ft[name_fld]
+                    nm = None if raw is None else str(raw).strip() or None
+                except (KeyError, IndexError):
+                    nm = None
+            lines.append((QgsGeometry(g), nm, int(ft.id())))
+            if not batch:
+                break
+        if not lines:
             raise QgsProcessingException(self.tr("В слое нет линии."))
-        if nfeat > 1:
-            feedback.pushWarning(_tr(
-                "В слое несколько линий, разрез построен по первой."))
-        length = float(line_geom.length())
-        if length <= 0:
-            raise QgsProcessingException(self.tr("Длина линии равна нулю."))
+        for i, (g, nm, fid) in enumerate(lines):
+            if nm is None:
+                lines[i] = (g, _tr("Разрез %d") % (i + 1), fid)
+
+        # СК линии нужна и диагностике, и приёмникам, поэтому берём её до
+        # расчёта. Раньше она бралась ниже, а диагностика выше ссылалась на
+        # ещё не созданное имя: NameError гасился общим except и весь блок
+        # диагностики молча не печатался.
+        crs_line = src.sourceCrs()
 
         # поверхности: читаем массивы, nodata -> nan
         surfs = []
-        cells = []
         for lyr in layers:
             ds = gdal.Open(lyr.source())
             if ds is None:
@@ -6183,82 +6371,124 @@ class SectionAlgorithm(IsolinerAlgorithm):
             gt = ds.GetGeoTransform()
             ds = None
             surfs.append((a, gt, _short(lyr.name())))
-            cells.append(abs(gt[1]) or 1.0)
 
-        if step <= 0:
-            step = min(cells)
-        nseg = max(2, int(math.ceil(length / step)))
-        d = np.linspace(0.0, length, nseg + 1)
-        # вершины ломаной обязаны быть пикетами: равномерная сетка почти
-        # никогда не попадает в излом, и профиль с 3D-забором срезали бы
-        # угол хордой до полушага
-        vpts = [(v.x(), v.y()) for v in line_geom.vertices()]
-        if len(vpts) > 2:
-            vd = [0.0]
-            for i in range(1, len(vpts)):
-                vd.append(vd[-1] + math.hypot(vpts[i][0] - vpts[i - 1][0],
-                                              vpts[i][1] - vpts[i - 1][1]))
-            d = np.unique(np.concatenate([d, np.array(vd)]))
-            d = d[(d >= 0.0) & (d <= length)]
-            tol = max(length * 1e-9, 1e-9)
-            keep = np.concatenate([[True], np.diff(d) > tol])
-            d = d[keep]
-        xs = np.empty(len(d)); ys = np.empty(len(d))
-        for i, di in enumerate(d):
-            p = line_geom.interpolate(float(di))
-            pt = p.asPoint()
-            xs[i] = pt.x(); ys[i] = pt.y()
+        # Расчёт целиком в чистом ядре. Выборка растров отделена от сборки:
+        # сперва профили всех линий, по ним единый вертикальный масштаб на
+        # весь прогон, и только потом чертежи. Иначе разрезы вышли бы в разном
+        # масштабе и стали несопоставимы.
+        naxes = self.parameterAsInt(parameters, self.NAXES, context) or 5
+        samples, kept, skipped = [], [], []
+        for (geom, nm, fid) in lines:
+            vpts = [(v.x(), v.y()) for v in geom.vertices()]
+            try:
+                samples.append(_sc.sample_section(vpts, surfs, step, bilinear))
+                kept.append((geom, nm, fid))
+            except ValueError as exc:
+                skipped.append((nm, str(exc)))
+        if not samples:
+            raise QgsProcessingException(self.tr(
+                "Не удалось построить разрез: проверьте линию и поверхности."))
+        for nm, why in skipped:
+            feedback.pushWarning(_tr("Линия «%s» пропущена: %s") % (nm, why))
 
-        zs = [_sample_grid_points(a, gt, xs, ys, bilinear)
-              for (a, gt, _n) in surfs]
+        vex = _sc.common_vex(samples, vmode, vscale)
+        secs = [_sc.build_section(None, surfs, vex=vex, naxes=naxes, samples=sm)
+                for sm in samples]
 
-        allz = np.concatenate(zs)
-        dz = (float(np.nanmax(allz) - np.nanmin(allz))
-              if np.isfinite(allz).any() else 0.0)
-        vex = _section_vex(feedback, aspect_mode, vscale, length, dz)
-        if np.isfinite(allz).any():
-            zmn = float(np.nanmin(allz)); zmx = float(np.nanmax(allz))
+        # раскладка: первый разрез всегда в нуле, поэтому одиночный прогон
+        # совпадает с прежним поведением до координаты
+        offsets = _sc.layout_offsets([sc_.bbox_full for sc_ in secs],
+                                     mode=layout, ncols=ncols, gap_frac=gap) \
+            if len(secs) > 1 else [(0.0, 0.0)]
+
+        sec = secs[0]
+        d, xs, ys = sec.d, sec.xs, sec.ys
+        step = sec.step
+        zmn = min(s_.zmin for s_ in secs)
+        zmx = max(s_.zmax for s_ in secs)
+
+        # --- Диагностика на экран (панель «Журнал»): важна для слепой
+        # проверки на удалённых машинах, где файл-лог не забрать, а скриншот
+        # окна инструмента доступен. СК линии и первого растра, доля валидных
+        # проб, первая точка - по ним видно, совпадают ли СК и попадает ли
+        # линия на растры.
+        try:
+            _allz = np.concatenate(sec.zs)
+            _nall = int(_allz.size)
+            _nfin = int(np.isfinite(_allz).sum())
+            _r0 = surfs[0][1]
+            feedback.pushInfo(_tr(
+                "Диагностика разреза. СК линии: %s. Растр[0] origin "
+                "(%.3f, %.3f), пиксель (%.4g, %.4g).") % (
+                crs_line.authid() or "нет",
+                float(_r0[0]), float(_r0[3]), float(_r0[1]), float(_r0[5])))
+            feedback.pushInfo(_tr(
+                "Точек вдоль линии: %d. Первая точка: (%.3f, %.3f). "
+                "Валидных проб высот: %d из %d.") % (
+                len(d), float(xs[0]), float(ys[0]), _nfin, _nall))
+            if _nfin == 0:
+                feedback.pushWarning(_tr(
+                    "Все пробы высот - NaN. Вероятно линия и поверхности в "
+                    "разных СК или линия вне охвата растров."))
+        except Exception:  # nosec - диагностика не должна ронять расчёт
+            pass
+        if vmode == _sc.VMODE_SCALES:
+            feedback.pushInfo(_tr(
+                "Вертикальный масштаб: отношение масштабов Г:В = 1:%.4g, "
+                "множитель vex = %.4g.") % (vscale, vex))
         else:
-            zmn, zmx = 0.0, 1.0
-        pad = 0.05 * (zmx - zmn if zmx > zmn else 1.0)
-        frame_zmin, frame_zmax = zmn - pad, zmx + pad
+            _section_vex(feedback, aspect_mode, vscale,
+                         max(s_.length for s_ in secs),
+                         zmx - zmn if zmx > zmn else 0.0)
 
         crs_line = src.sourceCrs()
         f2 = self._fields()
         sink2d, dest2d = self.parameterAsSink(
             parameters, self.OUTPUT_2D, context, f2,
-            QgsWkbTypes.Type.Polygon, QgsCoordinateReferenceSystem())
+            QgsWkbTypes.Type.Polygon, _section_draw_crs())
         sink3d, dest3d = self.parameterAsSink(
             parameters, self.OUTPUT_3D, context, f2,
             QgsWkbTypes.Type.PolygonZ, crs_line)
         fdef = QgsFields()
+        fdef.append(QgsField("sec", QVariant.String))
+        fdef.append(QgsField("sec_id", QVariant.Int))
         fdef.append(QgsField("vex", QVariant.Double))
         fdef.append(QgsField("step", QVariant.Double))
         fdef.append(QgsField("zmin", QVariant.Double))
         fdef.append(QgsField("zmax", QVariant.Double))
+        # ox, oy - смещение чертежа в раскладке. Дочерние инструменты пока их
+        # не читают и кладут результат в нулевой слот, поддержку добавим им
+        # отдельно. Формат заложен сейчас, чтобы не переделывать слой потом.
+        fdef.append(QgsField("ox", QVariant.Double))
+        fdef.append(QgsField("oy", QVariant.Double))
         sinkdef, destdef = self.parameterAsSink(
             parameters, self.OUTPUT_DEF, context, fdef,
             QgsWkbTypes.Type.LineString, crs_line)
         if sinkdef is not None:
-            fd = QgsFeature(fdef)
-            fd.setGeometry(QgsGeometry(line_geom))
-            fd.setAttributes([round(vex, 6), step,
-                              round(frame_zmin, 6), round(frame_zmax, 6)])
-            sinkdef.addFeature(fd)
+            for (geom, nm, fid), sc_, off in zip(kept, secs, offsets):
+                fd = QgsFeature(fdef)
+                fd.setGeometry(QgsGeometry(geom))
+                fd.setAttributes([nm, fid, round(vex, 6), sc_.step,
+                                  round(sc_.frame_zmin, 6),
+                                  round(sc_.frame_zmax, 6),
+                                  round(off[0], 6), round(off[1], 6)])
+                sinkdef.addFeature(fd)
 
         # угловые точки/вертикали на узлах ломаной и горизонтальные оси
         # (в осях чертежа). Поля чертежа расширены на 5% вверх и вниз.
-        naxes = self.parameterAsInt(parameters, self.NAXES, context) or 5
         fcorn = QgsFields()
-        for nm, tp in (("num", QVariant.Int), ("name", QVariant.String),
+        for nm, tp in (("sec", QVariant.String), ("sec_id", QVariant.Int),
+                       ("num", QVariant.Int), ("name", QVariant.String),
                        ("pos", QVariant.String), ("d", QVariant.Double),
                        ("x", QVariant.Double), ("y", QVariant.Double),
                        ("az", QVariant.Double), ("label", QVariant.String)):
             fcorn.append(QgsField(nm, tp))
         faxis = QgsFields()
+        faxis.append(QgsField("sec", QVariant.String))
+        faxis.append(QgsField("sec_id", QVariant.Int))
         faxis.append(QgsField("elev", QVariant.Double))
         faxis.append(QgsField("label", QVariant.String))
-        crs0 = QgsCoordinateReferenceSystem()
+        crs0 = _section_draw_crs()
         sinkc, destc = self.parameterAsSink(
             parameters, self.OUTPUT_CORNERS, context, fcorn,
             QgsWkbTypes.Type.Point, crs0)
@@ -6269,6 +6499,8 @@ class SectionAlgorithm(IsolinerAlgorithm):
             parameters, self.OUTPUT_AXES, context, faxis,
             QgsWkbTypes.Type.LineString, crs0)
         ftab = QgsFields()
+        ftab.append(QgsField("sec", QVariant.String))
+        ftab.append(QgsField("sec_id", QVariant.Int))
         ftab.append(QgsField("kind", QVariant.String))
         ftab.append(QgsField("text", QVariant.String))
         sinktab, desttab = self.parameterAsSink(
@@ -6281,132 +6513,130 @@ class SectionAlgorithm(IsolinerAlgorithm):
         if sinktab is not None:
             _attach_style(context, desttab, _style_path("section_table"))
 
-        ytop = frame_zmax * vex
-        ybot = frame_zmin * vex
-
-        cn_name, cn_az, cn_d = [], [], []
-        if sinkc is not None or sinkcv is not None or sinktab is not None:
-            vx = [(v.x(), v.y()) for v in line_geom.vertices()]
-            if len(vx) >= 2:
-                seg = []
-                for i in range(len(vx) - 1):
-                    dx = vx[i + 1][0] - vx[i][0]; dy = vx[i + 1][1] - vx[i][1]
-                    seg.append((math.degrees(math.atan2(dx, dy)) + 360.0) % 360.0)
-                dd = [0.0]
-                for i in range(1, len(vx)):
-                    dd.append(dd[-1] + math.hypot(vx[i][0] - vx[i - 1][0],
-                                                  vx[i][1] - vx[i - 1][1]))
-                for i in range(len(vx)):
-                    az = seg[i] if i < len(seg) else seg[-1]
-                    name = "УГ-%d" % (i + 1)
-                    xr = round(vx[i][0], 2); yr = round(vx[i][1], 2)
-                    dr = round(dd[i], 2); ar = round(az, 2)
-                    cn_name.append(name); cn_az.append(ar); cn_d.append(dr)
-                    botlab = "X %.2f\nY %.2f" % (xr, yr)
-                    base = [i + 1, name]
-                    tail = [dr, xr, yr, ar]
-                    if sinkc is not None:
-                        ft = QgsFeature(fcorn)
-                        ft.setGeometry(QgsGeometry.fromPointXY(
-                            QgsPointXY(float(dd[i]), ytop)))
-                        ft.setAttributes(base + ["верх"] + tail + [name])
-                        sinkc.addFeature(ft)
-                        fb = QgsFeature(fcorn)
-                        fb.setGeometry(QgsGeometry.fromPointXY(
-                            QgsPointXY(float(dd[i]), ybot)))
-                        fb.setAttributes(base + ["низ"] + tail + [botlab])
-                        sinkc.addFeature(fb)
-                    if sinkcv is not None:
-                        fv = QgsFeature(fcorn)
-                        fv.setGeometry(QgsGeometry.fromPolylineXY(
-                            [QgsPointXY(float(dd[i]), ybot),
-                             QgsPointXY(float(dd[i]), ytop)]))
-                        fv.setAttributes(base + ["", dr, xr, yr, ar, name])
-                        sinkcv.addFeature(fv)
-
-        if sinktab is not None and len(vx) >= 2:
-            # таблица под разрезом: ячейки МЕЖДУ угловыми точками (границы под
-            # вертикалями), две строки - длина и азимут отрезка. Слева подписи.
-            n = len(vx)
-            H = ytop - ybot
-            gap = 0.06 * H
-            rowh = 0.07 * H
-            wlbl = 0.06 * length if length > 0 else 1.0
-            top = ybot - gap
-
-            def _cell(cx0, cx1, ry0, ry1, text):
-                fc = QgsFeature(ftab)
-                fc.setGeometry(QgsGeometry.fromPolygonXY([[
-                    QgsPointXY(cx0, ry0), QgsPointXY(cx1, ry0),
-                    QgsPointXY(cx1, ry1), QgsPointXY(cx0, ry1),
-                    QgsPointXY(cx0, ry0)]]))
-                fc.setAttributes(["cell", text])
-                sinktab.addFeature(fc)
-
-            # левый столбец подписей: верх - d, низ - Аз
-            for r, txt in ((0, "d"), (1, "Аз")):
-                _cell(-wlbl, 0.0, top - (r + 1) * rowh, top - r * rowh, txt)
-            # столбцы-отрезки между соседними углами
-            for k in range(n - 1):
-                x0 = float(dd[k]); x1 = float(dd[k + 1])
-                seglen = dd[k + 1] - dd[k]
-                for r, val in ((0, "%.2f" % seglen), (1, "%.2f" % seg[k])):
-                    _cell(x0, x1, top - (r + 1) * rowh, top - r * rowh, val)
-
-        if sinkax is not None:
-            for z in _nice_ticks(zmn, zmx, naxes):
-                fa = QgsFeature(faxis)
-                fa.setGeometry(QgsGeometry.fromPolylineXY(
-                    [QgsPointXY(0.0, z * vex), QgsPointXY(length, z * vex)]))
-                fa.setAttributes([round(z, 2), "%.2f" % z])
-                sinkax.addFeature(fa)
-
+        # Запись всех разрезов в один комплект слоёв. Разрезы различаются
+        # полями sec и sec_id, а в чертёжной СК разведены смещением раскладки.
+        # Один комплект вместо комплекта на линию: подписи и фильтры делаются
+        # выражением по полю, стили не назначаются заново, панель слоёв не
+        # раздувается.
         nbed = 0
-        for k in range(len(surfs) - 1):
-            ztop, zbot = zs[k], zs[k + 1]
-            valid = np.isfinite(ztop) & np.isfinite(zbot) & (ztop > zbot)
-            if not valid.any():
+        n_skipped_2d = 0
+        n_built = 0
+        for (geom, nm, fid), sc_, (ox, oy) in zip(kept, secs, offsets):
+            ytop, ybot = sc_.ytop + oy, sc_.ybot + oy
+            length = sc_.length
+            tag = [nm, fid]
+            if not sc_.beds:
+                feedback.pushWarning(_tr(
+                    "Линия «%s» не пересекает поверхности, разрез пуст.") % nm)
                 continue
-            tname, bname = surfs[k][2], surfs[k + 1][2]
-            tmean = float(np.nanmean((ztop - zbot)[valid]))
-            for (i0, i1) in _valid_runs(valid):
-                idx = range(i0, i1 + 1)
-                ridx = range(i1, i0 - 1, -1)
-                # 2D: расстояние по X, высота по Y (с преувеличением)
-                if sink2d is not None:
-                    ring = [QgsPointXY(float(d[i]), float(ztop[i] * vex))
-                            for i in idx]
-                    ring += [QgsPointXY(float(d[i]), float(zbot[i] * vex))
-                             for i in ridx]
-                    ring.append(QgsPointXY(ring[0].x(), ring[0].y()))
-                    fa = QgsFeature(f2)
-                    fa.setGeometry(QgsGeometry.fromPolygonXY([ring]))
-                    fa.setAttributes([k + 1, tname, bname, tmean, length])
-                    sink2d.addFeature(fa)
-                # 3D: вертикальная стенка PolygonZ в реальных координатах
-                if sink3d is not None:
-                    pts = [QgsPoint(float(xs[i]), float(ys[i]), float(ztop[i]))
-                           for i in idx]
-                    pts += [QgsPoint(float(xs[i]), float(ys[i]), float(zbot[i]))
-                            for i in ridx]
-                    pts.append(QgsPoint(pts[0].x(), pts[0].y(), pts[0].z()))
-                    poly = QgsPolygon()
-                    poly.setExteriorRing(QgsLineString(pts))
-                    fb = QgsFeature(f2)
-                    fb.setGeometry(QgsGeometry(poly))
-                    fb.setAttributes([k + 1, tname, bname, tmean, length])
-                    sink3d.addFeature(fb)
-            nbed += 1
-            feedback.pushInfo(_tr(
-                "Пласт %d (%s / %s): средняя мощность %.4g ед.")
-                % (k + 1, tname, bname, tmean))
+            n_built += 1
+
+            for c in sc_.corners:
+                cname = "УГ-%d" % c["num"]
+                cx = float(c["d"]) + ox
+                base = tag + [c["num"], cname]
+                tail = [c["d"], c["x"], c["y"], c["az"]]
+                if sinkc is not None:
+                    ft = QgsFeature(fcorn)
+                    ft.setGeometry(QgsGeometry.fromPointXY(
+                        QgsPointXY(cx, ytop)))
+                    ft.setAttributes(base + ["верх"] + tail + [cname])
+                    sinkc.addFeature(ft)
+                    fb = QgsFeature(fcorn)
+                    fb.setGeometry(QgsGeometry.fromPointXY(
+                        QgsPointXY(cx, ybot)))
+                    fb.setAttributes(base + ["низ"] + tail
+                                     + ["X %.2f\nY %.2f" % (c["x"], c["y"])])
+                    sinkc.addFeature(fb)
+                if sinkcv is not None:
+                    fv = QgsFeature(fcorn)
+                    fv.setGeometry(QgsGeometry.fromPolylineXY(
+                        [QgsPointXY(cx, ybot), QgsPointXY(cx, ytop)]))
+                    fv.setAttributes(base + [""] + tail + [cname])
+                    sinkcv.addFeature(fv)
+
+            if sinktab is not None:
+                for (text, ring) in sc_.table:
+                    fc = QgsFeature(ftab)
+                    fc.setGeometry(QgsGeometry.fromPolygonXY(
+                        [[QgsPointXY(float(px) + ox, float(py) + oy)
+                          for (px, py) in ring]]))
+                    fc.setAttributes(tag + ["cell", text])
+                    sinktab.addFeature(fc)
+
+            if sinkax is not None:
+                for z in sc_.ticks:
+                    fa = QgsFeature(faxis)
+                    fa.setGeometry(QgsGeometry.fromPolylineXY(
+                        [QgsPointXY(ox, z * vex + oy),
+                         QgsPointXY(length + ox, z * vex + oy)]))
+                    fa.setAttributes(tag + [round(z, 2), "%.2f" % z])
+                    sinkax.addFeature(fa)
+
+            for bed in sc_.beds:
+                tname, bname = bed["top"], bed["bot"]
+                tmean = bed["t_mean"]
+                attrs = tag + [bed["bed"], tname, bname, tmean, length]
+                for run in bed["runs"]:
+                    # 2D: расстояние по X, высота по Y (с преувеличением).
+                    # Робастность: вырожденную геометрию (пустую, нулевой
+                    # площади, с не-конечными координатами) пропускаем, чтобы
+                    # не плодить объекты с атрибутами, но без видимой
+                    # геометрии - этот симптом всплывал на удалённых машинах.
+                    if sink2d is not None:
+                        if run["degenerate"]:
+                            n_skipped_2d += 1
+                        else:
+                            fa = QgsFeature(f2)
+                            fa.setGeometry(QgsGeometry.fromPolygonXY(
+                                [[QgsPointXY(float(px) + ox, float(py) + oy)
+                                  for (px, py) in run["ring2d"]]]))
+                            fa.setAttributes(attrs)
+                            sink2d.addFeature(fa)
+                    # 3D: вертикальная стенка PolygonZ в реальных координатах.
+                    # Раскладка её не касается, забор стоит на своём месте.
+                    if sink3d is not None:
+                        poly = QgsPolygon()
+                        poly.setExteriorRing(QgsLineString(
+                            [QgsPoint(float(px), float(py), float(pz))
+                             for (px, py, pz) in run["ring3d"]]))
+                        fb = QgsFeature(f2)
+                        fb.setGeometry(QgsGeometry(poly))
+                        fb.setAttributes(attrs)
+                        sink3d.addFeature(fb)
+                nbed += 1
+                if len(secs) == 1:
+                    feedback.pushInfo(_tr(
+                        "Пласт %d (%s / %s): средняя мощность %.4g ед.")
+                        % (bed["bed"], tname, bname, tmean))
+            if len(secs) > 1:
+                feedback.pushInfo(_tr(
+                    "Разрез «%s»: пластов %d, длина %.4g ед., смещение "
+                    "(%.4g, %.4g).") % (nm, len(sc_.beds), length, ox, oy))
 
         if nbed == 0:
             raise QgsProcessingException(self.tr(
                 "Линия не пересекает поверхности: разрез пуст."))
-        feedback.pushInfo(_tr(
-            "Разрез построен: %d пластов, длина %.4g ед., шаг %.4g.")
-            % (nbed, length, step))
+        if len(secs) == 1:
+            feedback.pushInfo(_tr(
+                "Разрез построен: %d пластов, длина %.4g ед., шаг %.4g.")
+                % (nbed, secs[0].length, step))
+        else:
+            # сводка на экран: на удалённых машинах это единственный канал
+            # обратной связи, поэтому ключевые числа в одну строку
+            total = _sc.union_bbox([_sc.offset_bbox(s_.bbox_full, o)
+                                    for s_, o in zip(secs, offsets)])
+            feedback.pushInfo(_tr(
+                "Пакет: линий %d, построено %d, пропущено %d. Общий vex "
+                "%.4g, шаг %.4g.") % (len(lines), n_built,
+                                      len(lines) - n_built, vex, step))
+            feedback.pushInfo(_tr(
+                "Габарит раскладки: X от %.4g до %.4g, Y от %.4g до %.4g.")
+                % (total[0], total[2], total[1], total[3]))
+        if n_skipped_2d:
+            feedback.pushWarning(_tr(
+                "Пропущено вырожденных полигонов чертежа: %d (пустые или "
+                "нулевой площади, в слой не добавлены).") % n_skipped_2d)
         res = {}
         if sink2d is not None:
             _set_output_name(context, dest2d, _tr("Разрез (чертёж)"))
@@ -6430,7 +6660,15 @@ class SectionAlgorithm(IsolinerAlgorithm):
             _set_output_name(context, desttab, _tr("Таблица углов разреза"))
             res[self.OUTPUT_TABLE] = desttab
         _save_values(self, _saved)
-        _set_group(context, GRP_SECTION, list(res.values()), force=True, history=_provenance(self, parameters))
+        # Явный порядок в дереве: оформление сверху, иначе полосы пластов
+        # закроют точки, оси и таблицу. Определение разреза служебное, вниз.
+        ordered_keys = (self.OUTPUT_CORNERS, self.OUTPUT_CORNERS_V,
+                        self.OUTPUT_AXES, self.OUTPUT_TABLE,
+                        self.OUTPUT_2D, self.OUTPUT_3D, self.OUTPUT_DEF)
+        ordered = [res[k] for k in ordered_keys if k in res]
+        ordered += [v for k, v in res.items() if k not in ordered_keys]
+        _set_group(context, GRP_SECTION, ordered, force=True, order=True,
+                   history=_provenance(self, parameters))
         return res
 
 
@@ -6497,8 +6735,9 @@ class BoreholesOnSectionAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.CORRIDOR, 0.0), minValue=0.0))
         self.addParameter(QgsProcessingParameterEnum(
             self.VMODE, self.tr("Вертикальный масштаб"),
-            options=[self.tr("отношение Г:В (ширина:высота)"),
-                     self.tr("множитель")],
+            options=[self.tr("отношение Г:В (ширина:высота чертежа)"),
+                     self.tr("множитель"),
+                     self.tr("отношение масштабов Г:В (1:N)")],
             defaultValue=_dv(self, self.VMODE, 0)))
         self.addParameter(QgsProcessingParameterNumber(
             self.VEXAG, self.tr("Значение масштаба (отношение Г:В или множитель)"),
@@ -6547,7 +6786,7 @@ class BoreholesOnSectionAlgorithm(IsolinerAlgorithm):
         f_lab.append(QgsField("well", QVariant.String))
         f_lab.append(QgsField("offset", QVariant.Double))
 
-        crs0 = QgsCoordinateReferenceSystem()
+        crs0 = _section_draw_crs()
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, f_seg,
             QgsWkbTypes.Type.LineString, crs0)
@@ -6707,8 +6946,9 @@ class CompositionOnSectionAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.STEP, 0.0), minValue=0.0))
         self.addParameter(QgsProcessingParameterEnum(
             self.VMODE, self.tr("Вертикальный масштаб"),
-            options=[self.tr("отношение Г:В (ширина:высота)"),
-                     self.tr("множитель")],
+            options=[self.tr("отношение Г:В (ширина:высота чертежа)"),
+                     self.tr("множитель"),
+                     self.tr("отношение масштабов Г:В (1:N)")],
             defaultValue=_dv(self, self.VMODE, 0)))
         self.addParameter(QgsProcessingParameterNumber(
             self.VEXAG, self.tr("Значение масштаба (отношение Г:В или множитель)"),
@@ -6811,7 +7051,7 @@ class CompositionOnSectionAlgorithm(IsolinerAlgorithm):
         crs_line = lsrc.sourceCrs()
         sink2d, dest2d = self.parameterAsSink(
             parameters, self.OUTPUT_2D, context, f,
-            QgsWkbTypes.Type.Polygon, QgsCoordinateReferenceSystem())
+            QgsWkbTypes.Type.Polygon, _section_draw_crs())
         sink3d, dest3d = self.parameterAsSink(
             parameters, self.OUTPUT_3D, context, f,
             QgsWkbTypes.Type.PolygonZ, crs_line)
@@ -6874,27 +7114,106 @@ class CompositionOnSectionAlgorithm(IsolinerAlgorithm):
         return res
 
 
-def _read_section_def(src, default_vex=1.0):
-    """Определение разреза: геометрия первой линии плюс vex и step из полей
-    (если есть). Это общий источник линии и масштаба для инструментов разреза."""
-    line, vex, step = None, default_vex, 0.0
+def _def_num(ft, name, names, fallback=0.0):
+    """Число из поля определения разреза, если поле есть и читается."""
+    if name not in names:
+        return fallback
+    try:
+        v = ft[name]
+        return fallback if v is None else float(v)
+    except (TypeError, ValueError, KeyError):
+        return fallback
+
+
+def _read_section_defs(src, default_vex=1.0):
+    """Все определения разреза из слоя, по одному на разрез.
+
+    «Разрез по линии» в пакетном режиме пишет по объекту на каждую линию, с
+    именем sec, номером sec_id и смещением раскладки ox, oy. Слои от прежних
+    версий этих полей не имеют, поэтому чтение мягкое: имя выходит пустым,
+    смещение нулевым, и инструмент ведёт себя как раньше.
+
+    Возвращает список словарей. Порядок объектов слоя сохраняется, поэтому
+    фильтр или выборка на слое определения задают, какие разрезы обрабатывать.
+    """
     names = [f.name().lower() for f in src.fields()]
-    for ft in src.getFeatures():
+    out = []
+    for i, ft in enumerate(src.getFeatures()):
         g = ft.geometry()
-        if g is not None and not g.isEmpty():
-            line = QgsGeometry(g)
-            if "vex" in names:
-                try:
-                    vex = float(ft["vex"]) or default_vex
-                except (TypeError, ValueError, KeyError):
-                    pass
-            if "step" in names:
-                try:
-                    step = float(ft["step"]) or 0.0
-                except (TypeError, ValueError, KeyError):
-                    pass
-            break
-    return line, vex, step
+        if g is None or g.isEmpty():
+            continue
+        sec = None
+        if "sec" in names:
+            try:
+                raw = ft["sec"]
+                sec = None if raw is None else str(raw).strip() or None
+            except (KeyError, IndexError):
+                sec = None
+        out.append({
+            "line": QgsGeometry(g),
+            "sec": sec if sec else _tr("Разрез %d") % (i + 1),
+            "sec_id": int(_def_num(ft, "sec_id", names, i + 1)),
+            "vex": _def_num(ft, "vex", names, default_vex) or default_vex,
+            "step": _def_num(ft, "step", names, 0.0),
+            "zmin": _def_num(ft, "zmin", names, float("nan")),
+            "zmax": _def_num(ft, "zmax", names, float("nan")),
+            "ox": _def_num(ft, "ox", names, 0.0),
+            "oy": _def_num(ft, "oy", names, 0.0),
+        })
+    return out
+
+
+def _def_extent(d):
+    """Размах рамки из определения или None, если полей не было."""
+    zmn, zmx = d.get("zmin"), d.get("zmax")
+    if zmn is None or zmx is None:
+        return None
+    if not (math.isfinite(zmn) and math.isfinite(zmx)) or not (zmx > zmn):
+        return None
+    return (zmn, zmx)
+
+
+def _defs_or_raise(alg, src, default_vex=1.0):
+    """Определения разреза или понятная ошибка. Заодно печатает сводку на
+    экран: на удалённых машинах журнал инструмента единственный канал."""
+    defs = _read_section_defs(src, default_vex)
+    if not defs:
+        raise QgsProcessingException(alg.tr("В определении нет линии."))
+    return defs
+
+
+def _log_defs(feedback, defs):
+    """Сводка по определениям на экран. Компактно, чтобы влезло в скриншот с
+    удалённой машины, где файл-лог недоступен."""
+    try:
+        if len(defs) == 1:
+            feedback.pushInfo(_tr("Разрез «%s», множитель vex %.4g.")
+                              % (defs[0]["sec"], defs[0]["vex"]))
+            return
+        vexes = {round(d["vex"], 6) for d in defs}
+        feedback.pushInfo(_tr("Разрезов в определении: %d. Множитель vex %s.")
+                          % (len(defs),
+                             ("%.4g" % defs[0]["vex"]) if len(vexes) == 1
+                             else _tr("разный")))
+        if len(vexes) > 1:
+            feedback.pushWarning(_tr(
+                "У разрезов разный вертикальный масштаб, чертежи будут "
+                "несопоставимы. Пересоберите их одним прогоном 4.01."))
+    except Exception:  # nosec - сводка не должна ронять расчёт
+        pass
+
+
+def _read_section_def(src, default_vex=1.0):
+    """Первое определение в старой форме (линия, vex, шаг).
+
+    Оставлено для мест, где разрез заведомо один. Новый код берёт
+    _read_section_defs и обрабатывает все разрезы слоя.
+    """
+    defs = _read_section_defs(src, default_vex)
+    if not defs:
+        return None, default_vex, 0.0
+    d = defs[0]
+    return d["line"], d["vex"], d["step"]
 
 
 def _read_section_extent(src):
@@ -6985,24 +7304,22 @@ class SectionGridIntersectAlgorithm(IsolinerAlgorithm):
                 "Нужны определение разреза и хотя бы один грид."))
         step = self.parameterAsDouble(parameters, self.STEP, context)
         bilinear = self.parameterAsEnum(parameters, self.SAMPLING, context) == 0
-        line, vex, dstep = _read_section_def(src)
-        if line is None:
-            raise QgsProcessingException(self.tr("В определении нет линии."))
-        feedback.pushInfo(_tr("Множитель vex из определения: %.4g.") % vex)
-        length = float(line.length())
-        if step <= 0:
-            step = dstep if dstep > 0 else 0.0
+        defs = _defs_or_raise(self, src)
+        _log_defs(feedback, defs)
 
         f = QgsFields()
+        f.append(QgsField("sec", QVariant.String))
+        f.append(QgsField("sec_id", QVariant.Int))
         f.append(QgsField("surface", QVariant.String))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, f,
-            QgsWkbTypes.Type.LineString, QgsCoordinateReferenceSystem())
+            QgsWkbTypes.Type.LineString, _section_draw_crs())
         sink3, dest3 = self.parameterAsSink(
             parameters, self.OUTPUT_3D, context, f,
             QgsWkbTypes.Type.LineStringZ, src.sourceCrs())
 
-        n = 0
+        # Растры читаем один раз на весь прогон, а не по разу на разрез.
+        loaded = []
         for lyr in grids:
             ds = gdal.Open(lyr.source())
             if ds is None:
@@ -7014,26 +7331,39 @@ class SectionGridIntersectAlgorithm(IsolinerAlgorithm):
                 arr = np.where(arr == nd, np.nan, arr)
             gt = ds.GetGeoTransform()
             ds = None
-            st = step if step > 0 else (abs(gt[1]) or 1.0)
-            d, xs, ys = _line_points(line, length, st)
-            z = _sample_grid_points(arr, gt, xs, ys, bilinear)
-            nm = _short(lyr.name())
-            for (i0, i1) in _valid_runs(np.isfinite(z)):
-                idx = range(i0, i1 + 1)
-                if sink is not None:
-                    fa = QgsFeature(f)
-                    fa.setGeometry(QgsGeometry.fromPolylineXY(
-                        [QgsPointXY(float(d[i]), float(z[i] * vex)) for i in idx]))
-                    fa.setAttributes([nm]); sink.addFeature(fa)
-                if sink3 is not None:
-                    fb = QgsFeature(f)
-                    fb.setGeometry(QgsGeometry(QgsLineString(
-                        [QgsPoint(float(xs[i]), float(ys[i]), float(z[i]))
-                         for i in idx])))
-                    fb.setAttributes([nm]); sink3.addFeature(fb)
-            n += 1
-        if n == 0:
+            loaded.append((arr, gt, _short(lyr.name())))
+        if not loaded:
             raise QgsProcessingException(self.tr("Гриды не открылись."))
+
+        n = 0
+        for dd in defs:
+            line, vex = dd["line"], dd["vex"]
+            ox, oy = dd["ox"], dd["oy"]
+            tag = [dd["sec"], dd["sec_id"]]
+            length = float(line.length())
+            st0 = step if step > 0 else (dd["step"] if dd["step"] > 0 else 0.0)
+            for (arr, gt, nm) in loaded:
+                st = st0 if st0 > 0 else (abs(gt[1]) or 1.0)
+                d, xs, ys = _line_points(line, length, st)
+                z = _sample_grid_points(arr, gt, xs, ys, bilinear)
+                for (i0, i1) in _valid_runs(np.isfinite(z)):
+                    idx = range(i0, i1 + 1)
+                    if sink is not None:
+                        fa = QgsFeature(f)
+                        fa.setGeometry(QgsGeometry.fromPolylineXY(
+                            [QgsPointXY(float(d[i]) + ox,
+                                        float(z[i] * vex) + oy) for i in idx]))
+                        fa.setAttributes(tag + [nm])
+                        sink.addFeature(fa)
+                    # 3D в реальных координатах, раскладка его не двигает
+                    if sink3 is not None:
+                        fb = QgsFeature(f)
+                        fb.setGeometry(QgsGeometry(QgsLineString(
+                            [QgsPoint(float(xs[i]), float(ys[i]), float(z[i]))
+                             for i in idx])))
+                        fb.setAttributes(tag + [nm])
+                        sink3.addFeature(fb)
+                n += 1
         feedback.pushInfo(_tr("Нанесено поверхностей: %d.") % n)
         res = {self.OUTPUT: dest}
         _set_output_name(context, dest, _tr("Поверхности на разрезе"))
@@ -7123,30 +7453,25 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
         if src is None or not layers:
             raise QgsProcessingException(self.tr(
                 "Нужны определение разреза и хотя бы один слой для пересечения."))
-        line, vex, _step = _read_section_def(src)
-        if line is None:
-            raise QgsProcessingException(self.tr("В определении нет линии."))
-        feedback.pushInfo(_tr("Множитель vex из определения: %.4g.") % vex)
+        defs = _defs_or_raise(self, src)
+        _log_defs(feedback, defs)
+        scrs = src.sourceCrs()
 
-        ybot = ytop = None
-        ext_def = _read_section_extent(src)
-        if ext_def is not None:
-            ybot, ytop = ext_def[0] * vex, ext_def[1] * vex
-            feedback.pushInfo(_tr("Высота рамки из определения: %.4g..%.4g.")
-                              % (ext_def[0], ext_def[1]))
-        if ybot is None:
+        def _frame(dd):
+            """Низ и верх рамки для одного разреза, в осях чертежа."""
+            ext_def = _def_extent(dd)
+            if ext_def is not None:
+                return ext_def[0] * dd["vex"], ext_def[1] * dd["vex"]
             sec2d = self.parameterAsSource(parameters, self.SECTION2D, context)
             if sec2d is not None:
                 ext = sec2d.sourceExtent()
                 if ext is not None and not ext.isEmpty():
-                    ybot, ytop = ext.yMinimum(), ext.yMaximum()
-        if ybot is None:
+                    return ext.yMinimum(), ext.yMaximum()
             zmn = self.parameterAsDouble(parameters, self.ZMIN, context)
             zmx = self.parameterAsDouble(parameters, self.ZMAX, context)
             if zmx > zmn:
-                ybot, ytop = zmn * vex, zmx * vex
-        have_height = ybot is not None
-        scrs = src.sourceCrs()
+                return zmn * dd["vex"], zmx * dd["vex"]
+            return None, None
 
         def _pick_label(fields):
             low = {f.name().lower(): f.name() for f in fields}
@@ -7157,69 +7482,85 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
 
         pts, lns, bds = [], [], []
         warned_h = False
-        for lyr in layers:
-            if lyr is None:
-                continue
-            sname = _short(lyr.name())
-            lf = _pick_label(lyr.fields())
-            tcrs = lyr.crs()
-            xform = None
-            if scrs.isValid() and tcrs.isValid() and scrs != tcrs:
-                xform = QgsCoordinateTransform(
-                    tcrs, scrs, context.transformContext())
-            for ft in lyr.getFeatures():
-                if feedback.isCanceled():
-                    break
-                g = ft.geometry()
-                if g is None or g.isEmpty():
+        for dd in defs:
+            # каждый разрез обрабатывается своей линией, своим масштабом и
+            # своим смещением раскладки, результат копится в общие списки
+            line, vex = dd["line"], dd["vex"]
+            ox, oy = dd["ox"], dd["oy"]
+            tag = [dd["sec"], dd["sec_id"]]
+            ybot, ytop = _frame(dd)
+            have_height = ybot is not None
+            if have_height:
+                ybot, ytop = ybot + oy, ytop + oy
+            for lyr in layers:
+                if lyr is None:
                     continue
-                if xform is not None:
-                    g = QgsGeometry(g)
-                    g.transform(xform)
-                lab = sname
-                if lf:
-                    try:
-                        lab = str(ft[lf])
-                    except Exception:
-                        lab = sname
-                is_poly = (g.type() == QgsWkbTypes.GeometryType.PolygonGeometry)
-                ag = g.constGet()
-                has_z = bool(ag.is3D()) if ag is not None else False
-                inter = line.intersection(g)
-                if inter is None or inter.isEmpty():
-                    continue
-                for part in inter.asGeometryCollection():
-                    pt = part.type()
-                    if pt == QgsWkbTypes.GeometryType.PointGeometry:
-                        pxy = part.asPoint()
-                        d = float(line.lineLocatePoint(
-                            QgsGeometry.fromPointXY(pxy)))
-                        if has_z and not is_poly:
-                            dz = float(g.lineLocatePoint(
+                sname = _short(lyr.name())
+                lf = _pick_label(lyr.fields())
+                tcrs = lyr.crs()
+                xform = None
+                if scrs.isValid() and tcrs.isValid() and scrs != tcrs:
+                    xform = QgsCoordinateTransform(
+                        tcrs, scrs, context.transformContext())
+                for ft in lyr.getFeatures():
+                    if feedback.isCanceled():
+                        break
+                    g = ft.geometry()
+                    if g is None or g.isEmpty():
+                        continue
+                    if xform is not None:
+                        g = QgsGeometry(g)
+                        g.transform(xform)
+                    lab = sname
+                    if lf:
+                        try:
+                            lab = str(ft[lf])
+                        except Exception:
+                            lab = sname
+                    is_poly = (g.type() == QgsWkbTypes.GeometryType.PolygonGeometry)
+                    ag = g.constGet()
+                    has_z = bool(ag.is3D()) if ag is not None else False
+                    inter = line.intersection(g)
+                    if inter is None or inter.isEmpty():
+                        continue
+                    for part in inter.asGeometryCollection():
+                        pt = part.type()
+                        if pt == QgsWkbTypes.GeometryType.PointGeometry:
+                            pxy = part.asPoint()
+                            d = float(line.lineLocatePoint(
                                 QgsGeometry.fromPointXY(pxy)))
-                            zg = g.interpolate(dz)
-                            zval = (zg.vertexAt(0).z()
-                                    if zg is not None and not zg.isEmpty()
-                                    else float("nan"))
-                            if zval == zval:
-                                pts.append((d, float(zval), sname, lab))
-                        elif have_height:
-                            lns.append((d, sname, lab))
-                        else:
-                            warned_h = True
-                    elif pt == QgsWkbTypes.GeometryType.LineGeometry:
-                        poly = part.asPolyline()
-                        if len(poly) < 2:
-                            continue
-                        d1 = float(line.lineLocatePoint(
-                            QgsGeometry.fromPointXY(poly[0])))
-                        d2 = float(line.lineLocatePoint(
-                            QgsGeometry.fromPointXY(poly[-1])))
-                        a, b = min(d1, d2), max(d1, d2)
-                        if not have_height:
-                            warned_h = True
-                        elif b > a:
-                            bds.append((a, b, sname, lab))
+                            if has_z and not is_poly:
+                                dz = float(g.lineLocatePoint(
+                                    QgsGeometry.fromPointXY(pxy)))
+                                zg = g.interpolate(dz)
+                                zval = (zg.vertexAt(0).z()
+                                        if zg is not None and not zg.isEmpty()
+                                        else float("nan"))
+                                if zval == zval:
+                                    pts.append(tuple(tag) + (
+                                        d + ox, float(zval),
+                                        float(zval) * vex + oy,
+                                        sname, lab))
+                            elif have_height:
+                                lns.append(tuple(tag) + (
+                                    d + ox, ybot, ytop, sname, lab))
+                            else:
+                                warned_h = True
+                        elif pt == QgsWkbTypes.GeometryType.LineGeometry:
+                            poly = part.asPolyline()
+                            if len(poly) < 2:
+                                continue
+                            d1 = float(line.lineLocatePoint(
+                                QgsGeometry.fromPointXY(poly[0])))
+                            d2 = float(line.lineLocatePoint(
+                                QgsGeometry.fromPointXY(poly[-1])))
+                            a, b = min(d1, d2), max(d1, d2)
+                            if not have_height:
+                                warned_h = True
+                            elif b > a:
+                                bds.append(tuple(tag) + (
+                                    a + ox, b + ox, ybot, ytop,
+                                    sname, lab))
         if warned_h:
             feedback.pushWarning(_tr(
                 "Для объектов без отметки Z нужна высота рамки. Возьмите "
@@ -7229,10 +7570,12 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
         feedback.pushInfo(_tr("Пересечения: точек %d, вертикалей %d, полос %d.")
                           % (len(pts), len(lns), len(bds)))
 
-        empty = QgsCoordinateReferenceSystem()
+        empty = _section_draw_crs()
         res = {}
         if pts:
             fpoints = QgsFields()
+            fpoints.append(QgsField("sec", QVariant.String))
+            fpoints.append(QgsField("sec_id", QVariant.Int))
             fpoints.append(QgsField("src", QVariant.String))
             fpoints.append(QgsField("label", QVariant.String))
             fpoints.append(QgsField("d", QVariant.Double))
@@ -7240,34 +7583,38 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             sp, dp = self.parameterAsSink(parameters, self.OUT_POINTS, context,
                                           fpoints, QgsWkbTypes.Type.Point, empty)
             if sp is not None:
-                for d, z, sname, lab in pts:
+                for sec, sid, d, z, ydraw, sname, lab in pts:
                     fa = QgsFeature(fpoints)
                     fa.setGeometry(QgsGeometry.fromPointXY(
-                        QgsPointXY(d, z * vex)))
-                    fa.setAttributes([sname, lab, d, z])
+                        QgsPointXY(d, ydraw)))
+                    fa.setAttributes([sec, sid, sname, lab, d, z])
                     sp.addFeature(fa)
                 res[self.OUT_POINTS] = dp
                 _set_output_name(context, dp, _tr("Точки на разрезе"))
                 _attach_style(context, dp, _style_path("section_vpoints"))
         if lns:
             flines = QgsFields()
+            flines.append(QgsField("sec", QVariant.String))
+            flines.append(QgsField("sec_id", QVariant.Int))
             flines.append(QgsField("src", QVariant.String))
             flines.append(QgsField("label", QVariant.String))
             flines.append(QgsField("d", QVariant.Double))
             sl, dl = self.parameterAsSink(parameters, self.OUT_LINES, context,
                                           flines, QgsWkbTypes.Type.LineString, empty)
             if sl is not None:
-                for d, sname, lab in lns:
+                for sec, sid, d, yb, yt, sname, lab in lns:
                     fa = QgsFeature(flines)
                     fa.setGeometry(QgsGeometry.fromPolylineXY(
-                        [QgsPointXY(d, ybot), QgsPointXY(d, ytop)]))
-                    fa.setAttributes([sname, lab, d])
+                        [QgsPointXY(d, yb), QgsPointXY(d, yt)]))
+                    fa.setAttributes([sec, sid, sname, lab, d])
                     sl.addFeature(fa)
                 res[self.OUT_LINES] = dl
                 _set_output_name(context, dl, _tr("Вертикали на разрезе"))
                 _attach_style(context, dl, _style_path("section_vlines"))
         if bds:
             fbands = QgsFields()
+            fbands.append(QgsField("sec", QVariant.String))
+            fbands.append(QgsField("sec_id", QVariant.Int))
             fbands.append(QgsField("src", QVariant.String))
             fbands.append(QgsField("label", QVariant.String))
             fbands.append(QgsField("d1", QVariant.Double))
@@ -7275,13 +7622,13 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             sb, db = self.parameterAsSink(parameters, self.OUT_BANDS, context,
                                           fbands, QgsWkbTypes.Type.Polygon, empty)
             if sb is not None:
-                for a, b, sname, lab in bds:
+                for sec, sid, a, b, yb, yt, sname, lab in bds:
                     fa = QgsFeature(fbands)
                     fa.setGeometry(QgsGeometry.fromPolygonXY([[
-                        QgsPointXY(a, ybot), QgsPointXY(b, ybot),
-                        QgsPointXY(b, ytop), QgsPointXY(a, ytop),
-                        QgsPointXY(a, ybot)]]))
-                    fa.setAttributes([sname, lab, a, b])
+                        QgsPointXY(a, yb), QgsPointXY(b, yb),
+                        QgsPointXY(b, yt), QgsPointXY(a, yt),
+                        QgsPointXY(a, yb)]]))
+                    fa.setAttributes([sec, sid, sname, lab, a, b])
                     sb.addFeature(fa)
                 res[self.OUT_BANDS] = db
                 _set_output_name(context, db, _tr("Полосы зон на разрезе"))
@@ -7352,12 +7699,13 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
         if src is None or (not faces and mesh is None):
             raise QgsProcessingException(self.tr(
                 "Нужны определение разреза и хотя бы один слой граней или меш."))
-        line, vex, _step = _read_section_def(src)
-        if line is None:
-            raise QgsProcessingException(self.tr("В определении нет линии."))
-        feedback.pushInfo(_tr("Множитель vex из определения: %.4g.") % vex)
-        poly_xy = [(v.x(), v.y()) for v in line.vertices()]
+        defs = _defs_or_raise(self, src)
+        _log_defs(feedback, defs)
         scrs = src.sourceCrs()
+        # трасса считается по каждому разрезу своей линией, грани при этом
+        # читаются один раз
+        traces = [(dd, [(v.x(), v.y()) for v in dd["line"].vertices()])
+                  for dd in defs]
 
         from .kb2d import tin_section_trace, fan_triangulate
 
@@ -7365,8 +7713,9 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
         segs = []
 
         def _emit(tris, sname):
-            for s in tin_section_trace(poly_xy, tris):
-                segs.append((s[0], s[1], s[2], s[3], sname))
+            for dd, poly_xy in traces:
+                for s in tin_section_trace(poly_xy, tris):
+                    segs.append((dd, s[0], s[1], s[2], s[3], sname))
             return len(tris)
 
         for lyr in faces:
@@ -7438,27 +7787,35 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
                 "Трасса пуста: TIN не пересекает линию разреза или нет 3D-граней."))
 
         f = QgsFields()
+        f.append(QgsField("sec", QVariant.String))
+        f.append(QgsField("sec_id", QVariant.Int))
         f.append(QgsField("src", QVariant.String))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, f,
-            QgsWkbTypes.Type.LineString, QgsCoordinateReferenceSystem())
+            QgsWkbTypes.Type.LineString, _section_draw_crs())
         sink3, dest3 = self.parameterAsSink(
             parameters, self.OUTPUT_3D, context, f,
             QgsWkbTypes.Type.LineStringZ, scrs)
-        for d0, z0, d1, z1, sname in segs:
+        for dd, d0, z0, d1, z1, sname in segs:
+            vex, ox, oy = dd["vex"], dd["ox"], dd["oy"]
+            tag = [dd["sec"], dd["sec_id"]]
             if sink is not None:
                 fa = QgsFeature(f)
                 fa.setGeometry(QgsGeometry.fromPolylineXY(
-                    [QgsPointXY(d0, z0 * vex), QgsPointXY(d1, z1 * vex)]))
-                fa.setAttributes([sname]); sink.addFeature(fa)
+                    [QgsPointXY(d0 + ox, z0 * vex + oy),
+                     QgsPointXY(d1 + ox, z1 * vex + oy)]))
+                fa.setAttributes(tag + [sname])
+                sink.addFeature(fa)
+            # 3D в реальных координатах, раскладка его не двигает
             if sink3 is not None:
-                p0 = line.interpolate(d0).asPoint()
-                p1 = line.interpolate(d1).asPoint()
+                p0 = dd["line"].interpolate(d0).asPoint()
+                p1 = dd["line"].interpolate(d1).asPoint()
                 fb = QgsFeature(f)
                 fb.setGeometry(QgsGeometry(QgsLineString(
                     [QgsPoint(p0.x(), p0.y(), z0),
                      QgsPoint(p1.x(), p1.y(), z1)])))
-                fb.setAttributes([sname]); sink3.addFeature(fb)
+                fb.setAttributes(tag + [sname])
+                sink3.addFeature(fb)
 
         res = {self.OUTPUT: dest}
         _set_output_name(context, dest, _tr("Трасса TIN на разрезе"))
@@ -7538,7 +7895,7 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
         fields.append(QgsField("offset", QVariant.Double))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields, wkb,
-            QgsCoordinateReferenceSystem())
+            _section_draw_crs())
 
         def proj_xy(x, y, z):
             dd = float(line.lineLocatePoint(
@@ -7734,8 +8091,9 @@ class ShaftUnwrapAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.ASTEP, 1.0), minValue=0.1, maxValue=45.0))
         self.addParameter(QgsProcessingParameterEnum(
             self.VMODE, self.tr("Вертикальный масштаб"),
-            options=[self.tr("отношение Г:В (ширина:высота)"),
-                     self.tr("множитель")],
+            options=[self.tr("отношение Г:В (ширина:высота чертежа)"),
+                     self.tr("множитель"),
+                     self.tr("отношение масштабов Г:В (1:N)")],
             defaultValue=_dv(self, self.VMODE, 0)))
         self.addParameter(QgsProcessingParameterNumber(
             self.VEXAG, self.tr("Значение масштаба (отношение Г:В или множитель)"),
@@ -7802,7 +8160,7 @@ class ShaftUnwrapAlgorithm(IsolinerAlgorithm):
         f.append(QgsField("surface", QVariant.String))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, f,
-            QgsWkbTypes.Type.LineString, QgsCoordinateReferenceSystem())
+            QgsWkbTypes.Type.LineString, _section_draw_crs())
         for nm, z in zip(names, zlist):
             for (i0, i1) in _valid_runs(np.isfinite(z)):
                 fa = QgsFeature(f)
@@ -9384,6 +9742,25 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
             raise QgsProcessingException(str(exc))
         if feedback.isCanceled():
             return {}
+
+        # --- Диагностика геопривязки на экран (панель «Журнал»): для слепой
+        # проверки на удалённых машинах. Origin и знак пикселя показывают,
+        # верно ли записаны оси (для СК с осями север-восток раньше X и Y
+        # менялись местами и растр уезжал в зеркало).
+        try:
+            _d = gdal.Open(out_path)
+            if _d is not None:
+                _gt = _d.GetGeoTransform()
+                _sr = _d.GetSpatialRef()
+                _au = _sr.GetAuthorityCode(None) if _sr is not None else None
+                feedback.pushInfo(_tr(
+                    "Диагностика ЦМР. СК выхода: EPSG:%s. Origin "
+                    "(%.3f, %.3f), пиксель (%.4g, %.4g), размер %dx%d.") % (
+                    _au or "нет", _gt[0], _gt[3], _gt[1], _gt[5],
+                    _d.RasterXSize, _d.RasterYSize))
+                _d = None
+        except Exception:  # nosec - диагностика не должна ронять расчёт
+            pass
 
         if do_smooth:
             feedback.pushInfo(self.tr("Сглаживание рельефа (FPDEMS)..."))

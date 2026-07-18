@@ -1267,6 +1267,20 @@ The tool sits in the **Cross-sections** group and works as a post-processing ste
 
 The surfaces are supplied as a list and ordered top to bottom: roof, floor, then the next roof, and so on. Beds are built as bands between adjacent surfaces, so N surfaces give N minus one beds. Two surfaces, a roof and a floor, are enough for one bed. For a sequence of beds, add the surfaces in stratigraphic order.
 
+## The layer tree sets the order of the surfaces
+
+This is the main thing to know about the tool. The order of the surfaces is not a detail of presentation but input data on a par with the grids themselves. It is what decides which band belongs to which bed.
+
+By default the order is taken from the project layer tree, top to bottom, exactly as shown in the **Layers** panel. What you see in the panel is what you get on the drawing. The ticks in the multi-select decide which surfaces take part, not in what order they go.
+
+Hence a simple working rule. Before building a section, arrange the surfaces in the Layers panel by stratigraphy: the roof of the upper host bed at the top, the bottom of the lower one at the bottom. Drag the layers with the mouse if they arrived in a jumble. It takes half a minute and saves an investigation.
+
+If the order is broken, the tool raises no error. It builds bands between the pairs you gave it. Some pairs turn out inverted, with the floor above the roof, and such bands are dropped silently. What you see is this: fewer beds on the drawing than expected, or beds in an implausible sequence. When that happens, check the order in the Layers panel first, not the kriging parameters.
+
+When the tree order is not suitable for some reason, uncheck **Surface order from the project layer tree**. The order is then taken from the sequence of ticks in the list, as in earlier versions. Layers absent from the project tree (added as files right in the widget) go to the end of the list, keeping their relative order.
+
+The demo generator (4.10) arranges its six surfaces in the tree by stratigraphy itself, so nothing needs rearranging on the demo data.
+
 ## Two outputs
 
 The section drawing is polygons in axes of distance along the line and elevation. The elevation can be stretched by a vertical exaggeration so thin beds read well. This layer goes into a print layout as a ready section. Its coordinate system is conventional, with distance and elevation in map units.
@@ -1275,40 +1289,71 @@ The 3D fence is the same bands but as vertical PolygonZ walls in real coordinate
 
 ## Vertical scale
 
-The horizontal extent of a section (the line length) and the vertical extent (tens of metres of beds) are not comparable, so without a vertical stretch the drawing looks flat. The scale is set in two ways. In the **H:V ratio** mode you set the desired width:height ratio of the drawing (say 10), and the tool computes the exaggeration itself from the line length and the elevation span. In the **exaggeration** mode the value is a direct vertical stretch factor.
+The horizontal extent of a section (the line length) and the vertical extent (tens of metres of beds) are not comparable, so without a vertical stretch the drawing looks flat. The scale is set in three ways.
+
+The **scale ratio H:V (1:N)** mode is the usual drawing notation. A value of 50 means H:V = 1:50, that is, the vertical scale is fifty times larger than the horizontal one. This is how the scale is set on potash sections, where the horizontal runs for kilometres while thicknesses are measured in metres. The stretch factor equals N.
+
+The **exaggeration** mode is the same number given directly, without the drawing notation.
+
+The **H:V ratio (drawing width:height)** mode works from the extents: you set the desired ratio of sheet width to height (say 10), and the tool computes the factor itself from the line length and the elevation span. It is handy when fitting the section to a sheet matters more than holding a given scale.
 
 The effective exaggeration is printed to the log. For an exact overlay of layers it must match across the section, the boreholes and the composition. In H:V mode the section (4.01) and the boreholes (4.02) span the whole section in height and line up. The composition (4.03) computes the ratio over a single bed, so to overlay it take the exaggeration printed by 4.01 and set it in 4.03 in the **exaggeration** mode.
 
+## Several sections in one run
+
+By default the tool builds a section for every line of the layer. This is the normal mode of work: a line layer of profiles is processed as a whole, and there is no need to run the tool once per line. If you do not need all of them, select the lines you want on the map and tick **Selected features only** on the line parameter. Unchecking **A section for every line of the layer** restores the earlier behaviour, a section along the first line.
+
+All the sections go into one set of layers and are told apart by attributes rather than by a separate layer per trace. That way they are easy to label and filter by an expression, and styles do not have to be reassigned. The section name comes from a field of the line layer if one is given in **Section name field**, otherwise the sections are numbered in order.
+
+On the drawing the sections are separated by a layout in the common drawing coordinate system. **Stacked top to bottom** places them one under another with a shared zero of distance, so the left edge is the same for all. **In a row, left to right** places them side by side with a shared elevation datum, so the elevation scale runs through the whole sheet. **In a grid** combines both rules: a row keeps the elevation datum, a column keeps the zero of distance, and the number of columns is set in the advanced parameters. The lattice pitch comes from the largest drawing plus the gap, so the drawings never overlap however much the trace lengths differ. The gap is a fraction of the extent, 0.15 by default.
+
+The vertical scale is common to the whole run. Otherwise a short trace and a long one would come out at different stretches and would not be comparable on one sheet. In the scale ratio and exaggeration modes it is simply the number you set. In the extent ratio mode the factor is computed from the longest line and the elevation span of the whole set, so the widest drawing gets exactly the requested proportion while the others come out taller but at the same scale.
+
+The 3D fence is not moved by the layout. It stands in real coordinates, each wall on its own trace, and in the 3D Map View a set of sections looks like a real fence across the area.
+
+The first section always gets a zero offset, so a run over a single line gives exactly the same drawing as before.
+
 ## Attributes of the output layers
 
-**Section definition** - a single line with the original trace geometry and the fields read by all the downstream tools of the group:
+All the section layers carry two common fields: **sec** with the section name and **sec_id** with the feature id of the source line. Use them to label the drawings, filter the layer down to one trace and colour the sections differently.
+
+**Section definition** - one line per section, with the original trace geometry and the fields read by the downstream tools of the group:
 
 | Field | What it holds |
 |---|---|
+| sec, sec_id | Section name and source line id. |
 | vex | Vertical exaggeration of the drawing. |
 | step | Stationing step, m (the polyline vertices are always included). |
 | zmin, zmax | The elevation range of the drawing. |
+| ox, oy | Offset of the drawing in the layout. Zero for a single section. |
 
 **Section (3D fence)** - vertical PolygonZ polygons along the trace, one per bed:
 
 | Field | What it holds |
 |---|---|
+| sec, sec_id | Section name and source line id. |
 | bed | Bed number from top to bottom. |
 | top, bot | Names of the roof and bottom surfaces. |
 | t_mean | Mean bed thickness along the trace, m. |
 | seclen | Trace length, m. |
 
-**Section corner points**: num (corner number), name (УГ-1, УГ-2, …), pos (top or bottom), d (station, m), x and y (map coordinates), az (azimuth of the next leg), label (a ready-made label). **Horizontal axes**: elev (axis elevation, m) and label. **Corner table**: kind (row type) and text (cell content).
+**Section corner points**: sec and sec_id, num (corner number), name (УГ-1, УГ-2, …), pos (top or bottom), d (station, m), x and y (map coordinates), az (azimuth of the next leg), label (a ready-made label). **Horizontal axes**: sec, sec_id, elev (axis elevation, m) and label. **Corner table**: sec, sec_id, kind (row type) and text (cell content).
 
 ## Parameters
 
 | Parameter | What it sets | Default / advice |
 |---|---|---|
-| Section line | A line layer. The first line is used. | - |
-| Surfaces top to bottom | A list of surface rasters in stratigraphic order. At least two are needed. | - |
+| Section line | A line layer. The **Selected features only** tick works here. | - |
+| Surfaces top to bottom | A list of surface rasters. At least two are needed. | - |
+| Surface order from the project layer tree | The order comes from the **Layers** panel, top to bottom. Unchecked, it comes from the ticks in the list. | on |
+| A section for every line of the layer | Batch mode. Unchecked, a section is built along the first line. | on |
+| Section name field | The field of the line layer the name comes from. Empty means numbering in order. | - |
+| Layout of multiple sections | Stacked, in a row or in a grid. | stacked |
 | Sampling step along the line | How many map units between samples. 0 means by cell size. | 0 |
-| Vertical scale | Mode: H:V ratio or exaggeration. | H:V |
-| Scale value | Width:height ratio (e.g. 10) or exaggeration. | 10 |
+| Vertical scale | Mode: extent ratio, exaggeration or scale ratio H:V. | extent ratio |
+| Scale value | Width:height ratio, exaggeration, or N from the 1:N notation. | 10 |
+| Columns in the grid (Adv.) | Number of columns for the grid layout. | 2 |
+| Gap between sections (Adv.) | A fraction of the drawing extent. | 0.15 |
 | Raster sampling (Adv.) | Bilinear or nearest. | bilinear |
 | Section drawing (distance × elevation) | The output polygon layer for a layout. | created |
 | 3D fence (PolygonZ) | The output layer of vertical walls in real coordinates. | created |
@@ -1317,7 +1362,7 @@ Each bed gets attributes: a number, the roof and floor names, the mean thickness
 
 ## Trying it on a demo
 
-A ready training set is produced by the **Create a section example** tool (4.10): six surfaces top to bottom, the line, boreholes with the h1...h6 fields, and multiband bed grids. Run it, then feed the surfaces and the line here, the boreholes into **Boreholes on the section**, and the bed grid (bands 1/2/3) into **Bed composition on the section**. The full contents of the set are in section 4.10.
+A ready training set is produced by the **Create a section example** tool (4.10): six surfaces top to bottom, three section lines, boreholes with the h1...h6 fields, and multiband bed grids. It arranges the surfaces in the tree by stratigraphy itself, and the three lines of different length and with different numbers of bends are handy for looking at the layout and the common vertical scale. Run it, then feed the surfaces and the line here, the boreholes into **Boreholes on the section**, and the bed grid (bands 1/2/3) into **Bed composition on the section**. The full contents of the set are in section 4.10.
 
 ## Relation to QGIS
 
@@ -1381,11 +1426,17 @@ Run the tool for each industrial bed separately, with its own composition grid. 
 
 # The section definition and shared parameters
 
-Geometrically a section is set by two things - a line in the real coordinate system and a vertical scale vex. The **Cross-section along a line** tool outputs them together as a **Section definition** layer: one line with vex and step fields. This is the shared source of truth.
+Geometrically a section is set by two things - a line in the real coordinate system and a vertical scale vex. The **Cross-section along a line** tool outputs them together as a **Section definition** layer: one line per section, with the sec, sec_id, vex, step, zmin, zmax, ox and oy fields. This is the shared source of truth.
 
 The intersect, project and unproject tools read the line and vex from this definition, so their results match the section without manual scale fitting. Build the section once, the definition travels with the project and feeds the other tools of the group.
 
-The **Boreholes on the section** and **Bed composition on the section** tools also accept the section definition as an optional input: when given, the vertical scale is taken from it, so the borehole columns and the composition band sit exactly on the beds by height.
+When there are several sections, the definition carries them all. The **Intersect surfaces with the section** (4.04), **Intersect vectors with the section** (4.05) and **Intersect a TIN with the section** (4.06) tools handle the whole set in one run: every result lands on its own drawing by the offset from the ox and oy fields and gets the sec and sec_id fields. If you need a single section, filter the definition layer or select the line you want, the feature order is preserved. If the definition happens to hold sections with different vex (which occurs when definitions from separate runs are merged), the tool warns that the drawings are not comparable and advises rebuilding them in one run.
+
+The **Boreholes on the section** (4.02), **Bed composition on the section** (4.03) tools and the beta tools 4.07 and 4.08 still work over a single section and take the first one from the definition. With several sections, feed them a definition filtered down to the trace you need.
+
+The **Boreholes on the section** and **Bed composition on the section** tools accept the section definition as an optional input: when given, the vertical scale is taken from it, so the borehole columns and the composition band sit exactly on the beds by height.
+
+Definition layers made by earlier versions of the plugin are read as before. They have no sec or ox fields, so the name comes out empty and the offset zero, and the result lands exactly as it used to.
 
 The section also clips pinch-outs: where the roof drops to the floor, the bed disappears and no band is built. In the demo the second industrial bed pinches out to the east.
 
@@ -1509,7 +1560,7 @@ Each marker surface gives the line of its intersection with the shaft wall - whe
 
 The **Create a section example** tool prepares a complete training set for the **Cross-sections** group, so its tools can be tried without kriging real data. In the panel it stands last in the **Cross-sections** group.
 
-A single run outputs six stacked surfaces with a dip and variable thickness (five interbedded beds, the 2nd and 4th industrial and thin), a polyline section line across the area, boreholes along the line with surface-elevation fields h1...h6, and a multiband grid per industrial bed. The bed-grid band convention: band 1 - the roof, band 2 - the bottom, bands 3 and further - parameters (here the content and the mineral type with a replacement zone; the content fields of the beds are independent, stochastic). One file describes the whole bed - like a block model where new parameters are added as bands. For the intersection tools it adds demo vectors: a fault without an elevation, a marker contour with Z, a replacement zone, and an overturned TIN fold from PolygonZ 3D faces.
+A single run outputs six stacked surfaces with a dip and variable thickness (five interbedded beds, the 2nd and 4th industrial and thin), three section lines across the area (a polyline with two bends, a short straight one and a slanted one), boreholes along the first line with surface-elevation fields h1...h6, and a multiband grid per industrial bed. The bed-grid band convention: band 1 - the roof, band 2 - the bottom, bands 3 and further - parameters (here the content and the mineral type with a replacement zone; the content fields of the beds are independent, stochastic). One file describes the whole bed - like a block model where new parameters are added as bands. For the intersection tools it adds demo vectors: a fault without an elevation, a marker contour with Z, a replacement zone, and an overturned TIN fold from PolygonZ 3D faces.
 
 ![The multiband bed-grid convention: bands 1-2 carry the geometry (roof and bottom), bands 3+ the parameters; one file feeds tool 4.03.](images/bed_grid_scheme_en.png){width=70%}
 
@@ -1517,7 +1568,7 @@ A single run outputs six stacked surfaces with a dip and variable thickness (fiv
 
 | Layer | Geometry | Attributes |
 |---|---|---|
-| Section line (demo) | line | name. A polyline with two bends - the vertices test the stationing. |
+| Section lines (demo) | line | name (Section 1, 2, 3). Three traces of different length: a polyline with two bends (the vertices test the stationing), a short straight one and a slanted one with a single bend. |
 | Boreholes (demo) | points | name; h1…h6 - elevations of the six surfaces at the borehole. |
 | Zone (demo, polygon) | polygon | name. For the vector-intersection tool 4.05. |
 | Fault (demo, 2D) | line | name. Crosses the trace, moved off the line bend. |
@@ -1535,7 +1586,7 @@ The workflow is shown in section 4.01: the surfaces go into **Cross-section alon
 | Area (extent) | The rectangle in which the set is generated. | set per project |
 | Generator seed (Adv.) | The RNG seed for reproducibility. 0 means random on each run. | 0 |
 | Surface 1...6 | Six rasters top to bottom: the roofs and floors of the host beds and the two industrial beds. | created |
-| Section line | A polyline across the area to feed into 4.01. | created |
+| Section lines (3) | Three traces across the area to feed into 4.01. By default the tool builds a section along each of them. | created |
 | Boreholes along the line | Points with surface-elevation fields h1...h6 for 4.02. | on request |
 | Composition: content | A content grid of the industrial beds for 4.03. | on request |
 | Composition: type/facies | A mineral-type grid (1 sylvinite, 2 replacement) for 4.03. | on request |
@@ -1737,7 +1788,7 @@ Point layer **Subsidence profiles (trough, tours: N)**:
 ## Section data - tool 4.10
 
 - **Surface 1…6** (rasters) - elevations of six stacked surfaces, m. Top to bottom: 1 roof of the upper host, 2 roof and 3 floor of the 1st productive, 4 roof and 5 floor of the 2nd productive, 6 floor of the lower host.
-- **Section line (demo)** (line): field **name** - line name.
+- **Section lines (demo)** (line): field **name** - line name (Section 1, 2, 3).
 - **Section wells (demo)** (points): **name** (SKR-NNN), **h1…h6** - elevations of the six surfaces at the well, m.
 - **1st productive bed (demo)** and **2nd productive bed (demo)** (multiband rasters): band 1 roof (m), band 2 floor (m), band 3 content (percent), band 4 mineral type (category 1 or 2).
 - **Fault (demo, 2D)** (line): **name**.
