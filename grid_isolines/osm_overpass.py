@@ -64,6 +64,11 @@ def build_query(lon_min, lat_min, lon_max, lat_max, layers,
         parts.append('way["waterway"~"^(river|stream|canal)$"]' + bbox + ";")
     if LAYER_WATERBODIES in layers:
         parts.append('way["natural"="water"]' + bbox + ";")
+        # Крупные озёра и водохранилища в OSM почти всегда нарисованы
+        # отношениями-мультиполигонами, а не одиночным контуром. Без этой
+        # строки они не приходили вовсе, и на карте оставались одни мелкие
+        # пруды.
+        parts.append('relation["natural"="water"]' + bbox + ";")
     if LAYER_PEAKS in layers:
         parts.append('node["natural"="peak"]' + bbox + ";")
     if LAYER_BREAKS in layers:
@@ -125,6 +130,54 @@ def _is_closed(coords):
     return len(coords) >= 4 and coords[0] == coords[-1]
 
 
+def _stitch_rings(segments):
+    """Сшивает куски внешнего контура отношения в замкнутые кольца.
+
+    Внешняя граница мультиполигона в OSM обычно нарезана на несколько way,
+    и по отдельности они не кольца, а куски. Соединяем по совпадающим концам,
+    переворачивая куски при необходимости. Незамкнутые остатки отбрасываем:
+    полигон из них не построить, а рисовать обрывки хуже, чем не рисовать.
+    """
+    todo = [list(s) for s in segments if len(s) >= 2]
+    rings = []
+    while todo:
+        cur = todo.pop(0)
+        joined = True
+        while joined and cur[0] != cur[-1]:
+            joined = False
+            for i, other in enumerate(todo):
+                if other[0] == cur[-1]:
+                    cur.extend(other[1:])
+                elif other[-1] == cur[-1]:
+                    cur.extend(list(reversed(other))[1:])
+                elif other[-1] == cur[0]:
+                    cur = other[:-1] + cur
+                elif other[0] == cur[0]:
+                    cur = list(reversed(other))[:-1] + cur
+                else:
+                    continue
+                todo.pop(i)
+                joined = True
+                break
+        if _is_closed(cur):
+            rings.append(cur)
+    return rings
+
+
+def _relation_outer_rings(el):
+    """Внешние кольца отношения по геометрии его частей."""
+    segs = []
+    for m in el.get("members") or []:
+        if m.get("type") != "way":
+            continue
+        if (m.get("role") or "outer") != "outer":
+            continue
+        pts = [(p["lon"], p["lat"]) for p in (m.get("geometry") or [])]
+        if len(pts) >= 2:
+            segs.append(pts)
+    return _stitch_rings(segs)
+
+
 def parse_elements(data):
     """Раскладывает ответ Overpass по слоям.
 
@@ -145,6 +198,13 @@ def parse_elements(data):
                     "osm_id": el.get("id"),
                 },
             })
+            continue
+        if etype == "relation" and tags.get("natural") == "water":
+            attrs = {"name": tags.get("name"), "osm_id": el.get("id"),
+                     "water": tags.get("water")}
+            for ring in _relation_outer_rings(el):
+                result[LAYER_WATERBODIES].append(
+                    {"geom": "polygon", "coords": ring, "attrs": dict(attrs)})
             continue
         if etype != "way":
             continue
