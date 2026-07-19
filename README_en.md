@@ -52,7 +52,7 @@ The tools are split into five Processing groups — **"Grid and isolines"**, **"
 ### "4. Cross-sections" group
 
 - **4.01 Cross-section along a line** — a geological section along a line and a stack of surfaces: beds as bands, two outputs (a distance×elevation drawing and a 3D fence of PolygonZ). The order of the surfaces comes from the project layer tree. By default it builds a section for every line of the layer, with a layout of the drawings and a common vertical scale, the sections being told apart by the sec and sec_id fields.
-- **4.02 Boreholes on the section** — projects boreholes onto the section line as interval columns, corridor filtering, labels.
+- **4.02 Boreholes on the section (drilling model)** — boreholes from a collar and interval layer pair (the minimal mining-package model) onto every drawing of the definition at once. Fields are found automatically by the contract names, the tolerant reader reports a summary to the log, colours and a legend by code, traces and collar labels, an optional 3D output.
 - **4.03 Bed composition on the section** — paints the bed band by a composition grid: continuous grade as slices, categorical rock type as facies zones.
 - **4.04 Intersect surfaces with the section** — surface grids onto the section as lines (aquifers, marker surfaces).
 - **4.05 Vector intersection with the section** — lines and polygons by exact intersection: a line without Z as a vertical, with Z as a point, a polygon as a band.
@@ -284,7 +284,8 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 ## Changelog
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
-bilingual (EN/RU).
+
+- **4.1.0** — the collar and interval drilling-data model and the new batch 4.02 Boreholes on the section (drilling model) tool: fields found automatically, a tolerant reader with a log summary, colours and a legend by code, input memory, a 3D output. Demo 4.10 outputs the collar and interval pair. The former 4.02 on the h1...h6 fields is removed.bilingual (EN/RU).
 
 - **4.0.2** — fixed cross-section output (group 4): the drawing no longer falls off the map canvas in projects with local CRSs. Drawing layers now get an engineering CRS instead of an empty one. In 4.01 the surface order is taken from the project layer tree by default (manual order stays available via a checkbox).
 - **4.0.1** — fixed DEM georeferencing in 2.01 for CRSs with northing-easting axis order (GSK-2011 and other Gauss-Kruger, Krassovsky): the raster no longer flies to a mirror location, and "Zoom to layer" works. UTM was not affected.

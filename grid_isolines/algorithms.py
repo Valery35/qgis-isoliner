@@ -38,6 +38,7 @@ from qgis.PyQt.QtCore import QUrl, QVariant
 
 from .i18n import tr as _tr  # двуязычие RU/EN (нужен до module-level констант)
 from . import section_core as _sc  # чистое ядро разреза, без QGIS
+from . import drillhole_core as _dh  # чистое ядро данных бурения, без QGIS
 from . import validate_core as _vc  # чистое ядро валидации, без QGIS
 from .topo_smooth import smooth_clamped as _smooth_clamped
 from qgis.core import (
@@ -460,6 +461,69 @@ def _attach_style(context, path, style_path=None, order_state=None, role=None):
     try:
         if path and context.willLoadLayerOnCompletion(path):
             pp = _StylePostProcessor(style_path, order_state, role)
+            _KEEP_ALIVE.append(pp)
+            context.layerToLoadOnCompletionDetails(path).setPostProcessor(pp)
+            _PP_PATHS.add(path)
+    except Exception:  # nosec
+        pass
+
+
+class _CategorizedPostProcessor(QgsProcessingLayerPostProcessorInterface):
+    """Красит слой категориями по полю: значение, цвет, подпись - и легенда
+    «код - цвет» появляется сама. Сначала грузится базовый QML (толщина и
+    торцы линии), затем его символ клонируется на категории. Никакой логики
+    в QML: порядок категорий и детерминированные цвета считает инструмент.
+
+    Сопоставление идёт по выражению trim(to_string(поле)), чтобы хвостовые
+    пробелы и числовые коды не роняли строку в невидимость, а последней
+    стоит категория-ловушка «прочее»: несопоставившееся видно серым, а не
+    исчезает (принцип терпимого читателя)."""
+
+    def __init__(self, style_path, field, cats):
+        super().__init__()
+        self.style_path = style_path
+        self.field = field
+        self.cats = cats            # список (значение, '#rrggbb', подпись)
+
+    def postProcessLayer(self, layer, context, feedback):
+        _finalize_layer(layer, getattr(self, "history", []))
+        try:
+            if self.style_path and os.path.exists(self.style_path):
+                layer.loadNamedStyle(self.style_path)
+        except Exception:  # nosec
+            pass
+        try:
+            from qgis.core import (QgsCategorizedSymbolRenderer,
+                                   QgsRendererCategory,
+                                   QgsSingleSymbolRenderer, QgsSymbol)
+            from qgis.PyQt.QtGui import QColor
+            base = None
+            r = layer.renderer()
+            if isinstance(r, QgsSingleSymbolRenderer):
+                base = r.symbol().clone()
+            if base is None:
+                base = QgsSymbol.defaultSymbol(layer.geometryType())
+            categories = []
+            for val, colr, label in self.cats:
+                sym = base.clone()
+                sym.setColor(QColor(colr))
+                categories.append(QgsRendererCategory(val, sym, label))
+            other = base.clone()
+            other.setColor(QColor("#969696"))
+            categories.append(QgsRendererCategory(
+                QVariant(), other, _tr("прочее")))
+            expr = 'trim(to_string("%s"))' % str(self.field).replace('"', "")
+            layer.setRenderer(QgsCategorizedSymbolRenderer(expr, categories))
+            layer.triggerRepaint()
+        except Exception:  # nosec - раскраска не должна ронять загрузку
+            pass
+
+
+def _attach_categories(context, path, style_path, field, cats):
+    """Вешает на выходной слой категоризирующий пост-процессор."""
+    try:
+        if path and context.willLoadLayerOnCompletion(path):
+            pp = _CategorizedPostProcessor(style_path, field, cats)
             _KEEP_ALIVE.append(pp)
             context.layerToLoadOnCompletionDetails(path).setPostProcessor(pp)
             _PP_PATHS.add(path)
@@ -5780,6 +5844,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
     SURF1, SURF2, SURF3 = "SURF1", "SURF2", "SURF3"
     SURF4, SURF5, SURF6 = "SURF4", "SURF5", "SURF6"
     LINE, WELLS = "LINE", "WELLS"
+    COLLAR, INTERVAL = "COLLAR", "INTERVAL"
     BED1, BED2 = "BED1", "BED2"
     FAULT, MARKER, ZONE = "FAULT", "MARKER", "ZONE"
     TIN = "TIN"
@@ -5801,8 +5866,11 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             "поверхностей сверху вниз (1...6) и линию в «Разрез по линии». "
             "Получите пять пластов на чертеже и 3D-забор. Кригинг для демо не "
             "нужен, поверхности уже растровые. Заодно выдаются скважины вдоль "
-            "линии с отметками поверхностей (h1...h6) для инструмента «Скважины "
-            "на разрез», а также по многоканальному гриду на каждый "
+            "линии с отметками поверхностей (h1...h6, широкий формат, задел под "
+            "конвертер в модель бурения), пара слоёв модели бурения collar и interval (устья "
+            "точками с Z и таблица интервалов по контракту, скважины вдоль "
+            "всех трёх линий, годятся выноске на разрез и 3D), а также по "
+            "многоканальному гриду на каждый "
             "промышленный пласт. Конвенция каналов: 1 кровля, 2 подошва, "
             "3+ параметры (здесь содержание и минтип, независимые "
             "стохастические поля). Пласт как блочная модель: один файл кормит "
@@ -5834,6 +5902,14 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.WELLS, self.tr("Скважины вдоль линии (с отметками поверхностей)"),
             type=QgsProcessing.SourceType.TypeVectorPoint, optional=True,
+            createByDefault=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.COLLAR, self.tr("Устья скважин collar (модель бурения)"),
+            type=QgsProcessing.SourceType.TypeVectorPoint, optional=True,
+            createByDefault=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.INTERVAL, self.tr("Интервалы скважин interval (таблица)"),
+            type=QgsProcessing.SourceType.TypeVector, optional=True,
             createByDefault=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.BED1, self.tr("Пласт 1-й пром. (каналы: кровля, подошва, содержание, минтип)"),
@@ -6010,6 +6086,84 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             _set_output_name(context, wdest, self.tr("Скважины разреза (демо)"))
             results[self.WELLS] = wdest
 
+        # скважины в контрактной модели collar/interval (см. AGENTS.md):
+        # вдоль всех трёх линий, чтобы было чем кормить пакетную выноску.
+        # Устье выше кровли на мощность наносов, вниз колонка из наносов и
+        # пяти пластов, забой чуть глубже последней подошвы. Каждая четвёртая
+        # скважина неглубокая - остановлена под 1-м промышленным, как в
+        # жизни. hole_id составной: два условных рудничных поля (запад Д1,
+        # восток Д2) со своей нумерацией, и номера между полями повторяются -
+        # затем и составной ключ. У промышленных пластов интервал везёт
+        # содержание в колонке kcl (прочие колонки контракт пропускает как
+        # есть). Геометрия устья PointZ той же отметкой - слой готов для 3D
+        # без пересчёта, глубины оттуда идут в Z напрямую.
+        cf = QgsFields()
+        cf.append(QgsField("hole_id", QVariant.String))
+        cf.append(QgsField("z", QVariant.Double))
+        cf.append(QgsField("eoh", QVariant.Double))
+        fint = QgsFields()
+        fint.append(QgsField("hole_id", QVariant.String))
+        fint.append(QgsField("from", QVariant.Double))
+        fint.append(QgsField("to", QVariant.Double))
+        fint.append(QgsField("code", QVariant.String))
+        fint.append(QgsField("kcl", QVariant.Double))
+        csink, cdest = self.parameterAsSink(
+            parameters, self.COLLAR, context, cf,
+            QgsWkbTypes.Type.PointZ, crs)
+        isink, idest = self.parameterAsSink(
+            parameters, self.INTERVAL, context, fint,
+            QgsWkbTypes.Type.NoGeometry)
+        if csink is not None and isink is not None:
+            codes = ["Q", "В1", "Пр1", "В2", "Пр2", "В3"]
+            kcl_of = {"Пр1": grade1, "Пр2": grade2}
+            xc_mid = 0.5 * (xmin + xmax)
+            numbers = {"Д1": 0, "Д2": 0}
+            nhole = nint = 0
+            for lgk in (lg, lg2, lg3):
+                Lk = float(lgk.length())
+                ck = 0.02 * Lk
+                for _ in range(9):
+                    bp = lgk.interpolate(
+                        float(rng.uniform(0.05, 0.95)) * Lk).asPoint()
+                    px = bp.x() + float(rng.uniform(-ck, ck))
+                    py = bp.y() + float(rng.uniform(-ck, ck))
+                    ax = np.array([px]); ay = np.array([py])
+                    hvals = [float(_demo_sample(g, ax, ay, xmin, xmax,
+                                                ymin, ymax)[0]) for g in surf]
+                    zc = hvals[0] + float(rng.uniform(2.0, 6.0))
+                    ints = _dh.intervals_from_levels(zc, [zc] + hvals, codes)
+                    if nhole % 4 == 3:      # неглубокая скважина
+                        ints = [t for t in ints if t[2] in ("Q", "В1", "Пр1")]
+                    if not ints:
+                        continue
+                    eoh = ints[-1][1] + float(rng.uniform(0.5, 3.0))
+                    fld = "Д1" if px < xc_mid else "Д2"
+                    numbers[fld] += 1
+                    hid = "%s-%02d" % (fld, numbers[fld])
+                    fc = QgsFeature(cf)
+                    fc.setGeometry(QgsGeometry(QgsPoint(px, py, zc)))
+                    fc.setAttributes([hid, round(zc, 2), round(eoh, 2)])
+                    csink.addFeature(fc)
+                    nhole += 1
+                    for frm, to, code in ints:
+                        kv = None
+                        gsrc = kcl_of.get(code)
+                        if gsrc is not None:
+                            kv = round(float(_demo_sample(
+                                gsrc, ax, ay, xmin, xmax, ymin, ymax)[0]), 2)
+                        fi = QgsFeature(fint)
+                        fi.setAttributes([hid, round(frm, 2), round(to, 2),
+                                          code, kv])
+                        isink.addFeature(fi)
+                        nint += 1
+            feedback.pushInfo(_tr(
+                "Модель бурения: устьев %d, интервалов %d (поля Д1 и Д2, "
+                "номера между полями повторяются).") % (nhole, nint))
+            _set_output_name(context, cdest, self.tr("Устья collar (демо)"))
+            _set_output_name(context, idest, self.tr("Интервалы interval (демо)"))
+            results[self.COLLAR] = cdest
+            results[self.INTERVAL] = idest
+
         # демо-векторы для «3.5 Пересечение векторов с разрезом»: разлом
         # (2D-линия без Z) -> вертикаль; маркер (3D-линия с Z) -> точка;
         # зона замещения (полигон) -> полоса. Все пересекают линию разреза.
@@ -6130,7 +6284,8 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         # порядок поверхностей отсюда, и стопка обязана идти сверху вниз
         # (1 кровля ... 6 подошва). Во-вторых, растры выше векторов закрыли бы
         # линию и скважины, поэтому векторы идут первыми.
-        ordered_keys = (self.LINE, self.WELLS, self.FAULT, self.MARKER,
+        ordered_keys = (self.LINE, self.WELLS, self.COLLAR, self.INTERVAL,
+                        self.FAULT, self.MARKER,
                         self.ZONE, self.TIN, self.BED1, self.BED2,
                         self.SURF1, self.SURF2, self.SURF3,
                         self.SURF4, self.SURF5, self.SURF6)
@@ -6496,6 +6651,16 @@ class SectionAlgorithm(IsolinerAlgorithm):
         sink2d, dest2d = self.parameterAsSink(
             parameters, self.OUTPUT_2D, context, f2,
             QgsWkbTypes.Type.Polygon, _section_draw_crs())
+        # полосы пластов красятся тем же механизмом, что скважины в 4.02:
+        # категория на пласт по имени кровли (поле top), цвет детерминирован
+        # от имени, тонкий чёрный контур из базового стиля, легенда в дереве.
+        # Пласт, названный тем же кодом, что в interval, совпадёт по цвету с
+        # колонками скважин сам собой.
+        if sink2d is not None:
+            bcats = [(surfs[k][2], _dh.code_color(surfs[k][2]), surfs[k][2])
+                     for k in range(len(surfs) - 1)]
+            _attach_categories(context, dest2d, _style_path("dh_bands"),
+                               "top", bcats)
         sink3d, dest3d = self.parameterAsSink(
             parameters, self.OUTPUT_3D, context, f2,
             QgsWkbTypes.Type.PolygonZ, crs_line)
@@ -6719,205 +6884,6 @@ class SectionAlgorithm(IsolinerAlgorithm):
         ordered += [v for k, v in res.items() if k not in ordered_keys]
         _set_group(context, GRP_SECTION, ordered, force=True, order=True,
                    history=_provenance(self, parameters))
-        return res
-
-
-class BoreholesOnSectionAlgorithm(IsolinerAlgorithm):
-    """Скважины на разрез: проекция точечного слоя скважин на линию разреза.
-    Каждая скважина показывается вертикальной колонкой интервалов пластов в осях
-    расстояние-высота, поверх чертежа разреза. Границы пластов берутся из
-    выбранных полей-отметок: на каждой скважине их значения сортируются по
-    убыванию, и соседние пары дают интервалы пластов. Дальние скважины
-    отсекаются коридором. То же вертикальное преувеличение, что и у разреза."""
-
-    LINE, WELLS = "LINE", "WELLS"
-    LEVELS, LABEL = "LEVELS", "LABEL"
-    CORRIDOR, VMODE, VEXAG = "CORRIDOR", "VMODE", "VEXAG"
-    DEF = "DEF"
-    OUTPUT, OUTPUT_LABELS = "OUTPUT", "OUTPUT_LABELS"
-
-    def tr(self, s): return _tr(s)
-    def createInstance(self): return BoreholesOnSectionAlgorithm()
-    def name(self): return "boreholes_on_section"
-    def displayName(self): return self.tr("4.02 Скважины на разрезе")
-    def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP3)
-    def groupId(self): return GROUP3_ID
-
-    def shortHelpString(self):
-        return _help_version(self.tr(
-            "Проецирует скважины на линию разреза и показывает их колонками "
-            "интервалов пластов в осях расстояние-высота, поверх чертежа из "
-            "инструмента «Разрез по линии».\n\nГраницы пластов берутся из "
-            "выбранных полей-отметок (кровли и подошвы). На каждой скважине их "
-            "значения сортируются по убыванию, соседние пары дают интервалы "
-            "пластов, поэтому порядок выбора полей и пропуски не важны. Каждый "
-            "интервал получает номер пласта, а колонка - номер скважины.\n\n"
-            "Скважина ставится на том расстоянии вдоль линии, куда падает её "
-            "проекция. Дальние скважины отсекаются коридором (буфером вокруг "
-            "линии). Вертикальное преувеличение задавайте таким же, как в "
-            "«Разрез по линии», иначе колонки не лягут на пласты по высоте.") +
-            _credit())
-
-    def initAlgorithm(self, config=None):
-        self._defaults = _load_defaults(self)
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            self.LINE, self.tr("Линия разреза"),
-            types=[QgsProcessing.SourceType.TypeVectorLine]))
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            self.DEF,
-            self.tr("Определение разреза (для общего масштаба, опционально)"),
-            types=[QgsProcessing.SourceType.TypeVectorLine], optional=True))
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            self.WELLS, self.tr("Скважины"),
-            types=[QgsProcessing.SourceType.TypeVectorPoint]))
-        self.addParameter(QgsProcessingParameterField(
-            self.LEVELS, self.tr("Поля отметок границ пластов (кровли и подошвы)"),
-            parentLayerParameterName=self.WELLS,
-            type=QgsProcessingParameterField.DataType.Numeric, allowMultiple=True))
-        self.addParameter(QgsProcessingParameterField(
-            self.LABEL, self.tr("Поле номера скважины (для подписи)"),
-            parentLayerParameterName=self.WELLS, optional=True))
-        self.addParameter(QgsProcessingParameterNumber(
-            self.CORRIDOR,
-            self.tr("Коридор от линии, ед. карты (0 = все скважины)"),
-            QgsProcessingParameterNumber.Type.Double,
-            defaultValue=_dv(self, self.CORRIDOR, 0.0), minValue=0.0))
-        self.addParameter(QgsProcessingParameterEnum(
-            self.VMODE, self.tr("Вертикальный масштаб"),
-            options=[self.tr("отношение Г:В (ширина:высота чертежа)"),
-                     self.tr("множитель"),
-                     self.tr("отношение масштабов Г:В (1:N)")],
-            defaultValue=_dv(self, self.VMODE, 0)))
-        self.addParameter(QgsProcessingParameterNumber(
-            self.VEXAG, self.tr("Значение масштаба (отношение Г:В или множитель)"),
-            QgsProcessingParameterNumber.Type.Double,
-            defaultValue=_dv(self, self.VEXAG, 10.0), minValue=0.01))
-        self.addParameter(QgsProcessingParameterFeatureSink(
-            self.OUTPUT, self.tr("Интервалы пластов скважин (чертёж)"),
-            type=QgsProcessing.SourceType.TypeVectorLine))
-        self.addParameter(QgsProcessingParameterFeatureSink(
-            self.OUTPUT_LABELS, self.tr("Устья скважин (подписи)"),
-            type=QgsProcessing.SourceType.TypeVectorPoint, optional=True,
-            createByDefault=True))
-
-    def _process(self, parameters, context, feedback):
-        feedback.pushInfo(_version_line())
-        _saved = dict(parameters)
-        lsrc = self.parameterAsSource(parameters, self.LINE, context)
-        wsrc = self.parameterAsSource(parameters, self.WELLS, context)
-        if lsrc is None or wsrc is None:
-            raise QgsProcessingException(self.tr("Не задана линия или скважины."))
-        levels = self.parameterAsFields(parameters, self.LEVELS, context)
-        if not levels or len(levels) < 2:
-            raise QgsProcessingException(self.tr(
-                "Нужно минимум два поля отметок (кровля и подошва)."))
-        label_f = self.parameterAsString(parameters, self.LABEL, context)
-        corridor = self.parameterAsDouble(parameters, self.CORRIDOR, context)
-        aspect_mode = self.parameterAsEnum(parameters, self.VMODE, context) == 0
-        vscale = self.parameterAsDouble(parameters, self.VEXAG, context) or 1.0
-
-        line_geom = None
-        for ft in lsrc.getFeatures():
-            g = ft.geometry()
-            if g is not None and not g.isEmpty():
-                line_geom = QgsGeometry(g)
-                break
-        if line_geom is None:
-            raise QgsProcessingException(self.tr("В слое нет линии."))
-
-        f_seg = QgsFields()
-        f_seg.append(QgsField("well", QVariant.String))
-        f_seg.append(QgsField("bed", QVariant.Int))
-        f_seg.append(QgsField("top", QVariant.Double))
-        f_seg.append(QgsField("bot", QVariant.Double))
-        f_seg.append(QgsField("offset", QVariant.Double))
-        f_lab = QgsFields()
-        f_lab.append(QgsField("well", QVariant.String))
-        f_lab.append(QgsField("offset", QVariant.Double))
-
-        crs0 = _section_draw_crs()
-        sink, dest = self.parameterAsSink(
-            parameters, self.OUTPUT, context, f_seg,
-            QgsWkbTypes.Type.LineString, crs0)
-        lsink, ldest = self.parameterAsSink(
-            parameters, self.OUTPUT_LABELS, context, f_lab,
-            QgsWkbTypes.Type.Point, crs0)
-
-        cols = []
-        zmin = zmax = None
-        nskip = 0
-        for i, ft in enumerate(wsrc.getFeatures()):
-            g = ft.geometry()
-            if g is None or g.isEmpty():
-                continue
-            off = float(line_geom.distance(g))
-            if corridor > 0 and off > corridor:
-                nskip += 1
-                continue
-            d = float(line_geom.lineLocatePoint(g))
-            if d < 0:
-                continue
-            vals = []
-            for fn in levels:
-                v = ft[fn]
-                if v is not None:
-                    try:
-                        vals.append(float(v))
-                    except (TypeError, ValueError):
-                        pass
-            if len(vals) < 2:
-                continue
-            vals.sort(reverse=True)             # сверху вниз
-            name = (str(ft[label_f]) if label_f and ft[label_f] is not None
-                    else "%d" % (i + 1))
-            cols.append((d, vals, name, off))
-            lo, hi = vals[-1], vals[0]
-            zmin = lo if zmin is None else min(zmin, lo)
-            zmax = hi if zmax is None else max(zmax, hi)
-
-        if not cols:
-            raise QgsProcessingException(self.tr(
-                "Ни одна скважина не попала в коридор или не имеет отметок."))
-        length = float(line_geom.length())
-        dz = (zmax - zmin) if (zmin is not None and zmax is not None) else 0.0
-        vex = _section_vex(feedback, aspect_mode, vscale, length, dz)
-        dsrc = self.parameterAsSource(parameters, self.DEF, context)
-        if dsrc is not None:
-            _ln, vdef, _st = _read_section_def(dsrc)
-            if vdef:
-                vex = vdef
-                feedback.pushInfo(_tr(
-                    "Масштаб взят из определения разреза: vex = %.4g.") % vex)
-
-        nwell = nseg = 0
-        for (d, vals, name, off) in cols:
-            for k in range(len(vals) - 1):
-                top, bot = vals[k], vals[k + 1]
-                fa = QgsFeature(f_seg)
-                fa.setGeometry(QgsGeometry.fromPolylineXY([
-                    QgsPointXY(d, top * vex), QgsPointXY(d, bot * vex)]))
-                fa.setAttributes([name, k + 1, top, bot, round(off, 3)])
-                sink.addFeature(fa)
-                nseg += 1
-            if lsink is not None:
-                fl = QgsFeature(f_lab)
-                fl.setGeometry(QgsGeometry.fromPointXY(
-                    QgsPointXY(d, vals[0] * vex)))
-                fl.setAttributes([name, round(off, 3)])
-                lsink.addFeature(fl)
-            nwell += 1
-
-        feedback.pushInfo(_tr(
-            "Спроецировано скважин: %d (интервалов %d), пропущено вне коридора %d.")
-            % (nwell, nseg, nskip))
-        res = {self.OUTPUT: dest}
-        _set_output_name(context, dest, _tr("Скважины на разрезе (интервалы)"))
-        if lsink is not None:
-            _set_output_name(context, ldest, _tr("Устья скважин (подписи)"))
-            res[self.OUTPUT_LABELS] = ldest
-        _save_values(self, _saved)
-        _set_group(context, GRP_SECTION, list(res.values()), force=True, history=_provenance(self, parameters))
         return res
 
 
@@ -8225,6 +8191,355 @@ class ShaftUnwrapAlgorithm(IsolinerAlgorithm):
         _save_values(self, _saved)
         _set_group(context, GRP_SECTION, [dest], force=True, history=_provenance(self, parameters))
         return {self.OUTPUT: dest}
+
+
+def _line_vertices(g):
+    """Вершины линии (x, y) для чистого ядра. Мультилиния - первая часть."""
+    if g is None or g.isEmpty():
+        return []
+    if g.isMultipart():
+        parts = g.asMultiPolyline()
+        pts = parts[0] if parts else []
+    else:
+        pts = g.asPolyline()
+    return [(p.x(), p.y()) for p in pts]
+
+
+class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
+    """Выноска скважин на разрез по модели бурения collar/interval. Читает
+    устья и таблицу интервалов терпимым читателем (см. AGENTS.md, контракт
+    модели данных бурения), проецирует устья на линии разрезов, переводит
+    глубины в отметки вычитанием из z и кладёт колонки на чертёж. Пакетно:
+    один прогон обслуживает все разрезы определения, раскладка через ox/oy."""
+
+    LINE_DEF = "LINE_DEF"
+    COLLAR, CID, CZ, CEOH = "COLLAR", "CID", "CZ", "CEOH"
+    INTERVAL, IID, IFROM, ITO, ICODE = (
+        "INTERVAL", "IID", "IFROM", "ITO", "ICODE")
+    CORRIDOR = "CORRIDOR"
+    OUTPUT, OUTPUT_STICKS = "OUTPUT", "OUTPUT_STICKS"
+    OUTPUT_LABELS, OUTPUT_3D = "OUTPUT_LABELS", "OUTPUT_3D"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return DrillholesOnSectionAlgorithm()
+    def name(self): return "drillholes_on_section"
+    def displayName(self): return self.tr("4.02 Скважины на разрезе (модель бурения)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP3)
+    def groupId(self): return GROUP3_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Кладёт скважины на чертежи разрезов из пары слоёв модели бурения: "
+            "устья collar (hole_id, z, eoh, точки) и таблица интервалов "
+            "interval (hole_id, from, to, code, глубины по стволу от устья). "
+            "Такую пару выдают «Создать пример для разреза» и выгрузка из "
+            "Геоконструктора. Поля обеих таблиц находятся сами по "
+            "контрактным именам, выбор полей спрятан в дополнительные "
+            "параметры.\n\nЛинии, вертикальный масштаб и раскладка "
+            "берутся из определения разреза, которое выдаёт «Разрез по линии»: "
+            "один прогон кладёт колонки сразу на все чертежи, каждая скважина "
+            "попадает на все разрезы, к которым она ближе коридора. Глубины "
+            "переводятся в отметки вычитанием из z.\n\nЧитатель терпимый: "
+            "пустые глубины пропускаются, перепутанные from и to меняются "
+            "местами, перехлёсты и интервалы за забоем рисуются как есть, всё "
+            "пропущенное считается и выводится сводкой в журнал. Прочие "
+            "колонки таблицы интервалов едут в атрибуты как есть.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.LINE_DEF, self.tr("Определение разреза (линия с полем vex)"),
+            types=[QgsProcessing.SourceType.TypeVectorLine],
+            defaultValue=_dv(self, self.LINE_DEF, None), optional=False))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.COLLAR, self.tr("Устья скважин (collar)"),
+            types=[QgsProcessing.SourceType.TypeVectorPoint],
+            defaultValue=_dv(self, self.COLLAR, None), optional=False))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.CID, self.tr("Поле идентификатора скважины (collar)"),
+            parentLayerParameterName=self.COLLAR, defaultValue="hole_id",
+            optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.CZ, self.tr("Поле отметки устья z"),
+            parentLayerParameterName=self.COLLAR,
+            type=QgsProcessingParameterField.DataType.Numeric,
+            defaultValue="z", optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.CEOH, self.tr("Поле глубины забоя eoh"),
+            parentLayerParameterName=self.COLLAR,
+            type=QgsProcessingParameterField.DataType.Numeric,
+            defaultValue="eoh", optional=True)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INTERVAL, self.tr("Интервалы скважин (interval, таблица)"),
+            types=[QgsProcessing.SourceType.TypeVector],
+            defaultValue=_dv(self, self.INTERVAL, None), optional=False))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.IID, self.tr("Поле идентификатора скважины (interval)"),
+            parentLayerParameterName=self.INTERVAL, defaultValue="hole_id",
+            optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.IFROM, self.tr("Поле начала интервала from"),
+            parentLayerParameterName=self.INTERVAL,
+            type=QgsProcessingParameterField.DataType.Numeric,
+            defaultValue="from", optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.ITO, self.tr("Поле конца интервала to"),
+            parentLayerParameterName=self.INTERVAL,
+            type=QgsProcessingParameterField.DataType.Numeric,
+            defaultValue="to", optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.ICODE, self.tr("Поле кода code (чем красим)"),
+            parentLayerParameterName=self.INTERVAL,
+            defaultValue="code", optional=True)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CORRIDOR,
+            self.tr("Коридор от линии, ед. карты (0 = все скважины)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.CORRIDOR, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Интервалы скважин (чертёж)"),
+            type=QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_STICKS, self.tr("Стволы скважин (чертёж)"),
+            type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_LABELS, self.tr("Устья на чертеже (подписи)"),
+            type=QgsProcessing.SourceType.TypeVectorPoint, optional=True,
+            createByDefault=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_3D, self.tr("Интервалы скважин (3D)"),
+            type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=False))
+
+    def _read_model(self, parameters, context, feedback):
+        """Чтение пары collar/interval терпимым читателем ядра. Возвращает
+        (collars, holes, поля interval, сводка)."""
+        csrc = self.parameterAsSource(parameters, self.COLLAR, context)
+        isrc = self.parameterAsSource(parameters, self.INTERVAL, context)
+        if csrc is None or isrc is None:
+            raise QgsProcessingException(self.tr(
+                "Нужны устья collar и таблица интервалов interval."))
+        # поля находим сами по контрактным именам и синонимам, выбор в
+        # дополнительных параметрах только переопределяет автопоиск
+        cnames = [f.name() for f in csrc.fields()]
+        inames = [f.name() for f in isrc.fields()]
+
+        def _fld(key, names, wanted, where, required):
+            chosen = self.parameterAsString(parameters, key, context)
+            nm = _dh.resolve_field(names, chosen, wanted)
+            if nm is None and required:
+                raise QgsProcessingException(self.tr(
+                    "Не нашлось поле «%s» (%s): задайте его в дополнительных "
+                    "параметрах.") % (wanted, where))
+            return nm
+
+        cid = _fld(self.CID, cnames, _dh.COLLAR_ID, "collar", True)
+        cz = _fld(self.CZ, cnames, _dh.COLLAR_Z, "collar", True)
+        ceoh = _fld(self.CEOH, cnames, _dh.COLLAR_EOH, "collar", False)
+        iid = _fld(self.IID, inames, _dh.INTERVAL_ID, "interval", True)
+        ifrom = _fld(self.IFROM, inames, _dh.INTERVAL_FROM, "interval", True)
+        ito = _fld(self.ITO, inames, _dh.INTERVAL_TO, "interval", True)
+        icode = _fld(self.ICODE, inames, _dh.INTERVAL_CODE, "interval", False)
+        feedback.pushInfo(_tr("Поля: collar (%s), interval (%s).") % (
+            ", ".join(x if x else "-" for x in (cid, cz, ceoh)),
+            ", ".join(x if x else "-" for x in (iid, ifrom, ito, icode))))
+
+        summary = _dh.ReadSummary()
+        crows = []
+        for ft in csrc.getFeatures():
+            x = y = None
+            g = ft.geometry()
+            if g is not None and not g.isEmpty():
+                try:
+                    p = g.asPoint()
+                    x, y = p.x(), p.y()
+                except Exception:  # nosec - мультиточка
+                    mp = g.asMultiPoint()
+                    if mp:
+                        x, y = mp[0].x(), mp[0].y()
+            crows.append((ft[cid], x, y, ft[cz],
+                          ft[ceoh] if ceoh else None))
+        irows = []
+        for ft in isrc.getFeatures():
+            irows.append((ft[iid], ft[ifrom], ft[ito],
+                          ft[icode] if icode else None, ft.attributes()))
+        collars = _dh.read_collars(crows, summary)
+        intervals = _dh.read_intervals(irows, summary)
+        holes = _dh.assemble(collars, intervals, summary)
+        for ln in summary.lines(_tr):
+            feedback.pushInfo(ln)
+        if not holes:
+            raise QgsProcessingException(self.tr(
+                "Ни одна скважина не собралась: проверьте hole_id и глубины."))
+        return csrc, isrc, collars, holes, icode
+
+    def _process(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        # запоминаем выбранные слои по id, чтобы следующий запуск в этом же
+        # проекте открылся с уже подставленными входами
+        for key in (self.LINE_DEF, self.COLLAR, self.INTERVAL):
+            try:
+                lyr = self.parameterAsVectorLayer(parameters, key, context)
+                if lyr is not None:
+                    _saved[key] = lyr.id()
+            except Exception:  # nosec - запоминание не должно ронять расчёт
+                pass
+        dsrc = self.parameterAsSource(parameters, self.LINE_DEF, context)
+        if dsrc is None:
+            raise QgsProcessingException(self.tr("В определении нет линии."))
+        corridor = self.parameterAsDouble(parameters, self.CORRIDOR, context)
+        defs = _defs_or_raise(self, dsrc)
+        _log_defs(feedback, defs)
+        csrc, isrc, collars, holes, icode = self._read_model(
+            parameters, context, feedback)
+
+        # поля чертежа: sec и sec_id, затем колонки таблицы интервалов как
+        # есть, затем отметки и удаление. Имена наших добавок уводятся от
+        # столкновения с колонками пользователя подчёркиванием.
+        used = set()
+
+        def _uniq(nm):
+            while nm in used:
+                nm += "_"
+            used.add(nm)
+            return nm
+
+        fout = QgsFields()
+        fout.append(QgsField(_uniq("sec"), QVariant.String))
+        fout.append(QgsField(_uniq("sec_id"), QVariant.Int))
+        for fld in isrc.fields():
+            used.add(fld.name())
+            fout.append(QgsField(fld))
+        aux = [_uniq("ztop"), _uniq("zbot"), _uniq("offset")]
+        for nm in aux:
+            fout.append(QgsField(nm, QVariant.Double))
+        # готовый hex-цвет кода пишем атрибутом: стиль его только читает,
+        # никакой логики в QML (урок бергштрихов). Цвет детерминирован от
+        # самого кода и не пляшет между прогонами.
+        fout.append(QgsField(_uniq("ccolor"), QVariant.String))
+        crs0 = _section_draw_crs()
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fout,
+            QgsWkbTypes.Type.LineString, crs0)
+        code_list = _dh.code_order(holes)
+        if icode and code_list:
+            cats = [(c, _dh.code_color(c),
+                     c if c else self.tr("(без кода)")) for c in code_list]
+            _attach_categories(context, dest, _style_path("dh_intervals"),
+                               icode, cats)
+        else:
+            _attach_style(context, dest, _style_path("dh_intervals"))
+
+        fstick = QgsFields()
+        for nm, tp in (("sec", QVariant.String), ("sec_id", QVariant.Int),
+                       ("hole_id", QVariant.String), ("z", QVariant.Double),
+                       ("eoh", QVariant.Double), ("offset", QVariant.Double)):
+            fstick.append(QgsField(nm, tp))
+        ssink, sdest = self.parameterAsSink(
+            parameters, self.OUTPUT_STICKS, context, fstick,
+            QgsWkbTypes.Type.LineString, crs0)
+        if ssink is not None:
+            _attach_style(context, sdest, _style_path("dh_sticks"))
+        lsink, ldest = self.parameterAsSink(
+            parameters, self.OUTPUT_LABELS, context, fstick,
+            QgsWkbTypes.Type.Point, crs0)
+        if lsink is not None:
+            _attach_style(context, ldest, _style_path("dh_collars"))
+
+        f3 = QgsFields()
+        for fld in isrc.fields():
+            f3.append(QgsField(fld))
+        f3.append(QgsField("ztop", QVariant.Double))
+        f3.append(QgsField("zbot", QVariant.Double))
+        f3.append(QgsField("ccolor", QVariant.String))
+        sink3, dest3 = self.parameterAsSink(
+            parameters, self.OUTPUT_3D, context, f3,
+            QgsWkbTypes.Type.LineStringZ, csrc.sourceCrs())
+
+        nseg = ncol = 0
+        for dd in defs:
+            verts = _line_vertices(dd["line"])
+            if len(verts) < 2:
+                continue
+            cnt = {}
+            cols = _dh.columns_for_section(
+                collars, holes, verts, corridor, dd["vex"], cnt)
+            ox, oy = dd["ox"], dd["oy"]
+            tag = [dd["sec"], dd["sec_id"]]
+            for col in cols:
+                c = collars[col.hole_id]
+                x = col.d + ox
+                off = round(col.offset, 3)
+                for (ytop, ybot, it) in col.segments:
+                    zt, zb = _dh.unfold(c.z, it.frm, it.to)
+                    fa = QgsFeature(fout)
+                    fa.setGeometry(QgsGeometry.fromPolylineXY([
+                        QgsPointXY(x, ytop + oy), QgsPointXY(x, ybot + oy)]))
+                    fa.setAttributes(tag + list(it.extra)
+                                     + [round(zt, 3), round(zb, 3), off,
+                                        _dh.code_color(it.code)])
+                    sink.addFeature(fa)
+                    nseg += 1
+                eoh = c.eoh if math.isfinite(c.eoh) else None
+                if ssink is not None:
+                    fs = QgsFeature(fstick)
+                    fs.setGeometry(QgsGeometry.fromPolylineXY([
+                        QgsPointXY(x, col.stick[0] + oy),
+                        QgsPointXY(x, col.stick[1] + oy)]))
+                    fs.setAttributes(tag + [col.hole_id, c.z, eoh, off])
+                    ssink.addFeature(fs)
+                if lsink is not None:
+                    fl = QgsFeature(fstick)
+                    fl.setGeometry(QgsGeometry.fromPointXY(
+                        QgsPointXY(x, col.ytop_label + oy)))
+                    fl.setAttributes(tag + [col.hole_id, c.z, eoh, off])
+                    lsink.addFeature(fl)
+                ncol += 1
+            feedback.pushInfo(_tr("Разрез «%s»: скважин %d, вне коридора %d.")
+                              % (dd["sec"], cnt.get("n_wells", 0),
+                                 cnt.get("n_outside", 0)))
+        if ncol == 0:
+            raise QgsProcessingException(self.tr(
+                "Ни одна скважина не попала в коридор ни одного разреза."))
+
+        # 3D один раз на скважину, без коридора и раскладки: интервалы в
+        # реальных координатах, глубина в Z напрямую
+        n3 = 0
+        if sink3 is not None:
+            for hid in sorted(holes):
+                c = collars[hid]
+                for it in sorted(holes[hid], key=lambda i: (i.frm, i.to)):
+                    zt, zb = _dh.unfold(c.z, it.frm, it.to)
+                    fb = QgsFeature(f3)
+                    fb.setGeometry(QgsGeometry(QgsLineString([
+                        QgsPoint(c.x, c.y, zt), QgsPoint(c.x, c.y, zb)])))
+                    fb.setAttributes(list(it.extra)
+                                     + [round(zt, 3), round(zb, 3),
+                                        _dh.code_color(it.code)])
+                    sink3.addFeature(fb)
+                    n3 += 1
+
+        feedback.pushInfo(_tr(
+            "Вынесено колонок %d (интервалов %d) на %d разрезов.")
+            % (ncol, nseg, len(defs)))
+        res = {self.OUTPUT: dest}
+        _set_output_name(context, dest, _tr("Скважины на разрезе (модель)"))
+        if ssink is not None:
+            _set_output_name(context, sdest, _tr("Стволы скважин (чертёж)"))
+            res[self.OUTPUT_STICKS] = sdest
+        if lsink is not None:
+            _set_output_name(context, ldest, _tr("Устья на чертеже (подписи)"))
+            res[self.OUTPUT_LABELS] = ldest
+        if sink3 is not None and n3:
+            _set_output_name(context, dest3, _tr("Интервалы скважин (3D)"))
+            res[self.OUTPUT_3D] = dest3
+        _save_values(self, _saved)
+        _set_group(context, GRP_SECTION, list(res.values()), force=True,
+                   history=_provenance(self, parameters))
+        return res
 
 
 class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
@@ -12291,7 +12606,7 @@ ALGORITHMS = [
     TerracingCheckAlgorithm,
     TerraceSmoothAlgorithm,
     SectionAlgorithm,
-    BoreholesOnSectionAlgorithm,
+    DrillholesOnSectionAlgorithm,
     CompositionOnSectionAlgorithm,
     SectionGridIntersectAlgorithm,
     SectionVectorIntersectAlgorithm,

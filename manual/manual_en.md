@@ -1535,7 +1535,7 @@ The **exaggeration** mode is the same number given directly, without the drawing
 
 The **H:V ratio (drawing width:height)** mode works from the extents: you set the desired ratio of sheet width to height (say 10), and the tool computes the factor itself from the line length and the elevation span. It is handy when fitting the section to a sheet matters more than holding a given scale.
 
-The effective exaggeration is printed to the log. For an exact overlay of layers it must match across the section, the boreholes and the composition. In H:V mode the section (4.01) and the boreholes (4.02) span the whole section in height and line up. The composition (4.03) computes the ratio over a single bed, so to overlay it take the exaggeration printed by 4.01 and set it in 4.03 in the **exaggeration** mode.
+The effective exaggeration is printed to the log. For an exact overlay of layers it must match across the section, the boreholes and the composition. In H:V mode the section (4.01) spans the whole section in height. The boreholes (4.02) take the factor from the definition and line up by themselves. The composition (4.03) computes the ratio over a single bed, so to overlay it take the exaggeration printed by 4.01 and set it in 4.03 in the **exaggeration** mode.
 
 ## Several sections in one run
 
@@ -1600,37 +1600,49 @@ Each bed gets attributes: a number, the roof and floor names, the mean thickness
 
 ## Trying it on a demo
 
-A ready training set is produced by the **Create a section example** tool (4.10): six surfaces top to bottom, three section lines, boreholes with the h1...h6 fields, and multiband bed grids. It arranges the surfaces in the tree by stratigraphy itself, and the three lines of different length and with different numbers of bends are handy for looking at the layout and the common vertical scale. Run it, then feed the surfaces and the line here, the boreholes into **Boreholes on the section**, and the bed grid (bands 1/2/3) into **Bed composition on the section**. The full contents of the set are in section 4.10.
+A ready training set is produced by the **Create a section example** tool (4.10): six surfaces top to bottom, three section lines, a pair of drilling-model layers collar and interval, and multiband bed grids. It arranges the surfaces in the tree by stratigraphy itself, and the three lines of different length and with different numbers of bends are handy for looking at the layout and the common vertical scale. Run it, then feed the surfaces and the line here, the collar and interval pair with the definition into **Boreholes on the section**, and the bed grid (bands 1/2/3) into **Bed composition on the section**. The full contents of the set are in section 4.10.
 
 ## Relation to QGIS
 
 A plain profile curve over a single grid is built by the native **Elevation Profile** panel, no separate tool is needed for that. The section instead shows the beds between surfaces, which the native tools do not do. A kriging surface can also be viewed in 3D without a section: set the grid as terrain in the 3D Map View.
 
-# 4.02 Boreholes on the section
+# 4.02 Boreholes on the section (drilling model)
 
-The **Boreholes on the section** tool projects boreholes onto the section line and shows them as columns of bed intervals on top of the drawing from **Cross-section along a line**. It sits in the **Cross-sections** group.
+The **Boreholes on the section** tool places boreholes onto section drawings from a pair of drilling-model layers. It sits in the **Cross-sections** group and works in batch: one run serves every section of the definition.
 
-Each borehole is placed at the distance along the line where its projection falls. The bed boundaries are taken from the chosen elevation fields: on each borehole their values are sorted in descending order, and adjacent pairs give the bed intervals. So the order of field selection and gaps (NULL) do not matter. Each interval gets a bed number, and the column gets the borehole number from the label field.
+## The drilling model
 
-## Corridor and exaggeration
+Boreholes are described by two tables following the minimal model of the mining packages (Leapfrog, Micromine, Datamine, Surpac). **collar** is a point layer of collars with the **hole_id** (identifier, string), **z** (collar elevation) and **eoh** (end-of-hole depth downhole) fields. **interval** is a plain interval table with the **hole_id**, **from**, **to** and **code** fields (code is what we colour by: a bed index, a lithotype, a class). Depths are measured downhole from the collar, positive downwards, not as elevations, so inclined holes do not break the model. Any other columns of the interval table travel into the drawing attributes as they are.
 
-The corridor is a buffer around the line: boreholes farther than it are not shown (0 shows all). Set the vertical scale the same as in **Cross-section along a line** - in H:V mode the columns line up with the bands automatically, or take the exaggeration printed by 4.01.
+Such a pair is produced by **Create a section example** (4.10) and by a corporate export. The tool finds the fields of both tables by the contract names and common synonyms (Hole_ID, elev, depth_from, litho) itself, case does not matter. The field pickers are hidden under the advanced parameters and are needed only for non-standard layers. What was found is printed to the log in one line.
+
+## The tolerant reader
+
+The data is read without prior cleaning. Empty and non-numeric depths are skipped, swapped from and to are exchanged, intervals beyond the end of hole are drawn as they are, overlaps are neither resolved nor hidden, intervals without a collar are skipped. Everything skipped or accepted with a note is counted and reported to the log as a short summary. On clean data the summary is a single line.
+
+## Batch operation and alignment
+
+The lines, the vertical scale and the layout come from the section definition produced by **Cross-section along a line**. Every borehole is projected onto every line and lands on the drawings it is closer to than the corridor (0 means all). Depths become elevations by subtraction from z, the vex factor is shared from the definition, so the columns sit on the beds by height without fitting.
+
+## Colours and the legend
+
+The interval layer comes out coloured right away: a category per code in the order of first appearance top to bottom, the colour is deterministic from the code itself and does not change between runs and machines. The code-to-colour legend appears in the layer tree by itself. The last entry is the grey **other** category, everything that did not match a known code falls into it, so nothing disappears silently. The columns carry a thin black outline and read on top of the section bands. The bed bands in **Cross-section along a line** are coloured by the same mechanism from the roof name, so a bed named with the same code as in the interval table matches the borehole columns in colour by itself. The traces are drawn as a thin grey line from the collar to the end of hole, the collars as points labelled by **hole_id**.
 
 ## Parameters
 
 | Parameter | What it sets | Default |
 |---|---|---|
-| Section line | The same line as for the section. | - |
-| Boreholes | A borehole point layer. | - |
-| Bed-boundary elevation fields | Numeric roof and floor fields. At least two. | - |
-| Borehole number field | The column label. | no label |
-| Corridor from the line | A buffer, map units. 0 shows all. | 0 |
-| Vertical scale | Mode: H:V ratio or exaggeration. | H:V |
-| Scale value | H:V ratio or exaggeration. | 10 |
-| Borehole bed intervals | The output vertical segments (drawing). | created |
-| Borehole collars | Points at the top of the columns for labels. | created |
+| Section definition | The lines, vex and layout from **Cross-section along a line**. | - |
+| Borehole collars (collar) | The collar point layer. | - |
+| Borehole intervals (interval) | The interval table. | - |
+| Corridor from the line | A buffer, map units. 0 puts every borehole on every section. | 0 |
+| collar and interval fields (Adv.) | Overrides of the automatic field search. | found automatically |
+| Borehole intervals (drawing) | Vertical segments coloured by code. | created |
+| Borehole traces (drawing) | Lines from the collar to the end of hole. | created |
+| Collars on the drawing | Points labelled by hole_id. | created |
+| Borehole intervals (3D) | LineStringZ in real coordinates, depth goes into Z. | on request |
 
-Colour the intervals by bed number to match the section bands, and label the collars by borehole number.
+The chosen layers and the corridor are remembered, the next run in the same project opens with the inputs already in place.
 
 # 4.03 Bed composition on the section
 
@@ -1670,9 +1682,9 @@ The intersect, project and unproject tools read the line and vex from this defin
 
 When there are several sections, the definition carries them all. The **Intersect surfaces with the section** (4.04), **Intersect vectors with the section** (4.05) and **Intersect a TIN with the section** (4.06) tools handle the whole set in one run: every result lands on its own drawing by the offset from the ox and oy fields and gets the sec and sec_id fields. If you need a single section, filter the definition layer or select the line you want, the feature order is preserved. If the definition happens to hold sections with different vex (which occurs when definitions from separate runs are merged), the tool warns that the drawings are not comparable and advises rebuilding them in one run.
 
-The **Boreholes on the section** (4.02), **Bed composition on the section** (4.03) tools and the beta tools 4.07 and 4.08 still work over a single section and take the first one from the definition. With several sections, feed them a definition filtered down to the trace you need.
+The **Bed composition on the section** (4.03) tool and the beta tools 4.07 and 4.08 still work over a single section and take the first one from the definition. **Boreholes on the section** (4.02) handles the whole set in batch. With several sections, feed them a definition filtered down to the trace you need.
 
-The **Boreholes on the section** and **Bed composition on the section** tools accept the section definition as an optional input: when given, the vertical scale is taken from it, so the borehole columns and the composition band sit exactly on the beds by height.
+The **Bed composition on the section** tool accepts the section definition as an optional input: when given, the vertical scale is taken from it, so the composition band sits exactly on the beds by height. **Boreholes on the section** works from the definition only, it has no scale choice of its own.
 
 Definition layers made by earlier versions of the plugin are read as before. They have no sec or ox fields, so the name comes out empty and the offset zero, and the result lands exactly as it used to.
 
@@ -1815,7 +1827,7 @@ A single run outputs six stacked surfaces with a dip and variable thickness (fiv
 | Surface 1…6 | raster | A single elevation band. |
 | 1st/2nd industrial bed | raster | Bands: 1 roof, 2 bottom, 3 content, 4 mineral type. |
 
-The workflow is shown in section 4.01: the surfaces go into **Cross-section along a line**, the boreholes into **Boreholes on the section**, the composition grid into **Bed composition on the section**, and the demo vectors and TIN into the intersection tools 4.05 and 4.06. The whole cross-section group then runs on consistent data.
+The workflow is shown in section 4.01: the surfaces go into **Cross-section along a line**, the collar and interval pair into **Boreholes on the section**, the composition grid into **Bed composition on the section**, and the demo vectors and TIN into the intersection tools 4.05 and 4.06. The whole cross-section group then runs on consistent data.
 
 ## Parameters
 
@@ -1825,7 +1837,9 @@ The workflow is shown in section 4.01: the surfaces go into **Cross-section alon
 | Generator seed (Adv.) | The RNG seed for reproducibility. 0 means random on each run. | 0 |
 | Surface 1...6 | Six rasters top to bottom: the roofs and floors of the host beds and the two industrial beds. | created |
 | Section lines (3) | Three traces across the area to feed into 4.01. By default the tool builds a section along each of them. | created |
-| Boreholes along the line | Points with surface-elevation fields h1...h6 for 4.02. | on request |
+| Boreholes along the line | Points with the h1...h6 fields (the wide format, a stub for a converter). | on request |
+| Borehole collars collar | The drilling-model point layer (hole_id, z, eoh, PointZ). | created |
+| Borehole intervals interval | The drilling-model table (hole_id, from, to, code, kcl). | created |
 | Composition: content | A content grid of the industrial beds for 4.03. | on request |
 | Composition: type/facies | A mineral-type grid (1 sylvinite, 2 replacement) for 4.03. | on request |
 | Fault, Z marker, zone | Demo vectors for 4.05: a line without Z, a contour with Z, a zone polygon. | on request |

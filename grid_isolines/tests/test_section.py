@@ -192,7 +192,7 @@ class TestSectionDrawCrs(_unittest.TestCase):
             os.path.abspath(__file__))), "algorithms.py"), encoding="utf-8").read()
         tree = _ast.parse(src)
         section_classes = {
-            "SectionAlgorithm", "BoreholesOnSectionAlgorithm",
+            "SectionAlgorithm", "DrillholesOnSectionAlgorithm",
             "CompositionOnSectionAlgorithm", "SectionGridIntersectAlgorithm",
             "SectionVectorIntersectAlgorithm", "SectionTinIntersectAlgorithm",
             "SectionProjectAlgorithm", "ShaftUnwrapAlgorithm",
@@ -357,8 +357,10 @@ class BatchWiring(_unittest.TestCase):
         self.assertIn("+ oy", blk)
 
     def test_three_scale_modes_everywhere(self):
+        # Носителей выбора масштаба три: 4.01, 4.03 и 4.09. Модельный 4.02
+        # берёт vex из определения разреза и своего выбора не имеет.
         self.assertEqual(
-            self.src.count('self.tr("отношение масштабов Г:В (1:N)")'), 4)
+            self.src.count('self.tr("отношение масштабов Г:В (1:N)")'), 3)
 
 
 class ChildToolsBatch(_unittest.TestCase):
