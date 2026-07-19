@@ -127,5 +127,35 @@ class TestWriteGeotiffUserCrs(unittest.TestCase):
                 _os.remove(path)
 
 
+class RavineMode(unittest.TestCase):
+    """Овражно-балочный режим демо-генератора."""
+
+    def test_ravine_mode_cuts_relief(self):
+        """Овраги режут рельеф вниз, а не поднимают его."""
+        a = demo_relief.generate(120, 120, 30.0, seed=11)
+        b = demo_relief.generate(120, 120, 30.0, seed=11, ravine=True)
+        d = a - b
+        self.assertTrue(np.all(d >= -1e-6),
+                        "овраги не должны поднимать поверхность")
+        self.assertGreater(d.max(), 10.0)
+
+    def test_ravine_mode_is_deterministic(self):
+        a = demo_relief.generate(100, 100, 30.0, seed=3, ravine=True)
+        b = demo_relief.generate(100, 100, 30.0, seed=3, ravine=True)
+        self.assertTrue(np.array_equal(a, b))
+
+    def test_ravine_is_narrow_not_a_basin(self):
+        """Врез должен быть узким: доля глубоко срезанных ячеек невелика."""
+        a = demo_relief.generate(150, 150, 30.0, seed=4)
+        b = demo_relief.generate(150, 150, 30.0, seed=4, ravine=True)
+        deep = float(((a - b) > 5.0).mean())
+        self.assertTrue(0.005 < deep < 0.25, deep)
+
+    def test_ravine_off_by_default(self):
+        a = demo_relief.generate(80, 80, 30.0, seed=9)
+        b = demo_relief.generate(80, 80, 30.0, seed=9, ravine=False)
+        self.assertTrue(np.array_equal(a, b))
+
+
 if __name__ == "__main__":
     unittest.main()

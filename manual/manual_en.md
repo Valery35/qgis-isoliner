@@ -317,6 +317,73 @@ Polygons are created with a single symbol. For range fills set graduated symbolo
 
 The isoline layer is automatically placed above the polygon layer so the lines show over the fill.
 
+## Topographic labels
+
+On a topographic map the top of the figure on a contour always faces up the slope. Reading the map, a single label tells you which way is higher without checking the neighbouring contours.
+
+QGIS measures the top of a label from the direction of the line, so text rotation cannot achieve this. What is needed is to give the lines a single direction relative to the slope, and that is what the **Topographic labels** tick does. The layer keeps an **up_side** field: 1 means the line was left as it was, 0 that it was reversed.
+
+### It does not work unless upside-down labels are allowed
+
+The labelling settings hold an option for showing upside-down labels, and by default it forbids them. Under that ban QGIS turns the text around by itself so that it reads left to right, and the direction of the line stops mattering.
+
+A topographic label is upside down by definition on a slope facing south. So the showing of upside-down labels has to be allowed rather than fought.
+
+In the **Structure / hypsometry** and **Depression (hachures down)** styles this is already set. If you label with a style of your own, enable the showing of upside-down labels in the rendering section, otherwise the tick gives nothing.
+
+### The label sits on the line
+
+In both styles the label is placed on the contour itself rather than above it, and breaks it. This is the familiar topographic device: the figure reads together with the line rather than beside it.
+
+
+## Warning about flat levels
+
+The tool checks by itself whether any level of the interval has landed on an area with a near-zero slope, and if it has, says so in the log: the level, the number of cells touched and the share of the data. Nothing is blocked, the isolines are built as usual.
+
+Why this is needed. On an area where the surface changes by millimetres, the position of an isoline is set not by the relief but by the noise of the matrix. The line starts to wander, breaks into a multitude of small rings and looks like a single thickened one. The classic source of such an area is a water surface: on a matrix derived from a stereo pair it stands at one elevation to within centimetres and can cover half the area.
+
+Telling this ailment from the normal work of the algorithm by eye is hard, because the algorithm did its job right and the data are at fault. That is why the check is reported in the log as numbers.
+
+The practical remedy is usually simple: mask the water surface before building, or shift the levels. A shoreline is a map feature of its own, not a contour, and should not be drawn as one.
+
+The check runs in a single pass over the array and is skipped on rasters larger than sixty million cells so as not to waste time. Any error inside it is suppressed, the build is never brought down by diagnostics.
+
+## Contour confidence
+
+A continuation of the same thought, but this time with something you can do about it. The **Contour confidence** parameter has three positions.
+
+**Do not compute** is the default, nothing changes.
+
+**drop_min and drop_mean fields only** leaves the lines whole but gives each one two fields: the smallest and the mean elevation drop per cell along it. The decision stays with you: suspect stretches show up with an expression such as `drop_min < 0.005`, and you decide whether to hide or to show them.
+
+**Fields plus a break on suspect stretches** additionally breaks the line where the drop falls below the threshold and marks the parts with a **lowconf** field. Nothing is deleted, what is marked can be hidden with a layer filter.
+
+### Why the threshold is a fraction of the interval
+
+What is measured is not the slope but the elevation drop per cell. This quantity has the same dimension as the contour interval, so it can be compared with it directly, and a single threshold works the same way on different data.
+
+An example. At an interval of 0.5 m and a threshold of one hundredth the boundary runs at 5 mm per cell. A gentle slope gives centimetres per cell and passes, a water surface gives millimetres and does not. Setting the threshold as an absolute slope would mean tuning it anew for every area.
+
+The threshold is set in the advanced parameters, **Drop-per-cell threshold, fraction of the interval**, 0.01 by default.
+
+### Why only runs are broken
+
+A single suspect vertex does not break the line, and neither do two. A break happens only where three or more weak vertices follow one another. Otherwise one random noisy cell would crumble a contour on a perfectly normal slope, and the map would thin out for no reason.
+
+The number three is built in and is not exposed as a parameter: there is nothing for the user to tune it against, and an extra parameter in the dialog costs more than it seems.
+
+The parts share the boundary vertex, so no gap appears in the geometry: neighbouring pieces meet point to point.
+
+### Order in the pipeline and the summary
+
+The marking runs after the isolines are built and before the short-line filter. Otherwise the fragments left by the breaking would enter the length statistics and some lines would be dropped twice for different reasons.
+
+A summary goes to the log: how many lines came in, how many parts came out, how many of them are below the noise and what share of the total length turned out weak.
+
+### What the tool does not do
+
+It does not smooth flat areas so that the line stops wandering. That would be a forgery of the data: the result would be a smooth and wrong contour instead of a ragged one that matches what the matrix actually holds. The decision whether to show a weak stretch stays with a human.
+
 # 1.05 Variogram (experimental)
 
 The tool builds an experimental semivariogram from points, fits a model to it if needed, and produces an HTML report with a chart. It does not compute a grid and is not part of the kriging computation chain directly. Its job is diagnostic: to show the structure of the data's spatial variability and to help set the variogram parameters deliberately, by the look of the cloud rather than by eye.
@@ -705,6 +772,8 @@ Subsidence fields: **profile**, **picket_m**, **pk**, **tour** (tour number), **
 
 The **"2. Topography"** group answers a frequent request: the best possible terrain model from open data, out of the box. The front door is the DEM downloader by extent, next to it the vector base map from OpenStreetMap, the Topo2Raster core that builds terrain from points and contours, and the full hydrology set: depression filling, flow and accumulation, the river network, basins, slope with aspect, and peaks. All the analytics run on pure NumPy, without GRASS, SAGA or external modules.
 
+Next to it stands the **"2. Topography: diagnostics and repair"** group. It holds the tools that check a finished relief: splitting contours into sets, the residual against the DEM and the search for terracing. A separate group is needed because Processing has no subgroups, and keeping the checks inside the working chain is awkward: they break the sequence of building. The tool numbering stays continuous with topography.
+
 All output layers of the group land in the **Topography** group of the layer tree, so they do not drown among the working layers of the project. The tools of the group chain together. Downloader 2.01 delivers a ready metric DEM that goes straight into isolines (1.04) and any computation of the group. Watercourses from 2.02 and the river network from 2.06 fit Topo2Raster (2.03) as streamlines as is, because their vertices run downstream.
 
 ![The full chain of the group on the demo relief: hillshade, the river network with width by Strahler order (2.06), basin boundaries (2.07) and peaks (2.09).](images/topo_chain_demo.png){width=88%}
@@ -917,6 +986,175 @@ A utility generator: synthetic terrain from a tilted plain, hills and a winding 
 | Demo relief | Output raster. | - |
 
 The tool exists for the manual examples, tests and offline work. Live data comes from 2.01. The **Compact int16** checkbox outputs the raster in whole meters for shipping demo fragments.
+
+## The gully and ravine network
+
+The **Gully and ravine network** tick cuts thalwegs with steep sides into the relief, with tributaries entering at an acute angle. The cut deepens downstream, as in a real gully: shallow at the head, deep at the mouth.
+
+This mode exists for validation sets. A narrow cut between adjacent contours is the hardest place for any interpolation: the contours barely describe it, and a surface built from them shaves the gully off. On a profile across it this shows at once, and tools 2.11 and 2.12 put a number on it.
+
+## Where the demo lands
+
+Without an extent the demo is created at a conventional spot, always the same one, so that the examples in the manual reproduce. In a local coordinate system, a mine grid for instance, that spot turns out far from the working data and the map looks empty. Set the **Where to place it (extent)** parameter and the relief will land there, with the grid size computed from the extent and the cell size.
+
+# 2.11 Split contours for validation
+
+The tool splits a set of contours into two: one is used to build the relief, the other to check the result. Its purpose is to produce a figure that can be shown to somebody.
+
+## Why split at all
+
+The tempting way to check a relief is simple: take the source contours, read the built DEM at their points and compute the residual. The figure will look good, but it measures something other than it seems. The interpolator has seen those points, they were the input data, and it is almost bound to reproduce them. That is a check of input reproduction, not of predictive accuracy.
+
+A real check needs data the model has not seen. This tool creates them.
+
+## Why the split is by elevation, not by feature
+
+Holding out individual pieces of a single contour is pointless: the neighbouring pieces of the same level give the answer away and the check comes out flattering. So a held-out level disappears entirely, with all of its pieces. The interpolator can restore it only from the neighbouring levels, and that is what prediction means.
+
+The extreme levels of the set always stay in the building set. Beyond the range of the set the interpolator extrapolates, and a residual there would measure something other than what the check is for.
+
+## Outputs
+
+Two layers, **Contours for building** and **Contours for validation**. Both get a **hold** field: 0 for building, 1 for validation. The **Contour residuals against the DEM** tool recognises this field by itself and prints the two figures separately, so feeding it the combined set is easier than running it twice.
+
+## Working order
+
+Split the contours. Build the relief from the building set, with **Topo2Raster** for instance. Measure the residual over both sets at once. Compare the two figures.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Contours (lines) | The source set. | - |
+| Elevation field | Numeric field of the contour elevation. | - |
+| Hold out every Nth elevation | Thinning step over levels. 4 sends about a quarter to validation. | 4 |
+| Selection offset (Adv.) | Shifts the choice of levels so the check can be run over different subsets. | 0 |
+
+# 2.12 Contour residuals against the DEM
+
+The tool measures how well the built DEM reproduces the source contours. At points along a contour the raster value is taken and compared with the elevation of the contour itself. The residual is positive where the DEM lies below the contour.
+
+## The numbers it reports
+
+The mean is the bias: a non-zero value means the surface as a whole is shifted in elevation. SD and RMSE are the spread. The median absolute value resists single outliers, the maximum shows the worst place on the area.
+
+Separately it reports the share of points that miss by more than half the contour interval. This is a practical quantity: if it is noticeable, a contour drawn from such a DEM will not sit where the original one was, and the map stops agreeing with itself.
+
+The tool detects the contour interval from the set of elevations as the smallest difference between adjacent levels. If the set is assembled from different sources, set the interval by hand.
+
+## Two figures instead of one
+
+If the layer carries a **hold** field from tool 2.11, the residual is computed separately for building and for validation, and both lines go to the log. The first says how the model reproduces the input, the second how it predicts. The second is always worse than the first, and that is normal. What matters is the gap between them: if it is large, the model memorises well and generalises poorly, that is, the shape of the relief between the contours is restored wrongly.
+
+Without a **hold** field the tool reports a single figure and warns in the log that this is reproduction of the input.
+
+## The report
+
+The HTML report holds a table of numbers per set, a histogram of residuals with the half-interval bounds marked, the spread of the mean residual by elevation, and a short reading: whether there is a systematic bias, whether the spread is large relative to the interval, whether the share of misses is noticeable, whether there is a gap between reproduction and prediction.
+
+The breakdown by elevation is worth a close look. If the residual grows towards the summits or towards the thalwegs, it speaks of forms being cut off rather than of random noise.
+
+## The point layer
+
+A point layer of residuals is produced with the fields: **fid_src** (the source contour feature), **elev** (elevation), **z_dem** (the DEM value), **resid** and **abs_resid**, **hold**. Colour it by **resid** with a diverging ramp and the places where the surface systematically runs low or high show up at once, without any statistics.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Contours (lines) | The layer with elevations. A combined set with a hold field works. | - |
+| Elevation field | Numeric elevation field. | - |
+| DEM (the built relief) | The raster being checked. | - |
+| DEM band (Adv.) | Raster band. | 1 |
+| Sampling step along the contour | 0 means vertices only. Above zero it adds points on long straight legs. | 0 |
+| Raster sampling (Adv.) | Bilinear or nearest. Bilinear is fairer for a smooth surface. | bilinear |
+| Contour interval (Adv.) | 0 means detect from the elevations. | 0 |
+| Residual points | The output point layer. | created |
+| Residual report (HTML) | Table, histogram, reading. | created |
+
+# 2.13 Terracing check of a DEM
+
+The tool looks for terracing, the characteristic ailment of a relief built from contours. The slope goes in steps, with a bench near a contour level and an abrupt drop between levels. On a hillshade it looks like a wedding cake, on a profile like a staircase. Slopes in such a relief are wrong, and flow computations over it break down.
+
+## Two independent signs
+
+**Vertical curvature** is the second derivative along the slope. On a stepped surface it spikes at the drops and is close to zero on the benches, and the whole picture repeats the pattern of the contours in bands. The curvature raster is produced as an output, and terracing is visible on it by eye, without any statistics.
+
+**Attraction of elevations to the levels** is a direct check on the values themselves, without derivatives. On a healthy surface the elevations between adjacent levels are spread more or less evenly, so the share of cells in a narrow band around a level is close to the width of that band and the ratio comes out near one. On a terraced surface the elevations stick to the levels and the ratio grows.
+
+The ratio reads like this. Near one means no signs. One and a half is a reason to look at the curvature raster by eye. Two and above means terracing.
+
+The two signs are worth looking at together. Curvature is visually convincing, but its spikes also come from real landforms, from breaks of slope for instance. Attraction to the levels gives a number but does not show where the trouble is. Together they answer both "is there any" and "where".
+
+## The contour interval
+
+The tool computes the phase of an elevation within the interval, so the interval is required. It can be set by hand or taken from a contour layer: then both the interval and the base elevation come from the real set. The second way is safer if the elevations do not start at a round number.
+
+## Flat areas are kept out of the count
+
+Cells with a near-zero slope are excluded from the attraction index. The threshold is a fraction of the interval: a cell is ignored when the elevation drop across it is smaller than a hundredth of the interval. At an interval of 0.5 m that is 5 mm per cell. The **Ignore cells with a drop below, fraction of the interval** parameter sits in the advanced ones, zero turns it off.
+
+Without this screening the index lies on any real matrix that holds a water body. The elevations of a water surface stand still and all fall into one phase within the interval, which skews the distribution, and the index drifts down and reports false health. On a matrix where a reservoir covered 44.5 percent of the area, the index without screening gave 0.50 instead of 0.97, while over land alone it came out at 1.00.
+
+The share of excluded cells is printed to the log and goes into the report. This is worth seeing: if the tool has thrown away half the area, you should know about it rather than wonder why the figure changed.
+
+## The report
+
+The HTML report holds a table of numbers and a histogram of the phase, that is, the distribution of elevations within the interval. A flat histogram means there is no terracing. A peak at zero means the elevations gather at the levels and the surface is stepped.
+
+## The cure
+
+Terracing is cured by breaklines (thalwegs, breaks of slope, ridges) and by denser source data, not by smoothing. Smoothing removes the steps together with the landforms, and the numbers improve while the map gets worse.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| DEM (the relief being checked) | The raster being checked. | - |
+| DEM band (Adv.) | Raster band. | 1 |
+| Contour interval | 0 means take it from a contour layer. | 0 |
+| Contours to detect the interval | Optional layer, the interval and base elevation are taken from it. | - |
+| Contour elevation field | Numeric elevation field. | - |
+| Base elevation of the levels (Adv.) | The datum of the levels when the interval is set by hand. | 0 |
+| Half-width of the band around a level (Adv.) | Fraction of the interval. The expected share equals twice this value. | 0.1 |
+| Vertical curvature | The output raster. | created |
+| Terracing report (HTML) | Table, phase histogram, reading. | created |
+
+# 2.14 Remove steps (clamped smoothing)
+
+The tool treats terracing: it removes the steps from slopes without moving the contours themselves.
+
+## How that is possible
+
+The surface is smoothed iteratively, but every point is forbidden to move away from its original value by more than a set fraction of the interval. By default that is half the interval, which is exactly the quantisation error: a surface built from contours of that spacing is known no better anyway.
+
+Two properties follow. The method cannot invent forms finer than the source interval allows, because the amplitude of the correction is bounded from above. And it cannot throw a point across a contour, since the shift is smaller than half the step between levels.
+
+On a reference stepped relief the attraction index falls from 5.00 to 1.13, and the mean error against the true surface from 1.25 m to 0.12 m.
+
+## The treatment checks itself
+
+The index of attraction to the levels is computed before and after the correction, and both figures go to the log together with the largest actual shift of the surface. If the index stays above two after the treatment, the tool says outright that the steps have not gone and advises adding iterations or checking the interval.
+
+The HTML report holds a table of numbers before and after, two phase histograms side by side and a reading. It is a ready document for a client or a reviewer: what was, what became and at what cost.
+
+## What the tool does not do
+
+It does not bring back what is not in the data. If a narrow cut was shaved off when the relief was built, smoothing will not restore it: the correction is bounded by half the interval and the cut is deeper. Nor does it help on a water surface, where a mask is needed rather than smoothing.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| DEM with steps | The raster being treated. | - |
+| DEM band (Adv.) | Raster band. | 1 |
+| Contour interval | 0 means take it from a contour layer. | 0 |
+| Contours for the interval | Optional layer the step is taken from. | - |
+| Contour elevation field | Numeric elevation field. | - |
+| Smoothing iterations | More means smoother. Fifty is almost always enough. | 50 |
+| Allowed shift, fraction of the interval (Adv.) | Zero forbids any correction. | 0.5 |
+| Relief without steps | The output raster. | created |
+| Before and after report (HTML) | Table, histograms, reading. | created |
 
 # 3.01 Categorical indicator kriging
 

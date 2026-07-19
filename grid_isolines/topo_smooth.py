@@ -195,3 +195,104 @@ def smooth_fpdems(z, cell, nodata_mask=None,
             feedback.pushInfo("FPDEMS: шаг %d из %d" % (k + 1, steps))
     out[nodata_mask] = z[nodata_mask]
     return out
+
+
+# ---------------------------------------------------------------------------
+#  Сглаживание с ограничением: лечение террасинга без потери горизонталей
+# ---------------------------------------------------------------------------
+
+def _fill_odd_reflect(buf, z):
+    """Заполнить рамку буфера нечётным отражением, продолжая наклон линейно.
+
+    Повтор крайнего значения загибал бы линейный склон у границы растра, и
+    загиб диффундировал бы внутрь с каждой итерацией.
+    """
+    buf[1:-1, 1:-1] = z
+    buf[0, 1:-1] = 2.0 * z[0, :] - z[1, :] if z.shape[0] > 1 else z[0, :]
+    buf[-1, 1:-1] = 2.0 * z[-1, :] - z[-2, :] if z.shape[0] > 1 else z[-1, :]
+    buf[1:-1, 0] = 2.0 * z[:, 0] - z[:, 1] if z.shape[1] > 1 else z[:, 0]
+    buf[1:-1, -1] = 2.0 * z[:, -1] - z[:, -2] if z.shape[1] > 1 else z[:, -1]
+    buf[0, 0] = buf[0, 1]
+    buf[0, -1] = buf[0, -2]
+    buf[-1, 0] = buf[-1, 1]
+    buf[-1, -1] = buf[-1, -2]
+
+
+def smooth_clamped(z, interval, iters=50, band=0.5, nodata_mask=None):
+    """Убрать ступени, не сдвинув горизонтали.
+
+    Поверхность сглаживается итеративно, но каждой точке запрещено уходить от
+    исходного значения дальше band долей сечения. По умолчанию это половина
+    сечения, то есть ровно ошибка квантования: поверхность, построенная по
+    горизонталям с шагом interval, и так известна с этой точностью.
+
+    Отсюда два свойства, ради которых всё и делается. Метод не может выдумать
+    формы тоньше, чем позволяет исходное сечение, потому что размах правки
+    ограничен сверху. И он не может перекинуть точку через горизонталь: сдвиг
+    меньше половины шага между уровнями.
+
+    Чего метод не делает: он не возвращает то, чего в данных не было. Если
+    овраг срезан при построении рельефа, сглаживание его не восстановит.
+
+    Считается в float32 с центрированием, веса соседей и буферы заводятся один
+    раз на весь прогон. Матрицы в десятки миллионов ячеек тут обычное дело, и
+    прямолинейная реализация с выделением памяти на каждой итерации доходила
+    до двух гигабайт.
+
+    Параметры:
+        z         - двумерный массив отметок
+        interval  - сечение рельефа, по которому строился рельеф
+        iters     - число итераций, больше значит глаже
+        band      - допустимый сдвиг в долях сечения
+        nodata_mask - True там, где данных нет
+
+    Возвращает новый массив, вход не меняется.
+    """
+    z = np.asarray(z)
+    if not interval or interval <= 0:
+        raise ValueError("interval must be positive")
+    iters = int(max(0, iters))
+    if iters == 0:
+        return np.array(z, dtype=float, copy=True)
+
+    valid = np.isfinite(z)
+    if nodata_mask is not None:
+        valid &= ~np.asarray(nodata_mask, dtype=bool)
+    if not valid.any():
+        return np.array(z, dtype=float, copy=True)
+
+    off = np.float32(float(np.mean(np.asarray(z)[valid])))
+    cur = np.where(valid, np.subtract(z, off, dtype=np.float32),
+                   np.float32(0.0)).astype(np.float32, copy=False)
+    z0 = cur.copy()
+    delta = np.float32(float(band) * float(interval))
+    lo = np.subtract(z0, delta)
+    hi = np.add(z0, delta)
+    del z0
+
+    ny, nx = cur.shape
+    buf = np.empty((ny + 2, nx + 2), dtype=np.float32)
+    acc = np.empty_like(cur)
+
+    # веса от маски считаются один раз: маска по ходу не меняется
+    vv = valid.astype(np.float32)
+    _fill_odd_reflect(buf, vv)
+    w = (buf[:-2, 1:-1] + buf[2:, 1:-1] + buf[1:-1, :-2] + buf[1:-1, 2:]
+         + np.float32(4.0) * vv)
+    np.maximum(w, np.float32(1e-12), out=w)
+    del vv
+
+    for _ in range(iters):
+        np.multiply(cur, valid, out=cur)
+        _fill_odd_reflect(buf, cur)
+        np.add(buf[:-2, 1:-1], buf[2:, 1:-1], out=acc)
+        np.add(acc, buf[1:-1, :-2], out=acc)
+        np.add(acc, buf[1:-1, 2:], out=acc)
+        np.add(acc, np.float32(4.0) * cur, out=acc)
+        np.divide(acc, w, out=acc)
+        np.clip(acc, lo, hi, out=acc)
+        cur, acc = acc, cur
+
+    out = np.asarray(z, dtype=float).copy()
+    out[valid] = cur[valid].astype(float) + float(off)
+    return out

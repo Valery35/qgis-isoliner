@@ -58,8 +58,8 @@ def test_all_algorithms_init():
     algorithms = importlib.import_module(pkg + ".algorithms")
     algorithms._tr = lambda s: s          # translate-заглушка возвращает строку
     assert algorithms.ALGORITHMS, "список ALGORITHMS пуст"
-    assert len(algorithms.ALGORITHMS) == 44, (
-        "ожидалось 44 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
+    assert len(algorithms.ALGORITHMS) == 48, (
+        "ожидалось 48 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
     for cls in algorithms.ALGORITHMS:
         a = cls()
         a.initAlgorithm()                 # тут и падало бы 'no attribute tr'
@@ -69,5 +69,43 @@ def test_all_algorithms_init():
     print("OK: инициализировано алгоритмов: %d" % len(algorithms.ALGORITHMS))
 
 
+def test_diagnostics_live_in_their_own_group():
+    """Диагностика вынесена из рабочей цепочки топографии.
+
+    Подгрупп в Processing нет, дерево у провайдера плоское, поэтому ветка
+    делается именем группы: оно сортируется сразу за топографией. Побочный
+    и желанный эффект - демо-генератор снова последний в рабочей группе.
+    """
+    import inspect
+    from grid_isolines import algorithms as A
+
+    diag = (A.ContourSplitAlgorithm, A.ContourResidualAlgorithm,
+            A.TerracingCheckAlgorithm, A.TerraceSmoothAlgorithm)
+    for cls in diag:
+        src = inspect.getsource(cls)
+        assert "GROUP_TOPODIAG_ID" in src, cls.__name__
+        assert "return GROUP_TOPO_ID" not in src, cls.__name__
+
+    # рабочая топография осталась при своей группе
+    src = inspect.getsource(A.TopoDemoReliefAlgorithm)
+    assert "GROUP_TOPO_ID" in src and "GROUP_TOPODIAG" not in src
+
+
+def test_group_name_sorts_after_topography():
+    from grid_isolines import algorithms as A
+    assert A.GROUP_TOPODIAG > A.GROUP_TOPO, (A.GROUP_TOPO, A.GROUP_TOPODIAG)
+    assert A.GROUP_TOPODIAG_ID != A.GROUP_TOPO_ID
+
+
 if __name__ == "__main__":
-    test_all_algorithms_init()
+    _fns = [(n, f) for n, f in sorted(globals().items())
+            if n.startswith("test_") and callable(f)]
+    _bad = 0
+    for _name, _fn in _fns:
+        try:
+            _fn()
+        except Exception as _exc:  # noqa: BLE001
+            _bad += 1
+            print("FAIL %s: %s" % (_name, _exc))
+    print("%d тестов, ошибок %d" % (len(_fns), _bad))
+    raise SystemExit(1 if _bad else 0)

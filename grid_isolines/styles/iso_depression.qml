@@ -1,5 +1,5 @@
 <!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
-<qgis layerType="Vector" styleCategories="Symbology" version="4.0.3-Norrköping">
+<qgis layerType="Vector" styleCategories="Symbology|Labeling" version="4.0.3-Norrköping">
   <renderer-v2 enableorderby="0" forceraster="0" referencescale="-1" symbollevels="0" type="RuleRenderer">
     <rules key="{1e6f17f0-b9cd-479f-ad68-79c61f9d2ece}">
       <rule filter="&quot;is_index&quot; = 1" key="{f87b4bcd-764f-4362-b0ef-9b3d70076ad8}" label="Главная (со штрихами вниз)" symbol="0"/>
@@ -82,7 +82,7 @@
               <Option name="properties" type="Map">
                 <Option name="offset" type="Map">
                   <Option name="active" type="bool" value="true"/>
-                  <Option name="expression" type="QString" value="@dn_sign * 1.3"/>
+                  <Option name="expression" type="QString" value="coalesce(&quot;dn_sign&quot;, 0) * 1.3"/>
                   <Option name="type" type="int" value="3"/>
                 </Option>
               </Option>
@@ -249,4 +249,4 @@
   <blendMode>0</blendMode>
   <featureBlendMode>0</featureBlendMode>
   <layerGeometryType>1</layerGeometryType>
-</qgis>
+<labeling type="rule-based"><rules key="{487f75bb-9511-4a98-b7b5-d23720de11ab}"><rule key="{a8e2e68a-b3ad-43c7-b694-54f85ee9c35d}" filter="&quot;is_index&quot; = 1"><settings><text-style fontFamily="Sans Serif" fontSize="8" fieldName="format_number(&quot;ELEV&quot;,0)" isExpression="1" textColor="40,40,40,255" namedStyle="Regular"><text-buffer bufferDraw="1" bufferSize="0.8" bufferColor="255,255,255,230" bufferSizeUnits="MM"/></text-style><placement placement="2" placementFlags="1" centroidWhole="0" dist="0" overrunDistance="3" overrunDistanceUnit="MM" repeatDistance="60" repeatDistanceUnits="MM"/><rendering obstacle="0" upsidedownLabels="2" mergeLines="1" labelPerPart="0"/></settings></rule></rules></labeling></qgis>

@@ -38,6 +38,8 @@ from qgis.PyQt.QtCore import QUrl, QVariant
 
 from .i18n import tr as _tr  # двуязычие RU/EN (нужен до module-level констант)
 from . import section_core as _sc  # чистое ядро разреза, без QGIS
+from . import validate_core as _vc  # чистое ядро валидации, без QGIS
+from .topo_smooth import smooth_clamped as _smooth_clamped
 from qgis.core import (
     QgsProcessing,
     QgsProcessingAlgorithm,
@@ -102,6 +104,12 @@ GROUP = _tr("1. Грид и изолинии")
 GROUP_ID = "grid_isolines"
 GROUP_TOPO = _tr("2. Топография")
 GROUP_TOPO_ID = "topography"
+# Диагностика вынесена в отдельную группу: подгрупп в Processing нет, дерево у
+# провайдера плоское, поэтому ветка делается именем, которое сортируется сразу
+# за топографией. Заодно демо-генератор снова оказывается последним в рабочей
+# группе, и перенумеровывать его не нужно.
+GROUP_TOPODIAG = _tr("2. Топография: диагностика и правка")
+GROUP_TOPODIAG_ID = "topography_diag"
 GROUP2 = _tr("3. Дополнительные инструменты анализа")
 GROUP2_ID = "extra_tools"
 GROUP3 = _tr("4. Разрез")
@@ -2179,6 +2187,9 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
     SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
     SMOOTH_LINE_ITER = "SMOOTH_LINE_ITER"
     DENSIFY = "DENSIFY"
+    UPHILL = "UPHILL"
+    CONFID, CONF_FRAC = "CONFID", "CONF_FRAC"
+    HATCH = "HATCH"
     STYLE = "STYLE"
     FIELD_NAME, OUTPUT, OUTPUT_POLYGONS = "FIELD_NAME", "OUTPUT", "OUTPUT_POLYGONS"
 
@@ -2214,7 +2225,7 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
             "границы СОВПАДАЮТ с изолиниями, покрытие сплошное. Чтобы их не "
             "строить - очистите поле «Контурные полигоны».\n\nПоля: линии - "
             "значение уровня (по умолчанию ELEV) и is_index (1 у главных); "
-            "полигоны - ELEV_MIN/ELEV_MAX (диапазон пояса).") + _credit())
+            "полигоны - ELEV_MIN/ELEV_MAX (диапазон пояса).\n\nФлажок **Топографические подписи** задаёт линиям одно направление относительно склона, и тогда верх цифры всегда смотрит вверх по склону, как на топокарте. QGIS отсчитывает верх подписи от направления линии, поэтому поворот текста задавать не нужно. В слое остаётся поле up_side: 1 означает, что линия оставлена как была, 0 что развёрнута.\n\nВажно: в настройках подписей слоя должно быть разрешено показывать перевёрнутые подписи. Иначе QGIS доворачивает текст ради читаемости и сводит разворот линий на нет. В стилях **Структура** и **Депрессия** это уже настроено. Если подписываете своим стилем, включите в разделе отрисовки подписей показ перевёрнутых. Топографическая подпись по определению бывает перевёрнутой: на склоне, обращённом на юг, цифра читается вверх ногами.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -2229,6 +2240,27 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
             self.STYLE, self.tr("Стиль изолиний"),
             options=[self.tr(x) for x in self._STYLE_LABELS],
             defaultValue=_dv(self, self.STYLE, 1)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.UPHILL,
+            self.tr("Топографические подписи"),
+            defaultValue=_dv(self, self.UPHILL, False)))
+        self.addParameter(_advanced(QgsProcessingParameterEnum(
+            self.HATCH, self.tr("Сторона бергштрихов"),
+            options=[self.tr("автоматически"), self.tr("не переворачивать"),
+                     self.tr("перевернуть")],
+            defaultValue=_dv(self, self.HATCH, 0))))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.CONFID, self.tr("Уверенность горизонталей"),
+            options=[self.tr("не считать"),
+                     self.tr("только поля drop_min и drop_mean"),
+                     self.tr("поля и разрыв на подозрительных участках")],
+            defaultValue=_dv(self, self.CONFID, 0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.CONF_FRAC,
+            self.tr("Порог перепада на ячейку, доля сечения"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.CONF_FRAC, 0.01), minValue=0.0,
+            maxValue=1.0)))
         self.addParameter(QgsProcessingParameterVectorDestination(
             self.OUTPUT, self.tr("Изолинии (линии)"),
             type=QgsProcessing.SourceType.TypeVectorLine))
@@ -2285,12 +2317,23 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
             eps = rl.rasterUnitsPerPixelX() or 1.0
             slope_ref = (rl.id(), band, float(eps))
 
+        # Топографическая ориентация подписей. QGIS отсчитывает верх текста от
+        # направления линии, поэтому разворачиваем сами линии: высокая сторона
+        # слева - и верх подписи всегда смотрит вверх по склону.
+        uphill_ref = None
+        if self.parameterAsBoolean(parameters, self.UPHILL, context):
+            eps2 = rl.rasterUnitsPerPixelX() or 1.0
+            uphill_ref = (rl.id(), band, float(eps2))
+
         if poly_dest:
             # линии и пояса строятся из ОДНОГО набора линий -> границы совпадают
             res = isolines_and_polygons(
                 rl.source(), band, interval, base, levels, index_every,
                 min_len, False, 0.0, densify, sm_line, field_name, True, nodata,
-                out_dest, poly_dest, context, feedback, slope_ref=slope_ref)
+                out_dest, poly_dest, context, feedback, slope_ref=slope_ref,
+                uphill_ref=uphill_ref,
+                hatch_flip={0: 0, 1: 1, 2: -1}[self.parameterAsEnum(
+                    parameters, self.HATCH, context)])
             out, poly = res["lines"], res["polygons"]
             _set_output_name(context, out, _tr("Изолинии · %s") % name)
             _set_output_name(context, poly, _tr("Полигоны · %s") % name)
@@ -2303,7 +2346,14 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
             out = isolines_from_raster(
                 rl.source(), band, interval, base, levels, index_every,
                 min_len, False, 0.0, densify, sm_line, field_name, True, nodata,
-                out_dest, context, feedback, slope_ref=slope_ref)
+                out_dest, context, feedback, slope_ref=slope_ref,
+                uphill_ref=uphill_ref,
+                confidence=self.parameterAsEnum(parameters, self.CONFID,
+                                                context),
+                conf_frac=self.parameterAsDouble(parameters, self.CONF_FRAC,
+                                                 context),
+                hatch_flip={0: 0, 1: 1, 2: -1}[self.parameterAsEnum(
+                    parameters, self.HATCH, context)])
             _set_output_name(context, out, _tr("Изолинии · %s") % name)
             _attach_style(context, out, line_style)
             results = {self.OUTPUT: out}
@@ -10129,6 +10179,8 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
     SEED = "SEED"
     CRS = "CRS"
     INT16 = "INT16"
+    RAVINE = "RAVINE"
+    EXTENT = "EXTENT"
     OUTPUT = "OUTPUT"
 
     def tr(self, s): return _tr(s)
@@ -10149,7 +10201,14 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
             "что показывать. Служебный инструмент для примеров "
             "руководства и работы без сети, живые данные даёт "
             "инструмент 2.01. Выход: GeoTIFF float32 (или int16 "
-            "флажком) в группе Топография.") + _credit())
+            "флажком) в группе Топография.\n"
+            "\nФлажок **Овражно-балочная сеть** врезает в рельеф тальвеги "
+            "с крутыми бортами и отвершками под острым углом. Это самая "
+            "тяжёлая проверка для построения рельефа по горизонталям: "
+            "узкий врез между соседними горизонталями срезается, и на "
+            "профиле поперёк оврага это видно сразу. Такой рельеф нужен "
+            "как проверочный набор для инструментов 2.11 и 2.12.")
+            + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -10179,6 +10238,12 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
         self.addParameter(_advanced(QgsProcessingParameterBoolean(
             self.INT16, self.tr("Компактный int16 (для поставки демо)"),
             defaultValue=False)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.RAVINE, self.tr("Овражно-балочная сеть"),
+            defaultValue=_dv(self, self.RAVINE, False)))
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Куда положить (охват, необязательно)"),
+            optional=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Демо-рельеф")))
 
@@ -10197,13 +10262,37 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
         auth = crs.authid()
         epsg = int(auth.split(":")[1]) if auth.startswith("EPSG:") else None
         wkt = None if epsg is not None else crs.toWkt()
+        # Куда класть демо. Без охвата берётся условное место, оно же в
+        # руководстве, чтобы примеры воспроизводились. Но в местных системах
+        # координат (например рудничных) это условное место уезжает далеко от
+        # рабочих данных, и человек видит пустую карту. Поэтому охват можно
+        # задать явно, и тогда размер грида считается от него.
+        origin_x, origin_y = 500000.0, 6500000.0
+        ext = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        if ext is not None and not ext.isEmpty() and ext.width() > 0 \
+                and ext.height() > 0:
+            origin_x, origin_y = ext.xMinimum(), ext.yMaximum()
+            nx = int(max(10, min(20000, round(ext.width() / cell))))
+            ny = int(max(10, min(20000, round(ext.height() / cell))))
+            feedback.pushInfo(self.tr(
+                "Демо кладётся в заданный охват: начало %.1f %.1f, "
+                "размер %dx%d ячеек.") % (origin_x, origin_y, nx, ny))
+        else:
+            feedback.pushInfo(self.tr(
+                "Охват не задан, демо кладётся в условное место %.0f %.0f. "
+                "В местной системе координат задайте охват, иначе рельеф "
+                "окажется далеко от ваших данных.") % (origin_x, origin_y))
+
         gdal.UseExceptions()
         try:
-            z = demo_relief.generate(nx=nx, ny=ny, cell=cell, seed=seed)
+            ravine = self.parameterAsBoolean(parameters, self.RAVINE, context)
+            z = demo_relief.generate(nx=nx, ny=ny, cell=cell, seed=seed,
+                                     ravine=ravine)
         except ValueError as exc:
             raise QgsProcessingException(str(exc))
         demo_relief.write_geotiff(z, out_path, gdal, osr, cell=cell,
-                                  epsg=epsg, wkt=wkt, as_int16=as_int16)
+                                  epsg=epsg, wkt=wkt, as_int16=as_int16,
+                                  origin_x=origin_x, origin_y=origin_y)
         feedback.pushInfo(self.tr("Готово: %dx%d ячеек, зерно %d.")
                           % (nx, ny, seed))
         _topo_group_layer(context, out_path, self.tr("Топография"))
@@ -11146,6 +11235,1026 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
         return {self.OUTPUT: out_path}
 
 
+class ContourSplitAlgorithm(IsolinerAlgorithm):
+    """2.11 Разделить горизонтали на построение и проверку.
+
+    Делит набор горизонталей по УРОВНЯМ: каждая N-я отметка целиком уходит в
+    проверочный набор. Смысл в том, чтобы измерять не воспроизведение входа, а
+    предсказание: отложенный уровень интерполятор не видел вовсе и может
+    восстановить его только по соседним.
+    """
+
+    INPUT, FIELD = "INPUT", "FIELD"
+    EVERY, OFFSET = "EVERY", "OFFSET"
+    OUTPUT_BUILD, OUTPUT_CHECK = "OUTPUT_BUILD", "OUTPUT_CHECK"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return ContourSplitAlgorithm()
+    def name(self): return "contoursplit"
+    def displayName(self):
+        return self.tr("2.11 Разделить горизонтали для проверки")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPODIAG)
+    def groupId(self): return GROUP_TOPODIAG_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Делит горизонтали на два набора: по одному строят рельеф, по "
+            "второму проверяют результат.\n"
+            "\nДелится не по объектам, а по **отметкам**. Убрать из построения "
+            "отдельные звенья одной горизонтали бессмысленно: соседние звенья "
+            "того же уровня подскажут ответ, и проверка окажется завышенной. "
+            "Отложенный уровень исчезает целиком, и восстановить его "
+            "интерполятор может только по соседним уровням, а это и есть "
+            "предсказание.\n"
+            "\nКрайние отметки набора всегда остаются в построении: за "
+            "пределами набора интерполятор экстраполирует, и невязка там "
+            "измеряла бы не то, ради чего проверка затевалась.\n"
+            "\nОба выхода получают поле **hold**: 0 для построения, 1 для "
+            "проверки. Инструмент **Невязка горизонталей против ЦМР** это поле "
+            "узнаёт сам и печатает две цифры отдельно.\n"
+            "\nРабочий порядок: разделить, построить рельеф по набору для "
+            "построения (например **Topo2Raster**), затем измерить невязку по "
+            "проверочному набору.\n\n") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Горизонтали (линии)"),
+            [QgsProcessing.SourceType.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterField(
+            self.FIELD, self.tr("Поле отметки"),
+            parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.EVERY, self.tr("Откладывать каждую N-ю отметку"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.EVERY, 4), minValue=2, maxValue=50))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.OFFSET, self.tr("Сдвиг выбора"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.OFFSET, 0), minValue=0, maxValue=49)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_BUILD, self.tr("Горизонтали для построения"),
+            type=QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_CHECK, self.tr("Горизонтали для проверки"),
+            type=QgsProcessing.SourceType.TypeVectorLine))
+
+    def _process(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        src = self.parameterAsSource(parameters, self.INPUT, context)
+        if src is None:
+            raise QgsProcessingException(self.tr("Не задан слой горизонталей."))
+        field = self.parameterAsString(parameters, self.FIELD, context)
+        every = self.parameterAsInt(parameters, self.EVERY, context) or 4
+        offset = self.parameterAsInt(parameters, self.OFFSET, context)
+
+        feats = []
+        levels = []
+        for ft in src.getFeatures():
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            try:
+                lv = float(ft[field])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if lv != lv:      # nan
+                continue
+            feats.append((QgsGeometry(g), lv, ft.attributes()))
+            levels.append(lv)
+        if not feats:
+            raise QgsProcessingException(self.tr(
+                "В слое нет горизонталей с числовой отметкой."))
+
+        build_lv, check_lv = _vc.split_levels(levels, every, offset)
+        check_set = set(check_lv)
+        if not check_set:
+            raise QgsProcessingException(self.tr(
+                "Проверочный набор пуст: уровней слишком мало для такого шага."))
+
+        fields = QgsFields(src.fields())
+        fields.append(QgsField("hold", QVariant.Int))
+        sb, destb = self.parameterAsSink(
+            parameters, self.OUTPUT_BUILD, context, fields,
+            src.wkbType(), src.sourceCrs())
+        sc, destc = self.parameterAsSink(
+            parameters, self.OUTPUT_CHECK, context, fields,
+            src.wkbType(), src.sourceCrs())
+
+        nb = nc = 0
+        for (geom, lv, attrs) in feats:
+            hold = 1 if lv in check_set else 0
+            ft = QgsFeature(fields)
+            ft.setGeometry(geom)
+            ft.setAttributes(list(attrs) + [hold])
+            if hold:
+                if sc is not None:
+                    sc.addFeature(ft)
+                nc += 1
+            else:
+                if sb is not None:
+                    sb.addFeature(ft)
+                nb += 1
+
+        iv = _vc.contour_interval(levels)
+        feedback.pushInfo(_tr(
+            "Уровней всего %d: в построение %d, в проверку %d. "
+            "Объектов %d и %d.") % (len(build_lv) + len(check_lv),
+                                    len(build_lv), len(check_lv), nb, nc))
+        if iv:
+            feedback.pushInfo(_tr("Сечение рельефа по набору: %.4g.") % iv)
+        res = {self.OUTPUT_BUILD: destb, self.OUTPUT_CHECK: destc}
+        _set_output_name(context, destb, _tr("Горизонтали для построения"))
+        _set_output_name(context, destc, _tr("Горизонтали для проверки"))
+        _topo_group_layer(context, destb, self.tr("Топография"))
+        _topo_group_layer(context, destc, self.tr("Топография"))
+        _save_values(self, _saved)
+        return res
+
+
+class ContourResidualAlgorithm(IsolinerAlgorithm):
+    """2.12 Невязка горизонталей против ЦМР.
+
+    Отвечает на вопрос, насколько построенная поверхность воспроизводит
+    исходные горизонтали. Если в слое есть поле hold от инструмента 2.11,
+    цифры печатаются отдельно для построения и для проверки.
+    """
+
+    CONTOURS, FIELD, DEM = "CONTOURS", "FIELD", "DEM"
+    BAND, STEP, SAMPLING, INTERVAL = "BAND", "STEP", "SAMPLING", "INTERVAL"
+    OUTPUT, OUTPUT_HTML = "OUTPUT", "OUTPUT_HTML"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return ContourResidualAlgorithm()
+    def name(self): return "contourresidual"
+    def displayName(self):
+        return self.tr("2.12 Невязка горизонталей против ЦМР")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPODIAG)
+    def groupId(self): return GROUP_TOPODIAG_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Измеряет, насколько построенная ЦМР воспроизводит исходные "
+            "горизонтали. В точках вдоль горизонтали берётся значение растра и "
+            "сравнивается с отметкой горизонтали. Невязка положительна там, "
+            "где ЦМР ниже горизонтали.\n"
+            "\nВыдаются смещение (среднее), разброс (СКО и RMSE), медиана "
+            "модуля, максимум и доля точек, промахнувшихся больше чем на "
+            "половину сечения рельефа. Последняя величина практическая: если "
+            "она заметна, горизонталь, проведённая по такой ЦМР, встанет не "
+            "там, где была исходная.\n"
+            "\n**Что означает эта цифра.** Невязка в точках тех же горизонталей, "
+            "которые подавались в построение, измеряет воспроизведение входа, "
+            "а не точность предсказания: интерполятор эти точки видел. Оценка "
+            "почти обязана быть хорошей. Чтобы получить цифру предсказания, "
+            "разделите горизонтали инструментом **Разделить горизонтали для "
+            "проверки**, стройте рельеф по набору для построения, а сюда "
+            "подайте оба набора: поле **hold** инструмент узнает сам и напечатает "
+            "две цифры отдельно. Разрыв между ними и есть настоящая мера "
+            "качества.\n"
+            "\nОтчёт HTML содержит гистограмму невязок, таблицу по отметкам и "
+            "разбор полученных чисел.\n\n") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.CONTOURS, self.tr("Горизонтали (линии)"),
+            [QgsProcessing.SourceType.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterField(
+            self.FIELD, self.tr("Поле отметки"),
+            parentLayerParameterName=self.CONTOURS,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.DEM, self.tr("ЦМР (построенный рельеф)")))
+        self.addParameter(_advanced(QgsProcessingParameterBand(
+            self.BAND, self.tr("Канал ЦМР"), parentLayerParameterName=self.DEM,
+            defaultValue=1)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.STEP, self.tr("Шаг опробования вдоль горизонтали (0 = только вершины)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.STEP, 0.0), minValue=0.0))
+        self.addParameter(_advanced(QgsProcessingParameterEnum(
+            self.SAMPLING, self.tr("Выборка растра"),
+            options=[self.tr("билинейно"), self.tr("ближайший")],
+            defaultValue=_dv(self, self.SAMPLING, 0))))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.INTERVAL, self.tr("Сечение рельефа (0 = определить по отметкам)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.INTERVAL, 0.0), minValue=0.0)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Точки невязок"),
+            type=QgsProcessing.SourceType.TypeVectorPoint,
+            optional=True, createByDefault=True))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            self.OUTPUT_HTML, self.tr("Отчёт о невязках (HTML)"),
+            self.tr("HTML files (*.html)"), optional=True,
+            createByDefault=True))
+
+    def _process(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        src = self.parameterAsSource(parameters, self.CONTOURS, context)
+        rl = self.parameterAsRasterLayer(parameters, self.DEM, context)
+        if src is None or rl is None:
+            raise QgsProcessingException(self.tr(
+                "Нужны слой горизонталей и растр ЦМР."))
+        field = self.parameterAsString(parameters, self.FIELD, context)
+        band = self.parameterAsInt(parameters, self.BAND, context) or 1
+        step = self.parameterAsDouble(parameters, self.STEP, context)
+        bilinear = self.parameterAsEnum(parameters, self.SAMPLING, context) == 0
+        interval = self.parameterAsDouble(parameters, self.INTERVAL, context)
+
+        ds = gdal.Open(rl.source())
+        if ds is None:
+            raise QgsProcessingException(self.tr("Не удалось открыть растр ЦМР."))
+        b = ds.GetRasterBand(band)
+        arr = b.ReadAsArray().astype(float)
+        nd = b.GetNoDataValue()
+        if nd is not None:
+            arr = np.where(arr == nd, np.nan, arr)
+        gt = ds.GetGeoTransform()
+        ds = None
+
+        # поле hold от инструмента 2.11 узнаём сами
+        names = [f.name().lower() for f in src.fields()]
+        has_hold = "hold" in names
+
+        crs_c = src.sourceCrs()
+        crs_r = rl.crs()
+        xform = None
+        if crs_c.isValid() and crs_r.isValid() and crs_c != crs_r:
+            xform = QgsCoordinateTransform(crs_c, crs_r,
+                                           context.transformContext())
+            feedback.pushWarning(_tr(
+                "СК горизонталей и ЦМР различаются, точки пересчитываются. "
+                "Точнее сравнивать в одной СК."))
+
+        all_x, all_y, all_z, all_hold, all_fid = [], [], [], [], []
+        levels = []
+        nskip = 0
+        for ft in src.getFeatures():
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                nskip += 1
+                continue
+            try:
+                lv = float(ft[field])
+            except (TypeError, ValueError, KeyError):
+                nskip += 1
+                continue
+            if lv != lv:
+                nskip += 1
+                continue
+            if xform is not None:
+                g = QgsGeometry(g)
+                g.transform(xform)
+            vpts = [(v.x(), v.y()) for v in g.vertices()]
+            if len(vpts) < 2:
+                nskip += 1
+                continue
+            xs, ys = _vc.densify_polyline(vpts, step)
+            hold = 0
+            if has_hold:
+                try:
+                    hold = int(ft["hold"] or 0)
+                except (TypeError, ValueError, KeyError):
+                    hold = 0
+            all_x.append(xs)
+            all_y.append(ys)
+            all_z.append(np.full(len(xs), lv))
+            all_hold.append(np.full(len(xs), hold, dtype=int))
+            all_fid.append(np.full(len(xs), int(ft.id()), dtype=int))
+            levels.append(lv)
+        if not all_x:
+            raise QgsProcessingException(self.tr(
+                "В слое нет горизонталей с числовой отметкой и геометрией."))
+
+        xs = np.concatenate(all_x)
+        ys = np.concatenate(all_y)
+        zt = np.concatenate(all_z)
+        hold = np.concatenate(all_hold)
+        fids = np.concatenate(all_fid)
+        res, zdem = _vc.residuals(xs, ys, zt, arr, gt, bilinear)
+
+        if interval <= 0:
+            interval = _vc.contour_interval(levels) or 0.0
+        ok = np.isfinite(res)
+        n_out = int((~ok).sum())
+
+        st_all = _vc.residual_stats(res, interval or None)
+        st_build = st_check = None
+        if has_hold and np.any(hold == 1) and np.any(hold == 0):
+            st_build = _vc.residual_stats(res[hold == 0], interval or None)
+            st_check = _vc.residual_stats(res[hold == 1], interval or None)
+
+        # --- сводка на экран: главный канал обратной связи ---
+        feedback.pushInfo(_tr(
+            "Точек опробования %d, вне охвата ЦМР %d, горизонталей пропущено %d.")
+            % (int(res.size), n_out, nskip))
+        if interval:
+            feedback.pushInfo(_tr("Сечение рельефа: %.4g.") % interval)
+        if st_build is not None:
+            feedback.pushInfo(_tr(
+                "Воспроизведение входа (hold=0): среднее %+.4g, СКО %.4g, "
+                "макс |r| %.4g, точек %d.") % (
+                st_build["mean"], st_build["std"], st_build["max_abs"],
+                st_build["n"]))
+            feedback.pushInfo(_tr(
+                "Предсказание на отложенных (hold=1): среднее %+.4g, СКО %.4g, "
+                "макс |r| %.4g, точек %d.") % (
+                st_check["mean"], st_check["std"], st_check["max_abs"],
+                st_check["n"]))
+        elif st_all is not None:
+            feedback.pushInfo(_tr(
+                "Невязка: среднее %+.4g, СКО %.4g, RMSE %.4g, медиана |r| "
+                "%.4g, макс |r| %.4g.") % (
+                st_all["mean"], st_all["std"], st_all["rmse"],
+                st_all["median_abs"], st_all["max_abs"]))
+            if interval:
+                feedback.pushInfo(_tr(
+                    "Мимо больше чем на половину сечения: %.4g процента точек.")
+                    % (100.0 * st_all.get("over_half", 0.0)))
+            if not has_hold:
+                feedback.pushWarning(_tr(
+                    "Это воспроизведение входа, а не точность предсказания: "
+                    "растр строился по этим же горизонталям. Чтобы получить цифру "
+                    "предсказания, разделите набор инструментом 2.11."))
+
+        # --- слой точек ---
+        res_dict = {}
+        f = QgsFields()
+        f.append(QgsField("fid_src", QVariant.Int))
+        f.append(QgsField("elev", QVariant.Double))
+        f.append(QgsField("z_dem", QVariant.Double))
+        f.append(QgsField("resid", QVariant.Double))
+        f.append(QgsField("abs_resid", QVariant.Double))
+        f.append(QgsField("hold", QVariant.Int))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, f,
+            QgsWkbTypes.Type.Point, crs_r if xform is not None else crs_c)
+        if sink is not None:
+            for i in range(int(res.size)):
+                if not np.isfinite(res[i]):
+                    continue
+                ft = QgsFeature(f)
+                ft.setGeometry(QgsGeometry.fromPointXY(
+                    QgsPointXY(float(xs[i]), float(ys[i]))))
+                ft.setAttributes([int(fids[i]), float(zt[i]), float(zdem[i]),
+                                  float(res[i]), float(abs(res[i])),
+                                  int(hold[i])])
+                sink.addFeature(ft)
+            res_dict[self.OUTPUT] = dest
+            _set_output_name(context, dest, _tr("Невязки горизонталей"))
+            _topo_group_layer(context, dest, self.tr("Топография"))
+
+        # --- отчёт ---
+        html = self.parameterAsFileOutput(parameters, self.OUTPUT_HTML, context)
+        if html:
+            _write_residual_report(html, st_all, st_build, st_check,
+                                   res[ok], zt[ok], interval, feedback)
+            res_dict[self.OUTPUT_HTML] = html
+        _save_values(self, _saved)
+        return res_dict
+
+
+def _write_residual_report(path, st_all, st_build, st_check, res, levels,
+                           interval, feedback=None):
+    """HTML-отчёт по невязкам: таблица чисел, гистограмма, разбор по отметкам."""
+    def row(label, s):
+        if s is None:
+            return ""
+        cells = ["%d" % s["n"], "%+.4g" % s["mean"], "%.4g" % s["std"],
+                 "%.4g" % s["rmse"], "%.4g" % s["median_abs"],
+                 "%.4g" % s["p90_abs"], "%.4g" % s["max_abs"]]
+        if interval:
+            cells.append("%.3g" % (100.0 * s.get("over_half", 0.0)))
+        return "<tr><td>%s</td>%s</tr>" % (
+            label, "".join("<td>%s</td>" % c for c in cells))
+
+    head = [_tr("набор"), _tr("точек"), _tr("среднее"), _tr("СКО"),
+            _tr("RMSE"), _tr("медиана |r|"), _tr("90 процентиль |r|"),
+            _tr("макс |r|")]
+    if interval:
+        head.append(_tr("мимо на полсечения, процентов"))
+    table = "<table border='1' cellpadding='4' cellspacing='0'><tr>%s</tr>%s%s%s</table>" % (
+        "".join("<th>%s</th>" % h for h in head),
+        row(_tr("все точки"), st_all),
+        row(_tr("воспроизведение входа"), st_build),
+        row(_tr("предсказание на отложенных"), st_check))
+
+    keys = _vc.verdict(st_build or st_all, st_check)
+    texts = {
+        "bias": _tr("Заметное систематическое смещение: поверхность в среднем "
+                    "сдвинута по высоте относительно горизонталей."),
+        "spread": _tr("Разброс велик относительно сечения рельефа: формы "
+                      "срезаются или в данных много шума."),
+        "overshoot": _tr("Заметная доля точек промахивается больше чем на "
+                         "половину сечения: горизонтали по такой ЦМР встанут "
+                         "не там, где были исходные."),
+        "holdout_gap": _tr("Вход воспроизводится заметно лучше, чем "
+                           "предсказываются отложенные горизонтали. Это "
+                           "нормальное поведение интерполятора, но именно "
+                           "вторая цифра говорит о качестве модели."),
+        "clean": _tr("Систематики не видно, разброс мал относительно сечения."),
+    }
+    advice = "<ul>%s</ul>" % "".join(
+        "<li>%s</li>" % texts[k] for k in keys if k in texts)
+
+    chart = ""
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+        centers, cnt = _vc.histogram(res, bins=41)
+        rows_lv = _vc.by_level(levels, res)
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=(_tr("Гистограмма невязок"),
+                            _tr("Невязка по отметкам")))
+        fig.add_trace(go.Bar(x=centers, y=cnt, marker_color="#4477aa",
+                             hovertemplate=_tr("невязка %{x:.3g}<br>точек %{y}<extra></extra>")),
+                      row=1, col=1)
+        if interval:
+            for s in (-0.5 * interval, 0.5 * interval):
+                fig.add_vline(x=s, line=dict(color="#cc3333", dash="dash"),
+                              row=1, col=1)
+        if rows_lv:
+            fig.add_trace(go.Scatter(
+                x=[r["level"] for r in rows_lv],
+                y=[r["mean"] for r in rows_lv],
+                error_y=dict(type="data", array=[r["std"] for r in rows_lv]),
+                mode="markers", marker=dict(color="#aa4477", size=7),
+                hovertemplate=_tr("отметка %{x:.4g}<br>среднее %{y:.3g}<extra></extra>")),
+                row=1, col=2)
+            fig.add_hline(y=0.0, line=dict(color="#888888"), row=1, col=2)
+        fig.update_xaxes(title_text=_tr("невязка (отметка минус ЦМР)"), row=1, col=1)
+        fig.update_yaxes(title_text=_tr("точек"), row=1, col=1)
+        fig.update_xaxes(title_text=_tr("отметка горизонтали"), row=1, col=2)
+        fig.update_yaxes(title_text=_tr("средняя невязка"), row=1, col=2)
+        fig.update_layout(showlegend=False, height=420,
+                          margin=dict(l=50, r=20, t=50, b=50))
+        chart = fig.to_html(full_html=False, include_plotlyjs="cdn")
+    except Exception as e:  # nosec - отчёт без графика лучше, чем никакого
+        if feedback is not None:
+            feedback.pushInfo(_tr("plotly недоступен (%s) - отчёт без графика.") % e)
+        chart = _tr("<p><i>Интерактивный график недоступен (нет plotly). "
+                    "Гистограмму можно построить по слою невязок.</i></p>")
+
+    title = _tr("Невязка горизонталей против ЦМР")
+    html = ("<html><head><meta charset='utf-8'><title>%s</title></head><body>"
+            "<h2>%s</h2>%s<h3>%s</h3>%s%s%s</body></html>" % (
+                title, title, table, _tr("Разбор"), advice, chart,
+                _version_footer()))
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(html)
+
+
+class TerracingCheckAlgorithm(IsolinerAlgorithm):
+    """2.13 Диагностика террасинга ЦМР.
+
+    Ищет характерную болезнь рельефа, построенного по горизонталям: склон
+    идёт ступенями, полка возле уровня горизонтали и резкий сброс к
+    следующему уровню. Два независимых признака: вертикальная кривизна и
+    притяжение отметок к уровням.
+    """
+
+    DEM, BAND = "DEM", "BAND"
+    INTERVAL, BASE, BAND_FRAC = "INTERVAL", "BASE", "BAND_FRAC"
+    MINDROP = "MINDROP"
+    CONTOURS, FIELD = "CONTOURS", "FIELD"
+    OUTPUT_CURV, OUTPUT_HTML = "OUTPUT_CURV", "OUTPUT_HTML"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return TerracingCheckAlgorithm()
+    def name(self): return "terracingcheck"
+    def displayName(self):
+        return self.tr("2.13 Диагностика террасинга ЦМР")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPODIAG)
+    def groupId(self): return GROUP_TOPODIAG_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Ищет террасинг: характерную болезнь рельефа, построенного по "
+            "горизонталям. Склон идёт ступенями, возле уровня горизонтали "
+            "полка, между уровнями резкий сброс. На отмывке это выглядит как "
+            "свадебный торт, на профиле как лесенка.\n"
+            "\nПроверка идёт двумя независимыми способами.\n"
+            "\n**Вертикальная кривизна** это вторая производная вдоль склона. "
+            "У ступенчатой поверхности она даёт всплески на сбросах и почти "
+            "нули на полках, а вся картина полосами повторяет рисунок "
+            "горизонталей. Растр кривизны выдаётся на выход: на нём террасинг "
+            "виден глазами, без всякой статистики.\n"
+            "\n**Притяжение отметок к уровням** это прямая проверка по самим "
+            "значениям, без производных. У здоровой поверхности отметки между "
+            "соседними уровнями распределены более-менее равномерно, поэтому "
+            "доля ячеек в узкой полосе вокруг уровня близка к ширине этой "
+            "полосы, и отношение выходит около единицы. У террасированной "
+            "поверхности отметки липнут к уровням, и отношение растёт. "
+            "Полтора это повод присмотреться, два и больше - террасинг.\n"
+            "\nЯчейки с околонулевым уклоном в статистику притяжения не "
+            "идут. Порог задаётся долей сечения: ячейка не учитывается, если "
+            "перепад высот на ней меньше сотой доли сечения. Это важно на "
+            "реальных матрицах: водная гладь, залитые площадки и зоны без "
+            "данных стоят на одной отметке и перекашивают счёт. На матрице, "
+            "где водохранилище занимает 45 процентов площади, без такого "
+            "отсева индекс падал вдвое ниже единицы и показывал ложное "
+            "благополучие.\n"
+            "\nСечение рельефа можно задать вручную или взять из слоя "
+            "горизонталей: тогда инструмент возьмёт и сечение, и базовую "
+            "отметку от реального набора.\n"
+            "\nОтчёт HTML содержит гистограмму фазы (положения отметок внутри "
+            "сечения) и разбор чисел. Ровная гистограмма означает, что "
+            "террасинга нет, пик в нуле - что есть.\n\n") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.DEM, self.tr("ЦМР (проверяемый рельеф)")))
+        self.addParameter(_advanced(QgsProcessingParameterBand(
+            self.BAND, self.tr("Канал ЦМР"), parentLayerParameterName=self.DEM,
+            defaultValue=1)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.INTERVAL, self.tr("Сечение рельефа (0 = взять из горизонталей)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.INTERVAL, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.CONTOURS, self.tr("Горизонтали для определения сечения (необязательно)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.FIELD, self.tr("Поле отметки горизонталей"),
+            parentLayerParameterName=self.CONTOURS,
+            type=QgsProcessingParameterField.DataType.Numeric,
+            optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BASE, self.tr("Базовая отметка уровней"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.BASE, 0.0))))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BAND_FRAC, self.tr("Полуширина полосы вокруг уровня, доля сечения"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.BAND_FRAC, 0.1),
+            minValue=0.01, maxValue=0.45)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MINDROP,
+            self.tr("Не учитывать ячейки с перепадом меньше, доля сечения"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.MINDROP, 0.01), minValue=0.0,
+            maxValue=1.0)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_CURV, self.tr("Вертикальная кривизна"),
+            optional=True, createByDefault=True))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            self.OUTPUT_HTML, self.tr("Отчёт о террасинге (HTML)"),
+            self.tr("HTML files (*.html)"), optional=True,
+            createByDefault=True))
+
+    def _process(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        rl = self.parameterAsRasterLayer(parameters, self.DEM, context)
+        if rl is None:
+            raise QgsProcessingException(self.tr("Не задан растр ЦМР."))
+        band = self.parameterAsInt(parameters, self.BAND, context) or 1
+        interval = self.parameterAsDouble(parameters, self.INTERVAL, context)
+        base = self.parameterAsDouble(parameters, self.BASE, context)
+        bfrac = self.parameterAsDouble(parameters, self.BAND_FRAC, context) or 0.1
+
+        ds = gdal.Open(rl.source())
+        if ds is None:
+            raise QgsProcessingException(self.tr("Не удалось открыть растр ЦМР."))
+        b = ds.GetRasterBand(band)
+        arr = b.ReadAsArray().astype(float)
+        nd = b.GetNoDataValue()
+        if nd is not None:
+            arr = np.where(arr == nd, np.nan, arr)
+        gt = ds.GetGeoTransform()
+        proj = ds.GetProjection()
+        ds = None
+        cell = abs(gt[1]) or 1.0
+
+        # сечение из горизонталей, если задан слой
+        src = self.parameterAsSource(parameters, self.CONTOURS, context)
+        field = self.parameterAsString(parameters, self.FIELD, context)
+        if interval <= 0 and src is not None and field:
+            levels = []
+            for ft in src.getFeatures():
+                try:
+                    lv = float(ft[field])
+                except (TypeError, ValueError, KeyError):
+                    continue
+                if lv == lv:
+                    levels.append(lv)
+            iv = _vc.contour_interval(levels)
+            if iv:
+                interval = iv
+                base = min(levels)
+                feedback.pushInfo(_tr(
+                    "Сечение из горизонталей: %.4g, базовая отметка %.4g.")
+                    % (interval, base))
+        if interval <= 0:
+            raise QgsProcessingException(self.tr(
+                "Нужно сечение рельефа: задайте его или подайте горизонтали."))
+
+        mindrop = self.parameterAsDouble(parameters, self.MINDROP, context)
+        st = _vc.terracing_stats(arr, cell, interval, base, bfrac, mindrop)
+        keys = _vc.terracing_verdict(st)
+
+        # --- сводка на экран ---
+        feedback.pushInfo(_tr(
+            "Сечение %.4g, полоса вокруг уровня %.3g сечения.")
+            % (interval, bfrac))
+        if "attract_ratio" in st:
+            feedback.pushInfo(_tr(
+                "Притяжение к уровням: доля %.4g при ожидании %.4g, "
+                "отношение %.3g.") % (st["attract_share"], st["attract_expect"],
+                                      st["attract_ratio"]))
+        if st.get("flat_skipped"):
+            feedback.pushInfo(_tr(
+                "Исключено околоплоских ячеек: %.4g процента. Там перепад "
+                "ниже шума, и отметка стоит на месте.")
+                % (100.0 * st["flat_skipped"]))
+        if "curv_p95_abs" in st:
+            feedback.pushInfo(_tr(
+                "Вертикальная кривизна: среднее модуля %.4g, 95 процентиль "
+                "%.4g, максимум %.4g.") % (st["curv_mean_abs"],
+                                           st["curv_p95_abs"],
+                                           st["curv_max_abs"]))
+        msg = {
+            "terraced": _tr("Террасинг: отметки заметно липнут к уровням "
+                            "горизонталей. Лечится инструментом 2.14."),
+            "suspect": _tr("Есть признаки террасинга, стоит посмотреть растр "
+                           "кривизны глазами."),
+            "clean": _tr("Признаков террасинга нет."),
+            "unknown": _tr("Оценить не удалось: проверьте сечение и данные."),
+        }
+        for k in keys:
+            if k == "terraced":
+                feedback.pushWarning(msg[k])
+            else:
+                feedback.pushInfo(msg[k])
+
+        res = {}
+        out_curv = self.parameterAsOutputLayer(parameters, self.OUTPUT_CURV,
+                                               context)
+        if out_curv:
+            kv = _vc.profile_curvature(arr, cell)
+            drv = gdal.GetDriverByName("GTiff")
+            ny, nx = kv.shape
+            dst = drv.Create(out_curv, nx, ny, 1, gdal.GDT_Float32,
+                             options=["COMPRESS=DEFLATE", "PREDICTOR=3"])
+            dst.SetGeoTransform(gt)
+            if proj:
+                dst.SetProjection(proj)
+            ob = dst.GetRasterBand(1)
+            ob.SetNoDataValue(-9999.0)
+            ob.WriteArray(np.where(np.isfinite(kv), kv, -9999.0).astype(
+                np.float32))
+            ob.SetDescription(_tr("вертикальная кривизна"))
+            ob.FlushCache()
+            dst = None
+            res[self.OUTPUT_CURV] = out_curv
+            _set_output_name(context, out_curv, _tr("Вертикальная кривизна"))
+            _topo_group_layer(context, out_curv, self.tr("Топография"))
+
+        html = self.parameterAsFileOutput(parameters, self.OUTPUT_HTML, context)
+        if html:
+            _write_terracing_report(html, st, keys, arr, interval, base,
+                                    feedback)
+            res[self.OUTPUT_HTML] = html
+        _save_values(self, _saved)
+        return res
+
+
+def _write_terracing_report(path, st, keys, z, interval, base, feedback=None):
+    """HTML-отчёт о террасинге: числа, гистограмма фазы, разбор."""
+    rows = [
+        (_tr("сечение рельефа"), "%.4g" % interval),
+        (_tr("доля отметок у уровней"), "%.4g" % st.get("attract_share", float("nan"))),
+        (_tr("ожидаемая доля"), "%.4g" % st.get("attract_expect", float("nan"))),
+        (_tr("отношение"), "%.3g" % st.get("attract_ratio", float("nan"))),
+        (_tr("исключено плоских, процентов"),
+         "%.3g" % (100.0 * st.get("flat_skipped", 0.0))),
+        (_tr("кривизна, среднее модуля"), "%.4g" % st.get("curv_mean_abs", float("nan"))),
+        (_tr("кривизна, 95 процентиль"), "%.4g" % st.get("curv_p95_abs", float("nan"))),
+        (_tr("кривизна, максимум"), "%.4g" % st.get("curv_max_abs", float("nan"))),
+    ]
+    table = "<table border='1' cellpadding='4' cellspacing='0'>%s</table>" % "".join(
+        "<tr><td>%s</td><td>%s</td></tr>" % r for r in rows)
+
+    texts = {
+        "terraced": _tr("Отношение два и выше: отметки липнут к уровням "
+                        "горизонталей, поверхность ступенчатая. Такой рельеф "
+                        "даёт неверные уклоны и рвёт расчёты стока. Лечится "
+                        "инструментом 2.14, который убирает ступени, не "
+                        "сдвигая горизонтали."),
+        "suspect": _tr("Отношение между полутора и двумя: признаки есть, но "
+                       "картина неоднозначна. Посмотрите растр кривизны: если "
+                       "полосы повторяют рисунок горизонталей, это террасинг."),
+        "clean": _tr("Отношение около единицы: отметки распределены между "
+                     "уровнями равномерно, признаков террасинга нет."),
+        "unknown": _tr("Оценить не удалось. Проверьте сечение рельефа и то, "
+                       "что растр содержит отметки, а не что-то иное."),
+    }
+    advice = "<ul>%s</ul>" % "".join(
+        "<li>%s</li>" % texts[k] for k in keys if k in texts)
+
+    chart = ""
+    try:
+        import plotly.graph_objects as go
+        centers, cnt = _vc.phase_histogram(z, interval, base, bins=36)
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=centers, y=cnt, marker_color="#4477aa",
+                             hovertemplate=_tr("фаза %{x:.3f}<br>ячеек %{y}<extra></extra>")))
+        if cnt.size:
+            fig.add_hline(y=float(np.mean(cnt)),
+                          line=dict(color="#cc3333", dash="dash"))
+        fig.update_xaxes(title_text=_tr("положение отметки внутри сечения"))
+        fig.update_yaxes(title_text=_tr("ячеек"))
+        fig.update_layout(showlegend=False, height=400,
+                          title=_tr("Распределение отметок внутри сечения"),
+                          margin=dict(l=50, r=20, t=50, b=50))
+        chart = fig.to_html(full_html=False, include_plotlyjs="cdn")
+    except Exception as e:  # nosec
+        if feedback is not None:
+            feedback.pushInfo(_tr("plotly недоступен (%s) - отчёт без графика.") % e)
+        chart = _tr("<p><i>Интерактивный график недоступен (нет plotly).</i></p>")
+
+    title = _tr("Диагностика террасинга ЦМР")
+    html = ("<html><head><meta charset='utf-8'><title>%s</title></head><body>"
+            "<h2>%s</h2>%s<h3>%s</h3>%s%s%s</body></html>" % (
+                title, title, table, _tr("Разбор"), advice, chart,
+                _version_footer()))
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(html)
+
+
+class TerraceSmoothAlgorithm(IsolinerAlgorithm):
+    """2.14 Убрать ступени (сглаживание с ограничением).
+
+    Лечение террасинга: ступени уходят, а горизонтали остаются на месте,
+    потому что каждой точке запрещено уходить от исходного значения дальше
+    половины сечения.
+    """
+
+    DEM, BAND = "DEM", "BAND"
+    INTERVAL, ITERS, LIMIT = "INTERVAL", "ITERS", "LIMIT"
+    CONTOURS, FIELD = "CONTOURS", "FIELD"
+    OUTPUT, OUTPUT_HTML = "OUTPUT", "OUTPUT_HTML"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return TerraceSmoothAlgorithm()
+    def name(self): return "terracesmooth"
+    def displayName(self):
+        return self.tr("2.14 Убрать ступени (сглаживание с ограничением)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPODIAG)
+    def groupId(self): return GROUP_TOPODIAG_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Убирает ступени с рельефа, построенного по горизонталям, не "
+            "сдвигая сами горизонтали.\n"
+            "\nПоверхность сглаживается итеративно, но каждой точке запрещено "
+            "уходить от исходного значения дальше заданной доли сечения. По "
+            "умолчанию это половина сечения, то есть ровно ошибка "
+            "квантования: поверхность, построенная по горизонталям с таким "
+            "шагом, и так известна с этой точностью.\n"
+            "\nОтсюда два свойства. Метод не может выдумать формы тоньше, чем "
+            "позволяет исходное сечение, потому что размах правки ограничен "
+            "сверху. И он не может перекинуть точку через горизонталь: сдвиг "
+            "меньше половины шага между уровнями.\n"
+            "\nИнструмент сам показывает результат лечения. Индекс притяжения "
+            "отметок к уровням считается до и после, и обе цифры уходят в "
+            "журнал. Около единицы означает, что ступеней не осталось.\n"
+            "\n**Чего инструмент не делает.** Он не возвращает того, чего в "
+            "данных нет. Если узкий врез срезан при построении рельефа, "
+            "сглаживание его не восстановит: правка ограничена половиной "
+            "сечения, а врез глубже. Не помогает он и на водной глади, там "
+            "нужна маска, а не сглаживание.\n"
+            "\nСечение задайте вручную или подайте слой горизонталей, тогда "
+            "инструмент возьмёт шаг из него. Число итераций управляет "
+            "гладкостью: полсотни хватает почти всегда, больше двухсот смысла "
+            "не имеет, потому что правка упирается в ограничение.\n\n")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.DEM, self.tr("ЦМР со ступенями")))
+        self.addParameter(_advanced(QgsProcessingParameterBand(
+            self.BAND, self.tr("Канал ЦМР"), parentLayerParameterName=self.DEM,
+            defaultValue=1)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.INTERVAL, self.tr("Сечение рельефа (0 = взять из горизонталей)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.INTERVAL, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.CONTOURS, self.tr("Горизонтали для определения сечения (необязательно)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.FIELD, self.tr("Поле отметки горизонталей"),
+            parentLayerParameterName=self.CONTOURS,
+            type=QgsProcessingParameterField.DataType.Numeric,
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.ITERS, self.tr("Итераций сглаживания"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.ITERS, 50), minValue=0, maxValue=500))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.LIMIT, self.tr("Допустимый сдвиг, доля сечения"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.LIMIT, 0.5), minValue=0.0,
+            maxValue=1.0)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Рельеф без ступеней")))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            self.OUTPUT_HTML, self.tr("Отчёт до и после (HTML)"),
+            self.tr("HTML files (*.html)"), optional=True,
+            createByDefault=True))
+
+    def _process(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        rl = self.parameterAsRasterLayer(parameters, self.DEM, context)
+        if rl is None:
+            raise QgsProcessingException(self.tr("Не задан растр ЦМР."))
+        band = self.parameterAsInt(parameters, self.BAND, context) or 1
+        interval = self.parameterAsDouble(parameters, self.INTERVAL, context)
+        iters = self.parameterAsInt(parameters, self.ITERS, context)
+        limit = self.parameterAsDouble(parameters, self.LIMIT, context)
+
+        ds = gdal.Open(rl.source())
+        if ds is None:
+            raise QgsProcessingException(self.tr("Не удалось открыть растр ЦМР."))
+        b = ds.GetRasterBand(band)
+        arr = b.ReadAsArray().astype(float)
+        nd = b.GetNoDataValue()
+        gt = ds.GetGeoTransform()
+        proj = ds.GetProjection()
+        ds = None
+        nodata_mask = None
+        if nd is not None:
+            nodata_mask = (arr == nd)
+            arr = np.where(nodata_mask, np.nan, arr)
+        cell = abs(gt[1]) or 1.0
+
+        src = self.parameterAsSource(parameters, self.CONTOURS, context)
+        field = self.parameterAsString(parameters, self.FIELD, context)
+        if interval <= 0 and src is not None and field:
+            levels = []
+            for ft in src.getFeatures():
+                try:
+                    lv = float(ft[field])
+                except (TypeError, ValueError, KeyError):
+                    continue
+                if lv == lv:
+                    levels.append(lv)
+            iv = _vc.contour_interval(levels)
+            if iv:
+                interval = iv
+                feedback.pushInfo(_tr("Сечение из горизонталей: %.4g.") % iv)
+        if interval <= 0:
+            raise QgsProcessingException(self.tr(
+                "Нужно сечение рельефа: задайте его или подайте горизонтали."))
+
+        before = _vc.terracing_stats(arr, cell, interval)
+        out = _smooth_clamped(arr, interval, iters=iters, band=limit,
+                              nodata_mask=nodata_mask)
+        after = _vc.terracing_stats(out, cell, interval)
+
+        feedback.pushInfo(_tr(
+            "Сечение %.4g, допустимый сдвиг %.4g м, итераций %d.")
+            % (interval, limit * interval, iters))
+        if before and after and "attract_ratio" in before:
+            feedback.pushInfo(_tr(
+                "Притяжение к уровням: было %.3g, стало %.3g.")
+                % (before["attract_ratio"], after["attract_ratio"]))
+            if after["attract_ratio"] >= 2.0:
+                feedback.pushWarning(_tr(
+                    "Ступени остались. Увеличьте число итераций или "
+                    "проверьте, то ли сечение задано."))
+            elif after["attract_ratio"] >= 1.5:
+                feedback.pushInfo(_tr(
+                    "Ступени ослабли, но следы остались. Можно добавить "
+                    "итераций."))
+            else:
+                feedback.pushInfo(_tr("Ступеней не осталось."))
+        moved = np.nanmax(np.abs(out - arr)) if np.isfinite(arr).any() else 0.0
+        feedback.pushInfo(_tr("Наибольший сдвиг поверхности: %.4g м.") % moved)
+
+        smoothed = out.copy()      # для отчёта, до подстановки nodata
+        out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+        drv = gdal.GetDriverByName("GTiff")
+        ny, nx = out.shape
+        dst = drv.Create(out_path, nx, ny, 1, gdal.GDT_Float32,
+                         options=["COMPRESS=DEFLATE", "PREDICTOR=3"])
+        dst.SetGeoTransform(gt)
+        if proj:
+            dst.SetProjection(proj)
+        ob = dst.GetRasterBand(1)
+        if nd is not None:
+            ob.SetNoDataValue(float(nd))
+            out = np.where(np.isfinite(out), out, nd)
+        ob.WriteArray(out.astype(np.float32))
+        ob.FlushCache()
+        dst = None
+        _set_output_name(context, out_path, _tr("Рельеф без ступеней"))
+        _topo_group_layer(context, out_path, self.tr("Топография"))
+
+        res = {self.OUTPUT: out_path}
+        html = self.parameterAsFileOutput(parameters, self.OUTPUT_HTML, context)
+        if html:
+            _write_smooth_report(html, before, after, arr, smoothed, interval,
+                                 float(moved), iters, limit, feedback)
+            res[self.OUTPUT_HTML] = html
+        _save_values(self, _saved)
+        return res
+
+
+
+def _write_smooth_report(path, before, after, z_before, z_after, interval,
+                         moved, iters, limit, feedback=None):
+    """Отчёт до и после: числа, две гистограммы фазы, разбор.
+
+    Смысл отчёта в том, чтобы связка «измерили, вылечили, измерили» была одним
+    предметом, который можно показать заказчику или рецензенту, не пересказывая
+    словами. Инструменты при этом остаются раздельными: диагноз ставится
+    независимо от лечения.
+    """
+    def g(d, k):
+        return d.get(k, float("nan")) if d else float("nan")
+
+    rows = [
+        (_tr("сечение рельефа"), "%.4g" % interval, ""),
+        (_tr("допустимый сдвиг, м"), "%.4g" % (limit * interval), ""),
+        (_tr("итераций"), "%d" % iters, ""),
+        (_tr("наибольший сдвиг, м"), "%.4g" % moved, ""),
+        (_tr("притяжение к уровням"), "%.3g" % g(before, "attract_ratio"),
+         "%.3g" % g(after, "attract_ratio")),
+        (_tr("кривизна, 95 процентиль"), "%.4g" % g(before, "curv_p95_abs"),
+         "%.4g" % g(after, "curv_p95_abs")),
+    ]
+    head = "<tr><th>%s</th><th>%s</th><th>%s</th></tr>" % (
+        _tr("величина"), _tr("до"), _tr("после"))
+    body = "".join("<tr><td>%s</td><td>%s</td><td>%s</td></tr>" % r
+                   for r in rows)
+    table = ("<table border='1' cellpadding='4' cellspacing='0'>%s%s</table>"
+             % (head, body))
+
+    keys = _vc.terracing_verdict(after)
+    texts = {
+        "terraced": _tr("Ступени остались. Увеличьте число итераций или "
+                        "проверьте, то ли сечение задано."),
+        "suspect": _tr("Ступени ослабли, но следы остались. Можно добавить "
+                       "итераций."),
+        "clean": _tr("Ступеней не осталось."),
+        "unknown": _tr("Оценить не удалось: проверьте сечение и данные."),
+    }
+    advice = "<ul>%s</ul>" % "".join(
+        "<li>%s</li>" % texts[k] for k in keys if k in texts)
+    advice += "<p>%s</p>" % _tr(
+        "Правка ограничена сверху, поэтому поверхность не могла уйти от "
+        "исходной дальше указанного сдвига и не могла перескочить "
+        "горизонталь. Формы тоньше исходного сечения инструмент не "
+        "восстанавливает.")
+
+    chart = ""
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+        c1, n1 = _vc.phase_histogram(z_before, interval, 0.0, bins=36)
+        c2, n2 = _vc.phase_histogram(z_after, interval, 0.0, bins=36)
+        fig = make_subplots(rows=1, cols=2,
+                            subplot_titles=(_tr("до"), _tr("после")),
+                            shared_yaxes=True)
+        fig.add_trace(go.Bar(x=c1, y=n1, marker_color="#cc7744"), row=1, col=1)
+        fig.add_trace(go.Bar(x=c2, y=n2, marker_color="#4477aa"), row=1, col=2)
+        for col, cnt in ((1, n1), (2, n2)):
+            if cnt.size:
+                fig.add_hline(y=float(np.mean(cnt)),
+                              line=dict(color="#888888", dash="dash"),
+                              row=1, col=col)
+            fig.update_xaxes(title_text=_tr("положение отметки внутри сечения"),
+                             row=1, col=col)
+        fig.update_yaxes(title_text=_tr("ячеек"), row=1, col=1)
+        fig.update_layout(showlegend=False, height=400,
+                          title=_tr("Распределение отметок внутри сечения"),
+                          margin=dict(l=50, r=20, t=60, b=50))
+        chart = fig.to_html(full_html=False, include_plotlyjs="cdn")
+    except Exception as e:  # nosec
+        if feedback is not None:
+            feedback.pushInfo(_tr("plotly недоступен (%s) - отчёт без графика.") % e)
+        chart = _tr("<p><i>Интерактивный график недоступен (нет plotly).</i></p>")
+
+    title = _tr("Убрать ступени: до и после")
+    html = ("<html><head><meta charset='utf-8'><title>%s</title></head><body>"
+            "<h2>%s</h2>%s<h3>%s</h3>%s%s%s</body></html>" % (
+                title, title, table, _tr("Разбор"), advice, chart,
+                _version_footer()))
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(html)
+
+
 ALGORITHMS = [
     DeclusteringAlgorithm,
     Kriging2DAlgorithm,
@@ -11177,6 +12286,10 @@ ALGORITHMS = [
     PeaksAlgorithm,
     SlopeAspectAlgorithm,
     Topo2RasterAlgorithm,
+    ContourSplitAlgorithm,
+    ContourResidualAlgorithm,
+    TerracingCheckAlgorithm,
+    TerraceSmoothAlgorithm,
     SectionAlgorithm,
     BoreholesOnSectionAlgorithm,
     CompositionOnSectionAlgorithm,

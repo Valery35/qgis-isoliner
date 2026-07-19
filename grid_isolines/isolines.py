@@ -39,6 +39,7 @@
 а «ступеньки» исчезают.
 """
 import math
+from contextlib import suppress
 
 from qgis.core import QgsProcessingException
 
@@ -293,9 +294,217 @@ def _save(processing, cur, final_output, context, feedback):
     return cur
 
 
+def _mark_confidence(cur, raster, band, interval, frac, cut, context,
+                     feedback, min_run=3):
+    """Отметить участки, где положение горизонтали задано шумом, а не рельефом.
+
+    Мерится не уклон, а перепад высот на ячейку: величина той же размерности,
+    что и сечение, поэтому порог задаётся долей сечения и одинаково работает
+    на пологом склоне и на водной глади. Пологий склон при сечении 0.5 м даёт
+    на ячейке сантиметры, гладь миллиметры.
+
+    Два режима. Без cut линия остаётся целой и получает поля drop_min и
+    drop_mean, решение за человеком. С cut линия дополнительно рвётся на
+    границе подозрительного участка, и куски помечаются полем lowconf.
+    Ничего не удаляется: показывать или прятать, решает фильтр слоя.
+
+    Рвут только серии от min_run подряд идущих вершин, иначе одна случайная
+    ячейка крошила бы горизонталь на нормальном склоне.
+    """
+    from qgis.core import (QgsVectorLayer, QgsFeature, QgsFields, QgsField,
+                           QgsGeometry)
+    from qgis.PyQt.QtCore import QVariant
+    import numpy as np
+    from osgeo import gdal
+    from . import validate_core as _vc
+    from . import section_core as _sc
+
+    lyr = _layer_from_string(cur, context)
+    if lyr is None:
+        return cur
+    ds = gdal.Open(raster)
+    if ds is None:
+        return cur
+    b = ds.GetRasterBand(int(band))
+    arr = b.ReadAsArray().astype("float32")
+    nd = b.GetNoDataValue()
+    gt = ds.GetGeoTransform()
+    ds = None
+    if nd is not None:
+        arr = np.where(arr == nd, np.nan, arr)
+    cell = abs(gt[1]) or 1.0
+    drop = _vc.drop_per_cell(arr, cell)
+    thr = float(frac) * float(interval)
+
+    fields = QgsFields(lyr.fields())
+    fields.append(QgsField("drop_min", QVariant.Double))
+    fields.append(QgsField("drop_mean", QVariant.Double))
+    if cut:
+        fields.append(QgsField("lowconf", QVariant.Int))
+    crs = lyr.crs()
+    mem = QgsVectorLayer("LineString?crs=%s" % (crs.authid() or crs.toWkt()),
+                         _tr("изолинии"), "memory")
+    dp = mem.dataProvider()
+    dp.addAttributes(fields.toList())
+    mem.updateFields()
+
+    n_low = n_parts = n_src = 0
+    total_len = low_len = 0.0
+    out = []
+    for ft in lyr.getFeatures():
+        g = ft.geometry()
+        if g is None or g.isEmpty():
+            continue
+        n_src += 1
+        for part in (g.asMultiPolyline() if g.isMultipart()
+                     else [g.asPolyline()]):
+            if len(part) < 2:
+                continue
+            xs = np.array([p.x() for p in part], dtype=float)
+            ys = np.array([p.y() for p in part], dtype=float)
+            d = _sc.sample_grid_points(drop, gt, xs, ys, True)
+            info = _vc.line_confidence(d, thr)
+            if info is None:
+                continue
+            flags = ~(np.isfinite(d) & (d >= thr))
+            if not cut:
+                fa = QgsFeature(fields)
+                fa.setGeometry(QgsGeometry.fromPolylineXY(part))
+                fa.setAttributes(list(ft.attributes())
+                                 + [info["drop_min"], info["drop_mean"]])
+                out.append(fa)
+                total_len += fa.geometry().length()
+                if info["n_low"]:
+                    low_len += fa.geometry().length() * info["n_low"] / len(d)
+                continue
+            keep, cutr = _vc.confident_runs(flags, min_run)
+            for (rng, low) in ([(r, 0) for r in keep] + [(r, 1) for r in cutr]):
+                i0, i1 = rng
+                sub = part[i0:i1 + 1]
+                if len(sub) < 2:
+                    continue
+                dd = d[i0:i1 + 1]
+                si = _vc.line_confidence(dd, thr) or info
+                fa = QgsFeature(fields)
+                fa.setGeometry(QgsGeometry.fromPolylineXY(sub))
+                fa.setAttributes(list(ft.attributes())
+                                 + [si["drop_min"], si["drop_mean"], int(low)])
+                out.append(fa)
+                n_parts += 1
+                ln = fa.geometry().length()
+                total_len += ln
+                if low:
+                    n_low += 1
+                    low_len += ln
+    if not out:
+        return cur
+    dp.addFeatures(out)
+    mem.updateExtents()
+
+    feedback.pushInfo(_tr("Уверенность горизонталей: порог перепада %.4g м на "
+                          "ячейку (%.3g сечения).") % (thr, frac))
+    if cut:
+        feedback.pushInfo(_tr(
+            "Линий на входе %d, кусков на выходе %d, из них ниже шума %d. "
+            "Доля длины ниже шума %.3g процента.")
+            % (n_src, n_parts, n_low,
+               100.0 * low_len / total_len if total_len > 0 else 0.0))
+        if n_low:
+            feedback.pushInfo(_tr(
+                "Куски помечены полем lowconf = 1. Ничего не удалено, "
+                "спрячьте их фильтром слоя, если мешают."))
+    else:
+        feedback.pushInfo(_tr(
+            "Записаны поля drop_min и drop_mean. Подозрительные участки "
+            "видно выражением drop_min < %.4g.") % thr)
+    context.temporaryLayerStore().addMapLayer(mem)
+    return mem.id()
+
+
+def _warn_flat_levels(raster, band, interval, base, levels, feedback,
+                      max_cells=60_000_000):
+    """Предупредить, если уровень сечения попал в плоскую площадку.
+
+    Изолиния на площадке с околонулевым уклоном задаётся не рельефом, а шумом:
+    она рассыпается на множество мелких колец и выглядит как одна утолщённая
+    линия. Классический источник - водная гладь. Диагностика идёт за один
+    проход по массиву и никогда не роняет построение: не получилось - молча
+    строим дальше.
+
+    Числа выводятся на ЭКРАН: на удалённых машинах заказчика это единственный
+    доступный канал, файл-лог оттуда не забрать.
+    """
+    try:
+        import numpy as np
+        from osgeo import gdal
+        from . import validate_core as _vc
+
+        ds = gdal.Open(raster)
+        if ds is None:
+            return
+        if ds.RasterXSize * ds.RasterYSize > max_cells:
+            ds = None
+            return
+        gt = ds.GetGeoTransform()
+        b = ds.GetRasterBand(int(band))
+        arr = b.ReadAsArray().astype("float32")
+        nd = b.GetNoDataValue()
+        ds = None
+        if nd is not None:
+            arr = np.where(arr == nd, np.nan, arr)
+        cell = abs(gt[1]) or 1.0
+
+        lv = list(levels) if levels else compute_levels(raster, band,
+                                                        interval, base)
+        if not lv:
+            return
+        step = float(interval) if interval and interval > 0 else (
+            min(np.diff(sorted(lv))) if len(lv) > 1 else 0.0)
+        if step <= 0:
+            return
+        hits = _vc.flat_level_hits(arr, cell, lv, step)
+        if not hits:
+            return
+        worst = hits[0]
+        if worst["share_valid"] < 0.005:
+            return
+        feedback.pushWarning(_tr(
+            "Уровень %.4g проходит по площадке с околонулевым уклоном: "
+            "задето %d ячеек, это %.3g процента данных. Изолиния там "
+            "рассыпется на мелкие кольца и будет выглядеть утолщённой.")
+            % (worst["level"], worst["n_flat"], 100.0 * worst["share_valid"]))
+        for h in hits[1:3]:
+            if h["share_valid"] >= 0.005:
+                feedback.pushInfo(_tr(
+                    "То же на уровне %.4g: ячеек %d, %.3g процента.")
+                    % (h["level"], h["n_flat"], 100.0 * h["share_valid"]))
+        feedback.pushInfo(_tr(
+            "Обычно это водная гладь или залитая площадка. Замаскируйте её до "
+            "построения либо сместите уровни: урез это отдельный объект, а не "
+            "горизонталь."))
+    except Exception as exc:
+        # Диагностика не имеет права ронять построение: она справочная.
+        # Сообщить о пропуске пытаемся, но если и журнал уже недоступен,
+        # то писать всё равно некуда, и это не повод прерывать расчёт.
+        with suppress(Exception):
+            feedback.pushInfo(_tr("Проверка плоских площадок пропущена: %s")
+                              % exc)
+
+
+def _level_step(levels):
+    """Шаг по списку уровней: нужен, когда шаг не задан явно."""
+    import numpy as np
+    lv = sorted(float(v) for v in (levels or []))
+    if len(lv) < 2:
+        return 0.0
+    d = np.diff(lv)
+    d = d[d > 0]
+    return float(np.min(d)) if d.size else 0.0
+
+
 def _contour_lines(processing, raster, band, interval, base, levels,
                    min_length, line_iter, field_name, ignore_nodata, nodata,
-                   context, feedback):
+                   context, feedback, confidence=0, conf_frac=0.01):
     """Изолинии-линии (без флага is_index). Сглаживание поля (растра) делается
     до контуринга (см. _prep_raster) - это убирает пересечения. Дополнительно
     линии можно слегка СКРУГЛИТЬ (Chaikin, line_iter итераций): поле уже
@@ -315,9 +524,19 @@ def _contour_lines(processing, raster, band, interval, base, levels,
     else:
         raise QgsProcessingException(_tr("Задайте шаг изолиний или уровни."))
 
+    _warn_flat_levels(raster, band, interval, base, levels, feedback)
+
     feedback.pushInfo("gdal:contour…")
     cur = processing.run("gdal:contour", params, context=context,
                          feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+
+    # Уверенность считаем ДО фильтра коротких линий: иначе обрывки, оставшиеся
+    # от разрезания, попали бы в статистику длин и часть выкинулась бы дважды
+    # по разным причинам.
+    if confidence:
+        cur = _mark_confidence(cur, raster, band,
+                               interval if interval > 0 else _level_step(levels),
+                               conf_frac, confidence >= 2, context, feedback)
 
     if min_length and min_length > 0:
         feedback.pushInfo(_tr("Фильтр коротких линий (< %g)…") % min_length)
@@ -338,22 +557,37 @@ def _contour_lines(processing, raster, band, interval, base, levels,
     }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
 
 
-def _add_slope_side(processing, cur, slope_ref, context, feedback):
+def _add_slope_side(processing, cur, slope_ref, context, feedback, flip=0):
     """Добавляет поле dn_sign для бергштрихов. Знак выбран так, чтобы в стиле
     смещение offset = @dn_sign * ширина клало штрих на сторону склона ВНИЗ
     (с учётом того, что в QGIS положительное смещение уходит влево от
     направления линии). 0 у края, где значение не прочиталось. Считается
     сэмплированием исходного растра по обе стороны линии в её середине."""
     rid, band, eps = slope_ref
-    # Знак смещения линии в стиле трактуется QGIS по-разному в разных версиях:
-    # в QGIS 4 сторона перевернулась относительно QGIS 3, на котором стиль
-    # выверялся. Переворачиваем dn_sign для QGIS >= 4, чтобы штрих всегда лёг
-    # на сторону склона ВНИЗ в обеих линейках. QML при этом не меняется.
+    # Про знак смещения. Была гипотеза, что в QGIS 4 сторона смещения
+    # перевернулась относительно QGIS 3, и код переворачивал dn_sign по номеру
+    # версии. Проверка на живой машине с QGIS 4.0.3 показала обратное: с
+    # переворотом штрихи легли вверх по склону, без переворота верно. Значит
+    # четвёрка ведёт себя как тройка, и угадывание по версии убрано.
+    # Переключатель оставлен: сборки бывают разные, а увидеть неверную сторону
+    # на карте можно за секунду, тогда как вычислить её из API нельзя.
+    ver = 0
     try:
         from qgis.core import Qgis
-        _flip = -1 if int(Qgis.versionInt()) >= 40000 else 1
+        ver = int(Qgis.versionInt())
     except Exception:
+        ver = 0
+    if flip > 0:
+        _flip, how = 1, _tr("как есть (задано вручную)")
+    elif flip < 0:
+        _flip, how = -1, _tr("зеркально (задано вручную)")
+    else:
         _flip = 1
+        how = _tr("автоматически")
+    feedback.pushInfo(_tr(
+        "Бергштрихи: сторона выбрана %s, версия QGIS %d, знак %+d. Если "
+        "штрихи смотрят вверх по склону, переключите параметр вручную.")
+        % (how, ver, _flip))
     neg, pos = -1 * _flip, 1 * _flip
     expr = (
         "with_variable('p', line_interpolate_point($geometry, $length/2.0),"
@@ -373,14 +607,74 @@ def _add_slope_side(processing, cur, slope_ref, context, feedback):
     }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
 
 
+def _orient_uphill(processing, cur, slope_ref, context, feedback):
+    """Разворачивает горизонтали так, чтобы верх подписи смотрел вверх по склону.
+
+    Это и есть топографическая подпись. QGIS ставит подпись вдоль линии и
+    отсчитывает верх текста от направления линии, поэтому достаточно задать
+    линиям одно направление относительно склона.
+
+    ПРОВЕРЕНО НА ЖИВОЙ МАШИНЕ (QGIS 4.0.3): верх подписи смотрит в сторону
+    ВЫСОКОЙ стороны, когда высокая сторона находится СПРАВА от направления
+    линии. Первоначальное предположение было обратным, и подписи вставали
+    вверх ногами, то есть в сторону убывания.
+
+    Растр опрашивается по обе стороны линии в её середине, как и для
+    бергштрихов. Поле up_side остаётся в слое: 1 означает, что линия оставлена
+    как была, 0 что развёрнута. По нему видно, что инструмент сделал.
+
+    Бергштрихи от этого не страдают: сторона склона считается ПОСЛЕ разворота
+    и подстраивается сама.
+    """
+    rid, band, eps = slope_ref
+    expr = (
+        "with_variable('p', line_interpolate_point($geometry, $length/2.0),"
+        " with_variable('a', line_interpolate_angle($geometry, $length/2.0),"
+        "  with_variable('vr', raster_value('{rid}', {b}, "
+        "project(@p, {e}, radians(@a + 90))),"
+        "   with_variable('vl', raster_value('{rid}', {b}, "
+        "project(@p, {e}, radians(@a - 90))),"
+        "    CASE WHEN @vr IS NULL OR @vl IS NULL THEN 1"
+        "     WHEN @vr >= @vl THEN 1 ELSE 0 END))))"
+    ).format(rid=rid, b=int(band), e=float(eps))
+    feedback.pushInfo(_tr("Ориентация горизонталей вверх по склону…"))
+    cur = processing.run("native:fieldcalculator", {
+        "INPUT": cur, "FIELD_NAME": "up_side", "FIELD_TYPE": 1,
+        "FIELD_LENGTH": 1, "FIELD_PRECISION": 0, "FORMULA": expr,
+        "OUTPUT": "TEMPORARY_OUTPUT",
+    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    # разворачиваем те линии, у которых высокая сторона оказалась слева
+    return processing.run("native:geometrybyexpression", {
+        "INPUT": cur, "OUTPUT_GEOMETRY": 1, "WITH_Z": False, "WITH_M": False,
+        "EXPRESSION": 'if("up_side" = 1, $geometry, reverse($geometry))',
+        "OUTPUT": "TEMPORARY_OUTPUT",
+    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+
+
 def _finalize_lines(processing, cur, interval, base, index_every, field_name,
-                    final_output, context, feedback, slope_ref=None):
+                    final_output, context, feedback, slope_ref=None,
+                    uphill_ref=None, hatch_flip=0):
     """Доводит линии до выходного слоя: сторона склона (dn_sign, опционально),
     флаг главных изолиний (is_index) и сохранение. Общий хвост для линейного
     выхода (с полигонами и без)."""
+    # ВАЖЕН ПОРЯДОК: сначала разворот, потом сторона склона. Разворот меняет
+    # направление линии, а значит меняет местами лево и право, и посчитанный
+    # заранее dn_sign у развёрнутых линий указывал бы на противоположную
+    # сторону - бергштрихи легли бы вверх по склону. Проявляется только при
+    # одновременно включённых депрессионном стиле и топографических подписях,
+    # поэтому легко не заметить.
+    if uphill_ref:
+        # Разворот геометрии не должен ронять построение: не получилось -
+        # выходим с обычными линиями и говорим об этом.
+        try:
+            cur = _orient_uphill(processing, cur, uphill_ref, context, feedback)
+        except Exception as e:
+            feedback.pushWarning(
+                _tr("Не удалось развернуть линии вверх по склону: %s") % e)
     if slope_ref:
         try:
-            cur = _add_slope_side(processing, cur, slope_ref, context, feedback)
+            cur = _add_slope_side(processing, cur, slope_ref, context, feedback,
+                                  flip=hatch_flip)
         except Exception as e:
             feedback.pushWarning(
                 _tr("Не удалось вычислить сторону склона (dn_sign): %s") % e)
@@ -401,7 +695,9 @@ def _finalize_lines(processing, cur, interval, base, index_every, field_name,
 def isolines_from_raster(raster, band, interval, base, levels_text,
                          index_every, min_length, smooth, smooth_radius,
                          densify, line_iter, field_name, ignore_nodata, nodata,
-                         final_output, context, feedback, slope_ref=None):
+                         final_output, context, feedback, slope_ref=None,
+                         uphill_ref=None, confidence=0, conf_frac=0.01,
+                         hatch_flip=0):
     """Изолинии-линии. levels_text (если задан) имеет приоритет над шагом.
     Сглаживание - на уровне поля; line_iter - лёгкое скругление линий."""
     from qgis import processing
@@ -412,10 +708,11 @@ def isolines_from_raster(raster, band, interval, base, levels_text,
     li = int(line_iter)
     cur = _contour_lines(processing, rp, rb, interval, base, levels,
                          min_length, li, field_name, ignore_nodata, nodata,
-                         context, feedback)
+                         context, feedback, confidence, conf_frac)
     return _finalize_lines(processing, cur, interval, base, index_every,
                            field_name, final_output, context, feedback,
-                           slope_ref=slope_ref)
+                           slope_ref=slope_ref, uphill_ref=uphill_ref,
+                           hatch_flip=hatch_flip)
 
 
 # ---------------------------------------------------------------------------
@@ -626,7 +923,8 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
                           index_every, min_length, smooth, smooth_radius,
                           densify, line_iter, field_name, ignore_nodata, nodata,
                           lines_output, polygons_output, context, feedback,
-                          slope_ref=None):
+                          slope_ref=None, uphill_ref=None,
+                          hatch_flip=0):
     """Изолинии И контурные пояса из ОДНОГО набора линий.
 
     Сглаживание выполняется один раз на уровне поля (растра); этот же
@@ -679,7 +977,8 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
     # 3) линейный выход - из ЭТИХ же согласованных линий
     lines_out = _finalize_lines(processing, iso, interval, base, index_every,
                                 field_name, lines_output, context, feedback,
-                                slope_ref=slope_ref)
+                                slope_ref=slope_ref, uphill_ref=uphill_ref,
+                           hatch_flip=hatch_flip)
 
     # Овершут ТОЛЬКО для открытых линий (упираются концами в контур): их
     # продлеваем за контур на ~1 ячейку, чтобы пересечь его и чисто
