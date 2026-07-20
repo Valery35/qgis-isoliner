@@ -1624,9 +1624,19 @@ The data is read without prior cleaning. Empty and non-numeric depths are skippe
 
 The lines, the vertical scale and the layout come from the section definition produced by **Cross-section along a line**. Every borehole is projected onto every line and lands on the drawings it is closer to than the corridor (0 means all). Depths become elevations by subtraction from z, the vex factor is shared from the definition, so the columns sit on the beds by height without fitting.
 
+The collar layer may live in a different coordinate system than the definition, for example when exported from a corporate database in the working system of the enterprise. The tool reprojects the collars into the definition system itself and prints a line about it to the log together with the coordinates of the first collar. If the corridor turns out empty, the log reports the distance of the nearest collar from the line, and this number immediately tells whether the corridor is narrow or the layers live in different places.
+
 ## Colours and the legend
 
-The interval layer comes out coloured right away: a category per code in the order of first appearance top to bottom, the colour is deterministic from the code itself and does not change between runs and machines. The code-to-colour legend appears in the layer tree by itself. The last entry is the grey **other** category, everything that did not match a known code falls into it, so nothing disappears silently. The columns carry a thin black outline and read on top of the section bands. The bed bands in **Cross-section along a line** are coloured by the same mechanism from the roof name, so a bed named with the same code as in the interval table matches the borehole columns in colour by itself. The traces are drawn as a thin grey line from the collar to the end of hole, the collars as points labelled by **hole_id**.
+The interval layer comes out coloured right away: a category per code in the order of first appearance top to bottom, the colour is deterministic from the code itself and does not change between runs and machines. The code-to-colour legend appears in the layer tree by itself. The last entry is the grey **other** category, everything that did not match a known code falls into it, so nothing disappears silently. The columns carry a thin black outline and read on top of the section bands. The bed bands in **Cross-section along a line** are coloured by the same mechanism from the roof name, so a bed named with the same code as in the interval table matches the borehole columns in colour by itself. The traces are drawn as a thin grey line from the collar to the end of hole, the collars as points with a short label. The label comes from the **number** field of the collar layer (name and label are synonyms), and without it from **hole_id**, while the composite identifier stays in the attributes for joins.
+
+## Clipping by the drawing and the frame
+
+By default the columns are clipped by the drawing frame - the zmin and zmax elevation range from the definition. An interval on the edge is trimmed to it, an interval entirely beyond the frame is skipped, the trace and the label are clamped by the frame, and a borehole entirely beyond the frame drops out of the drawing. The checkbox turns clipping off entirely.
+
+The frame is one for the whole drawing, while the roof of the uppermost sequence differs from point to point, so for a cut along the beds feed the optional **Section drawing** input - the band polygons from **Cross-section along a line**. The columns are cut by the upper and lower envelope of the bands at their own position, so boreholes do not stick out of the drawing, as in the mining packages. Beyond the bands this input has no effect, the frame keeps working there.
+
+The tolerance under the advanced parameters widens the frame and the bands outwards, in elevation units. Only the geometry is clipped, the ztop and zbot attributes keep the true interval elevations. A clipping summary is printed to the log per section.
 
 ## Parameters
 
@@ -1636,10 +1646,14 @@ The interval layer comes out coloured right away: a category per code in the ord
 | Borehole collars (collar) | The collar point layer. | - |
 | Borehole intervals (interval) | The interval table. | - |
 | Corridor from the line | A buffer, map units. 0 puts every borehole on every section. | 0 |
+| Clip intervals by the drawing frame | The zmin and zmax frame from the definition. | on |
+| Section drawing (for clipping) | The band polygons from 4.01, a cut by the envelopes. | empty |
 | collar and interval fields (Adv.) | Overrides of the automatic field search. | found automatically |
+| Collar label field (Adv.) | Where the short collar label comes from. | number |
+| Clipping tolerance (Adv.) | Widening of the frame and the bands, elevation units. | 0 |
 | Borehole intervals (drawing) | Vertical segments coloured by code. | created |
 | Borehole traces (drawing) | Lines from the collar to the end of hole. | created |
-| Collars on the drawing | Points labelled by hole_id. | created |
+| Collars on the drawing | Points labelled from number. | created |
 | Borehole intervals (3D) | LineStringZ in real coordinates, depth goes into Z. | on request |
 
 The chosen layers and the corridor are remembered, the next run in the same project opens with the inputs already in place.

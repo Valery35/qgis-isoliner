@@ -38,6 +38,7 @@ import math
 COLLAR_ID = "hole_id"
 COLLAR_Z = "z"
 COLLAR_EOH = "eoh"
+COLLAR_LABEL = "number"
 INTERVAL_ID = "hole_id"
 INTERVAL_FROM = "from"
 INTERVAL_TO = "to"
@@ -49,6 +50,9 @@ FIELD_SYNONYMS = {
     COLLAR_ID: ("hole_id", "holeid", "hole", "bhid", "dhid", "well"),
     COLLAR_Z: ("z", "elev", "elevation", "rl", "collar_z"),
     COLLAR_EOH: ("eoh", "depth", "max_depth", "td", "total_depth"),
+    # подпись устья: короткий номер, а не составной hole_id. Выгрузка
+    # Геоконструктора везёт number, горные пакеты - name или label
+    COLLAR_LABEL: ("number", "name", "label"),
     INTERVAL_FROM: ("from", "from_", "depth_from", "from_m"),
     INTERVAL_TO: ("to", "to_", "depth_to", "to_m"),
     INTERVAL_CODE: ("code", "litho", "lith", "geol", "class", "seam"),
@@ -114,6 +118,85 @@ def parse_id(v):
         return str(int(v))
     s = str(v).strip()
     return s or None
+
+
+# --- обрезка линиями чертежа ---------------------------------------------
+
+def profile_y(parts, x, pick_max=True):
+    """Высота y ломаных профиля в позиции x или None, если x вне охвата.
+
+    parts - список ломаных [(x, y), ...] в координатах чертежа. Линейная
+    интерполяция по сегментам, накрывающим x. Если x накрыт несколькими
+    сегментами, берётся верхний (pick_max) или нижний: для кровли чертежа
+    нужен верх, для подошвы низ.
+    """
+    best = None
+    for pts in parts or ():
+        for i in range(1, len(pts)):
+            x1, y1 = pts[i - 1]
+            x2, y2 = pts[i]
+            if x1 == x2:
+                continue
+            lo, hi = (x1, x2) if x1 < x2 else (x2, x1)
+            if lo - 1e-9 <= x <= hi + 1e-9:
+                y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
+                if best is None:
+                    best = y
+                else:
+                    best = max(best, y) if pick_max else min(best, y)
+    return best
+
+
+def clip_columns_profile(cols, top_parts=None, bot_parts=None,
+                         counters=None):
+    """Обрезка готовых колонок линиями кровли и подошвы чертежа.
+
+    Работает в локальных координатах чертежа (d по оси расстояния, y уже с
+    vex, до раскладки ox и oy). В каждой позиции колонки берётся высота
+    линии, верх колонки зажимается кровлей, низ подошвой. Колонка вне
+    охвата линии по x (торцы чертежа) этой линией не трогается. Интервал
+    целиком за линией выпадает, потерявшая всё колонка выпадает из чертежа.
+
+    counters - те же ключи, что у рамки: n_clip_cut, n_clip_out,
+    n_holes_out. Возвращает новый список колонок.
+    """
+    out = []
+    n_cut = n_clip_out = n_drop = 0
+    for col in cols:
+        ytop = profile_y(top_parts, col.d, True) if top_parts else None
+        ybot = profile_y(bot_parts, col.d, False) if bot_parts else None
+        if ytop is None and ybot is None:
+            out.append(col)
+            continue
+        segs = []
+        for (t, b, it) in col.segments:
+            t2 = min(t, ytop) if ytop is not None else t
+            b2 = max(b, ybot) if ybot is not None else b
+            if t2 <= b2:
+                n_clip_out += 1
+                continue
+            if t2 != t or b2 != b:
+                n_cut += 1
+            segs.append((t2, b2, it))
+        stop, sbot = col.stick
+        if ytop is not None:
+            stop = min(stop, ytop)
+        if ybot is not None:
+            sbot = max(sbot, ybot)
+        if stop <= sbot and not segs:
+            n_drop += 1
+            continue
+        sbot = min(sbot, stop)
+        out.append(Column(col.hole_id, col.d, col.offset, segs,
+                          (stop, sbot), stop))
+    if counters is not None:
+        counters["n_clip_cut"] = counters.get("n_clip_cut", 0) + n_cut
+        counters["n_clip_out"] = counters.get("n_clip_out", 0) + n_clip_out
+        counters["n_holes_out"] = counters.get("n_holes_out", 0) + n_drop
+        if len(out) != len(cols):
+            counters["n_wells"] = (counters.get("n_wells", 0)
+                                   - (len(cols) - len(out)))
+    return out
 
 
 # --- сводка чтения -------------------------------------------------------
@@ -424,7 +507,7 @@ class Column:
 
 
 def columns_for_section(collars, holes, vertices, corridor, vex,
-                        counters=None):
+                        counters=None, zclip=None):
     """Колонки скважин для одной линии разреза.
 
     Устье проецируется на линию, дальние скважины отсекаются коридором
@@ -432,14 +515,33 @@ def columns_for_section(collars, holes, vertices, corridor, vex,
     из z и умножаются на vex, по соглашению чертежа. Возвращает список
     Column по возрастанию d.
 
+    zclip - необязательная пара отметок (zmin, zmax): рамка чертежа, уже
+    расширенная допуском. Интервал, пересекающий кромку, подрезается до
+    кромки, интервал целиком за рамкой пропускается, ствол и точка подписи
+    зажимаются той же рамкой. Скважина, у которой за рамкой оказалось всё,
+    из чертежа выпадает. None - без обрезки, поведение прежних версий.
+
     counters - необязательный словарь, в него добавляются ключи n_wells и
-    n_outside по этой линии (для сводки по разрезу).
+    n_outside по этой линии, а также min_off - наименьшее удаление устья от
+    линии. Число диагностическое: когда коридор пуст, оно с экрана говорит,
+    узок ли коридор или устья живут в другом координатном пространстве.
+    При обрезке добавляются n_clip_cut (интервалов подрезано), n_clip_out
+    (интервалов за рамкой) и n_holes_out (скважин целиком за рамкой).
     """
+    zmn = zmx = None
+    if zclip is not None:
+        zmn, zmx = float(zclip[0]), float(zclip[1])
+        if not (math.isfinite(zmn) and math.isfinite(zmx) and zmx > zmn):
+            zmn = zmx = None
     cols = []
     n_out = 0
+    n_cut = n_clip_out = n_holes_out = 0
+    min_off = float("inf")
     for hid in sorted(holes):
         c = collars[hid]
         d, off = project_to_polyline(vertices, c.x, c.y)
+        if off < min_off:
+            min_off = off
         if corridor > 0 and off > corridor:
             n_out += 1
             continue
@@ -447,12 +549,35 @@ def columns_for_section(collars, holes, vertices, corridor, vex,
         segs = []
         for it in its:
             ztop, zbot = unfold(c.z, it.frm, it.to)
+            if zmn is not None:
+                if zbot >= zmx or ztop <= zmn:
+                    n_clip_out += 1
+                    continue
+                t2, b2 = min(ztop, zmx), max(zbot, zmn)
+                if t2 != ztop or b2 != zbot:
+                    n_cut += 1
+                ztop, zbot = t2, b2
             segs.append((ztop * vex, zbot * vex, it))
         depth = hole_depth(c, its)
-        stick = (c.z * vex, (c.z - depth) * vex)
-        cols.append(Column(hid, d, off, segs, stick, c.z * vex))
+        stop, sbot = c.z, c.z - depth
+        if zmn is not None:
+            stop, sbot = min(stop, zmx), max(sbot, zmn)
+            if stop <= sbot and not segs:
+                n_holes_out += 1
+                continue
+        stick = (stop * vex, min(sbot, stop) * vex)
+        cols.append(Column(hid, d, off, segs, stick, stick[0]))
     cols.sort(key=lambda col: (col.d, col.hole_id))
     if counters is not None:
         counters["n_wells"] = counters.get("n_wells", 0) + len(cols)
         counters["n_outside"] = counters.get("n_outside", 0) + n_out
+        if math.isfinite(min_off):
+            counters["min_off"] = min(
+                counters.get("min_off", float("inf")), min_off)
+        if zmn is not None:
+            counters["n_clip_cut"] = counters.get("n_clip_cut", 0) + n_cut
+            counters["n_clip_out"] = (counters.get("n_clip_out", 0)
+                                      + n_clip_out)
+            counters["n_holes_out"] = (counters.get("n_holes_out", 0)
+                                       + n_holes_out)
     return cols

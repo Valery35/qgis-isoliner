@@ -640,8 +640,14 @@ def _load_defaults(alg):
 
 def _save_values(alg, parameters):
     try:
+        def _ok(v):
+            if isinstance(v, (int, float, str, bool)):
+                return True
+            return (isinstance(v, list)
+                    and v and all(isinstance(x, str) for x in v))
+
         d = {k: v for k, v in parameters.items()
-             if k not in _PERSIST_DENY and isinstance(v, (int, float, str, bool))}
+             if k not in _PERSIST_DENY and _ok(v)}
         QgsSettings().setValue(_settings_key(alg), json.dumps(d))
     except Exception:  # nosec
         pass
@@ -650,6 +656,58 @@ def _save_values(alg, parameters):
 def _dv(alg, key, fallback):
     """Значение по умолчанию: ранее сохранённое или запасное."""
     return getattr(alg, "_defaults", {}).get(key, fallback)
+
+
+def _restore_layer_defaults(alg, keys):
+    """Подставляет запомненные id слоёв значениями по умолчанию параметров.
+    Зовётся в конце initAlgorithm, парой к _remember_layers."""
+    for k in keys:
+        try:
+            v = _dv(alg, k, None) or _dv(alg, _mem_key(k), None)
+            pd = alg.parameterDefinition(k)
+            if v and pd is not None:
+                pd.setDefaultValue(v)
+        except Exception:  # nosec
+            pass
+
+
+def _mem_key(key):
+    """Ключ хранения id слоя. Имена из запретного списка (INPUT и другие)
+    сохраняются под служебным именем с суффиксом, сам список не трогается и
+    прочие сохранения не меняются."""
+    return key + "_layerid" if key in _PERSIST_DENY else key
+
+
+def _remember_layers(alg, parameters, context, saved, single=(), multi=()):
+    """Кладёт в сохраняемые параметры id выбранных слоёв, чтобы следующий
+    запуск инструмента в этом же проекте открылся с уже подставленными
+    входами. id живёт внутри проекта; в другом проекте он не найдётся, и
+    диалог тихо вернётся к обычному автоподбору. Запоминание не должно
+    ронять расчёт ни при каких обстоятельствах."""
+    for key in single:
+        lyr = None
+        try:
+            lyr = alg.parameterAsVectorLayer(parameters, key, context)
+        except Exception:  # nosec
+            lyr = None
+        if lyr is None:
+            try:
+                lyr = alg.parameterAsRasterLayer(parameters, key, context)
+            except Exception:  # nosec
+                lyr = None
+        if lyr is not None:
+            try:
+                saved[_mem_key(key)] = lyr.id()
+            except Exception:  # nosec
+                pass
+    for key in multi:
+        try:
+            lyrs = alg.parameterAsLayerList(parameters, key, context)
+            ids = [L.id() for L in lyrs if L is not None]
+            if ids:
+                saved[_mem_key(key)] = ids
+        except Exception:  # nosec
+            pass
 
 
 def _last_profile_key(alg):
@@ -1779,10 +1837,14 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
             self.OUTPUT_HTML, self.tr("HTML-отчёт"),
             self.tr("HTML (*.html)"), optional=True, createByDefault=True))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
         from . import declus as dc
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT,))
         source = self.parameterAsSource(parameters, self.INPUT, context)
         if source is None:
             raise QgsProcessingException(self.tr("Не задан точечный слой."))
@@ -1985,9 +2047,13 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
             "вдали от данных."))
         self.addParameter(se)
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT,))
         parameters = _apply_profile(self, parameters, context, feedback)
         source = self.parameterAsSource(parameters, self.INPUT, context)
         zfield = self.parameterAsString(parameters, self.ZFIELD, context)
@@ -2099,9 +2165,13 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             self.OUTPUT_CONF, self.tr("Уверенность (макс. вероятность)"),
             optional=True, createByDefault=False))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT,))
         source = self.parameterAsSource(parameters, self.INPUT, context)
         field = self.parameterAsString(parameters, self.CLASS_FIELD, context)
         wfield = self.parameterAsString(
@@ -2333,9 +2403,13 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
             type=QgsProcessing.SourceType.TypeVectorPolygon,
             optional=True, createByDefault=True))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT,))
         rl = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         if rl is None:
             raise QgsProcessingException(self.tr("Не задан растр."))
@@ -2905,7 +2979,13 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
             self.OUTPUT_HTML, self.tr("Отчёт о кросс-валидации (HTML)"),
             self.tr("HTML files (*.html)"), optional=True, createByDefault=True))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT,))
+        _save_values(self, _mem)
         feedback.pushInfo(_version_line())
         parameters = _apply_profile(self, parameters, context, feedback)
         source = self.parameterAsSource(parameters, self.INPUT, context)
@@ -4008,7 +4088,13 @@ class VariableSupportDensityAlgorithm(IsolinerAlgorithm):
             optional=True, createByDefault=False)
         self.addParameter(se)
 
+        _restore_layer_defaults(self, (self.INPUT, self.DASY, self.APPEND))
+
     def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT, self.DASY, self.APPEND))
+        _save_values(self, _mem)
         from . import density as D
         feedback.pushInfo(_version_line())
         source = self.parameterAsSource(parameters, self.INPUT, context)
@@ -4446,6 +4532,8 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
             self.OUTPUT_HTML, self.tr("Отчёт (HTML)"),
             self.tr("HTML files (*.html)"), optional=True, createByDefault=True))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _opt(self, parameters, name, context):
         v = parameters.get(name, None)
         if v is None or v == "":
@@ -4453,6 +4541,10 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
         return self.parameterAsDouble(parameters, name, context)
 
     def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT,))
+        _save_values(self, _mem)
         feedback.pushInfo(_version_line())
         source = self.parameterAsSource(parameters, self.INPUT, context)
         layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
@@ -4960,7 +5052,13 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
             self.OUTPUT_RASTER, self.tr("Растр поверхности (опц., в лаг-координатах)"),
             optional=True, createByDefault=False))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT,))
+        _save_values(self, _mem)
         feedback.pushInfo(_version_line())
         src = self.parameterAsSource(parameters, self.INPUT, context)
         if src is None:
@@ -5243,9 +5341,13 @@ class FlowGradientAlgorithm(IsolinerAlgorithm):
             createByDefault=True)
         self.addParameter(vec)
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT,))
         rl = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         if rl is None:
             raise QgsProcessingException(self.tr("Не задан растр напора."))
@@ -5427,9 +5529,13 @@ class ExternalDriftKrigingAlgorithm(IsolinerAlgorithm):
             "своей погрешности к ней не добавляет."))
         self.addParameter(se)
 
+        _restore_layer_defaults(self, (self.INPUT, self.DRIFT_RASTER))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT, self.DRIFT_RASTER))
         source = self.parameterAsSource(parameters, self.INPUT, context)
         zfield = self.parameterAsString(parameters, self.ZFIELD, context)
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
@@ -5513,9 +5619,13 @@ class ExceedanceProbabilityAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Растр вероятности (0…1)")))
 
+        _restore_layer_defaults(self, (self.ESTIMATE, self.STDERR))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.ESTIMATE, self.STDERR))
         rl_e = self.parameterAsRasterLayer(parameters, self.ESTIMATE, context)
         rl_s = self.parameterAsRasterLayer(parameters, self.STDERR, context)
         if rl_e is None or rl_s is None:
@@ -5685,6 +5795,8 @@ class DarcyFluxAlgorithm(IsolinerAlgorithm):
             type=QgsProcessing.SourceType.TypeVectorPoint, optional=True,
             createByDefault=True))
 
+        _restore_layer_defaults(self, (self.INPUT, self.KRASTER, self.TRASTER))
+
     def _grid(self, src, band, gt, nx, ny):
         """Читает растр свойства, при несовпадении решётки приводит к сетке
         напора билинейно. Возвращает массив с nan вне покрытия/данных."""
@@ -5704,6 +5816,8 @@ class DarcyFluxAlgorithm(IsolinerAlgorithm):
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT, self.KRASTER, self.TRASTER))
         rl = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         if rl is None:
             raise QgsProcessingException(self.tr("Не задан растр напора."))
@@ -6467,6 +6581,8 @@ class SectionAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.NAXES, 5), minValue=2, maxValue=50)))
 
+        _restore_layer_defaults(self, (self.LINE, self.SURFACES))
+
     def _fields(self):
         f = QgsFields()
         f.append(QgsField("sec", QVariant.String))
@@ -6481,6 +6597,8 @@ class SectionAlgorithm(IsolinerAlgorithm):
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.LINE,), multi=(self.SURFACES,))
         src = self.parameterAsSource(parameters, self.LINE, context)
         if src is None:
             raise QgsProcessingException(self.tr("Не задана линия разреза."))
@@ -6982,6 +7100,9 @@ class CompositionOnSectionAlgorithm(IsolinerAlgorithm):
             type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
             createByDefault=False))
 
+        _restore_layer_defaults(self, (self.LINE, self.DEF, self.TOP,
+                                       self.BOTTOM, self.COMP))
+
     @staticmethod
     def _read(path, band=1):
         ds = gdal.Open(path)
@@ -6999,6 +7120,8 @@ class CompositionOnSectionAlgorithm(IsolinerAlgorithm):
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.LINE, self.DEF, self.TOP, self.BOTTOM, self.COMP))
         lsrc = self.parameterAsSource(parameters, self.LINE, context)
         top_l = self.parameterAsRasterLayer(parameters, self.TOP, context)
         bot_l = self.parameterAsRasterLayer(parameters, self.BOTTOM, context)
@@ -7310,9 +7433,13 @@ class SectionGridIntersectAlgorithm(IsolinerAlgorithm):
             type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
             createByDefault=False))
 
+        _restore_layer_defaults(self, (self.LINE_DEF, self.GRIDS))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.LINE_DEF,), multi=(self.GRIDS,))
         src = self.parameterAsSource(parameters, self.LINE_DEF, context)
         grids = self.parameterAsLayerList(parameters, self.GRIDS, context)
         if src is None or not grids:
@@ -7461,9 +7588,13 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
             createByDefault=True))
 
+        _restore_layer_defaults(self, (self.LINE_DEF, self.SECTION2D, self.TARGET))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.LINE_DEF, self.SECTION2D), multi=(self.TARGET,))
         src = self.parameterAsSource(parameters, self.LINE_DEF, context)
         layers = self.parameterAsLayerList(parameters, self.TARGET, context)
         if src is None or not layers:
@@ -7706,9 +7837,13 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
             type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
             createByDefault=False))
 
+        _restore_layer_defaults(self, (self.LINE_DEF, self.FACES))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.LINE_DEF,), multi=(self.FACES,))
         src = self.parameterAsSource(parameters, self.LINE_DEF, context)
         faces = self.parameterAsLayerList(parameters, self.FACES, context) or []
         mesh = self.parameterAsMeshLayer(parameters, self.MESH, context)
@@ -7890,9 +8025,13 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Объекты на разрезе (чертёж)")))
 
+        _restore_layer_defaults(self, (self.LINE_DEF,))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.LINE_DEF,))
         src = self.parameterAsSource(parameters, self.LINE_DEF, context)
         isrc = self.parameterAsSource(parameters, self.INPUT, context)
         if src is None or isrc is None:
@@ -8002,9 +8141,13 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Объекты в плане (с отметкой Z)")))
 
+        _restore_layer_defaults(self, (self.LINE_DEF,))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.LINE_DEF,))
         src = self.parameterAsSource(parameters, self.LINE_DEF, context)
         isrc = self.parameterAsSource(parameters, self.INPUT, context)
         if src is None or isrc is None:
@@ -8123,9 +8266,13 @@ class ShaftUnwrapAlgorithm(IsolinerAlgorithm):
             self.OUTPUT, self.tr("Развёртка стенки (дуга × высота)"),
             type=QgsProcessing.SourceType.TypeVectorLine))
 
+        _restore_layer_defaults(self, (self.AXIS, self.SURFACES))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.AXIS,), multi=(self.SURFACES,))
         asrc = self.parameterAsSource(parameters, self.AXIS, context)
         grids = self.parameterAsLayerList(parameters, self.SURFACES, context)
         if asrc is None or not grids:
@@ -8216,7 +8363,10 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
     COLLAR, CID, CZ, CEOH = "COLLAR", "CID", "CZ", "CEOH"
     INTERVAL, IID, IFROM, ITO, ICODE = (
         "INTERVAL", "IID", "IFROM", "ITO", "ICODE")
+    CLABEL = "CLABEL"
     CORRIDOR = "CORRIDOR"
+    CLIP, CLIP_TOL = "CLIP", "CLIP_TOL"
+    SHEET = "SHEET"
     OUTPUT, OUTPUT_STICKS = "OUTPUT", "OUTPUT_STICKS"
     OUTPUT_LABELS, OUTPUT_3D = "OUTPUT_LABELS", "OUTPUT_3D"
 
@@ -8244,7 +8394,22 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             "пустые глубины пропускаются, перепутанные from и to меняются "
             "местами, перехлёсты и интервалы за забоем рисуются как есть, всё "
             "пропущенное считается и выводится сводкой в журнал. Прочие "
-            "колонки таблицы интервалов едут в атрибуты как есть.") + _credit())
+            "колонки таблицы интервалов едут в атрибуты как есть.\n\n"
+            "Подпись устья берётся из поля number (или name, label), а без "
+            "него из hole_id. Поле можно указать в дополнительных "
+            "параметрах.\n\n"
+            "По умолчанию колонки обрезаются рамкой чертежа zmin и zmax "
+            "из определения: интервал на кромке подрезается, интервал "
+            "целиком за рамкой пропускается, ствол и подпись зажимаются "
+            "рамкой. Допуск в дополнительных параметрах расширяет рамку, "
+            "галочка выключает обрезку совсем. В атрибутах ztop и zbot "
+            "остаются настоящие отметки интервала, обрезается только "
+            "геометрия.\n\n"
+            "Чертёж разреза - необязательный вход с полигонами полос из "
+            "4.01: колонки режутся по верхней и нижней огибающей полос "
+            "в своей позиции, скважины не вылезают за чертёж. Колонка "
+            "за краем полос этим входом не режется, там работает "
+            "рамка.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -8270,6 +8435,10 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             parentLayerParameterName=self.COLLAR,
             type=QgsProcessingParameterField.DataType.Numeric,
             defaultValue="eoh", optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.CLABEL, self.tr("Поле подписи устья (по умолчанию number)"),
+            parentLayerParameterName=self.COLLAR, defaultValue="number",
+            optional=True)))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.INTERVAL, self.tr("Интервалы скважин (interval, таблица)"),
             types=[QgsProcessing.SourceType.TypeVector],
@@ -8297,6 +8466,19 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             self.tr("Коридор от линии, ед. карты (0 = все скважины)"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.CORRIDOR, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.CLIP,
+            self.tr("Обрезать интервалы по рамке чертежа (zmin и zmax)"),
+            defaultValue=_dv(self, self.CLIP, True)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.SHEET,
+            self.tr("Чертёж разреза (полигоны из 4.01, для обрезки)"),
+            types=[QgsProcessing.SourceType.TypeVectorPolygon],
+            defaultValue=_dv(self, self.SHEET, None), optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.CLIP_TOL, self.tr("Допуск обрезки, ед. отметки"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.CLIP_TOL, 0.0), minValue=0.0)))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Интервалы скважин (чертёж)"),
             type=QgsProcessing.SourceType.TypeVectorLine))
@@ -8313,9 +8495,17 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
             createByDefault=False))
 
-    def _read_model(self, parameters, context, feedback):
+    def _read_model(self, parameters, context, feedback, dcrs=None):
         """Чтение пары collar/interval терпимым читателем ядра. Возвращает
-        (collars, holes, поля interval, сводка)."""
+        (источники, collars, holes, поле code, словарь подписей hole_id ->
+        короткая подпись из поля number или его синонимов).
+
+        dcrs - система координат определения разреза. Устья читаются из слоя
+        collar и переводятся в неё сразу при чтении: линия разреза живёт в
+        системе определения, и проекция на неё обязана считаться там же.
+        Урок этого места: канва QGIS преобразует слои сама, и на карте всё
+        лежит вместе, а сырые числа двух систем расходятся на межсистемный
+        сдвиг - и коридор отсекает всё."""
         csrc = self.parameterAsSource(parameters, self.COLLAR, context)
         isrc = self.parameterAsSource(parameters, self.INTERVAL, context)
         if csrc is None or isrc is None:
@@ -8338,16 +8528,30 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         cid = _fld(self.CID, cnames, _dh.COLLAR_ID, "collar", True)
         cz = _fld(self.CZ, cnames, _dh.COLLAR_Z, "collar", True)
         ceoh = _fld(self.CEOH, cnames, _dh.COLLAR_EOH, "collar", False)
+        clabel = _fld(self.CLABEL, cnames, _dh.COLLAR_LABEL, "collar", False)
         iid = _fld(self.IID, inames, _dh.INTERVAL_ID, "interval", True)
         ifrom = _fld(self.IFROM, inames, _dh.INTERVAL_FROM, "interval", True)
         ito = _fld(self.ITO, inames, _dh.INTERVAL_TO, "interval", True)
         icode = _fld(self.ICODE, inames, _dh.INTERVAL_CODE, "interval", False)
         feedback.pushInfo(_tr("Поля: collar (%s), interval (%s).") % (
-            ", ".join(x if x else "-" for x in (cid, cz, ceoh)),
+            ", ".join(x if x else "-" for x in (cid, cz, ceoh, clabel)),
             ", ".join(x if x else "-" for x in (iid, ifrom, ito, icode))))
+
+        ccrs = csrc.sourceCrs()
+        xform = None
+        if (dcrs is not None and dcrs.isValid() and ccrs.isValid()
+                and ccrs != dcrs):
+            xform = QgsCoordinateTransform(
+                ccrs, dcrs, context.transformContext())
+            feedback.pushInfo(_tr(
+                "СК устьев %s переведена в СК определения %s.")
+                % (ccrs.authid() or ccrs.description() or "?",
+                   dcrs.authid() or dcrs.description() or "?"))
 
         summary = _dh.ReadSummary()
         crows = []
+        labels = {}
+        first_pt = None
         for ft in csrc.getFeatures():
             x = y = None
             g = ft.geometry()
@@ -8359,8 +8563,25 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
                     mp = g.asMultiPoint()
                     if mp:
                         x, y = mp[0].x(), mp[0].y()
+            if x is not None and xform is not None:
+                try:
+                    q = xform.transform(QgsPointXY(x, y))
+                    x, y = q.x(), q.y()
+                except Exception:
+                    x = y = None
+            if x is not None and first_pt is None:
+                first_pt = (x, y)
             crows.append((ft[cid], x, y, ft[cz],
                           ft[ceoh] if ceoh else None))
+            if clabel:
+                hid = _dh.parse_id(ft[cid])
+                if hid is not None:
+                    raw = ft[clabel]
+                    lab = "" if raw is None else str(raw).strip()
+                    if lab:
+                        labels[hid] = lab
+        if first_pt is not None:
+            feedback.pushInfo(_tr("Первое устье: %.2f, %.2f.") % first_pt)
         irows = []
         for ft in isrc.getFeatures():
             irows.append((ft[iid], ft[ifrom], ft[ito],
@@ -8373,28 +8594,60 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         if not holes:
             raise QgsProcessingException(self.tr(
                 "Ни одна скважина не собралась: проверьте hole_id и глубины."))
-        return csrc, isrc, collars, holes, icode
+        return csrc, isrc, collars, holes, icode, labels
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
-        # запоминаем выбранные слои по id, чтобы следующий запуск в этом же
-        # проекте открылся с уже подставленными входами
-        for key in (self.LINE_DEF, self.COLLAR, self.INTERVAL):
-            try:
-                lyr = self.parameterAsVectorLayer(parameters, key, context)
-                if lyr is not None:
-                    _saved[key] = lyr.id()
-            except Exception:  # nosec - запоминание не должно ронять расчёт
-                pass
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.LINE_DEF, self.COLLAR, self.INTERVAL))
         dsrc = self.parameterAsSource(parameters, self.LINE_DEF, context)
         if dsrc is None:
             raise QgsProcessingException(self.tr("В определении нет линии."))
         corridor = self.parameterAsDouble(parameters, self.CORRIDOR, context)
+        clip = self.parameterAsBool(parameters, self.CLIP, context)
+        clip_tol = self.parameterAsDouble(parameters, self.CLIP_TOL, context)
+
+        def _sheet_parts():
+            """Контуры полос чертежа по разрезам: dict sec_id -> ломаные.
+
+            Ждём полигоны 4.01 «Разрез (чертёж)» в координатах чертежа, с
+            раскладкой ox и oy внутри. Внешнее кольцо каждой полосы несёт и
+            кровлю, и подошву: верхняя огибающая всех колец в позиции x -
+            верх чертежа, нижняя - низ. Ключ None - слой без поля sec_id,
+            применяется ко всем разрезам.
+            """
+            psrc = self.parameterAsSource(parameters, self.SHEET, context)
+            if psrc is None:
+                return None
+            names = [f.name().lower() for f in psrc.fields()]
+            has_sec = "sec_id" in names
+            parts = {}
+            for ft in psrc.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                sid = None
+                if has_sec:
+                    try:
+                        sid = int(ft["sec_id"])
+                    except (TypeError, ValueError):
+                        sid = None
+                polys = (g.asMultiPolygon() if g.isMultipart()
+                         else [g.asPolygon()])
+                for rings in polys:
+                    if rings and len(rings[0]) >= 3:
+                        parts.setdefault(sid, []).append(
+                            [(p.x(), p.y()) for p in rings[0]])
+            return parts or None
+
+        sheet_parts = _sheet_parts()
+        if sheet_parts is not None:
+            feedback.pushInfo(_tr("Обрезка по чертежу разреза включена."))
         defs = _defs_or_raise(self, dsrc)
         _log_defs(feedback, defs)
-        csrc, isrc, collars, holes, icode = self._read_model(
-            parameters, context, feedback)
+        csrc, isrc, collars, holes, icode, labels = self._read_model(
+            parameters, context, feedback, dsrc.sourceCrs())
 
         # поля чертежа: sec и sec_id, затем колонки таблицы интервалов как
         # есть, затем отметки и удаление. Имена наших добавок уводятся от
@@ -8435,7 +8688,8 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
 
         fstick = QgsFields()
         for nm, tp in (("sec", QVariant.String), ("sec_id", QVariant.Int),
-                       ("hole_id", QVariant.String), ("z", QVariant.Double),
+                       ("hole_id", QVariant.String),
+                       ("label", QVariant.String), ("z", QVariant.Double),
                        ("eoh", QVariant.Double), ("offset", QVariant.Double)):
             fstick.append(QgsField(nm, tp))
         ssink, sdest = self.parameterAsSink(
@@ -8455,9 +8709,11 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         f3.append(QgsField("ztop", QVariant.Double))
         f3.append(QgsField("zbot", QVariant.Double))
         f3.append(QgsField("ccolor", QVariant.String))
+        # координаты устьев уже переведены в СК определения при чтении,
+        # поэтому 3D-слой объявляется в ней же, а не в СК слоя collar
         sink3, dest3 = self.parameterAsSink(
             parameters, self.OUTPUT_3D, context, f3,
-            QgsWkbTypes.Type.LineStringZ, csrc.sourceCrs())
+            QgsWkbTypes.Type.LineStringZ, dsrc.sourceCrs())
 
         nseg = ncol = 0
         for dd in defs:
@@ -8465,9 +8721,24 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             if len(verts) < 2:
                 continue
             cnt = {}
+            zclip = None
+            if clip:
+                ext = _def_extent(dd)
+                if ext is not None:
+                    zclip = (ext[0] - clip_tol, ext[1] + clip_tol)
             cols = _dh.columns_for_section(
-                collars, holes, verts, corridor, dd["vex"], cnt)
+                collars, holes, verts, corridor, dd["vex"], cnt, zclip)
             ox, oy = dd["ox"], dd["oy"]
+            if sheet_parts is not None:
+                tol_y = clip_tol * dd["vex"]
+                got = (sheet_parts.get(dd["sec_id"], [])
+                       + sheet_parts.get(None, []))
+                if got:
+                    top = [[(x - ox, y - oy + tol_y) for (x, y) in pts]
+                           for pts in got]
+                    bot = [[(x - ox, y - oy - tol_y) for (x, y) in pts]
+                           for pts in got]
+                    cols = _dh.clip_columns_profile(cols, top, bot, cnt)
             tag = [dd["sec"], dd["sec_id"]]
             for col in cols:
                 c = collars[col.hole_id]
@@ -8484,26 +8755,42 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
                     sink.addFeature(fa)
                     nseg += 1
                 eoh = c.eoh if math.isfinite(c.eoh) else None
+                lab = labels.get(col.hole_id, col.hole_id)
                 if ssink is not None:
                     fs = QgsFeature(fstick)
                     fs.setGeometry(QgsGeometry.fromPolylineXY([
                         QgsPointXY(x, col.stick[0] + oy),
                         QgsPointXY(x, col.stick[1] + oy)]))
-                    fs.setAttributes(tag + [col.hole_id, c.z, eoh, off])
+                    fs.setAttributes(tag + [col.hole_id, lab, c.z, eoh, off])
                     ssink.addFeature(fs)
                 if lsink is not None:
                     fl = QgsFeature(fstick)
                     fl.setGeometry(QgsGeometry.fromPointXY(
                         QgsPointXY(x, col.ytop_label + oy)))
-                    fl.setAttributes(tag + [col.hole_id, c.z, eoh, off])
+                    fl.setAttributes(tag + [col.hole_id, lab, c.z, eoh, off])
                     lsink.addFeature(fl)
                 ncol += 1
-            feedback.pushInfo(_tr("Разрез «%s»: скважин %d, вне коридора %d.")
-                              % (dd["sec"], cnt.get("n_wells", 0),
-                                 cnt.get("n_outside", 0)))
+            msg = _tr("Разрез «%s»: скважин %d, вне коридора %d.") % (
+                dd["sec"], cnt.get("n_wells", 0), cnt.get("n_outside", 0))
+            if ((zclip is not None or sheet_parts is not None)
+                    and (cnt.get("n_clip_cut") or cnt.get("n_clip_out")
+                         or cnt.get("n_holes_out"))):
+                msg += " " + _tr(
+                    "Рамка: интервалов подрезано %d, за рамкой %d, "
+                    "скважин целиком за рамкой %d.") % (
+                    cnt.get("n_clip_cut", 0), cnt.get("n_clip_out", 0),
+                    cnt.get("n_holes_out", 0))
+            if not cnt.get("n_wells") and math.isfinite(
+                    cnt.get("min_off", float("inf"))):
+                msg += " " + _tr("Ближайшее устье в %.1f ед. карты.") % (
+                    cnt["min_off"])
+            feedback.pushInfo(msg)
         if ncol == 0:
             raise QgsProcessingException(self.tr(
-                "Ни одна скважина не попала в коридор ни одного разреза."))
+                "Ни одна скважина не попала в коридор ни одного разреза. "
+                "Ближайшее устье в журнале выше: если удаление в разы больше "
+                "коридора, линии и устья лежат в разных местах, если немного "
+                "больше - расширьте коридор."))
 
         # 3D один раз на скважину, без коридора и раскладки: интервалы в
         # реальных координатах, глубина в Z напрямую
@@ -8636,9 +8923,13 @@ class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
             self.OUT_PROB, self.tr("Вероятность превышения порога"),
             optional=True, createByDefault=False))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT,))
         source = self.parameterAsSource(parameters, self.INPUT, context)
         field = self.parameterAsString(parameters, self.FIELD, context)
         if source is None:
@@ -8867,11 +9158,15 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Грид (минимальная кривизна)")))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
         import math
         from . import mincurv as mc
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT,))
         source = self.parameterAsSource(parameters, self.INPUT, context)
         if source is None:
             raise QgsProcessingException(self.tr("Не задан точечный слой."))
@@ -9087,10 +9382,14 @@ class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
             self.tr("HTML (*.html)"), optional=True, createByDefault=True)
         self.addParameter(html)
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
         import math
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT,))
         source = self.parameterAsSource(parameters, self.INPUT, context)
         if source is None:
             raise QgsProcessingException(self.tr("Не задан точечный слой."))
@@ -9422,9 +9721,13 @@ class FractalDimensionAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Фрактальная размерность (D)")))
 
+        _restore_layer_defaults(self, (self.RASTER,))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.RASTER,))
         lyr = self.parameterAsRasterLayer(parameters, self.RASTER, context)
         band = self.parameterAsInt(parameters, self.BAND, context)
         window = self.parameterAsInt(parameters, self.WINDOW, context)
@@ -9510,9 +9813,13 @@ class BoxCountingAlgorithm(IsolinerAlgorithm):
         self.addOutput(QgsProcessingOutputNumber(
             self.OUT_D, self.tr("Размерность D")))
 
+        _restore_layer_defaults(self, (self.RASTER,))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.RASTER,))
         lyr = self.parameterAsRasterLayer(parameters, self.RASTER, context)
         thr = self.parameterAsDouble(parameters, self.THRESHOLD, context)
         band = self.parameterAsInt(parameters, self.BAND, context)
@@ -9577,9 +9884,13 @@ class LineDimensionAlgorithm(IsolinerAlgorithm):
             self.OUTPUT, self.tr("Объекты с размерностью"),
             QgsProcessing.SourceType.TypeVectorAnyGeometry))
 
+        _restore_layer_defaults(self, (self.LINES,))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.LINES,))
         src = self.parameterAsSource(parameters, self.LINES, context)
         fields = QgsFields(src.fields())
         fields.append(QgsField("D", QVariant.Double))
@@ -9708,6 +10019,8 @@ class MinkowskiDimensionAlgorithm(IsolinerAlgorithm):
         self.addOutput(QgsProcessingOutputNumber(
             self.OUT_R2, self.tr("R² аппроксимации слоя")))
 
+        _restore_layer_defaults(self, (self.FEATURES,))
+
     @staticmethod
     def _geom_polylines(g):
         parts = []
@@ -9740,6 +10053,8 @@ class MinkowskiDimensionAlgorithm(IsolinerAlgorithm):
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.FEATURES,))
         src = self.parameterAsSource(parameters, self.FEATURES, context)
         n_sizes = self.parameterAsInt(parameters, self.N_SIZES, context)
         offsets = self.parameterAsInt(parameters, self.OFFSETS, context)
@@ -10423,7 +10738,13 @@ class TopoFillDepressionsAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Подготовленная ЦМР")))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT,))
+        _save_values(self, _mem)
         layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         do_smooth = self.parameterAsBoolean(parameters, self.DO_SMOOTH,
                                             context)
@@ -10777,7 +11098,13 @@ class FlowD8Algorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUT_ACC, self.tr("Аккумуляция, ячеек")))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT,))
+        _save_values(self, _mem)
         layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         do_fill = self.parameterAsBoolean(parameters, self.FILL, context)
         epsilon = self.parameterAsDouble(parameters, self.EPSILON, context)
@@ -10853,7 +11180,13 @@ class RiverNetworkAlgorithm(IsolinerAlgorithm):
             self.OUTPUT, self.tr("Речная сеть"),
             QgsProcessing.SourceType.TypeVectorLine))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT,))
+        _save_values(self, _mem)
         layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         threshold = self.parameterAsDouble(parameters, self.THRESHOLD,
                                            context)
@@ -10954,6 +11287,8 @@ class BasinsAlgorithm(IsolinerAlgorithm):
             self.OUT_RASTER, self.tr("Бассейны (растр меток)"),
             optional=True, createByDefault=False))
 
+        _restore_layer_defaults(self, (self.INPUT, self.POUR_POINTS))
+
     def _seeds_from_points(self, source, layer_crs, context, gt, shape,
                            acc, snap_m, cell, feedback):
         seeds = {}
@@ -10988,6 +11323,10 @@ class BasinsAlgorithm(IsolinerAlgorithm):
         return seeds
 
     def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT, self.POUR_POINTS))
+        _save_values(self, _mem)
         layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         points = self.parameterAsSource(parameters, self.POUR_POINTS,
                                         context)
@@ -11105,7 +11444,13 @@ class SlopeAspectAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUT_ASPECT, self.tr("Экспозиция, градусы")))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT,))
+        _save_values(self, _mem)
         layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         out_slope = self.parameterAsOutputLayer(parameters, self.OUT_SLOPE,
                                                 context)
@@ -11167,7 +11512,13 @@ class PeaksAlgorithm(IsolinerAlgorithm):
             self.OUTPUT, self.tr("Вершины (точки)"),
             QgsProcessing.SourceType.TypeVectorPoint))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT,))
+        _save_values(self, _mem)
         layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
         radius = self.parameterAsDouble(parameters, self.RADIUS, context)
         min_drop = self.parameterAsDouble(parameters, self.MIN_DROP, context)
@@ -11302,6 +11653,10 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
 
     # --- извлечение геометрии --------------------------------------
 
+        _restore_layer_defaults(self, (self.POINTS, self.CONTOURS,
+                                       self.STREAMS, self.BREAKLINES,
+                                       self.LAKES))
+
     @staticmethod
     def _transformer(source, target_crs, context):
         return QgsCoordinateTransform(source.sourceCrs(), target_crs,
@@ -11435,6 +11790,12 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
     # --- расчёт ------------------------------------------------------
 
     def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.POINTS, self.CONTOURS,
+                                 self.STREAMS, self.BREAKLINES,
+                                 self.LAKES))
+        _save_values(self, _mem)
         cell = self.parameterAsDouble(parameters, self.CELL, context)
         iterations = self.parameterAsInt(parameters, self.ITERATIONS,
                                          context)
@@ -11615,9 +11976,13 @@ class ContourSplitAlgorithm(IsolinerAlgorithm):
             self.OUTPUT_CHECK, self.tr("Горизонтали для проверки"),
             type=QgsProcessing.SourceType.TypeVectorLine))
 
+        _restore_layer_defaults(self, (self.INPUT,))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT,))
         src = self.parameterAsSource(parameters, self.INPUT, context)
         if src is None:
             raise QgsProcessingException(self.tr("Не задан слой горизонталей."))
@@ -11767,9 +12132,13 @@ class ContourResidualAlgorithm(IsolinerAlgorithm):
             self.tr("HTML files (*.html)"), optional=True,
             createByDefault=True))
 
+        _restore_layer_defaults(self, (self.CONTOURS, self.DEM))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.CONTOURS, self.DEM))
         src = self.parameterAsSource(parameters, self.CONTOURS, context)
         rl = self.parameterAsRasterLayer(parameters, self.DEM, context)
         if src is None or rl is None:
@@ -12124,9 +12493,13 @@ class TerracingCheckAlgorithm(IsolinerAlgorithm):
             self.tr("HTML files (*.html)"), optional=True,
             createByDefault=True))
 
+        _restore_layer_defaults(self, (self.DEM, self.CONTOURS))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.DEM, self.CONTOURS))
         rl = self.parameterAsRasterLayer(parameters, self.DEM, context)
         if rl is None:
             raise QgsProcessingException(self.tr("Не задан растр ЦМР."))
@@ -12387,9 +12760,13 @@ class TerraceSmoothAlgorithm(IsolinerAlgorithm):
             self.tr("HTML files (*.html)"), optional=True,
             createByDefault=True))
 
+        _restore_layer_defaults(self, (self.DEM, self.CONTOURS))
+
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.DEM, self.CONTOURS))
         rl = self.parameterAsRasterLayer(parameters, self.DEM, context)
         if rl is None:
             raise QgsProcessingException(self.tr("Не задан растр ЦМР."))

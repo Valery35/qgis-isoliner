@@ -20,7 +20,7 @@
   </renderer-v2>
   <labeling type="simple">
     <settings calloutType="simple">
-      <text-style fontFamily="Sans Serif" fontSize="8" fieldName="hole_id" isExpression="0" textColor="40,40,40,255" namedStyle="Bold"/>
+      <text-style fontFamily="Sans Serif" fontSize="8" fieldName="label" isExpression="0" textColor="40,40,40,255" namedStyle="Bold"/>
       <placement placement="1" dist="1" quadOffset="2"/>
       <rendering obstacle="0" upsidedownLabels="0" labelPerPart="0"/>
     </settings>

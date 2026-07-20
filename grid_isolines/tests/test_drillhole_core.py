@@ -76,6 +76,10 @@ def test_find_field():
     assert dh.find_field(["a", "b"], dh.COLLAR_Z) is None
     # контрактное имя выигрывает у синонима
     assert dh.find_field(["depth", "eoh"], dh.COLLAR_EOH) == "eoh"
+    # подпись устья: number первым, синонимы name и label, иначе ничего
+    assert dh.find_field(["Name", "Number"], dh.COLLAR_LABEL) == "Number"
+    assert dh.find_field(["Label", "x"], dh.COLLAR_LABEL) == "Label"
+    assert dh.find_field(["hole_id", "z"], dh.COLLAR_LABEL) is None
 
 
 def test_resolve_field():
@@ -233,7 +237,8 @@ def test_columns_full_pipeline():
     cols = dh.columns_for_section(collars, holes, verts, corridor=0.0,
                                   vex=10.0, counters=cnt)
     assert [c.hole_id for c in cols] == ["СКРУ-791", "БКРУ-791"]
-    assert cnt == {"n_wells": 2, "n_outside": 0}
+    assert cnt["n_wells"] == 2 and cnt["n_outside"] == 0
+    assert abs(cnt["min_off"] - 10.0) < 1e-9
     c = cols[0]
     assert abs(c.d - 100.0) < 1e-9 and abs(c.offset - 10.0) < 1e-9
     # первый интервал СКРУ: 10..40 от устья 150, vex 10
@@ -254,7 +259,137 @@ def test_columns_corridor_cut():
     cols = dh.columns_for_section(collars, holes, verts, corridor=30.0,
                                   vex=1.0, counters=cnt)
     assert [c.hole_id for c in cols] == ["СКРУ-791"]
-    assert cnt == {"n_wells": 1, "n_outside": 1}
+    assert cnt["n_wells"] == 1 and cnt["n_outside"] == 1
+    assert abs(cnt["min_off"] - 10.0) < 1e-9
+
+
+def test_columns_empty_corridor_reports_min_off():
+    # диагностика пустого коридора: min_off говорит с экрана, узок коридор
+    # или устья живут в другом координатном пространстве (урок 4.02: слой
+    # collar в другой СК давал «вне коридора 3833» при верной карте)
+    s, collars, holes = _demo()
+    verts = [(900.0, 24000.0), (1500.0, 24000.0)]  # межсистемный сдвиг
+    cnt = {}
+    cols = dh.columns_for_section(collars, holes, verts, corridor=10.0,
+                                  vex=1.0, counters=cnt)
+    assert cols == []
+    assert cnt["n_wells"] == 0 and cnt["n_outside"] == 2
+    assert cnt["min_off"] > 20000.0
+
+
+def test_columns_zclip_trim_and_skip():
+    # рамка (0, 130): верхний интервал СКРУ подрезается по кровле, интервал
+    # за забоем (отметки -140..-170) выпадает целиком, ствол и подпись
+    # зажимаются рамкой
+    s, collars, holes = _demo()
+    verts = [(900.0, 1990.0), (1500.0, 1990.0)]
+    cnt = {}
+    cols = dh.columns_for_section(collars, holes, verts, corridor=0.0,
+                                  vex=1.0, counters=cnt, zclip=(0.0, 130.0))
+    assert cnt["n_clip_cut"] >= 1 and cnt["n_clip_out"] >= 1
+    c = [x for x in cols if x.hole_id == "СКРУ-791"][0]
+    ytop, ybot, it = c.segments[0]
+    assert it.code == "КрII"
+    assert abs(ytop - 130.0) < 1e-9 and abs(ybot - 110.0) < 1e-9
+    assert all(yt <= 130.0 + 1e-9 and yb >= -1e-9
+               for yt, yb, _ in c.segments)
+    # ствол: устье 150 зажато кровлей рамки, забой 150-300 зажат подошвой
+    assert abs(c.stick[0] - 130.0) < 1e-9
+    assert abs(c.stick[1] - 0.0) < 1e-9
+    assert c.ytop_label == c.stick[0]
+
+
+def test_columns_zclip_hole_entirely_outside():
+    # рамка выше всех отметок: интервалы за рамкой, скважины выпадают целиком
+    s, collars, holes = _demo()
+    verts = [(900.0, 1990.0), (1500.0, 1990.0)]
+    cnt = {}
+    cols = dh.columns_for_section(collars, holes, verts, corridor=0.0,
+                                  vex=1.0, counters=cnt,
+                                  zclip=(1000.0, 2000.0))
+    assert cols == []
+    assert cnt["n_wells"] == 0 and cnt["n_holes_out"] == 2
+
+
+def test_columns_zclip_degenerate_ignored():
+    # вырожденная рамка (zmax не больше zmin) молча выключает обрезку
+    s, collars, holes = _demo()
+    verts = [(900.0, 1990.0), (1500.0, 1990.0)]
+    a = dh.columns_for_section(collars, holes, verts, 0.0, 1.0)
+    b = dh.columns_for_section(collars, holes, verts, 0.0, 1.0,
+                               zclip=(5.0, 5.0))
+    assert [c.hole_id for c in a] == [c.hole_id for c in b]
+    assert a[0].stick == b[0].stick
+
+
+def test_profile_y_interpolation_and_extent():
+    parts = [[(0.0, 100.0), (100.0, 200.0)]]
+    assert abs(dh.profile_y(parts, 50.0) - 150.0) < 1e-9
+    assert abs(dh.profile_y(parts, 0.0) - 100.0) < 1e-9
+    assert dh.profile_y(parts, 150.0) is None       # за краем линии
+    assert dh.profile_y(None, 50.0) is None
+    # две части накрывают x: для кровли верхняя, для подошвы нижняя
+    two = parts + [[(0.0, 300.0), (100.0, 300.0)]]
+    assert abs(dh.profile_y(two, 50.0, True) - 300.0) < 1e-9
+    assert abs(dh.profile_y(two, 50.0, False) - 150.0) < 1e-9
+
+
+def test_clip_columns_profile_top():
+    # колонка d=100: сегменты 140..110 и 110..90, ствол 150..0. Кровля на
+    # высоте 120 в этой позиции: верхний сегмент подрезается, ствол тоже
+    s, collars, holes = _demo()
+    verts = [(900.0, 1990.0), (1500.0, 1990.0)]
+    cnt = {}
+    cols = dh.columns_for_section(collars, holes, verts, 0.0, 1.0, cnt)
+    top = [[(0.0, 120.0), (700.0, 120.0)]]
+    out = dh.clip_columns_profile(cols, top_parts=top, counters=cnt)
+    c = [x for x in out if x.hole_id == "СКРУ-791"][0]
+    ytop, ybot, it = c.segments[0]
+    assert it.code == "КрII"
+    assert abs(ytop - 120.0) < 1e-9 and abs(ybot - 110.0) < 1e-9
+    assert abs(c.stick[0] - 120.0) < 1e-9
+    assert c.ytop_label == c.stick[0]
+    assert cnt["n_clip_cut"] >= 1
+
+
+def test_clip_columns_profile_out_of_extent_untouched():
+    # линия кровли не накрывает позицию колонки: колонка не трогается
+    s, collars, holes = _demo()
+    verts = [(900.0, 1990.0), (1500.0, 1990.0)]
+    cols = dh.columns_for_section(collars, holes, verts, 0.0, 1.0)
+    top = [[(5000.0, 120.0), (6000.0, 120.0)]]
+    out = dh.clip_columns_profile(cols, top_parts=top)
+    assert [c.stick for c in out] == [c.stick for c in cols]
+
+
+def test_clip_columns_profile_drop_hole():
+    # подошва выше всей колонки: скважина выпадает, счётчик колонок падает
+    s, collars, holes = _demo()
+    verts = [(900.0, 1990.0), (1500.0, 1990.0)]
+    cnt = {}
+    cols = dh.columns_for_section(collars, holes, verts, 0.0, 1.0, cnt)
+    bot = [[(0.0, 500.0), (700.0, 500.0)]]
+    out = dh.clip_columns_profile(cols, bot_parts=bot, counters=cnt)
+    assert out == []
+    assert cnt["n_holes_out"] == len(cols)
+    assert cnt["n_wells"] == 0
+
+
+def test_clip_columns_profile_ring_envelope():
+    # замкнутое кольцо полосы чертежа: верхняя огибающая режет верх, нижняя
+    # низ - тот же profile_y, никакого отдельного кода для полигонов
+    s, collars, holes = _demo()
+    verts = [(900.0, 1990.0), (1500.0, 1990.0)]
+    cols = dh.columns_for_section(collars, holes, verts, 0.0, 1.0)
+    ring = [(0.0, 80.0), (700.0, 80.0), (700.0, 120.0), (0.0, 120.0),
+            (0.0, 80.0)]
+    out = dh.clip_columns_profile(cols, top_parts=[ring],
+                                  bot_parts=[ring])
+    c = [x for x in out if x.hole_id == "СКРУ-791"][0]
+    assert abs(c.stick[0] - 120.0) < 1e-9
+    assert abs(c.stick[1] - 80.0) < 1e-9
+    assert all(80.0 - 1e-9 <= yb and yt <= 120.0 + 1e-9
+               for yt, yb, _ in c.segments)
 
 
 def test_columns_sorted_by_distance():
