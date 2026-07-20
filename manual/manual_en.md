@@ -984,8 +984,11 @@ A utility generator: synthetic terrain from a tilted plain, hills and a winding 
 | Output CRS (metric) | Coordinate system of the demo raster. | EPSG:32640 |
 | Compact int16 (adv.) | Integer output for demo shipping. | off |
 | Demo relief | Output raster. | - |
+| Gauge points (demo) | Three points near the thalwegs for tool 2.15. | created |
 
 The tool exists for the manual examples, tests and offline work. Live data comes from 2.01. The **Compact int16** checkbox outputs the raster in whole meters for shipping demo fragments.
+
+Three demo gauge points are produced along with the relief. They are placed at the strongest thalwegs, spread across the grid, and deliberately shifted a few cells aside from the stream, so that the snapping in tool 2.15 can be seen bringing the gauge back onto the stream. The points are deterministic from the same seed as the relief.
 
 ## The gully and ravine network
 
@@ -995,7 +998,7 @@ This mode exists for validation sets. A narrow cut between adjacent contours is 
 
 ## Where the demo lands
 
-Without an extent the demo is created at a conventional spot, always the same one, so that the examples in the manual reproduce. In a local coordinate system, a mine grid for instance, that spot turns out far from the working data and the map looks empty. Set the **Where to place it (extent)** parameter and the relief will land there, with the grid size computed from the extent and the cell size.
+When no extent is given, the demo lands next to the project layers: their combined extent is brought into the chosen coordinate system and used as the placement. In an empty project there is nothing to go by, so the demo is created at a conventional spot, always the same one, so that the examples in the manual reproduce. In a local coordinate system, a mine grid for instance, that conventional spot turns out far from the working data, so in an empty project set the **Where to place it (extent)** parameter: the relief will land there, with the grid size computed from the extent and the cell size.
 
 # 2.11 Split contours for validation
 
@@ -1155,6 +1158,55 @@ It does not bring back what is not in the data. If a narrow cut was shaved off w
 | Allowed shift, fraction of the interval (Adv.) | Zero forbids any correction. | 0.5 |
 | Relief without steps | The output raster. | created |
 | Before and after report (HTML) | Table, histograms, reading. | created |
+
+# 2.15 Gauge point report
+
+The tool computes watershed morphometry from a **gauge** - a closure point on a stream. This is a classic task of engineering hydrology and site surveys: basin characteristics from a given point. Tools 2.05 - 2.07 give flow, the river network and basins over the territory as a whole, while 2.15 answers the question about one specific gauge.
+
+## How it works
+
+Every gauge point is snapped to the cell of highest accumulation within the snapping radius, so the gauge can be placed by eye next to the thalweg instead of hitting a stream cell with the mouse. The full watershed is collected from the snapped cell, zonal statistics are computed over it, and the main stream is traced upstream cell by cell towards the highest accumulation until a cell without inflows.
+
+Watersheds of neighbouring gauges on one stream nest into each other: every gauge gets its full basin rather than a remainder below the upper one. This is what sets 2.15 apart from 2.07, where the territory is split into non-overlapping basins.
+
+## What is computed
+
+| Value | Field | Units |
+|---|---|---|
+| Basin area | area_km2 | sq. km |
+| Mean elevation | z_mean | m |
+| Minimum elevation | z_min | m |
+| Maximum elevation | z_max | m |
+| Mean basin slope | slope_deg | degrees (Horn 3x3) |
+| Gauge elevation | z_gauge | m |
+| Main stream length | stream_km | km |
+| Stream fall | fall_m | m |
+| Mean stream slope | slope_ppm | permille |
+| Cells in the basin | cells | count |
+
+A value that cannot be computed is written as null rather than zero: zero is a measurement, null is the absence of one.
+
+## Parameters
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Relief in metres in a metric CRS. | - |
+| Gauge points | A point layer, one point per gauge. | - |
+| Snapping radius, m (adv.) | Search window for maximum accumulation. | 150 |
+| Fill depressions | Relief preparation before the flow routing. | on |
+| Slope epsilon, m (adv.) | Fill slope, as in 2.04. | as in 2.04 |
+| Gauge watersheds (polygons) | Polygons with the attributes listed above. | created |
+| Gauge report (HTML) | A table per gauge. | created |
+
+The key numbers for every gauge are echoed to the Processing log in two lines, so the result can be read without opening the attribute table.
+
+## A quick check on the demo
+
+Run **2.10 Demo relief**: besides the raster it outputs the **Gauge points (demo)** layer, three points near the thalwegs shifted aside from the stream. Feed the relief and those points into 2.15 with the default snapping radius. The polygons will follow the watersheds, and in the report the gauges on one stream will share the fall while the slope grows upstream.
+
+## Scope
+
+The tool computes basin morphometry and nothing else. Discharges, runoff moduli, hydraulics and snowmelt are deliberately out of scope: that is computational hydrology by the codes of practice, a separate topic. Units are assumed metric, a DEM in metres in a metric coordinate system.
 
 # 3.01 Categorical indicator kriging
 
@@ -1628,7 +1680,7 @@ The collar layer may live in a different coordinate system than the definition, 
 
 ## Colours and the legend
 
-The interval layer comes out coloured right away: a category per code in the order of first appearance top to bottom, the colour is deterministic from the code itself and does not change between runs and machines. The code-to-colour legend appears in the layer tree by itself. The last entry is the grey **other** category, everything that did not match a known code falls into it, so nothing disappears silently. The columns carry a thin black outline and read on top of the section bands. The bed bands in **Cross-section along a line** are coloured by the same mechanism from the roof name, so a bed named with the same code as in the interval table matches the borehole columns in colour by itself. The traces are drawn as a thin grey line from the collar to the end of hole, the collars as points with a short label. The label comes from the **number** field of the collar layer (name and label are synonyms), and without it from **hole_id**, while the composite identifier stays in the attributes for joins.
+The interval layer comes out coloured right away: a category per code in the order of first appearance top to bottom, the colour is deterministic from the code itself and does not change between runs and machines. The code-to-colour legend appears in the layer tree by itself. The last entry is the grey **other** category, everything that did not match a known code falls into it, so nothing disappears silently. The columns carry a thin black outline and read on top of the section bands. The bed bands in **Cross-section along a line** are coloured by the same mechanism from the roof name, so a bed named with the same code as in the interval table matches the borehole columns in colour by itself. The traces are drawn as a thin grey line from the collar to the end of hole, the collars as points with a short label. The label comes from the **number** field of the collar layer (name and label are synonyms), and without it from hole_id, while the composite identifier stays in the attributes for joins.
 
 ## Clipping by the drawing and the frame
 
@@ -1851,7 +1903,6 @@ The workflow is shown in section 4.01: the surfaces go into **Cross-section alon
 | Generator seed (Adv.) | The RNG seed for reproducibility. 0 means random on each run. | 0 |
 | Surface 1...6 | Six rasters top to bottom: the roofs and floors of the host beds and the two industrial beds. | created |
 | Section lines (3) | Three traces across the area to feed into 4.01. By default the tool builds a section along each of them. | created |
-| Boreholes along the line | Points with the h1...h6 fields (the wide format, a stub for a converter). | on request |
 | Borehole collars collar | The drilling-model point layer (hole_id, z, eoh, PointZ). | created |
 | Borehole intervals interval | The drilling-model table (hole_id, from, to, code, kcl). | created |
 | Composition: content | A content grid of the industrial beds for 4.03. | on request |

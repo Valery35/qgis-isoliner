@@ -36,7 +36,8 @@ The tools are split into five Processing groups — **"Grid and isolines"**, **"
 - **2.07 Basins and watersheds** — from pour points snapped to the accumulation maximum, or automatically from mouths. Polygons and a label raster.
 - **2.08 Slope and aspect** — the Horn 3×3 kernel as in gdaldem, aspect as the downslope azimuth, flat cells flagged.
 - **2.09 Peaks** — local maxima with two filters: the radius suppresses secondary tops, the drop cuts off bumps.
-- **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work.
+- **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Also outputs gauge points for 2.15.
+- **2.15 Gauge point report** — watershed morphometry from a closure point: area, elevations, mean basin slope, length, fall and slope of the main stream. Polygons with attributes and an HTML report.
 
 ### "3. Additional analysis tools" group
 
@@ -52,7 +53,7 @@ The tools are split into five Processing groups — **"Grid and isolines"**, **"
 ### "4. Cross-sections" group
 
 - **4.01 Cross-section along a line** — a geological section along a line and a stack of surfaces: beds as bands, two outputs (a distance×elevation drawing and a 3D fence of PolygonZ). The order of the surfaces comes from the project layer tree. By default it builds a section for every line of the layer, with a layout of the drawings and a common vertical scale, the sections being told apart by the sec and sec_id fields.
-- **4.02 Boreholes on the section (drilling model)** — boreholes from a collar and interval layer pair (the minimal mining-package model) onto every drawing of the definition at once. Fields are found by the contract names, collars are reprojected into the definition system, the reader is tolerant with a log summary, colours and a legend by code, collar labels from the number field, column clipping by the frame and by the envelopes of the drawing bands, an optional 3D output.
+- **4.02 Boreholes on the section (drilling model)** — boreholes from a collar and interval layer pair (the minimal mining-package model) onto every drawing of the definition at once. Fields are found automatically by the contract names, collars are reprojected into the definition CRS, the tolerant reader reports a summary to the log, colours and a legend by code, clipping by the frame and by the drawing bands, collar labels from number, an optional 3D output.
 - **4.03 Bed composition on the section** — paints the bed band by a composition grid: continuous grade as slices, categorical rock type as facies zones.
 - **4.04 Intersect surfaces with the section** — surface grids onto the section as lines (aquifers, marker surfaces).
 - **4.05 Vector intersection with the section** — lines and polygons by exact intersection: a line without Z as a vertical, with Z as a point, a polygon as a band.
@@ -285,6 +286,12 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
+- **4.6.0** — the new 2.15 Gauge point report tool (watershed morphometry from a closure point), demo gauge points in 2.10, demo placement next to the project layers, a fix for the QGIS crash on loading several output layers, and removal of the legacy h1...h6 demo boreholes.
+- **4.5.0** — 4.02: column clipping by the drawing instead of roof and floor lines, one input takes the band polygons from 4.01.
+- **4.4.0** — 4.02: column clipping by the roof and floor lines from 4.04.
+- **4.3.0** — 4.02: column clipping by the drawing frame zmin and zmax from the definition, with a tolerance and a switch.
+- **4.2.0** — 4.02: the collar label comes from the number field of the collar layer, name and label are synonyms, hole_id stays in the attributes.
+- **4.1.1** — 4.02: collars are reprojected into the definition CRS on reading, with CRS and nearest collar diagnostics on screen.
 - **4.1.0** — the collar and interval drilling-data model and the new batch 4.02 Boreholes on the section (drilling model) tool: fields found automatically, a tolerant reader with a log summary, colours and a legend by code, input memory, a 3D output. Demo 4.10 outputs the collar and interval pair. The former 4.02 on the h1...h6 fields is removed.bilingual (EN/RU).
 
 - **4.0.2** — fixed cross-section output (group 4): the drawing no longer falls off the map canvas in projects with local CRSs. Drawing layers now get an engineering CRS instead of an empty one. In 4.01 the surface order is taken from the project layer tree by default (manual order stays available via a checkbox).

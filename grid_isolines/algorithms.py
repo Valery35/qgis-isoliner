@@ -24,6 +24,7 @@
 Вариограмма - нуггет + одна структура (модель, порог, радиус, азимут, анизотропия).
 Структура с вкладом (порогом) <= 0 не учитывается (кроме первой).
 """
+import io
 import math
 
 import os
@@ -48,6 +49,7 @@ from qgis.core import (
     QgsProcessingUtils,
     QgsProcessingLayerPostProcessorInterface,
     QgsProject,
+    QgsRectangle,
     QgsLayerTree,
     QgsSettings,
     QgsFeatureRequest,
@@ -99,7 +101,7 @@ from .fractal import (fractal_dimension_map, fractal_dimension_global,
                       minkowski_dimension)
 from . import dem_glo30, osm_overpass, demo_relief
 from .hydro_fill import fill_depressions, DEFAULT_EPSILON
-from . import topo_flow, topo_surface, topo_t2r, topo_smooth
+from . import topo_flow, topo_gauge, topo_surface, topo_t2r, topo_smooth
 
 GROUP = _tr("1. Грид и изолинии")
 GROUP_ID = "grid_isolines"
@@ -5957,7 +5959,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
     EXTENT, SEED = "EXTENT", "SEED"
     SURF1, SURF2, SURF3 = "SURF1", "SURF2", "SURF3"
     SURF4, SURF5, SURF6 = "SURF4", "SURF5", "SURF6"
-    LINE, WELLS = "LINE", "WELLS"
+    LINE = "LINE"
     COLLAR, INTERVAL = "COLLAR", "INTERVAL"
     BED1, BED2 = "BED1", "BED2"
     FAULT, MARKER, ZONE = "FAULT", "MARKER", "ZONE"
@@ -5979,9 +5981,8 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             "вмещающих и два промышленных (2-й и 4-й, тонкие).\n\nПодайте шесть "
             "поверхностей сверху вниз (1...6) и линию в «Разрез по линии». "
             "Получите пять пластов на чертеже и 3D-забор. Кригинг для демо не "
-            "нужен, поверхности уже растровые. Заодно выдаются скважины вдоль "
-            "линии с отметками поверхностей (h1...h6, широкий формат, задел под "
-            "конвертер в модель бурения), пара слоёв модели бурения collar и interval (устья "
+            "нужен, поверхности уже растровые. Заодно выдаётся "
+            "пара слоёв модели бурения collar и interval (устья "
             "точками с Z и таблица интервалов по контракту, скважины вдоль "
             "всех трёх линий, годятся выноске на разрез и 3D), а также по "
             "многоканальному гриду на каждый "
@@ -6013,10 +6014,6 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.LINE, self.tr("Линии разрезов (3 шт.)"),
             type=QgsProcessing.SourceType.TypeVectorLine))
-        self.addParameter(QgsProcessingParameterFeatureSink(
-            self.WELLS, self.tr("Скважины вдоль линии (с отметками поверхностей)"),
-            type=QgsProcessing.SourceType.TypeVectorPoint, optional=True,
-            createByDefault=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.COLLAR, self.tr("Устья скважин collar (модель бурения)"),
             type=QgsProcessing.SourceType.TypeVectorPoint, optional=True,
@@ -6187,19 +6184,6 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         wf.append(QgsField("name", QVariant.String))
         for j in range(6):
             wf.append(QgsField("h%d" % (j + 1), QVariant.Double))
-        wsink, wdest = self.parameterAsSink(
-            parameters, self.WELLS, context, wf, QgsWkbTypes.Type.Point, crs)
-        if wsink is not None:
-            for i in range(nw):
-                fw = QgsFeature(wf)
-                fw.setGeometry(QgsGeometry.fromPointXY(
-                    QgsPointXY(float(wx[i]), float(wy[i]))))
-                fw.setAttributes(["SKR-%03d" % (i + 1)]
-                                 + [float(hs[j][i]) for j in range(6)])
-                wsink.addFeature(fw)
-            _set_output_name(context, wdest, self.tr("Скважины разреза (демо)"))
-            results[self.WELLS] = wdest
-
         # скважины в контрактной модели collar/interval (см. AGENTS.md):
         # вдоль всех трёх линий, чтобы было чем кормить пакетную выноску.
         # Устье выше кровли на мощность наносов, вниз колонка из наносов и
@@ -6398,7 +6382,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         # порядок поверхностей отсюда, и стопка обязана идти сверху вниз
         # (1 кровля ... 6 подошва). Во-вторых, растры выше векторов закрыли бы
         # линию и скважины, поэтому векторы идут первыми.
-        ordered_keys = (self.LINE, self.WELLS, self.COLLAR, self.INTERVAL,
+        ordered_keys = (self.LINE, self.COLLAR, self.INTERVAL,
                         self.FAULT, self.MARKER,
                         self.ZONE, self.TIN, self.BED1, self.BED2,
                         self.SURF1, self.SURF2, self.SURF3,
@@ -10818,6 +10802,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
     RAVINE = "RAVINE"
     EXTENT = "EXTENT"
     OUTPUT = "OUTPUT"
+    GAUGES = "GAUGES"
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return TopoDemoReliefAlgorithm()
@@ -10843,7 +10828,11 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
             "тяжёлая проверка для построения рельефа по горизонталям: "
             "узкий врез между соседними горизонталями срезается, и на "
             "профиле поперёк оврага это видно сразу. Такой рельеф нужен "
-            "как проверочный набор для инструментов 2.11 и 2.12.")
+            "как проверочный набор для инструментов 2.11 и 2.12.\n"
+            "\nЗаодно выдаются три демо-точки створов возле тальвегов, "
+            "нарочно сдвинутые в сторону от водотока - готовая еда для "
+            "инструмента 2.15 «Отчёт по створу» и наглядная проверка "
+            "притяжки.")
             + _credit())
 
     def initAlgorithm(self, config=None):
@@ -10882,6 +10871,10 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
             optional=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Демо-рельеф")))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.GAUGES, self.tr("Точки створов (демо)"),
+            type=QgsProcessing.SourceType.TypeVectorPoint, optional=True,
+            createByDefault=True))
 
     def _process(self, parameters, context, feedback):
         nx = self.parameterAsInt(parameters, self.NX, context)
@@ -10914,10 +10907,23 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
                 "Демо кладётся в заданный охват: начало %.1f %.1f, "
                 "размер %dx%d ячеек.") % (origin_x, origin_y, nx, ny))
         else:
-            feedback.pushInfo(self.tr(
-                "Охват не задан, демо кладётся в условное место %.0f %.0f. "
-                "В местной системе координат задайте охват, иначе рельеф "
-                "окажется далеко от ваших данных.") % (origin_x, origin_y))
+            # Условное место осмысленно для UTM и вредно для местных систем
+            # (рудничные СК Березников и Соликамска сидят возле нуля): демо
+            # уезжало за десятки километров от данных, и человек видел
+            # пустую карту. Сначала пробуем лечь туда, где уже стоят слои
+            # проекта, и только если проект пуст - в условное место.
+            pext = _project_extent_in(context, crs)
+            if pext is not None:
+                origin_x, origin_y = pext.xMinimum(), pext.yMaximum()
+                feedback.pushInfo(self.tr(
+                    "Охват не задан, демо кладётся к слоям проекта: начало "
+                    "%.1f %.1f.") % (origin_x, origin_y))
+            else:
+                feedback.pushInfo(self.tr(
+                    "Охват не задан и проект пуст, демо кладётся в условное "
+                    "место %.0f %.0f. В местной системе координат задайте "
+                    "охват, иначе рельеф окажется далеко от ваших данных.")
+                    % (origin_x, origin_y))
 
         gdal.UseExceptions()
         try:
@@ -10932,7 +10938,57 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
         feedback.pushInfo(self.tr("Готово: %dx%d ячеек, зерно %d.")
                           % (nx, ny, seed))
         _topo_group_layer(context, out_path, self.tr("Топография"))
-        return {self.OUTPUT: out_path}
+        results = {self.OUTPUT: out_path}
+
+        # демо-створы для 2.15: три точки у тальвегов, нарочно сдвинутые
+        # чуть в сторону от водотока, чтобы притяжка была видна в деле.
+        # Кандидаты - ячейки с большой аккумуляцией на заполненном рельефе,
+        # разнесённые по гриду жадным отбором. Всё детерминировано зерном.
+        gfields = QgsFields()
+        gfields.append(QgsField("name", QVariant.String))
+        gsink, gdest = self.parameterAsSink(
+            parameters, self.GAUGES, context, gfields,
+            QgsWkbTypes.Type.Point, crs)
+        if gsink is not None:
+            zf, _nr, _mr = fill_depressions(z, epsilon=DEFAULT_EPSILON)
+            _dirs, down = topo_flow.d8_directions(zf)
+            acc = topo_flow.flow_accumulation(down, zf.shape)
+            inner = np.zeros(zf.shape, dtype=bool)
+            m = max(3, min(nx, ny) // 20)          # рамку не берём
+            inner[m:-m, m:-m] = True
+            cand = np.flatnonzero((acc >= 0.05 * float(acc.max())).ravel()
+                                  & inner.ravel())
+            order = cand[np.argsort(-acc.ravel()[cand], kind="stable")]
+            picked = []
+            min_d = max(nx, ny) / 4.0
+            for idx in order:
+                r0, c0 = divmod(int(idx), nx)
+                if all(math.hypot(r0 - r1, c0 - c1) >= min_d
+                       for r1, c1 in picked):
+                    picked.append((r0, c0))
+                if len(picked) == 3:
+                    break
+            off = ((3, 4), (-4, 3), (4, -3))       # сдвиг с тальвега, ячеек
+            for k, (r0, c0) in enumerate(picked):
+                dr, dc = off[k % len(off)]
+                r1 = min(max(r0 + dr, 0), ny - 1)
+                c1 = min(max(c0 + dc, 0), nx - 1)
+                fg = QgsFeature(gfields)
+                fg.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(
+                    origin_x + (c1 + 0.5) * cell,
+                    origin_y - (r1 + 0.5) * cell)))
+                fg.setAttributes([self.tr("Створ-%d") % (k + 1)])
+                gsink.addFeature(fg)
+            if picked:
+                feedback.pushInfo(self.tr(
+                    "Демо-створы: %d, возле тальвегов со сдвигом в сторону "
+                    "(притяжка 2.15 вернёт их на водоток).") % len(picked))
+                _set_output_name(context, gdest,
+                                 self.tr("Точки створов (демо)"))
+                _topo_group_layer(context, gdest, self.tr("Топография"),
+                                  collapse=False)
+                results[self.GAUGES] = gdest
+        return results
 
 
 def _topo_log(msg):
@@ -10949,17 +11005,15 @@ def _topo_log(msg):
 
 class _CollapseNodePostProcessor(QgsProcessingLayerPostProcessorInterface):
     """Сворачивает узел слоя в дереве после загрузки: длинные легенды
-    растров не распахиваются на всю панель. Экземпляр обязан жить
-    дольше вызова (QGIS хранит только указатель), поэтому один
-    синглтон на модуль."""
+    растров не распахиваются на всю панель.
 
-    _instance = None
-
-    @classmethod
-    def instance(cls):
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+    ВАЖНО (урок 2026-07, падение QGIS на демо-рельефе). Экземпляр обязан
+    жить дольше вызова, поэтому ссылка кладётся в _KEEP_ALIVE. Но общий
+    синглтон на модуль здесь недопустим: setPostProcessor передаёт
+    владение объектом в C++, и QGIS удаляет его после обработки слоя.
+    Один объект на два выходных слоя в одном прогоне - двойное
+    освобождение и падение процесса. Поэтому на каждый слой создаётся
+    свой экземпляр (см. _topo_group_layer)."""
 
     def postProcessLayer(self, layer, context, feedback):
         try:
@@ -10973,10 +11027,13 @@ class _CollapseNodePostProcessor(QgsProcessingLayerPostProcessorInterface):
             _topo_log("не удалось свернуть узел слоя: %s" % exc)
 
 
-def _topo_group_layer(context, layer_id, name):
+def _topo_group_layer(context, layer_id, name, collapse=True):
     """Положить выходной слой в группу дерева слоёв (QGIS 3.24+)
     и свернуть его узел. На старых сборках без groupName слой
-    добавляется как обычно, сворачивание работает везде."""
+    добавляется как обычно, сворачивание работает везде.
+
+    collapse=False для векторных выходов: у них легенда короткая, а
+    лишний постпроцессор это лишний объект во владении C++."""
     if not layer_id:
         return
     try:
@@ -10984,9 +11041,50 @@ def _topo_group_layer(context, layer_id, name):
             details = context.layerToLoadOnCompletionDetails(layer_id)
             if hasattr(details, "groupName"):
                 details.groupName = name
-            details.setPostProcessor(_CollapseNodePostProcessor.instance())
+            if not collapse:
+                return
+            # свой экземпляр на каждый слой: общий объект QGIS удалил бы
+            # дважды при двух выходах в прогоне (см. класс выше)
+            pp = _CollapseNodePostProcessor()
+            _KEEP_ALIVE.append(pp)
+            details.setPostProcessor(pp)
     except (RuntimeError, AttributeError) as exc:
         _topo_log("не удалось назначить группу слоя: %s" % exc)
+
+
+def _project_extent_in(context, crs):
+    """Общий охват слоёв проекта в заданной СК или None, если брать нечего.
+
+    Нужен демо-инструментам: без явного охвата класть данные в условное
+    место можно только когда проект пуст, иначе в местной системе координат
+    демо уезжает от данных.
+    """
+    try:
+        project = context.project() or QgsProject.instance()
+        if project is None:
+            return None
+        rect = None
+        for lyr in project.mapLayers().values():
+            try:
+                ext = lyr.extent()
+                if ext is None or ext.isEmpty():
+                    continue
+                tr = QgsCoordinateTransform(lyr.crs(), crs,
+                                            project.transformContext())
+                ext = tr.transformBoundingBox(ext)
+            except Exception:  # nosec - слой без внятной СК пропускаем
+                continue
+            if ext.isEmpty():
+                continue
+            if rect is None:
+                rect = QgsRectangle(ext)
+            else:
+                rect.combineExtentWith(ext)
+        if rect is None or rect.width() <= 0 or rect.height() <= 0:
+            return None
+        return rect
+    except Exception:  # nosec
+        return None
 
 
 def _topo_read_dem(layer, tr):
@@ -11408,6 +11506,231 @@ class BasinsAlgorithm(IsolinerAlgorithm):
             _topo_group_layer(context, out_raster, self.tr("Топография"))
             results[self.OUT_RASTER] = out_raster
         return results
+
+
+class GaugeReportAlgorithm(IsolinerAlgorithm):
+    """2.15 Отчёт по створу: морфометрия водосбора от точки замыкания."""
+
+    INPUT = "INPUT"
+    GAUGES = "GAUGES"
+    SNAP = "SNAP"
+    FILL = "FILL"
+    EPSILON = "EPSILON"
+    OUT_POLY = "OUT_POLY"
+    OUTPUT_HTML = "OUTPUT_HTML"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return GaugeReportAlgorithm()
+    def name(self): return "gauge_report"
+    def displayName(self):
+        return self.tr("2.15 Отчёт по створу")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPO)
+    def groupId(self): return GROUP_TOPO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Морфометрия водосбора от створа - точки замыкания на "
+            "водотоке. Каждая точка притягивается к ячейке наибольшей "
+            "аккумуляции в радиусе (механика «Бассейнов»), от неё "
+            "собирается полный водосбор и считается инженерный набор: "
+            "площадь, средняя, минимальная и максимальная высота, средний "
+            "уклон бассейна (Horn, градусы), отметка створа, длина "
+            "главного водотока от створа до истока (вверх по наибольшей "
+            "аккумуляции), падение и средний уклон водотока в промилле.\n\n"
+            "Выход: полигоны водосборов с атрибутами и HTML-отчёт по "
+            "каждому створу, ключевые цифры дублируются в журнал. "
+            "Водосборы соседних створов на одном водотоке вкладываются "
+            "друг в друга: каждый створ получает свой полный "
+            "бассейн, а не остаток.\n\nЕдиницы метрические: ЦМР в метрах "
+            "в метровой СК. Расходы и модули стока сознательно не "
+            "считаются, это морфометрия, а не расчётная гидрология.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.INPUT, self.tr("Входная ЦМР")))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.GAUGES, self.tr("Точки створов"),
+            [QgsProcessing.SourceType.TypeVectorPoint]))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SNAP, self.tr("Радиус притяжки точек, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.SNAP, 150.0), minValue=0.0)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.FILL, self.tr("Заполнить понижения перед расчётом"),
+            defaultValue=_dv(self, self.FILL, True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.EPSILON, self.tr("Epsilon уклона при заполнении, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.EPSILON, DEFAULT_EPSILON),
+            minValue=0.0)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUT_POLY, self.tr("Водосборы створов (полигоны)"),
+            QgsProcessing.SourceType.TypeVectorPolygon))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            self.OUTPUT_HTML, self.tr("Отчёт по створам (HTML)"),
+            self.tr("HTML files (*.html)"), optional=True,
+            createByDefault=True))
+
+        _restore_layer_defaults(self, (self.INPUT, self.GAUGES))
+
+    _NUM_KEYS = ("area_km2", "z_mean", "z_min", "z_max", "slope_deg",
+                 "z_gauge", "stream_km", "fall_m", "slope_ppm")
+
+    def _process(self, parameters, context, feedback):
+        _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT, self.GAUGES))
+        layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
+        points = self.parameterAsSource(parameters, self.GAUGES, context)
+        snap_m = self.parameterAsDouble(parameters, self.SNAP, context)
+        do_fill = self.parameterAsBoolean(parameters, self.FILL, context)
+        epsilon = self.parameterAsDouble(parameters, self.EPSILON, context)
+        html_path = self.parameterAsFileOutput(
+            parameters, self.OUTPUT_HTML, context)
+        if points is None:
+            raise QgsProcessingException(self.tr("Нужен слой точек створов."))
+
+        z, mask, gt, proj, cell, dir_idx, downstream, acc = \
+            _topo_prepare_flow(layer, do_fill, epsilon, feedback, self.tr)
+        ny, nx = z.shape
+        feedback.pushInfo(self.tr("Уклон бассейна (Horn)..."))
+        slope_deg, _aspect = topo_surface.slope_aspect(
+            z, cell, nodata_mask=mask)
+
+        # створы: перевод в СК растра, притяжка чистым ядром
+        transform = QgsCoordinateTransform(points.sourceCrs(), layer.crs(),
+                                           context.transformContext())
+        inv = gdal.InvGeoTransform(gt)
+        r_cells = int(round(snap_m / cell))
+        gauges = []
+        for feat in points.getFeatures():
+            geom = feat.geometry()
+            if geom is None or geom.isEmpty():
+                continue
+            pt = geom.asPoint()
+            try:
+                pt = transform.transform(pt)
+            except QgsCsException:
+                continue
+            px, py = gdal.ApplyGeoTransform(inv, pt.x(), pt.y())
+            c0, r0 = int(px), int(py)
+            if not (0 <= r0 < ny and 0 <= c0 < nx):
+                continue
+            r1, c1 = topo_gauge.snap_to_max_acc(acc, r0, c0, r_cells)
+            gauges.append((feat.id(), r1 * nx + c1))
+        if not gauges:
+            raise QgsProcessingException(self.tr(
+                "Ни один створ не попал на грид."))
+        feedback.pushInfo(self.tr("Створов принято: %d") % len(gauges))
+
+        fields = QgsFields()
+        fields.append(QgsField("gauge", QVariant.Int))
+        fields.append(QgsField("src_id", QVariant.Int))
+        for nm in self._NUM_KEYS:
+            fields.append(QgsField(nm, QVariant.Double))
+        fields.append(QgsField("cells", QVariant.Int))
+        sink, dest_id = self.parameterAsSink(
+            parameters, self.OUT_POLY, context, fields,
+            QgsWkbTypes.Type.MultiPolygon, layer.crs())
+
+        from osgeo import ogr
+        reports = []
+        for num, (src_id, seed) in enumerate(gauges, start=1):
+            if feedback.isCanceled():
+                break
+            rep = topo_gauge.gauge_report(
+                z, downstream, acc, z.shape, seed, cell,
+                slope=slope_deg, nodata_mask=mask)
+            reports.append((num, src_id, rep))
+            feedback.pushInfo(self.tr("Створ %d:") % num)
+            for ln in topo_gauge.report_lines(rep, _tr):
+                feedback.pushInfo("  " + ln)
+
+            m8 = topo_gauge.basin_mask(downstream, z.shape, seed)
+            if mask is not None:
+                m8 = m8 & ~mask
+            mem_ds = gdal.GetDriverByName("MEM").Create(
+                "", nx, ny, 1, gdal.GDT_Byte)
+            mem_ds.SetGeoTransform(gt)
+            mem_ds.SetProjection(proj)
+            mem_ds.GetRasterBand(1).WriteArray(m8.astype(np.uint8))
+            drv = ogr.GetDriverByName("Memory")
+            ogr_ds = drv.CreateDataSource("g%d" % num)
+            ogr_lyr = ogr_ds.CreateLayer("g", None, ogr.wkbPolygon)
+            ogr_lyr.CreateField(ogr.FieldDefn("v", ogr.OFTInteger))
+            band = mem_ds.GetRasterBand(1)
+            gdal.Polygonize(band, band, ogr_lyr, 0)
+            wkts = [f.GetGeometryRef().ExportToWkt() for f in ogr_lyr
+                    if int(f.GetField("v")) == 1]
+            ogr_ds = None
+            mem_ds = None
+            if not wkts:
+                continue
+            if len(wkts) == 1:
+                geom = QgsGeometry.fromWkt(wkts[0])
+            else:
+                geom = QgsGeometry.unaryUnion(
+                    [QgsGeometry.fromWkt(w) for w in wkts])
+            geom.convertToMultiType()
+            fo = QgsFeature(fields)
+            fo.setGeometry(geom)
+            attrs = [num, int(src_id)]
+            remap = {"slope_deg": "slope_mean", "fall_m": "stream_fall_m",
+                     "slope_ppm": "stream_ppm"}
+            for nm in self._NUM_KEYS:
+                v = rep.get(remap.get(nm, nm))
+                attrs.append(None if v is None else round(float(v), 4))
+            attrs.append(rep.get("cells"))
+            fo.setAttributes(attrs)
+            sink.addFeature(fo)
+
+        results = {self.OUT_POLY: dest_id}
+        _topo_group_layer(context, dest_id, self.tr("Топография"),
+                          collapse=False)
+        if html_path:
+            self._write_html(html_path, reports)
+            results[self.OUTPUT_HTML] = html_path
+        _save_values(self, _saved)
+        return results
+
+    def _write_html(self, path, reports):
+        rows = [
+            ("area_km2", _tr("Площадь бассейна, км²"), "%.3f"),
+            ("z_mean", _tr("Средняя высота, м"), "%.2f"),
+            ("z_min", _tr("Минимальная высота, м"), "%.2f"),
+            ("z_max", _tr("Максимальная высота, м"), "%.2f"),
+            ("slope_mean", _tr("Средний уклон бассейна, °"), "%.2f"),
+            ("z_gauge", _tr("Отметка створа, м"), "%.2f"),
+            ("stream_km", _tr("Длина главного водотока, км"), "%.3f"),
+            ("stream_fall_m", _tr("Падение водотока, м"), "%.2f"),
+            ("stream_ppm", _tr("Средний уклон водотока, промилле"), "%.1f"),
+            ("cells", _tr("Ячеек в бассейне"), "%d"),
+        ]
+        title = _tr("Отчёт по створам")
+        out = ["<html><head><meta charset='utf-8'><title>%s</title>"
+               "<style>body{font-family:sans-serif;margin:20px;color:#222}"
+               "table{border-collapse:collapse;margin:8px 0}"
+               "td,th{border:1px solid #ccc;padding:4px 10px;text-align:left}"
+               "h2{margin:14px 0 6px}.k{color:#666}</style></head><body>"
+               "<h1>%s</h1>" % (title, title)]
+        for num, src_id, rep in reports:
+            out.append("<h2>%s</h2>" % (_tr("Створ %d") % num))
+            out.append("<table><tr><th>%s</th><th>%s</th></tr>" % (
+                _tr("Показатель"), _tr("Значение")))
+            for key, label, fmt in rows:
+                v = rep.get(key)
+                out.append("<tr><td>%s</td><td>%s</td></tr>" % (
+                    label, "-" if v is None else fmt % v))
+            out.append("</table>")
+        out.append("<p class='k'>%s</p>" % _tr(
+            "Метод: заполнение понижений, направления D8, притяжка створа "
+            "к наибольшей аккумуляции, главный водоток вверх по наибольшей "
+            "аккумуляции до истока. Морфометрия без расчётной гидрологии."))
+        out.append("</body></html>")
+        with io.open(path, "w", encoding="utf-8") as f:
+            f.write("".join(out))
 
 
 class SlopeAspectAlgorithm(IsolinerAlgorithm):
@@ -12977,6 +13300,7 @@ ALGORITHMS = [
     BasinsAlgorithm,
     PeaksAlgorithm,
     SlopeAspectAlgorithm,
+    GaugeReportAlgorithm,
     Topo2RasterAlgorithm,
     ContourSplitAlgorithm,
     ContourResidualAlgorithm,
