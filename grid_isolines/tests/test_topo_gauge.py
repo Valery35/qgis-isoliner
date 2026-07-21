@@ -208,6 +208,132 @@ def test_report_keys_order_stable():
     assert len(set(tg.REPORT_KEYS)) == len(tg.REPORT_KEYS)
 
 
+# --- линейный водосбор (канава) -------------------------------------------
+
+def _grid_geo():
+    """Геопривязка для тестовых гридов: начало (0, 0), ячейка 10 м, ось Y
+    вниз, как в GeoTIFF."""
+    return 0.0, 0.0, CELL
+
+
+def test_cells_along_polyline_straight():
+    ox, oy, cell = _grid_geo()
+    # линия вдоль строки 1 через весь грид 4x6
+    verts = [(5.0, -15.0), (55.0, -15.0)]
+    got = tg.cells_along_polyline(verts, ox, oy, cell, (4, 6))
+    assert got == [1 * 6 + c for c in range(6)]
+
+
+def test_cells_along_polyline_diagonal_no_gaps():
+    ox, oy, cell = _grid_geo()
+    verts = [(5.0, -5.0), (45.0, -45.0)]      # по диагонали
+    got = tg.cells_along_polyline(verts, ox, oy, cell, (5, 5))
+    assert got == [0, 6, 12, 18, 24]          # без пропусков
+
+
+def test_cells_along_polyline_clips_and_dedups():
+    ox, oy, cell = _grid_geo()
+    # уходит за левый край и возвращается: наружные точки отброшены
+    verts = [(-100.0, -15.0), (25.0, -15.0), (25.0, -15.0)]
+    got = tg.cells_along_polyline(verts, ox, oy, cell, (4, 6))
+    assert got == [1 * 6 + 0, 1 * 6 + 1, 1 * 6 + 2]
+    assert len(got) == len(set(got))          # повторов нет
+
+
+def test_polyline_length():
+    assert abs(tg.polyline_length([(0, 0), (30, 40)]) - 50.0) < 1e-9
+    assert tg.polyline_length([(0, 0)]) == 0.0
+
+
+def test_catchment_of_line_across_valley():
+    """Канава поперёк долины перехватывает всё, что выше неё по стоку."""
+    z, down, acc, shape = _valley()
+    ny, nx = shape
+    seeds = [3 * nx + c for c in range(nx)]   # трасса вдоль строки 3
+    mask = tg.catchment_mask(down, shape, seeds)
+    # строки 0..3 стекают в трассу, нижняя строка 4 уже ниже неё
+    assert mask[:4].all()
+    assert not mask[4].any()
+    assert int(mask.sum()) == 4 * nx
+
+
+def test_catchment_of_single_cell_matches_gauge():
+    """Линейный водосбор из одной ячейки совпадает с точечным створом."""
+    z, down, acc, shape = _ramp()
+    ny, nx = shape
+    seed = 2 * nx + (nx - 1)
+    m_line = tg.catchment_mask(down, shape, [seed])
+    m_point = tg.basin_mask(down, shape, seed)
+    assert (m_line == m_point).all()
+
+
+def test_catchment_empty_seeds():
+    z, down, acc, shape = _ramp()
+    assert tg.catchment_mask(down, shape, []).sum() == 0
+
+
+def test_burn_trace_lowers_only_trace():
+    z, down, acc, shape = _valley()
+    ny, nx = shape
+    seeds = [3 * nx + c for c in range(nx)]
+    zb = tg.burn_trace(z, seeds, 5.0)
+    assert (zb[3] == z[3] - 5.0).all()
+    assert (zb[0] == z[0]).all()
+    assert z[3][0] != zb[3][0]                # исходный массив не тронут
+
+
+def test_burn_trace_respects_nodata_and_zero_depth():
+    z, down, acc, shape = _valley()
+    ny, nx = shape
+    seeds = [3 * nx + c for c in range(nx)]
+    nod = np.zeros(shape, dtype=bool)
+    nod[3, 0] = True
+    zb = tg.burn_trace(z, seeds, 5.0, nodata_mask=nod)
+    assert zb[3, 0] == z[3, 0]                # nodata не трогаем
+    assert zb[3, 1] == z[3, 1] - 5.0
+    assert (tg.burn_trace(z, seeds, 0.0) == z).all()
+
+
+def test_ditch_report_hand_numbers():
+    z, down, acc, shape = _valley()
+    ny, nx = shape
+    seeds = [3 * nx + c for c in range(nx)]
+    slope = np.full(shape, 1.5)
+    rep = tg.ditch_report(z, down, shape, seeds, CELL,
+                          trace_len=(nx - 1) * CELL, slope=slope)
+    assert rep["cells"] == 4 * nx
+    assert abs(rep["area_km2"] - 4 * nx * CELL * CELL / 1e6) < 1e-12
+    assert rep["trace_cells"] == nx
+    assert abs(rep["trace_km"] - 0.04) < 1e-12
+    assert abs(rep["slope_mean"] - 1.5) < 1e-12
+    # высоты только по водосбору: строки 0..3 долины
+    assert rep["z_max"] == 20.0 and rep["z_min"] == -3.0
+
+
+def test_ditch_report_nodata_excluded():
+    z, down, acc, shape = _valley()
+    ny, nx = shape
+    seeds = [3 * nx + c for c in range(nx)]
+    nod = np.zeros(shape, dtype=bool)
+    nod[0, :] = True
+    rep = tg.ditch_report(z, down, shape, seeds, CELL, nodata_mask=nod)
+    assert rep["cells"] == 3 * nx
+
+
+def test_ditch_report_lines():
+    z, down, acc, shape = _valley()
+    nx = shape[1]
+    seeds = [3 * nx + c for c in range(nx)]
+    rep = tg.ditch_report(z, down, shape, seeds, CELL, trace_len=40.0)
+    lines = tg.ditch_report_lines(rep)
+    assert len(lines) == 2
+    assert "0.002" in lines[0]
+    assert "0.040" in lines[1] and "ячеек трассы 5" in lines[1]
+    seen = []
+    assert tg.ditch_report_lines(rep, lambda t: (seen.append(t) or t)) == lines
+    assert any("%s" in t for t in seen)
+
+
 def _run():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

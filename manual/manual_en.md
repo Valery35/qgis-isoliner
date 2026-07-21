@@ -985,10 +985,11 @@ A utility generator: synthetic terrain from a tilted plain, hills and a winding 
 | Compact int16 (adv.) | Integer output for demo shipping. | off |
 | Demo relief | Output raster. | - |
 | Gauge points (demo) | Three points near the thalwegs for tool 2.15. | created |
+| Ditch traces (demo) | Two polylines across the thalwegs for tool 2.16. | created |
 
 The tool exists for the manual examples, tests and offline work. Live data comes from 2.01. The **Compact int16** checkbox outputs the raster in whole meters for shipping demo fragments.
 
-Three demo gauge points are produced along with the relief. They are placed at the strongest thalwegs, spread across the grid, and deliberately shifted a few cells aside from the stream, so that the snapping in tool 2.15 can be seen bringing the gauge back onto the stream. The points are deterministic from the same seed as the relief.
+Three demo gauge points and two demo ditch traces are produced along with the relief: a hillside ditch above the strongest thalweg and a gutter further downslope, both polylines with a bend, so that the rasterisation of a turning trace is exercised as well. They are placed at the strongest thalwegs, spread across the grid, and deliberately shifted a few cells aside from the stream, so that the snapping in tool 2.15 can be seen bringing the gauge back onto the stream. The points are deterministic from the same seed as the relief.
 
 ## The gully and ravine network
 
@@ -1207,6 +1208,59 @@ Run **2.10 Demo relief**: besides the raster it outputs the **Gauge points (demo
 ## Scope
 
 The tool computes basin morphometry and nothing else. Discharges, runoff moduli, hydraulics and snowmelt are deliberately out of scope: that is computational hydrology by the codes of practice, a separate topic. Units are assumed metric, a DEM in metres in a metric coordinate system.
+
+# 2.16 Catchment of a line (ditch)
+
+The tool computes the catchment area of a **linear intake**: a hillside ditch, a chute, a road gutter. The question is how much area the ditch intercepts when the ditch itself is not on the DEM yet.
+
+## How it works
+
+Burning the trace into the relief is not needed for that. The trace is rasterised into grid cells, all of them are taken as intakes, and the catchment is collected as the set of cells whose flow path arrives at any cell of the trace. The trace may be a polyline, may cross a divide and may run outside the DEM frame - the outside part simply does not take part.
+
+Rasterisation steps along the segments by half a cell, so there are no gaps at bends and diagonals through which water could slip past the intake.
+
+Catchments of neighbouring traces nest into each other: the ditch further downslope also gets what the upper one intercepts. This is the same behaviour as for gauges in 2.15, and it is the right one - every trace gets its full catchment rather than a remainder.
+
+## Burning the trace
+
+The separate **Burn the trace into the relief** checkbox answers a different question: will the ditch hold the flow if it is shallower than the local landforms. Burning lowers the relief along the trace by a given depth, and the flow is then computed on the changed relief.
+
+Burning changes the hydrology deliberately, so it is off by default and the result depends on the depth. The fact of burning and the depth are printed to the log and go into the HTML report, so that the figure cannot be taken for a computation on the original relief.
+
+## What is computed
+
+| Value | Field | Units |
+|---|---|---|
+| Catchment area | area_km2 | sq. km |
+| Mean elevation | z_mean | m |
+| Minimum elevation | z_min | m |
+| Maximum elevation | z_max | m |
+| Mean catchment slope | slope_deg | degrees (Horn 3x3) |
+| Trace length | trace_km | km |
+| Trace cells | trace_cells | count |
+| Cells in the catchment | cells | count |
+
+## Parameters
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Relief in metres in a metric CRS. | - |
+| Traces | A line layer, one feature per ditch. | - |
+| All traces as one catchment | A joint catchment instead of separate ones. | off |
+| Burn the trace into the relief | The flow-holding check. | off |
+| Burn depth, m (adv.) | How far to lower the relief along the trace. | 2.0 |
+| Fill depressions | Relief preparation before the flow routing. | on |
+| Slope epsilon, m (adv.) | Fill slope, as in 2.04. | as in 2.04 |
+| Trace catchments (polygons) | Polygons with the attributes listed above. | created |
+| Trace report (HTML) | A table per trace. | created |
+
+## A quick check on the demo
+
+**2.10 Demo relief** outputs the **Ditch traces (demo)** layer: a hillside ditch above a strong thalweg and a gutter further downslope, both polylines with a bend. Feed the relief and that layer into 2.16. The catchment should lie upslope of the traces and stop at the divides rather than at the grid frame.
+
+## Scope
+
+The tool answers the question about area, not about discharge. Discharges, runoff moduli and the capacity of the ditch belong to computational hydrology by the codes of practice and are out of scope. Units are assumed metric.
 
 # 3.01 Categorical indicator kriging
 
@@ -1603,6 +1657,18 @@ The 3D fence is not moved by the layout. It stands in real coordinates, each wal
 
 The first section always gets a zero offset, so a run over a single line gives exactly the same drawing as before.
 
+## Band colours: the Leapfrog palette
+
+The bed bands are coloured by the roof name. Without a palette the colour is computed from the name itself and does not jump between runs, but it is arbitrary.
+
+The optional **Leapfrog colour palette (.lfc)** input takes a legend file with code and colour pairs. Codes found in it are painted with its colours, the order of the legend categories follows the palette (its order is geological), and codes outside the palette keep their previous colour. The log gets the line "Band colours: N from the palette, M own" and the list of the ones not found, which immediately shows whether the right palette was supplied.
+
+Layer names rarely match the palette codes word for word, so the lookup is a ladder from strict to tolerant: the exact code, then ignoring case and outer spaces, then a normalised form (the role suffix `_top`, `_bottom`, `_кровля`, `_подошва` is stripped and Latin look-alike letters are folded into Cyrillic), and finally the same form without apostrophes. This is how `KpII_top` finds the bed code `КрII` and `A'Б_top` finds `АБ`. The strict steps come first, so if the palette holds both `АБ` and `А'Б` as different beds, each keeps its own colour.
+
+The same file goes into 4.02, and then the bands and the borehole columns match in colour.
+
+The palette file is read by a self-written parser rather than the standard XML modules: a foreign file may carry expanded entities and external references, so DOCTYPE declarations and entity references are not resolved and the input has a size limit. A broken or foreign file does not abort the run.
+
 ## Attributes of the output layers
 
 All the section layers carry two common fields: **sec** with the section name and **sec_id** with the feature id of the source line. Use them to label the drawings, filter the layer down to one trace and colour the sections differently.
@@ -1645,6 +1711,7 @@ All the section layers carry two common fields: **sec** with the section name an
 | Columns in the grid (Adv.) | Number of columns for the grid layout. | 2 |
 | Gap between sections (Adv.) | A fraction of the drawing extent. | 0.15 |
 | Raster sampling (Adv.) | Bilinear or nearest. | bilinear |
+| Leapfrog colour palette (.lfc) | Band colours from a legend, optional. | empty |
 | Section drawing (distance × elevation) | The output polygon layer for a layout. | created |
 | 3D fence (PolygonZ) | The output layer of vertical walls in real coordinates. | created |
 
@@ -1670,7 +1737,7 @@ Such a pair is produced by **Create a section example** (4.10) and by a corporat
 
 ## The tolerant reader
 
-The data is read without prior cleaning. Empty and non-numeric depths are skipped, swapped from and to are exchanged, intervals beyond the end of hole are drawn as they are, overlaps are neither resolved nor hidden, intervals without a collar are skipped. Everything skipped or accepted with a note is counted and reported to the log as a short summary. On clean data the summary is a single line.
+The data is read without prior cleaning. Empty and non-numeric depths are skipped, swapped from and to are exchanged, intervals beyond the end of hole are drawn as they are, overlaps are neither resolved nor hidden, gaps between neighbouring intervals are not filled, intervals without a collar are skipped. Everything skipped or accepted with a note is counted and reported to the log as a short summary. On clean data the summary is a single line.
 
 ## Batch operation and alignment
 
@@ -1690,6 +1757,14 @@ The frame is one for the whole drawing, while the roof of the uppermost sequence
 
 The tolerance under the advanced parameters widens the frame and the bands outwards, in elevation units. Only the geometry is clipped, the ztop and zbot attributes keep the true interval elevations. A clipping summary is printed to the log per section.
 
+## Column colours: the Leapfrog palette
+
+By default the interval colour is computed from its code and does not change between runs. The optional **Leapfrog colour palette (.lfc)** input replaces those colours with the legend ones: codes found in the palette are painted from it, the order of the legend categories follows it, and codes outside it keep their previous colour. The log gets the palette reading summary, the line "Colours: N codes from the palette, M own" and the list of codes not found.
+
+The lookup is tolerant, by the same ladder as in 4.01 (case, role suffix, Latin look-alike letters, apostrophes). A broken or foreign file does not abort the run: the tool warns and colours by its own rule.
+
+Different palettes for the two tools are normal. The drawing bands carry a bed code while the borehole intervals often carry a rock type, so 4.01 gets the stratigraphic palette and 4.02 the lithological one, and their colours are not meant to match. If the interval table does have a bed index field, set it as the code field and supply the same palette as in 4.01 - the columns will then merge with the bands, and only the disagreement between the borehole and the built surface will stand out.
+
 ## Parameters
 
 | Parameter | What it sets | Default |
@@ -1703,6 +1778,7 @@ The tolerance under the advanced parameters widens the frame and the bands outwa
 | collar and interval fields (Adv.) | Overrides of the automatic field search. | found automatically |
 | Collar label field (Adv.) | Where the short collar label comes from. | number |
 | Clipping tolerance (Adv.) | Widening of the frame and the bands, elevation units. | 0 |
+| Leapfrog colour palette (.lfc) | Column colours from a legend, optional. | empty |
 | Borehole intervals (drawing) | Vertical segments coloured by code. | created |
 | Borehole traces (drawing) | Lines from the collar to the end of hole. | created |
 | Collars on the drawing | Points labelled from number. | created |

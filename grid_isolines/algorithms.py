@@ -71,6 +71,7 @@ from qgis.core import (
     QgsProcessingParameterBand,
     QgsProcessingParameterVectorDestination,
     QgsProcessingParameterFeatureSink,
+    QgsProcessingParameterFile,
     QgsProcessingParameterFileDestination,
     QgsProcessingParameterDefinition,
     QgsFields,
@@ -102,6 +103,7 @@ from .fractal import (fractal_dimension_map, fractal_dimension_global,
 from . import dem_glo30, osm_overpass, demo_relief
 from .hydro_fill import fill_depressions, DEFAULT_EPSILON
 from . import topo_flow, topo_gauge, topo_surface, topo_t2r, topo_smooth
+from . import palette_lfc  # чтение палитры Leapfrog, без QGIS
 
 GROUP = _tr("1. Грид и изолинии")
 GROUP_ID = "grid_isolines"
@@ -512,8 +514,12 @@ class _CategorizedPostProcessor(QgsProcessingLayerPostProcessorInterface):
                 categories.append(QgsRendererCategory(val, sym, label))
             other = base.clone()
             other.setColor(QColor("#969696"))
+            # категория-ловушка: значение NULL из qgis.core, а не QVariant().
+            # Проверка Qt6 в каталоге запрещает QVariant(QVariant.Null),
+            # в Qt6 пустой QVariant в категорию не конвертируется.
+            from qgis.core import NULL as _QGIS_NULL
             categories.append(QgsRendererCategory(
-                QVariant(), other, _tr("прочее")))
+                _QGIS_NULL, other, _tr("прочее")))
             expr = 'trim(to_string("%s"))' % str(self.field).replace('"', "")
             layer.setRenderer(QgsCategorizedSymbolRenderer(expr, categories))
             layer.triggerRepaint()
@@ -6427,6 +6433,7 @@ class SectionAlgorithm(IsolinerAlgorithm):
     растры-поверхности."""
 
     LINE, SURFACES = "LINE", "SURFACES"
+    PALETTE = "PALETTE"
     TREE_ORDER = "TREE_ORDER"
     BATCH, NAMEFLD = "BATCH", "NAMEFLD"
     LAYOUT, NCOLS, GAP = "LAYOUT", "NCOLS", "GAP"
@@ -6478,7 +6485,11 @@ class SectionAlgorithm(IsolinerAlgorithm):
             "Забор раскладкой не смещается, он стоит в реальных координатах.\n\n"
             "Поверхности обычно получают кригингом (кровля, подошва пласта). "
             "Линию рисуют как обычный линейный слой. Расстояние и высота берутся "
-            "в единицах карты. Свой кригинг инструмент не выполняет.") + _credit())
+            "в единицах карты. Свой кригинг инструмент не выполняет.\n\n"
+            "Полосы пластов на чертеже красятся по имени кровли. Если задать "
+            "палитру кодов Leapfrog (.lfc), цвета берутся из неё: имя слоя вида "
+            "«KpII_top» находит в палитре код пласта «КрII». Тот же файл "
+            "подаётся в 4.02, и полосы с колонками скважин совпадают по цвету.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -6530,6 +6541,12 @@ class SectionAlgorithm(IsolinerAlgorithm):
             self.SAMPLING, self.tr("Выборка растра"),
             options=[self.tr("билинейно"), self.tr("ближайший")],
             defaultValue=0)))
+        self.addParameter(QgsProcessingParameterFile(
+            self.PALETTE,
+            self.tr("Палитра кодов Leapfrog (.lfc), необязательно"),
+            behavior=QgsProcessingParameterFile.Behavior.File,
+            fileFilter=self.tr("Палитра Leapfrog (*.lfc *.LFC);;XML (*.xml);;Все файлы (*.*)"),
+            defaultValue=_dv(self, self.PALETTE, None), optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT_2D, self.tr("Чертёж разреза (расстояние × высота)"),
             type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
@@ -6759,8 +6776,41 @@ class SectionAlgorithm(IsolinerAlgorithm):
         # Пласт, названный тем же кодом, что в interval, совпадёт по цвету с
         # колонками скважин сам собой.
         if sink2d is not None:
-            bcats = [(surfs[k][2], _dh.code_color(surfs[k][2]), surfs[k][2])
+            # цвет полосы: из палитры по имени кровли (имя слоя вида
+            # «KpII_top» находит код пласта «КрII»), иначе свой
+            # детерминированный. Тот же файл подаётся в 4.02, и полосы с
+            # колонками скважин совпадают по цвету.
+            pal = None
+            ppath = self.parameterAsFile(parameters, self.PALETTE, context)
+            if ppath:
+                psum = palette_lfc.ReadSummary()
+                try:
+                    pal = palette_lfc.Palette.from_file(ppath, psum)
+                    for ln in psum.lines(_tr):
+                        feedback.pushInfo(ln)
+                except palette_lfc.PaletteError as exc:
+                    pal = None
+                    feedback.pushWarning(_tr(
+                        "Палитра не прочитана (%s), цвета считаются от "
+                        "кодов.") % exc)
+
+            def _band_colour(name):
+                if pal is not None:
+                    col = pal.get(name)
+                    if col is not None:
+                        return col
+                return _dh.code_color(name)
+
+            bcats = [(surfs[k][2], _band_colour(surfs[k][2]), surfs[k][2])
                      for k in range(len(surfs) - 1)]
+            if pal is not None:
+                _names = [surfs[k][2] for k in range(len(surfs) - 1)]
+                _miss = [n for n in _names if pal.get(n) is None]
+                feedback.pushInfo(_tr("Цвета полос: из палитры %d, своих %d.")
+                                  % (len(_names) - len(_miss), len(_miss)))
+                if _miss:
+                    feedback.pushInfo(_tr("Нет в палитре: %s")
+                                      % ", ".join(_miss[:12]))
             _attach_categories(context, dest2d, _style_path("dh_bands"),
                                "top", bcats)
         sink3d, dest3d = self.parameterAsSink(
@@ -8351,6 +8401,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
     CORRIDOR = "CORRIDOR"
     CLIP, CLIP_TOL = "CLIP", "CLIP_TOL"
     SHEET = "SHEET"
+    PALETTE = "PALETTE"
     OUTPUT, OUTPUT_STICKS = "OUTPUT", "OUTPUT_STICKS"
     OUTPUT_LABELS, OUTPUT_3D = "OUTPUT_LABELS", "OUTPUT_3D"
 
@@ -8393,7 +8444,12 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             "4.01: колонки режутся по верхней и нижней огибающей полос "
             "в своей позиции, скважины не вылезают за чертёж. Колонка "
             "за краем полос этим входом не режется, там работает "
-            "рамка.") + _credit())
+            "рамка.\n\n"
+            "Цвет интервала можно взять из палитры кодов Leapfrog - файла "
+            ".lfc с парами код и цвет. Коды, найденные в палитре, красятся "
+            "её цветами, порядок категорий в легенде идёт по палитре, а "
+            "коды вне палитры сохраняют свой детерминированный цвет. Без "
+            "палитры всё работает как раньше.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -8463,6 +8519,12 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             self.CLIP_TOL, self.tr("Допуск обрезки, ед. отметки"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.CLIP_TOL, 0.0), minValue=0.0)))
+        self.addParameter(QgsProcessingParameterFile(
+            self.PALETTE,
+            self.tr("Палитра кодов Leapfrog (.lfc), необязательно"),
+            behavior=QgsProcessingParameterFile.Behavior.File,
+            fileFilter=self.tr("Палитра Leapfrog (*.lfc *.LFC);;XML (*.xml);;Все файлы (*.*)"),
+            defaultValue=_dv(self, self.PALETTE, None), optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Интервалы скважин (чертёж)"),
             type=QgsProcessing.SourceType.TypeVectorLine))
@@ -8633,6 +8695,30 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         csrc, isrc, collars, holes, icode, labels = self._read_model(
             parameters, context, feedback, dsrc.sourceCrs())
 
+        # палитра кодов: если задана, цвет берётся из неё, а свой
+        # детерминированный цвет остаётся запасным для кодов вне палитры.
+        # Плохой файл не валит прогон: сообщаем и красим по-своему.
+        pal = None
+        pal_path = self.parameterAsFile(parameters, self.PALETTE, context)
+        if pal_path:
+            psum = palette_lfc.ReadSummary()
+            try:
+                pal = palette_lfc.Palette.from_file(pal_path, psum)
+                for ln in psum.lines(_tr):
+                    feedback.pushInfo(ln)
+            except palette_lfc.PaletteError as exc:
+                pal = None
+                feedback.pushWarning(_tr(
+                    "Палитра не прочитана (%s), цвета считаются от кодов.")
+                    % exc)
+
+        def _colour_of(code):
+            if pal is not None:
+                col = pal.get(code)
+                if col is not None:
+                    return col
+            return _dh.code_color(code)
+
         # поля чертежа: sec и sec_id, затем колонки таблицы интервалов как
         # есть, затем отметки и удаление. Имена наших добавок уводятся от
         # столкновения с колонками пользователя подчёркиванием.
@@ -8663,7 +8749,14 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             QgsWkbTypes.Type.LineString, crs0)
         code_list = _dh.code_order(holes)
         if icode and code_list:
-            cats = [(c, _dh.code_color(c),
+            if pal is not None:
+                # порядок палитры геологический, он важнее порядка появления
+                # кодов в данных; неизвестные палитре коды уходят в конец,
+                # сохраняя между собой прежний порядок
+                code_list = sorted(
+                    code_list,
+                    key=lambda c: (pal.rank(c), code_list.index(c)))
+            cats = [(c, _colour_of(c),
                      c if c else self.tr("(без кода)")) for c in code_list]
             _attach_categories(context, dest, _style_path("dh_intervals"),
                                icode, cats)
@@ -8735,7 +8828,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
                         QgsPointXY(x, ytop + oy), QgsPointXY(x, ybot + oy)]))
                     fa.setAttributes(tag + list(it.extra)
                                      + [round(zt, 3), round(zb, 3), off,
-                                        _dh.code_color(it.code)])
+                                        _colour_of(it.code)])
                     sink.addFeature(fa)
                     nseg += 1
                 eoh = c.eoh if math.isfinite(c.eoh) else None
@@ -8789,7 +8882,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
                         QgsPoint(c.x, c.y, zt), QgsPoint(c.x, c.y, zb)])))
                     fb.setAttributes(list(it.extra)
                                      + [round(zt, 3), round(zb, 3),
-                                        _dh.code_color(it.code)])
+                                        _colour_of(it.code)])
                     sink3.addFeature(fb)
                     n3 += 1
 
@@ -10803,6 +10896,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
     EXTENT = "EXTENT"
     OUTPUT = "OUTPUT"
     GAUGES = "GAUGES"
+    DITCHES = "DITCHES"
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return TopoDemoReliefAlgorithm()
@@ -10832,7 +10926,8 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
             "\nЗаодно выдаются три демо-точки створов возле тальвегов, "
             "нарочно сдвинутые в сторону от водотока - готовая еда для "
             "инструмента 2.15 «Отчёт по створу» и наглядная проверка "
-            "притяжки.")
+            "притяжки, и две демо-трассы канав поперёк тальвегов для "
+            "инструмента 2.16 «Водосбор линии».")
             + _credit())
 
     def initAlgorithm(self, config=None):
@@ -10874,6 +10969,10 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.GAUGES, self.tr("Точки створов (демо)"),
             type=QgsProcessing.SourceType.TypeVectorPoint, optional=True,
+            createByDefault=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.DITCHES, self.tr("Трассы канав (демо)"),
+            type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
             createByDefault=True))
 
     def _process(self, parameters, context, feedback):
@@ -10988,6 +11087,42 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
                 _topo_group_layer(context, gdest, self.tr("Топография"),
                                   collapse=False)
                 results[self.GAUGES] = gdest
+
+        # демо-трассы канав для 2.16: нагорная канава выше створа поперёк
+        # тальвега и короткий кювет ниже по склону. Ломаные, а не прямые,
+        # чтобы проверялась растеризация с изломом. Всё от того же зерна.
+        dfields = QgsFields()
+        dfields.append(QgsField("name", QVariant.String))
+        dsink, ddest = self.parameterAsSink(
+            parameters, self.DITCHES, context, dfields,
+            QgsWkbTypes.Type.LineString, crs)
+        if dsink is not None and picked:
+            def _xy(rr, cc):
+                return QgsPointXY(origin_x + (min(max(cc, 0), nx - 1) + 0.5) * cell,
+                                  origin_y - (min(max(rr, 0), ny - 1) + 0.5) * cell)
+
+            half = max(6, nx // 8)          # половина ширины перехвата
+            up = max(4, ny // 12)           # насколько выше створа
+            made = 0
+            for k, (r0, c0) in enumerate(picked[:2]):
+                rr = r0 - up if k == 0 else r0 + up
+                pts = [_xy(rr, c0 - half), _xy(rr - 2, c0),
+                       _xy(rr, c0 + half)]
+                fd = QgsFeature(dfields)
+                fd.setGeometry(QgsGeometry.fromPolylineXY(pts))
+                fd.setAttributes([
+                    self.tr("Нагорная канава") if k == 0
+                    else self.tr("Кювет")])
+                dsink.addFeature(fd)
+                made += 1
+            if made:
+                feedback.pushInfo(self.tr(
+                    "Демо-трассы: %d, поперёк тальвегов (готовая еда для "
+                    "2.16 «Водосбор линии»).") % made)
+                _set_output_name(context, ddest, self.tr("Трассы канав (демо)"))
+                _topo_group_layer(context, ddest, self.tr("Топография"),
+                                  collapse=False)
+                results[self.DITCHES] = ddest
         return results
 
 
@@ -11128,6 +11263,26 @@ def _topo_cell_xy(gt, row, col):
     x = gt[0] + (col + 0.5) * gt[1] + (row + 0.5) * gt[2]
     y = gt[3] + (col + 0.5) * gt[4] + (row + 0.5) * gt[5]
     return x, y
+
+
+def _topo_flow_from_dem(z, mask, do_fill, epsilon, feedback, tr):
+    """Заполнение, D8 и аккумуляция для уже прочитанного массива.
+
+    Нужен инструментам, которые правят рельеф перед расчётом стока
+    (врезка трассы в 2.16): читают ЦМР сами, меняют массив, зовут это.
+    """
+    if do_fill:
+        feedback.pushInfo(tr("Заполнение понижений..."))
+        z, n_raised, max_raise = fill_depressions(
+            z, nodata_mask=mask, epsilon=max(epsilon, 1e-6),
+            feedback=feedback)
+        feedback.pushInfo(tr("Поднято ячеек: %d, максимальный подъём: %.2f м")
+                          % (n_raised, max_raise))
+    feedback.pushInfo(tr("Направления стока D8..."))
+    dir_idx, downstream = topo_flow.d8_directions(z, nodata_mask=mask)
+    feedback.pushInfo(tr("Аккумуляция..."))
+    acc = topo_flow.flow_accumulation(downstream, z.shape, nodata_mask=mask)
+    return z, dir_idx, downstream, acc
 
 
 def _topo_prepare_flow(layer, do_fill, epsilon, feedback, tr):
@@ -11728,6 +11883,275 @@ class GaugeReportAlgorithm(IsolinerAlgorithm):
             "Метод: заполнение понижений, направления D8, притяжка створа "
             "к наибольшей аккумуляции, главный водоток вверх по наибольшей "
             "аккумуляции до истока. Морфометрия без расчётной гидрологии."))
+        out.append("</body></html>")
+        with io.open(path, "w", encoding="utf-8") as f:
+            f.write("".join(out))
+
+
+class DitchCatchmentAlgorithm(IsolinerAlgorithm):
+    """2.16 Водосбор линии: площадь, которую перехватывает канава."""
+
+    INPUT = "INPUT"
+    LINES = "LINES"
+    MERGE = "MERGE"
+    BURN = "BURN"
+    BURN_DEPTH = "BURN_DEPTH"
+    FILL = "FILL"
+    EPSILON = "EPSILON"
+    OUT_POLY = "OUT_POLY"
+    OUTPUT_HTML = "OUTPUT_HTML"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return DitchCatchmentAlgorithm()
+    def name(self): return "ditch_catchment"
+    def displayName(self):
+        return self.tr("2.16 Водосбор линии (канавы)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPO)
+    def groupId(self): return GROUP_TOPO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Площадь водосбора линейного приёмника: нагорной канавы, "
+            "лотка, кювета дороги. Отвечает на вопрос, какую площадь "
+            "линия перехватывает, когда самой канавы на ЦМР нет.\n\n"
+            "Врезать трассу в рельеф для этого не нужно. Трасса "
+            "растеризуется в ячейки, все они берутся семенами, и водосбор "
+            "это множество ячеек, чей путь стока приходит в любую ячейку "
+            "трассы. Трасса может быть ломаной, может пересекать "
+            "водораздел и может выходить за рамку ЦМР: наружная часть "
+            "просто не участвует.\n\n"
+            "Врезка трассы - отдельная галочка и другой вопрос: удержит "
+            "ли канава поток, если она мельче местных форм рельефа. "
+            "Врезка опускает рельеф вдоль трассы на заданную глубину и "
+            "тем самым меняет гидрологию, поэтому результат зависит от "
+            "глубины и по умолчанию она выключена.\n\n"
+            "Выход: полигоны водосборов с атрибутами (площадь, высоты, "
+            "средний уклон, длина трассы) и HTML-отчёт. Единицы "
+            "метрические: ЦМР в метрах в метровой системе координат.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.INPUT, self.tr("Входная ЦМР")))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.LINES, self.tr("Трассы (линии канав, лотков, кюветов)"),
+            [QgsProcessing.SourceType.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.MERGE, self.tr("Все трассы как один водосбор"),
+            defaultValue=_dv(self, self.MERGE, False)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.BURN, self.tr("Врезать трассу в рельеф (меняет гидрологию)"),
+            defaultValue=_dv(self, self.BURN, False)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BURN_DEPTH, self.tr("Глубина врезки, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.BURN_DEPTH, 2.0), minValue=0.0)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.FILL, self.tr("Заполнить понижения перед расчётом"),
+            defaultValue=_dv(self, self.FILL, True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.EPSILON, self.tr("Epsilon уклона при заполнении, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.EPSILON, DEFAULT_EPSILON),
+            minValue=0.0)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUT_POLY, self.tr("Водосборы трасс (полигоны)"),
+            QgsProcessing.SourceType.TypeVectorPolygon))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            self.OUTPUT_HTML, self.tr("Отчёт по трассам (HTML)"),
+            self.tr("HTML files (*.html)"), optional=True,
+            createByDefault=True))
+
+        _restore_layer_defaults(self, (self.INPUT, self.LINES))
+
+    _NUM_KEYS = ("area_km2", "z_mean", "z_min", "z_max", "slope_deg",
+                 "trace_km")
+
+    def _line_vertices_in(self, geom, transform):
+        """Вершины линии в СК растра. Мультилиния разворачивается в части."""
+        out = []
+        if geom is None or geom.isEmpty():
+            return out
+        try:
+            geom = QgsGeometry(geom)
+            geom.transform(transform)
+        except QgsCsException:
+            return out
+        parts = (geom.asMultiPolyline() if geom.isMultipart()
+                 else [geom.asPolyline()])
+        for pts in parts:
+            if len(pts) >= 2:
+                out.append([(p.x(), p.y()) for p in pts])
+        return out
+
+    def _process(self, parameters, context, feedback):
+        _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT, self.LINES))
+        layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
+        lines = self.parameterAsSource(parameters, self.LINES, context)
+        merge = self.parameterAsBoolean(parameters, self.MERGE, context)
+        burn = self.parameterAsBoolean(parameters, self.BURN, context)
+        depth = self.parameterAsDouble(parameters, self.BURN_DEPTH, context)
+        do_fill = self.parameterAsBoolean(parameters, self.FILL, context)
+        epsilon = self.parameterAsDouble(parameters, self.EPSILON, context)
+        html_path = self.parameterAsFileOutput(
+            parameters, self.OUTPUT_HTML, context)
+        if lines is None:
+            raise QgsProcessingException(self.tr("Нужен слой трасс."))
+
+        # трассы читаем до расчёта стока: при врезке рельеф меняется, и
+        # направления стока считаются уже по врезанному
+        z0, mask, gt, proj, cell = _topo_read_dem(layer, self.tr)
+        ny, nx = z0.shape
+        origin_x, origin_y = gt[0], gt[3]
+        transform = QgsCoordinateTransform(lines.sourceCrs(), layer.crs(),
+                                           context.transformContext())
+        traces = []          # (номер, id объекта, ячейки, длина)
+        for feat in lines.getFeatures():
+            cells, length = [], 0.0
+            for verts in self._line_vertices_in(feat.geometry(), transform):
+                cells += topo_gauge.cells_along_polyline(
+                    verts, origin_x, origin_y, cell, (ny, nx))
+                length += topo_gauge.polyline_length(verts)
+            cells = list(dict.fromkeys(cells))
+            if mask is not None and len(cells):
+                cells = [i for i in cells if not mask.ravel()[i]]
+            if cells:
+                traces.append([feat.id(), cells, length])
+        if not traces:
+            raise QgsProcessingException(self.tr(
+                "Ни одна трасса не легла на грид: проверьте охват ЦМР и "
+                "систему координат слоя линий."))
+        if merge:
+            all_cells = list(dict.fromkeys(
+                [i for t in traces for i in t[1]]))
+            total_len = sum(t[2] for t in traces)
+            traces = [[traces[0][0], all_cells, total_len]]
+        feedback.pushInfo(self.tr("Трасс принято: %d, ячеек трассы: %d")
+                          % (len(traces), sum(len(t[1]) for t in traces)))
+
+        z = z0
+        if burn and depth > 0:
+            burn_cells = [i for t in traces for i in t[1]]
+            z = topo_gauge.burn_trace(z0, burn_cells, depth, mask)
+            feedback.pushInfo(self.tr(
+                "Трасса врезана на %.2f м: гидрология изменена намеренно, "
+                "результат зависит от глубины.") % depth)
+        z, dir_idx, downstream, acc = _topo_flow_from_dem(
+            z, mask, do_fill, epsilon, feedback, self.tr)
+        feedback.pushInfo(self.tr("Уклон бассейна (Horn)..."))
+        slope_deg, _aspect = topo_surface.slope_aspect(
+            z, cell, nodata_mask=mask)
+
+        fields = QgsFields()
+        fields.append(QgsField("ditch", QVariant.Int))
+        fields.append(QgsField("src_id", QVariant.Int))
+        for nm in self._NUM_KEYS:
+            fields.append(QgsField(nm, QVariant.Double))
+        fields.append(QgsField("trace_cells", QVariant.Int))
+        fields.append(QgsField("cells", QVariant.Int))
+        sink, dest_id = self.parameterAsSink(
+            parameters, self.OUT_POLY, context, fields,
+            QgsWkbTypes.Type.MultiPolygon, layer.crs())
+
+        from osgeo import ogr
+        reports = []
+        for num, (src_id, cells, length) in enumerate(traces, start=1):
+            if feedback.isCanceled():
+                break
+            rep = topo_gauge.ditch_report(
+                z, downstream, z.shape, cells, cell, trace_len=length,
+                slope=slope_deg, nodata_mask=mask)
+            reports.append((num, src_id, rep))
+            feedback.pushInfo(self.tr("Трасса %d:") % num)
+            for ln in topo_gauge.ditch_report_lines(rep, _tr):
+                feedback.pushInfo("  " + ln)
+
+            m8 = topo_gauge.catchment_mask(downstream, z.shape, cells)
+            if mask is not None:
+                m8 = m8 & ~mask
+            mem_ds = gdal.GetDriverByName("MEM").Create(
+                "", nx, ny, 1, gdal.GDT_Byte)
+            mem_ds.SetGeoTransform(gt)
+            mem_ds.SetProjection(proj)
+            mem_ds.GetRasterBand(1).WriteArray(m8.astype(np.uint8))
+            drv = ogr.GetDriverByName("Memory")
+            ogr_ds = drv.CreateDataSource("d%d" % num)
+            ogr_lyr = ogr_ds.CreateLayer("d", None, ogr.wkbPolygon)
+            ogr_lyr.CreateField(ogr.FieldDefn("v", ogr.OFTInteger))
+            band = mem_ds.GetRasterBand(1)
+            gdal.Polygonize(band, band, ogr_lyr, 0)
+            wkts = [f.GetGeometryRef().ExportToWkt() for f in ogr_lyr
+                    if int(f.GetField("v")) == 1]
+            ogr_ds = None
+            mem_ds = None
+            if not wkts:
+                continue
+            geom = (QgsGeometry.fromWkt(wkts[0]) if len(wkts) == 1
+                    else QgsGeometry.unaryUnion(
+                        [QgsGeometry.fromWkt(w) for w in wkts]))
+            geom.convertToMultiType()
+            fo = QgsFeature(fields)
+            fo.setGeometry(geom)
+            attrs = [num, int(src_id)]
+            remap = {"slope_deg": "slope_mean"}
+            for nm in self._NUM_KEYS:
+                v = rep.get(remap.get(nm, nm))
+                attrs.append(None if v is None else round(float(v), 4))
+            attrs.append(rep.get("trace_cells"))
+            attrs.append(rep.get("cells"))
+            fo.setAttributes(attrs)
+            sink.addFeature(fo)
+
+        results = {self.OUT_POLY: dest_id}
+        _topo_group_layer(context, dest_id, self.tr("Топография"),
+                          collapse=False)
+        if html_path:
+            self._write_html(html_path, reports, burn and depth > 0, depth)
+            results[self.OUTPUT_HTML] = html_path
+        _save_values(self, _saved)
+        return results
+
+    def _write_html(self, path, reports, burned, depth):
+        rows = [
+            ("area_km2", _tr("Площадь водосбора, км²"), "%.3f"),
+            ("z_mean", _tr("Средняя высота, м"), "%.2f"),
+            ("z_min", _tr("Минимальная высота, м"), "%.2f"),
+            ("z_max", _tr("Максимальная высота, м"), "%.2f"),
+            ("slope_mean", _tr("Средний уклон водосбора, °"), "%.2f"),
+            ("trace_km", _tr("Длина трассы, км"), "%.3f"),
+            ("trace_cells", _tr("Ячеек трассы"), "%d"),
+            ("cells", _tr("Ячеек в водосборе"), "%d"),
+        ]
+        title = _tr("Отчёт по водосборам трасс")
+        out = ["<html><head><meta charset='utf-8'><title>%s</title>"
+               "<style>body{font-family:sans-serif;margin:20px;color:#222}"
+               "table{border-collapse:collapse;margin:8px 0}"
+               "td,th{border:1px solid #ccc;padding:4px 10px;text-align:left}"
+               "h2{margin:14px 0 6px}.k{color:#666}</style></head><body>"
+               "<h1>%s</h1>" % (title, title)]
+        for num, src_id, rep in reports:
+            out.append("<h2>%s</h2>" % (_tr("Трасса %d") % num))
+            out.append("<table><tr><th>%s</th><th>%s</th></tr>" % (
+                _tr("Показатель"), _tr("Значение")))
+            for key, label, fmt in rows:
+                v = rep.get(key)
+                out.append("<tr><td>%s</td><td>%s</td></tr>" % (
+                    label, "-" if v is None else fmt % v))
+            out.append("</table>")
+        method = _tr(
+            "Метод: трасса растеризована в ячейки, водосбор собран как "
+            "множество ячеек, чей путь стока приходит в трассу. "
+            "Заполнение понижений, направления D8. Морфометрия без "
+            "расчётной гидрологии.")
+        if burned:
+            method += " " + _tr(
+                "Трасса врезана в рельеф на %.2f м, гидрология изменена "
+                "намеренно.") % depth
+        out.append("<p class='k'>%s</p>" % method)
         out.append("</body></html>")
         with io.open(path, "w", encoding="utf-8") as f:
             f.write("".join(out))
@@ -13301,6 +13725,7 @@ ALGORITHMS = [
     PeaksAlgorithm,
     SlopeAspectAlgorithm,
     GaugeReportAlgorithm,
+    DitchCatchmentAlgorithm,
     Topo2RasterAlgorithm,
     ContourSplitAlgorithm,
     ContourResidualAlgorithm,

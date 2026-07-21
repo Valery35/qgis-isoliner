@@ -222,6 +222,7 @@ class ReadSummary:
         self.int_orphan = 0          # пропущено: устья с таким hole_id нет
         self.int_beyond_eoh = 0      # принято: конец глубже забоя (как есть)
         self.int_overlap = 0         # принято: перехлёст с соседом (как есть)
+        self.int_gap = 0             # принято: разрыв до соседа (как есть)
 
     def lines(self, tr=None):
         """Строки сводки для экрана. Итог всегда, остальное если не ноль.
@@ -249,6 +250,7 @@ class ReadSummary:
             (self.int_no_code, "интервалов без кода: %d"),
             (self.int_beyond_eoh, "интервалов за забоем (как есть): %d"),
             (self.int_overlap, "перехлёстов (как есть): %d"),
+            (self.int_gap, "разрывов между интервалами (как есть): %d"),
         ]
         noted = [t(tpl) % n for n, tpl in parts if n]
         if noted:
@@ -359,8 +361,9 @@ def assemble(collars, intervals, summary, eps=1e-9):
     """Интервалы по скважинам: словарь hole_id -> список Interval по frm.
 
     Интервалы без устья пропускаются (считаются, int_kept уменьшается,
-    чтобы итог сводки означал «дошло до чертежа»). Интервалы за забоем и
-    перехлёсты остаются как есть, только считаются.
+    чтобы итог сводки означал «дошло до чертежа»). Интервалы за забоем,
+    перехлёсты и разрывы между соседями остаются как есть, только
+    считаются: колонка рисуется по данным, дыры не заполняются.
     """
     holes = {}
     for it in intervals:
@@ -378,6 +381,11 @@ def assemble(collars, intervals, summary, eps=1e-9):
                 summary.int_beyond_eoh += 1
             if prev_to is not None and it.frm < prev_to - eps:
                 summary.int_overlap += 1
+            elif prev_to is not None and it.frm > prev_to + eps:
+                # дыра в колонке: между интервалами нет описания. Ничего не
+                # выдумываем, только считаем - на чертеже это выглядит как
+                # разрыв колонки, и вопрос всегда к данным, а не к рисованию
+                summary.int_gap += 1
             prev_to = max(prev_to, it.to) if prev_to is not None else it.to
     return holes
 

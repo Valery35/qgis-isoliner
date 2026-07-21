@@ -38,6 +38,7 @@ The tools are split into five Processing groups — **"Grid and isolines"**, **"
 - **2.09 Peaks** — local maxima with two filters: the radius suppresses secondary tops, the drop cuts off bumps.
 - **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Also outputs gauge points for 2.15.
 - **2.15 Gauge point report** — watershed morphometry from a closure point: area, elevations, mean basin slope, length, fall and slope of the main stream. Polygons with attributes and an HTML report.
+- **2.16 Catchment of a line (ditch)** — the area intercepted by a hillside ditch or a gutter: the trace is rasterised and taken as the intake, the catchment is collected by flow. Burning the trace is a separate checkbox.
 
 ### "3. Additional analysis tools" group
 
@@ -286,6 +287,9 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
+- **4.7.1** — palette reading without the xml modules: a self-written scanner replaces the standard parser that the repository security scan rejects.
+- **4.7.0** — the Leapfrog colour palette (.lfc) in 4.01 and 4.02, the new 2.16 Catchment of a line (ditch) tool, demo ditch traces in 2.10, and gap counting in borehole columns.
+- **4.6.1** — Qt6 compatibility per the repository check: the fallback colour category used an empty QVariant instead of NULL from qgis.core. The pytest cache is no longer shipped, the secret scanner treated it as a finding.
 - **4.6.0** — the new 2.15 Gauge point report tool (watershed morphometry from a closure point), demo gauge points in 2.10, demo placement next to the project layers, a fix for the QGIS crash on loading several output layers, and removal of the legacy h1...h6 demo boreholes.
 - **4.5.0** — 4.02: column clipping by the drawing instead of roof and floor lines, one input takes the band polygons from 4.01.
 - **4.4.0** — 4.02: column clipping by the roof and floor lines from 4.04.

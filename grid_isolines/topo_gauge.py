@@ -177,3 +177,138 @@ def report_lines(rep, tr=None):
         f(rep.get("stream_km"), "%.3f"), f(rep.get("stream_fall_m")),
         f(rep.get("stream_ppm"), "%.1f"), f(rep.get("z_gauge"))))
     return out
+
+
+# --- линейный водосбор: канава, лоток, дорога ----------------------------
+#
+# Задача из QGIS Курилки: площадь водосбора нагорной канавы, которой нет на
+# ЦМР. Врезать трассу в рельеф для этого не нужно. Трасса растеризуется в
+# ячейки, все они берутся семенами, и водосбор это множество ячеек, чей путь
+# стока приходит в любую ячейку трассы. Врезка нужна для другого вопроса -
+# удержит ли канава поток, - и потому остаётся отдельной необязательной
+# операцией.
+
+def cells_along_polyline(vertices, origin_x, origin_y, cell, shape,
+                         step=0.5):
+    """Ячейки, через которые проходит ломаная: список плоских индексов.
+
+    vertices - точки (x, y) в координатах карты, origin_x и origin_y -
+    левый верхний угол грида, cell - размер ячейки, shape - (ny, nx).
+    Сегменты идут с шагом step ячейки, поэтому пропусков на диагоналях нет.
+    Порядок обхода сохраняется, повторы убираются, точки вне грида
+    отбрасываются (трасса может выходить за рамку ЦМР).
+    """
+    ny, nx = shape
+    out, seen = [], set()
+    if not vertices:
+        return out
+
+    def _put(x, y):
+        c = int(math.floor((x - origin_x) / cell))
+        r = int(math.floor((origin_y - y) / cell))
+        if 0 <= r < ny and 0 <= c < nx:
+            idx = r * nx + c
+            if idx not in seen:
+                seen.add(idx)
+                out.append(idx)
+
+    _put(*vertices[0])
+    for i in range(1, len(vertices)):
+        x1, y1 = vertices[i - 1]
+        x2, y2 = vertices[i]
+        d = math.hypot(x2 - x1, y2 - y1)
+        n = max(1, int(math.ceil(d / (cell * float(step)))))
+        for k in range(1, n + 1):
+            t = k / float(n)
+            _put(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t)
+    return out
+
+
+def polyline_length(vertices):
+    """Длина ломаной в единицах карты."""
+    return sum(math.hypot(vertices[i][0] - vertices[i - 1][0],
+                          vertices[i][1] - vertices[i - 1][1])
+               for i in range(1, len(vertices)))
+
+
+def catchment_mask(downstream, shape, seed_idxs):
+    """Водосбор набора ячеек: True у всех, чей путь стока приходит в любое
+    из семян. Сами семена входят в водосбор."""
+    seeds = {int(i): 1 for i in seed_idxs}
+    if not seeds:
+        return np.zeros(shape, dtype=bool)
+    return topo_flow.basins(downstream, shape, seeds=seeds) == 1
+
+
+def burn_trace(z, seed_idxs, depth, nodata_mask=None):
+    """Врезка трассы: копия рельефа, опущенная на depth в ячейках трассы.
+
+    Меняет гидрологию нарочно и применяется только по просьбе пользователя:
+    отвечает на вопрос «удержит ли канава поток», а не «какую площадь она
+    перехватывает». Ячейки nodata не трогаются.
+    """
+    out = np.array(z, dtype=np.float64, copy=True)
+    if depth <= 0 or not len(seed_idxs):
+        return out
+    flat = out.ravel()
+    idx = np.asarray(list(seed_idxs), dtype=np.int64)
+    if nodata_mask is not None:
+        keep = ~np.asarray(nodata_mask, dtype=bool).ravel()[idx]
+        idx = idx[keep]
+    flat[idx] -= float(depth)
+    return out
+
+
+# ключи отчёта по линейному водосбору, в порядке вывода
+DITCH_KEYS = (
+    "area_km2",       # площадь водосбора, км²
+    "z_mean",         # средняя высота, м
+    "z_min",          # минимальная высота, м
+    "z_max",          # максимальная высота, м
+    "slope_mean",     # средний уклон водосбора (в единицах растра)
+    "trace_km",       # длина трассы, км
+    "trace_cells",    # ячеек трассы на гриде
+    "cells",          # ячеек в водосборе
+)
+
+
+def ditch_report(z, downstream, shape, seed_idxs, cellsize, trace_len=None,
+                 slope=None, nodata_mask=None):
+    """Морфометрия водосбора линии: словарь по DITCH_KEYS.
+
+    Трассировки главного водотока здесь нет: у линейного приёмника она
+    бессмысленна, вода приходит в трассу со всей площади. Недоступные
+    величины отдаются как None, а не как ноль.
+    """
+    mask = catchment_mask(downstream, shape, seed_idxs)
+    if nodata_mask is not None:
+        mask = mask & ~np.asarray(nodata_mask, dtype=bool)
+    rep = dict.fromkeys(DITCH_KEYS)
+    n_cells = int(mask.sum())
+    rep["cells"] = n_cells
+    rep["trace_cells"] = len(seed_idxs)
+    rep["area_km2"] = n_cells * float(cellsize) ** 2 / 1e6
+    rep["z_mean"], rep["z_min"], rep["z_max"] = zonal_stats(
+        z, mask, nodata_mask)
+    if slope is not None:
+        rep["slope_mean"], _, _ = zonal_stats(slope, mask, nodata_mask)
+    if trace_len is not None:
+        rep["trace_km"] = float(trace_len) / 1000.0
+    return rep
+
+
+def ditch_report_lines(rep, tr=None):
+    """Сводка по линейному водосбору для экрана: две строки."""
+    t = tr if tr is not None else (lambda s: s)
+
+    def f(v, fmt="%.2f"):
+        return "-" if v is None else fmt % v
+
+    return [
+        t("Водосбор: %s км², высоты %s...%s м, средняя %s м.") % (
+            f(rep.get("area_km2"), "%.3f"), f(rep.get("z_min")),
+            f(rep.get("z_max")), f(rep.get("z_mean"))),
+        t("Трасса: %s км, ячеек трассы %s, ячеек водосбора %s.") % (
+            f(rep.get("trace_km"), "%.3f"), rep.get("trace_cells"),
+            rep.get("cells")),
+    ]

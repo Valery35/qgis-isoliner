@@ -445,6 +445,110 @@ def test_summary_lines_translator():
     assert all("%" in t for t in seen if "из" not in t or "%d" in t)
 
 
+# --- разрывы в колонке ----------------------------------------------------
+
+def test_gaps_counted_not_filled():
+    """Дыра между интервалами считается, но ничем не заполняется: колонка
+    рисуется по данным. Симптом на чертеже - разрыв колонки, и это вопрос
+    к таблице интервалов, а не к рисованию."""
+    s = dh.ReadSummary()
+    collars = dh.read_collars([("A", 0.0, 0.0, 100.0, 60.0)], s)
+    intervals = dh.read_intervals([
+        ("A", 0.0, 10.0, "Q"),
+        ("A", 25.0, 40.0, "В"),     # дыра 10..25
+        ("A", 40.0, 55.0, "АБ"),    # стык без дыры
+    ], s)
+    holes = dh.assemble(collars, intervals, s)
+    assert s.int_gap == 1
+    assert s.int_overlap == 0
+    assert len(holes["A"]) == 3     # ничего не выдумано и не удалено
+    assert "разрывов между интервалами (как есть): 1" in " ".join(s.lines())
+
+
+def test_overlap_and_gap_are_separate():
+    s = dh.ReadSummary()
+    collars = dh.read_collars([("A", 0.0, 0.0, 100.0, 60.0)], s)
+    dh.assemble(collars, dh.read_intervals([
+        ("A", 0.0, 20.0, "a"),
+        ("A", 15.0, 30.0, "b"),     # перехлёст
+        ("A", 45.0, 50.0, "c"),     # разрыв
+    ], s), s)
+    assert (s.int_overlap, s.int_gap) == (1, 1)
+
+
+def test_clean_column_has_no_gaps():
+    s = dh.ReadSummary()
+    collars = dh.read_collars([("A", 0.0, 0.0, 100.0, 30.0)], s)
+    dh.assemble(collars, dh.read_intervals([
+        ("A", 0.0, 10.0, "a"), ("A", 10.0, 20.0, "b"),
+        ("A", 20.0, 30.0, "c")], s), s)
+    assert s.int_gap == 0
+    assert len(s.lines()) == 1
+
+
+# --- регрессия обрезки по чертежу -----------------------------------------
+
+def _ring(y_top, y_bot, x0=0.0, x1=200.0):
+    return [(x0, y_top), (x1, y_top), (x1, y_bot), (x0, y_bot), (x0, y_top)]
+
+
+class _Seg:
+    """Интервал-заглушка для обрезки: ядру нужны только поля."""
+
+    def __init__(self, code):
+        self.code = code
+        self.frm, self.to, self.extra = 0.0, 1.0, []
+
+
+def _column(segs, stick):
+    return dh.Column("131д", 100.0, 0.0, segs, stick, stick[0])
+
+
+def test_clip_trims_last_interval_to_sheet_bottom():
+    """Интервал, уходящий ниже подошвы чертежа, подрезается до подошвы, а
+    не удаляется: колонка кончается ровно на чертеже."""
+    parts = [_ring(100.0, -50.0)]
+    col = _column([(90.0, 20.0, _Seg("A")), (20.0, -20.0, _Seg("B")),
+                   (-20.0, -120.0, _Seg("C"))], (90.0, -120.0))
+    cnt = {}
+    out = dh.clip_columns_profile([col], parts, parts, cnt)[0]
+    assert [round(b, 3) for _, b, _ in out.segments] == [20.0, -20.0, -50.0]
+    assert out.stick == (90.0, -50.0)
+    assert cnt["n_clip_cut"] == 1 and cnt["n_clip_out"] == 0
+
+
+def test_clip_drops_interval_fully_below_sheet():
+    parts = [_ring(100.0, -50.0)]
+    col = _column([(90.0, 20.0, _Seg("A")), (-60.0, -90.0, _Seg("D"))],
+                  (90.0, -90.0))
+    cnt = {}
+    out = dh.clip_columns_profile([col], parts, parts, cnt)[0]
+    assert [i.code for _, _, i in out.segments] == ["A"]
+    assert out.stick == (90.0, -50.0)      # ствол всё равно до подошвы
+    assert cnt["n_clip_out"] == 1 and cnt["n_holes_out"] == 0
+
+
+def test_clip_leaves_shallow_hole_alone():
+    """Скважина мельче чертежа обрезкой не трогается: короткая колонка на
+    чертеже это данные, а не обрезка."""
+    parts = [_ring(100.0, -50.0)]
+    col = _column([(90.0, 60.0, _Seg("A"))], (90.0, 55.0))
+    cnt = {}
+    out = dh.clip_columns_profile([col], parts, parts, cnt)[0]
+    assert out.stick == (90.0, 55.0)
+    assert cnt == {"n_clip_cut": 0, "n_clip_out": 0, "n_holes_out": 0}
+
+
+def test_clip_ignores_column_outside_sheet_span():
+    """За торцом чертежа огибающей нет, и колонка остаётся как есть."""
+    parts = [_ring(100.0, -50.0, x0=0.0, x1=50.0)]
+    col = _column([(90.0, -120.0, _Seg("A"))], (90.0, -120.0))   # d = 100
+    cnt = {}
+    out = dh.clip_columns_profile([col], parts, parts, cnt)[0]
+    assert out.stick == (90.0, -120.0)
+    assert cnt["n_clip_cut"] == 0
+
+
 def _run():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]
