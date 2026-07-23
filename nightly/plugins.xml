@@ -10,8 +10,8 @@
     <repository>https://github.com/Valery35/qgis-isoliner</repository>
     <tags>kriging,geostatistics,variogram,interpolation,minimum curvature,cross-validation,contour,contours,isolines,hydrogeology,geology,gslib,raster,dem,terrain,topography,hydrology,watershed,flow accumulation,river network,slope,aspect,anudem,topo2raster,copernicus,gedtm30,openstreetmap</tags>
     <author_name>ООО «Информ++»</author_name>
-    <file_name>grid_isolines.zip</file_name>
-    <download_url>https://github.com/Valery35/qgis-isoliner/releases/download/nightly/grid_isolines.zip</download_url>
+    <file_name>grid_isolines_nightly.zip</file_name>
+    <download_url>https://github.com/Valery35/qgis-isoliner/releases/download/nightly/grid_isolines_nightly.zip</download_url>
     <experimental>True</experimental>
     <deprecated>False</deprecated>
   </pyqgis_plugin>

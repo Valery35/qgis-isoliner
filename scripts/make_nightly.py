@@ -7,7 +7,7 @@
 
 Что делает:
 1. Читает grid_isolines/metadata.txt (версия, описание, ссылки).
-2. Собирает dist/grid_isolines.zip, принудительно ставя в нём
+2. Собирает dist/grid_isolines_nightly.zip, принудительно ставя в нём
    experimental=True. Флаг обязателен: без него ночная сборка перекрыла бы
    каталожную версию у всех, кто подключил оба репозитория, - эксперименталки
    же видны только при включённой галке показа экспериментальных модулей.
@@ -18,8 +18,14 @@
 - закоммитить и запушить nightly/plugins.xml;
 - заменить ассет в релизе nightly файлом dist/grid_isolines.zip
   (в вебе: Releases -> nightly -> Edit -> удалить старый ассет, положить
-  новый; из консоли: gh release upload nightly dist/grid_isolines.zip
-  --clobber).
+  новый; из консоли: gh release upload nightly
+  dist/grid_isolines_nightly.zip --clobber).
+
+Имя архива ночной НЕ grid_isolines.zip нарочно: QGIS различает модули по
+имени zip до первой точки, и при совпадении с каталожным именем сведения
+из официального каталога затирают ночные при слиянии репозиториев.
+Внутри архива корневая папка остаётся grid_isolines, ставится модуль в ту
+же папку.
 
 Каталог tests/ в ночной архив входит, как заведено для рабочих сборок.
 """
@@ -35,7 +41,7 @@ DIST = ROOT / "dist"
 NIGHTLY = ROOT / "nightly"
 
 DOWNLOAD_URL = ("https://github.com/Valery35/qgis-isoliner/"
-                "releases/download/nightly/grid_isolines.zip")
+                "releases/download/nightly/grid_isolines_nightly.zip")
 
 SKIP_DIRS = {"__pycache__", ".pytest_cache", ".git"}
 SKIP_SUFFIXES = {".pyc", ".pyo"}
@@ -64,7 +70,7 @@ def read_metadata():
 
 def build_zip(meta_text):
     DIST.mkdir(exist_ok=True)
-    out = DIST / "grid_isolines.zip"
+    out = DIST / "grid_isolines_nightly.zip"
     nightly_meta = re.sub(r"^experimental=.*$", "experimental=True",
                           meta_text, count=1, flags=re.M)
     if "experimental=True" not in nightly_meta:
@@ -102,7 +108,7 @@ def write_plugins_xml(meta):
         "    <repository>%s</repository>\n"
         "    <tags>%s</tags>\n"
         "    <author_name>%s</author_name>\n"
-        "    <file_name>grid_isolines.zip</file_name>\n"
+        "    <file_name>grid_isolines_nightly.zip</file_name>\n"
         "    <download_url>%s</download_url>\n"
         "    <experimental>True</experimental>\n"
         "    <deprecated>False</deprecated>\n"
