@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugins>
+  <pyqgis_plugin name="Isoliner - грид и изолинии" version="4.13.0">
+    <description>2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in QGIS. Кригинг 2D (GSLIB KB2D) и построение изолиний/контурных полигонов в QGIS.</description>
+    <version>4.13.0</version>
+    <qgis_minimum_version>3.16</qgis_minimum_version>
+    <qgis_maximum_version>4.99</qgis_maximum_version>
+    <homepage>https://github.com/Valery35/qgis-isoliner</homepage>
+    <tracker>https://github.com/Valery35/qgis-isoliner/issues</tracker>
+    <repository>https://github.com/Valery35/qgis-isoliner</repository>
+    <tags>kriging,geostatistics,variogram,interpolation,minimum curvature,cross-validation,contour,contours,isolines,hydrogeology,geology,gslib,raster,dem,terrain,topography,hydrology,watershed,flow accumulation,river network,slope,aspect,anudem,topo2raster,copernicus,gedtm30,openstreetmap</tags>
+    <author_name>ООО «Информ++»</author_name>
+    <file_name>grid_isolines.zip</file_name>
+    <download_url>https://github.com/Valery35/qgis-isoliner/releases/download/nightly/grid_isolines.zip</download_url>
+    <experimental>True</experimental>
+    <deprecated>False</deprecated>
+  </pyqgis_plugin>
+</plugins>
