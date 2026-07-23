@@ -1,0 +1,203 @@
+<?xml version='1.0' encoding='utf8'?>
+<LeapfrogColourPalette type="legend" version="1.0">
+  <Entry>
+    <Code>алевролит</Code>
+    <Colour>0.545098039216 0.411764705882 0.078431372549</Colour>
+  </Entry>
+  <Entry>
+    <Code>ангидрит</Code>
+    <Colour>0.00939955748836 0.972701609827 0.934386205844</Colour>
+  </Entry>
+  <Entry>
+    <Code>аргиллит</Code>
+    <Colour>0.545098039216 0.41174944686 0.0784161135271</Colour>
+  </Entry>
+  <Entry>
+    <Code>брекчия</Code>
+    <Colour>0.937880521859 0.0370336461433 0.937880521859</Colour>
+  </Entry>
+  <Entry>
+    <Code>галька</Code>
+    <Colour>0.275 0.6375 1.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>галька с песком</Code>
+    <Colour>0.69 1.0 0.38</Colour>
+  </Entry>
+  <Entry>
+    <Code>гипс</Code>
+    <Colour>0.00939955748836 0.972701609827 0.934386205844</Colour>
+  </Entry>
+  <Entry>
+    <Code>гипсово-глинистая порода</Code>
+    <Colour>0.170534828717 0.837430380713 0.810894941634</Colour>
+  </Entry>
+  <Entry>
+    <Code>гипсово-мергелистая порода</Code>
+    <Colour>0.1 0.55 1.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>глина</Code>
+    <Colour>0.301960784314 0.301960784314 0.301960784314</Colour>
+  </Entry>
+  <Entry>
+    <Code>глина мергелистая или известковистая</Code>
+    <Colour>0.749019607843 0.749019607843 0.749019607843</Colour>
+  </Entry>
+  <Entry>
+    <Code>глина песчанистая</Code>
+    <Colour>1.0 0.38 0.69</Colour>
+  </Entry>
+  <Entry>
+    <Code>глина с щебенем</Code>
+    <Colour>1.0 0.52 1.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>глинисто-ангидритовая порода</Code>
+    <Colour>0.725 0.45 1.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>гравелит</Code>
+    <Colour>0.545098039216 0.41174944686 0.0784161135271</Colour>
+  </Entry>
+  <Entry>
+    <Code>гравий</Code>
+    <Colour>0.45 1.0 1.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>доломит</Code>
+    <Colour>0.435187304494 0.685328450446 0.435187304494</Colour>
+  </Entry>
+  <Entry>
+    <Code>доломит-ангидритовая порода</Code>
+    <Colour>1.0 0.6375 0.275</Colour>
+  </Entry>
+  <Entry>
+    <Code>известняк</Code>
+    <Colour>0.148134584573 0.961165789273 0.148134584573</Colour>
+  </Entry>
+  <Entry>
+    <Code>известняк глинистый</Code>
+    <Colour>0.138887617304 0.811383230335 0.138887617304</Colour>
+  </Entry>
+  <Entry>
+    <Code>известняк доломитизированный</Code>
+    <Colour>0.435187304494 0.685328450446 0.435187304494</Colour>
+  </Entry>
+  <Entry>
+    <Code>известняк кремнистый</Code>
+    <Colour>0.148134584573 0.961165789273 0.148134584573</Colour>
+  </Entry>
+  <Entry>
+    <Code>каменная соль</Code>
+    <Colour>0.117647058824 0.564705882353 1.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>каменная соль замещения</Code>
+    <Colour>0.678614480812 0.0185244525826 0.678614480812</Colour>
+  </Entry>
+  <Entry>
+    <Code>каменная соль с ангидрит-мергелистой породой</Code>
+    <Colour>1.0 0.1 0.1</Colour>
+  </Entry>
+  <Entry>
+    <Code>каменная соль с зернами карналлита</Code>
+    <Colour>0.625 0.625 1.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>каменная соль с зернами сильвина</Code>
+    <Colour>0.45 1.0 0.45</Colour>
+  </Entry>
+  <Entry>
+    <Code>карналлит</Code>
+    <Colour>1.0 1.0 0.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>керна нет</Code>
+    <Colour>1.0 1.0 1.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>конгломерат</Code>
+    <Colour>1.0 0.66 0.66</Colour>
+  </Entry>
+  <Entry>
+    <Code>мергель</Code>
+    <Colour>0.0 0.501960784314 0.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>мергель глинистый</Code>
+    <Colour>0.0 0.501960784314 0.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>мергель доломитизированный</Code>
+    <Colour>0.0 0.501960784314 0.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>мергель кремнистый</Code>
+    <Colour>0.625 1.0 1.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>мергель с включениями гипса</Code>
+    <Colour>0.1 1.0 0.1</Colour>
+  </Entry>
+  <Entry>
+    <Code>песок</Code>
+    <Colour>0.545098039216 0.41174944686 0.0784161135271</Colour>
+  </Entry>
+  <Entry>
+    <Code>песок глинистый</Code>
+    <Colour>0.1 0.1 1.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>песчаник</Code>
+    <Colour>0.545098039216 0.411764705882 0.078431372549</Colour>
+  </Entry>
+  <Entry>
+    <Code>почвенно-растительный слой</Code>
+    <Colour>1.0 1.0 1.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>сильвинит</Code>
+    <Colour>1.0 0.8125 0.625</Colour>
+  </Entry>
+  <Entry>
+    <Code>сильвинит вторичный серый</Code>
+    <Colour>1.0 0.45 0.725</Colour>
+  </Entry>
+  <Entry>
+    <Code>сильвинит красный</Code>
+    <Colour>1.0 0.0 0.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>сильвинит пестрый</Code>
+    <Colour>1.0 0.0 0.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>сильвинит полосчатый</Code>
+    <Colour>1.0 0.0 0.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>сильвинит с каменной солью</Code>
+    <Colour>0.625 1.0 0.8125</Colour>
+  </Entry>
+  <Entry>
+    <Code>смешанные соли</Code>
+    <Colour>1.0 0.275 0.6375</Colour>
+  </Entry>
+  <Entry>
+    <Code>суглинок</Code>
+    <Colour>0.545098039216 0.41174944686 0.0784161135271</Colour>
+  </Entry>
+  <Entry>
+    <Code>супесь</Code>
+    <Colour>0.545098039216 0.41174944686 0.0784161135271</Colour>
+  </Entry>
+  <Entry>
+    <Code>торф</Code>
+    <Colour>0.55 0.1 1.0</Colour>
+  </Entry>
+  <Entry>
+    <Code>щебень</Code>
+    <Colour>0.545098039216 0.411764705882 0.078431372549</Colour>
+  </Entry>
+</LeapfrogColourPalette>

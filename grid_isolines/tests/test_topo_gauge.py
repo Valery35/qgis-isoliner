@@ -240,6 +240,81 @@ def test_cells_along_polyline_clips_and_dedups():
     assert len(got) == len(set(got))          # повторов нет
 
 
+def test_cells_in_polygon_square():
+    """Квадрат 3x3 ячейки: внутренность строчной развёрткой, контур в тех
+    же ячейках, ничего лишнего."""
+    ox, oy, cell = _grid_geo()
+    ny, nx = 6, 6
+    # x 22..48, y -48..-22: центры ячеек 25/35/45 внутри по обеим осям
+    ring = [(22, -22), (48, -22), (48, -48), (22, -48), (22, -22)]
+    got = set(tg.cells_in_polygon([ring], ox, oy, cell, (ny, nx)))
+    want = {r * nx + c for r in range(2, 5) for c in range(2, 5)}
+    assert got == want
+
+
+def test_cells_in_polygon_tiny_boundary_only():
+    """Полигон меньше ячейки: ни один центр не внутри, ячейку даёт контур."""
+    ox, oy, cell = _grid_geo()
+    ring = [(21, -21), (23, -21), (23, -23), (21, -23)]
+    got = tg.cells_in_polygon([ring], ox, oy, cell, (6, 6))
+    assert got == [2 * 6 + 2]
+
+
+def test_cells_in_polygon_clips_to_grid():
+    """Кольцо шире грида: наружные ячейки отбрасываются, дублей нет."""
+    ox, oy, cell = _grid_geo()
+    ny, nx = 3, 3
+    ring = [(-50, 50), (80, 50), (80, -80), (-50, -80)]
+    got = tg.cells_in_polygon([ring], ox, oy, cell, (ny, nx))
+    assert sorted(got) == list(range(ny * nx))
+    assert len(got) == len(set(got))
+
+
+def test_polygon_seed_catchment_over_depression():
+    """Затравка карьера внутренностью: снаружи трассировка по реальному
+    рельефу, внутри залитой ямы условные направления не мешают.
+
+    Канал рядов 2..4 падает на запад и огорожен гребнями в рядах 1 и 5,
+    в середине канала (столбцы 2..4) вырыта яма глубиной 5. После
+    заполнения вода канала восточнее ямы идёт на запад сквозь неё,
+    гребни сливаются в канал по прямой, ряды 0 и 6 идут мимо, всё
+    западнее ямы лежит ниже по стоку и в водосбор не входит.
+    """
+    ox, oy, cell = _grid_geo()
+    ny, nx = 7, 7
+    c = np.arange(nx, dtype=np.float64)[None, :]
+    z = np.tile(c * 0.1, (ny, 1))
+    z[1, :] += 100.0
+    z[5, :] += 100.0
+    z[0, :] += 0.05     # крайние ряды чуть выше, чтобы гребень
+    z[6, :] += 0.05     # сливался в канал без ничьих по уклону
+    z[2:5, 2:5] -= 5.0
+    from grid_isolines import hydro_fill
+    zf, _n, _m = hydro_fill.fill_depressions(z, epsilon=1e-3)
+    _, down = topo_flow.d8_directions(zf)
+    ring = [(22, -22), (48, -22), (48, -48), (22, -48)]
+    seeds = tg.cells_in_polygon([ring], ox, oy, cell, (ny, nx))
+    assert set(seeds) == {r * nx + cc for r in range(2, 5)
+                          for cc in range(2, 5)}
+    m = tg.catchment_mask(down, (ny, nx), seeds)
+    want = np.zeros((ny, nx), dtype=bool)
+    want[2:5, 2:5] = True     # сама затравка
+    want[2:5, 5:] = True      # канал восточнее ямы
+    want[1, 2:] = True        # гребни сливаются в канал по прямой на юг
+    want[5, 2:] = True        # и на север, восточнее западного края ямы
+    assert (m == want).all()
+
+
+def test_ditch_report_seed_km2():
+    z, down, acc, shape = _valley()
+    nx = shape[1]
+    seeds = [3 * nx + c for c in range(nx)]
+    rep = tg.ditch_report(z, down, shape, seeds, CELL)
+    assert abs(rep["seed_km2"] - nx * CELL * CELL / 1e6) < 1e-12
+    assert "seed_km2" in tg.DITCH_KEYS
+    assert len(set(tg.DITCH_KEYS)) == len(tg.DITCH_KEYS)
+
+
 def test_polyline_length():
     assert abs(tg.polyline_length([(0, 0), (30, 40)]) - 50.0) < 1e-9
     assert tg.polyline_length([(0, 0)]) == 0.0

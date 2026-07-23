@@ -841,6 +841,53 @@ def data_warnings(xs, ys, vs, min_points=8):
     return out
 
 
+def nugget_pairs(xs, ys, vs, maxdist, top=5, chunk=1024):
+    """Пары точек, формирующие наггет: близкие по плану, далёкие по значению.
+
+    Наггет это разброс на нулевом расстоянии, и в разреженной сети его почти
+    всегда задают единицы пар. Две скважины в десятках метров с несопоставимыми
+    значениями поднимают первый лаг выше силла, подбору остаётся описать это
+    почти чистым наггетом, а кригинг по такой модели возвращает среднее.
+    Функция называет виновников, чтобы можно было посмотреть в данные, а не
+    гадать по форме кривой.
+
+    Возвращает список кортежей (i, j, dist, vi, vj, gamma), где
+    gamma = 0.5*(vi - vj)**2 - вклад пары в вариограмму. Список отсортирован по
+    gamma по убыванию и не длиннее top, учитываются только пары ближе maxdist.
+    Обход блоками: полная матрица расстояний не создаётся, размер блока
+    подбирается так, чтобы промежуточные массивы оставались небольшими.
+    """
+    xs = np.asarray(xs, float)
+    ys = np.asarray(ys, float)
+    vs = np.asarray(vs, float)
+    n = len(vs)
+    if n < 2 or not (float(maxdist) > 0.0):
+        return []
+    md2 = float(maxdist) ** 2
+    step = max(1, min(int(chunk), int(2000000 // max(n, 1)) or 1))
+    keep = max(int(top) * 4, 20)
+    best = []
+    cols = np.arange(n)
+    for i0 in range(0, n - 1, step):
+        i1 = min(i0 + step, n - 1)
+        rows = np.arange(i0, i1)
+        dx = xs[i0:i1, None] - xs[None, :]
+        dy = ys[i0:i1, None] - ys[None, :]
+        d2 = dx * dx + dy * dy
+        ok = (cols[None, :] > rows[:, None]) & (d2 <= md2)
+        r, c = np.nonzero(ok)
+        if not len(r):
+            continue
+        gi = rows[r]
+        g = 0.5 * (vs[gi] - vs[c]) ** 2
+        d = np.sqrt(d2[r, c])
+        best.extend(zip(gi.tolist(), c.tolist(), d.tolist(),
+                        vs[gi].tolist(), vs[c].tolist(), g.tolist()))
+        best.sort(key=lambda t: -t[5])
+        del best[keep:]
+    return [tuple(t) for t in best[:int(top)]]
+
+
 def _auto_indicator_variogram(xd, yd, ind, n_lags=15, maxlag=None):
     """Авто-вариограмма индикатора 0/1: сферическая модель по экспериментальной.
     Сферическая, потому что индикаторные вариограммы устойчивее и не уводят в

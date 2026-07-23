@@ -33,6 +33,7 @@ QGIS нет. Формат плоский, поэтому применяется 
 записей файла сохраняется - он пригодится легенде.
 """
 import io
+import os
 import re
 
 
@@ -233,6 +234,58 @@ def strip_role(text):
 APOSTROPHES = "'\u2019\u02bc\u0060\u00b4\""
 
 
+ROLE_TOP = ("_top", "_\u043a\u0440\u043e\u0432\u043b\u044f", "_\u0432\u0435\u0440\u0445", "-top", " top")
+ROLE_BOTTOM = ("_bottom", "_base", "_floor", "_\u043f\u043e\u0434\u043e\u0448\u0432\u0430",
+               "_\u043d\u0438\u0437", "-bottom", " bottom")
+ROLE_TOP_PREFIX = ("top_",)
+ROLE_BOTTOM_PREFIX = ("bottom_",)
+
+
+def surface_role(name):
+    """\u0420\u043e\u043b\u044c \u043f\u043e\u0432\u0435\u0440\u0445\u043d\u043e\u0441\u0442\u0438 \u0438 \u0435\u0451 \u043e\u0441\u043d\u043e\u0432\u0430: (top, bottom \u0438\u043b\u0438 None, \u043e\u0441\u043d\u043e\u0432\u0430).
+
+    KpII_top \u0434\u0430\u0451\u0442 (top, KpII), KpII_bottom \u0434\u0430\u0451\u0442 (bottom, KpII),
+    \u0438\u043c\u044f \u0431\u0435\u0437 \u043f\u0440\u0438\u0437\u043d\u0430\u043a\u0430 \u0440\u043e\u043b\u0438 \u0434\u0430\u0451\u0442 (None, \u0438\u043c\u044f \u043a\u0430\u043a \u0435\u0441\u0442\u044c).
+    """
+    t = str(name).strip()
+    low = t.lower()
+    for suf in ROLE_TOP:
+        if low.endswith(suf) and len(t) > len(suf):
+            return "top", t[:len(t) - len(suf)].strip(" _-")
+    for suf in ROLE_BOTTOM:
+        if low.endswith(suf) and len(t) > len(suf):
+            return "bottom", t[:len(t) - len(suf)].strip(" _-")
+    for pre in ROLE_TOP_PREFIX:
+        if low.startswith(pre) and len(t) > len(pre):
+            return "top", t[len(pre):].strip(" _-")
+    for pre in ROLE_BOTTOM_PREFIX:
+        if low.startswith(pre) and len(t) > len(pre):
+            return "bottom", t[len(pre):].strip(" _-")
+    return None, t
+
+
+def body_from_pair(top_name, bottom_name):
+    """\u0422\u0435\u043b\u043e \u043c\u0435\u0436\u0434\u0443 \u0434\u0432\u0443\u043c\u044f \u043f\u043e\u0432\u0435\u0440\u0445\u043d\u043e\u0441\u0442\u044f\u043c\u0438: (\u043a\u043e\u0434, \u0432\u0438\u0434) \u0438\u043b\u0438 (None, None).
+
+    \u041f\u0440\u0430\u0432\u0438\u043b\u043e \u0434\u0435\u0440\u0436\u0438\u0442\u0441\u044f \u043d\u0430 \u043a\u043e\u043d\u0432\u0435\u043d\u0446\u0438\u0438 \u0438\u043c\u0451\u043d \u043f\u043e\u0432\u0435\u0440\u0445\u043d\u043e\u0441\u0442\u0435\u0439:
+      \u043a\u0440\u043e\u0432\u043b\u044f X_top \u0438 \u043f\u043e\u0434\u043e\u0448\u0432\u0430 X_bottom - \u044d\u0442\u043e \u043f\u043b\u0430\u0441\u0442 X, \u0432\u0438\u0434 bed;
+      \u043a\u0440\u043e\u0432\u043b\u044f X_bottom \u0438 \u043f\u043e\u0434\u043e\u0448\u0432\u0430 Y_top - \u044d\u0442\u043e \u043c\u0435\u0436\u043f\u043b\u0430\u0441\u0442\u044c\u0435 X-Y, \u0432\u0438\u0434 interbed.
+
+    \u041f\u043e\u0440\u044f\u0434\u043e\u043a \u0432 \u0441\u043e\u0441\u0442\u0430\u0432\u043d\u043e\u043c \u043a\u043e\u0434\u0435 \u0442\u043e\u0442 \u0436\u0435, \u0447\u0442\u043e \u0432 \u043f\u0430\u043b\u0438\u0442\u0440\u0430\u0445 Leapfrog: \u0432\u0435\u0440\u0445\u043d\u0438\u0439
+    \u044d\u043b\u0435\u043c\u0435\u043d\u0442 \u043f\u0435\u0440\u0432\u044b\u043c. \u0415\u0441\u043b\u0438 \u043f\u0430\u0440\u0430 \u043d\u0435 \u0441\u043a\u043b\u0430\u0434\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u043f\u043e \u043f\u0440\u0430\u0432\u0438\u043b\u0443, \u0432\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442\u0441\u044f
+    (None, None): \u043d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u0434\u043e\u0434\u0443\u043c\u044b\u0432\u0430\u0435\u043c.
+    """
+    rt, bt = surface_role(top_name)
+    rb, bb = surface_role(bottom_name)
+    if rt == "top" and rb == "bottom" and \
+            normalize_code(bt) == normalize_code(bb):
+        return bt, "bed"
+    if rt == "bottom" and rb == "top" and \
+            normalize_code(bt) != normalize_code(bb):
+        return "%s-%s" % (bt, bb), "interbed"
+    return None, None
+
+
 def normalize_code(text):
     """Код в вид для терпимого сравнения: без роли, без регистра, с
     латиницей, сложенной в кириллицу. Знаки кода (дефис, плюс) остаются:
@@ -258,17 +311,21 @@ class Palette:
     код пласта «КрII», а «A'Б_top» - код «АБ».
     """
 
-    __slots__ = ("colours", "order", "_ci", "_norm", "_loose")
+    __slots__ = ("colours", "order", "_ci", "_norm", "_loose", "_canon")
 
     def __init__(self, colours, order=None):
         self.colours = dict(colours)
         self.order = list(order) if order else list(colours)
         self._ci, self._norm, self._loose = {}, {}, {}
+        self._canon = {}
         for code in self.order:
             col = self.colours[code]
             self._ci.setdefault(str(code).strip().lower(), col)
             self._norm.setdefault(normalize_code(code), col)
             self._loose.setdefault(loose_code(code), col)
+            for key in (str(code).strip().lower(), normalize_code(code),
+                        loose_code(code)):
+                self._canon.setdefault(key, code)
 
     @classmethod
     def from_file(cls, path, summary=None):
@@ -292,6 +349,24 @@ class Palette:
         if col is not None:
             return col
         return self._loose.get(loose_code(code))
+
+    def canonical(self, code):
+        """Написание кода так, как оно стоит в палитре, или None.
+
+        Нужно подписям легенды: в данных лежит «KpII_top», а на чертеже
+        читатель должен видеть «КрII». Значение категории при этом не
+        меняется, иначе рендерер перестанет попадать в данные.
+        """
+        if code is None:
+            return None
+        if code in self.colours:
+            return code
+        for key in (str(code).strip().lower(), normalize_code(code),
+                    loose_code(code)):
+            got = self._canon.get(key)
+            if got is not None:
+                return got
+        return None
 
     def rank(self, code):
         """Позиция кода в файле или len(order), если кода нет. Нужна для
@@ -320,3 +395,88 @@ class Palette:
 
     def __contains__(self, code):
         return self.get(code) is not None
+
+
+# --- запись палитры ------------------------------------------------------
+#
+# Обратный ход нужен, чтобы палитру можно было родить прямо в QGIS: человек
+# раскрасил слой категориями, инструмент вынул пары код-цвет и записал .lfc.
+# Тогда для стыковки чертежа с 3D и с чужими пакетами не нужен Leapfrog.
+
+PALETTE_HEADER = ("<?xml version='1.0' encoding='utf-8'?>\n"
+                  "<LeapfrogColourPalette type=\"legend\" version=\"1.0\">\n")
+PALETTE_FOOTER = "</LeapfrogColourPalette>\n"
+
+
+def _escape(text):
+    """Знаки XML в тексте кода. Свои сущности не изобретаем."""
+    out = str(text)
+    for src, dst in (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;")):
+        out = out.replace(src, dst)
+    return out
+
+
+def hex_to_fractions(colour):
+    """«#rrggbb» в три доли 0..1 или None."""
+    if not colour:
+        return None
+    t = str(colour).strip().lstrip("#")
+    if len(t) == 3:
+        t = "".join(ch * 2 for ch in t)
+    if len(t) not in (6, 8):
+        return None
+    try:
+        r = int(t[0:2], 16) / 255.0
+        g = int(t[2:4], 16) / 255.0
+        b = int(t[4:6], 16) / 255.0
+    except ValueError:
+        return None
+    return r, g, b
+
+
+def dump_palette(pairs):
+    """Текст палитры из пар (код, «#rrggbb»).
+
+    Порядок пар сохраняется: в нём геологический смысл. Повтор кода и
+    нечитаемый цвет пропускаются, пустой список даёт PaletteError - файл
+    без записей никому не нужен.
+    """
+    out, seen = [PALETTE_HEADER], set()
+    for code, colour in pairs or ():
+        code = ("" if code is None else str(code)).strip()
+        fr = hex_to_fractions(colour)
+        if not code or fr is None or code in seen:
+            continue
+        seen.add(code)
+        out.append("  <Entry>\n    <Code>%s</Code>\n"
+                   "    <Colour>%.12g %.12g %.12g</Colour>\n  </Entry>\n"
+                   % ((_escape(code),) + fr))
+    if len(out) == 1:
+        raise PaletteError("нечего записывать: ни одной пригодной пары")
+    out.append(PALETTE_FOOTER)
+    return "".join(out)
+
+
+def save_palette(path, pairs):
+    """Записать палитру в файл. Возвращает число записанных пар."""
+    text = dump_palette(pairs)
+    with io.open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return text.count("<Entry>")
+
+
+def bundled_dir():
+    """Папка палитр, поставляемых с плагином."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "palettes")
+
+
+def bundled_palettes():
+    """Список поставляемых палитр: (имя файла, полный путь)."""
+    folder = bundled_dir()
+    try:
+        names = sorted(n for n in os.listdir(folder)
+                       if n.lower().endswith(".lfc"))
+    except OSError:
+        return []
+    return [(n, os.path.join(folder, n)) for n in names]

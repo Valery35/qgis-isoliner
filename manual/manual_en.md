@@ -282,6 +282,8 @@ Builds isolines (lines) and, by default, contour polygons. Levels are set by a u
 | Min. line length | Drop lines shorter than the threshold (map units). 0 = no filter. | - |
 | Bicubic isoline smoothing | Densifies the grid (×2…×4) by bicubic interpolation before contouring - the main isoline-smoothing method, removes "octagons" from a coarse grid. Works for both lines and polygons. off = no densification. | off (×4 on a coarse grid) |
 | Line rounding (Chaikin), iterations | An extra light line rounding (Chaikin). Weaker than bicubic smoothing; usually not needed if it is on. 0 = off. | 2 |
+| Write the value into the geometry Z | The level is written into the Z of the line vertices. Needed for DXF export: otherwise AutoCAD and Credo place the contours at zero elevation. | off |
+| Side of hachures and labels (adv.) | The downslope side for the depression-style hachures and the direction of the topographic labels, both at once. | automatic |
 | Value field name | The name of the level attribute in the output lines. | ELEV |
 | Band (adv.) | The band number of the input raster. | 1 |
 | Isolines / Contour polygons | The output layers. Polygons are built by default into a temporary layer. | - |
@@ -317,11 +319,21 @@ Polygons are created with a single symbol. For range fills set graduated symbolo
 
 The isoline layer is automatically placed above the polygon layer so the lines show over the fill.
 
+## The value in the geometry Z
+
+The **Write the value into the geometry Z** tick lifts the vertices of every line to its own elevation. A contour is a line of equal level, so the Z of all its vertices is the same and equals the field value.
+
+This is needed to hand the contours over to AutoCAD and Credo. The standard QGIS export (**Project - Import/Export - Export project to DXF**) keeps the Z of the vertices, you only need to clear the **Force 2D** tick. Without Z in the geometry both programs place every contour at zero elevation, and the height has to be set by hand line by line.
+
+The multipart structure of the layer is preserved: a contour of one level stays a single feature with all its branches, the feature count does not change and the labels do not multiply.
+
 ## Topographic labels
 
 On a topographic map the top of the figure on a contour always faces up the slope. Reading the map, a single label tells you which way is higher without checking the neighbouring contours.
 
 QGIS measures the top of a label from the direction of the line, so text rotation cannot achieve this. What is needed is to give the lines a single direction relative to the slope, and that is what the **Topographic labels** tick does. The layer keeps an **up_side** field: 1 means the line was left as it was, 0 that it was reversed.
+
+The automatic choice of side is sometimes wrong, and then it is switched by hand with the **Side of hachures and labels** parameter. The switch acts on both halves of the picture at once: the side of the hachures and the direction of the labels. It is applied exactly once - reversing a line already swaps left and right, and with them the sign of the downslope side, so a second flip would return the hachures to where they were.
 
 ### It does not work unless upside-down labels are allowed
 
@@ -477,6 +489,22 @@ The most common mistake is too large a maximum distance. If you leave the automa
 The cure is to reduce the maximum distance to the local scale and to check that the variogram has reached the plateau. On a grade example for one seam, with a 6-kilometre window the fit gave a range of about 9 kilometres and a sill below the variance, i.e. the curve had not yet reached the plateau. With a 12-kilometre window it did, giving a range of about 18 kilometres and a full sill close to the data variance. The real correlation range turned out larger than it looked in the narrow window, and the right answer came precisely from checking that the curve reaches the plateau.
 
 At the same time the window must not step over large barren zones. On a drilling grid they are visible by the drop in point density, and the variogram should be built within a single ore block, otherwise the local geology mixes with regional tectonics.
+
+## Where the nugget came from
+
+On a sparse grid the nugget is almost always set by a handful of pairs of points rather than by a cloud. Two wells a few tens of metres apart with incomparable values lift the first lag above the sill, all that is left for the fit is to describe this with an almost pure nugget, and kriging with such a model returns the mean instead of a map.
+
+The tool therefore prints a breakdown of the first lag to the log: the distance, the number of pairs in it and the value of gamma next to the data variance. If the gamma of the first lag already exceeds the overall variance, a separate warning says so - only a nugget can describe that.
+
+The heaviest pairs inside the first lag are then named: the distance between the points, both values, the gamma contribution and the coordinates of both points. The coordinates find the pair on the map at once, and from there it is a question about the data. A mixed-up horizon, a sign, the units - or genuine micro-variability, in which case the nugget is honest.
+
+## When the fit is good for nothing
+
+Two failures of the fit are silent: the parameters are printed, kriging runs without a single error and produces a flat field around the mean. The tool pulls both out into warnings.
+
+The first is a fit quality R2 below 0.1. The model explains next to nothing, and its parameters cannot be carried into kriging.
+
+The second is a nugget above half of the total sill. Correlation at short distances is not resolved: either the grid is sparser than the structure someone is trying to see, or the data contain those very pairs. Kriging with such a model smooths the estimate towards the mean and produces bull's eyes on the map, tight concentric rings around individual samples.
 
 ## The workflow with cross-validation
 
@@ -1209,9 +1237,11 @@ Run **2.10 Demo relief**: besides the raster it outputs the **Gauge points (demo
 
 The tool computes basin morphometry and nothing else. Discharges, runoff moduli, hydraulics and snowmelt are deliberately out of scope: that is computational hydrology by the codes of practice, a separate topic. Units are assumed metric, a DEM in metres in a metric coordinate system.
 
-# 2.16 Catchment of a line (ditch)
+Catchments are built from the topology of the relief. On terrain without clear flow boundaries - flat floodplains, hydraulic transfers and backwater - the result should be verified by hydrodynamic modelling.
 
-The tool computes the catchment area of a **linear intake**: a hillside ditch, a chute, a road gutter. The question is how much area the ditch intercepts when the ditch itself is not on the DEM yet.
+# 2.16 Catchment of a line or an outline (ditches, open pits)
+
+The tool computes the catchment area of an intake: a hillside ditch, a chute, a road gutter or the outline of an open pit. The question is how much area the intake intercepts when the intake itself is not on the DEM yet.
 
 ## How it works
 
@@ -1220,6 +1250,14 @@ Burning the trace into the relief is not needed for that. The trace is rasterise
 Rasterisation steps along the segments by half a cell, so there are no gaps at bends and diagonals through which water could slip past the intake.
 
 Catchments of neighbouring traces nest into each other: the ditch further downslope also gets what the upper one intercepts. This is the same behaviour as for gauges in 2.15, and it is the right one - every trace gets its full catchment rather than a remainder.
+
+## An outline instead of a line
+
+Both lines and polygons are accepted as input. A polygon is treated as an intake in its entirety: the outline and the whole area inside it.
+
+For an open pit this is essential. Inside it the pit is a depression, and once the depressions are filled the flow directions there become arbitrary - the traversal order of a flat filled surface assigns them at random. If only the line of the pit wall is taken as the intake, some of the inner cells will flow past it along those arbitrary directions and drag the outer ones with them. Relying on the whole interior removes the question: whatever happens to the directions inside the pit, its entire area is already in the catchment, while outside the water is traced along the real relief.
+
+The holes of a polygon enter the intake on equal terms with the rest of the area - there is no external relief inside the outline. A multipolygon is processed part by part. There is no longer any need to trace the wall with a line, the ready outline is supplied instead.
 
 ## Burning the trace
 
@@ -1236,8 +1274,9 @@ Burning changes the hydrology deliberately, so it is off by default and the resu
 | Minimum elevation | z_min | m |
 | Maximum elevation | z_max | m |
 | Mean catchment slope | slope_deg | degrees (Horn 3x3) |
-| Trace length | trace_km | km |
-| Trace cells | trace_cells | count |
+| Trace or outline length | trace_km | km |
+| Intake area | seed_km2 | sq. km |
+| Intake cells | trace_cells | count |
 | Cells in the catchment | cells | count |
 
 ## Parameters
@@ -1245,8 +1284,8 @@ Burning changes the hydrology deliberately, so it is off by default and the resu
 | Parameter | What it sets | Default / hint |
 |---|---|---|
 | Input DEM | Relief in metres in a metric CRS. | - |
-| Traces | A line layer, one feature per ditch. | - |
-| All traces as one catchment | A joint catchment instead of separate ones. | off |
+| Traces and outlines | Lines or polygons, one feature per intake. | - |
+| All features as one catchment | A joint catchment instead of separate ones. | off |
 | Burn the trace into the relief | The flow-holding check. | off |
 | Burn depth, m (adv.) | How far to lower the relief along the trace. | 2.0 |
 | Fill depressions | Relief preparation before the flow routing. | on |
@@ -1262,6 +1301,8 @@ Burning changes the hydrology deliberately, so it is off by default and the resu
 
 The tool answers the question about area, not about discharge. Discharges, runoff moduli and the capacity of the ditch belong to computational hydrology by the codes of practice and are out of scope. Units are assumed metric.
 
+Catchments are built from the topology of the relief. On terrain without clear flow boundaries - flat floodplains, hydraulic transfers and backwater - the result should be verified by hydrodynamic modelling.
+
 # 3.01 Categorical indicator kriging
 
 The **Categorical indicator kriging** tool builds a probability map from a categorical field: mineral type, lithotype, any text class. Unlike ordinary kriging, which interpolates a number, here it estimates how likely each class is at every point of the area. This is what you need where the type matters rather than the magnitude: where to expect replacement, where the seam composition changes, where the boundary between varieties runs.
@@ -1276,6 +1317,12 @@ Parameters:
 | Class probabilities (multiband) | Raster: one band per class, the class name in the band description. | - |
 | Zone map (most likely class) | Raster of the most-likely class code; the code mapping goes to the Log. | - |
 | Confidence (max probability) | Raster of the maximum probability: where the class is firm, where it is contested. | optional |
+| Probability levels | Levels for the vector boundaries, fractions from 0 to 1. | 0.25 0.5 0.75 |
+| Class for the contours | The class name exactly as in the class field. Empty = all classes. | empty |
+| Bicubic smoothing of the boundaries (adv.) | Grid densification before contouring, as in 1.04. | ×2 |
+| Boundary rounding (Chaikin), iterations (adv.) | An extra light rounding. | 2 |
+| Probability level boundaries (lines) | Level lines carrying the class and the level. | optional |
+| Probability bands (polygons) | Bands between the levels with a ready colouring. | optional |
 
 ## How it is computed
 
@@ -1291,12 +1338,28 @@ Three results. A multiband probability raster, one band per class, the class nam
 
 ![Categorical indicator kriging result: a map of the most likely mineral type, a silvinite background with replacement spots, boreholes drawn on top.](images/indk_result_en.png){width=85%}
 
+Another virtue shows itself on data with outliers. Ordinary kriging has to interpolate a magnitude, and a single anomalous sample breaks the variogram: a pair of nearby points with incomparable values lifts the nugget, and the map degenerates into the mean. An indicator works not with the magnitude but with the fact of belonging to a class, so an anomalous value in it is indistinguishable from any other on the same side of the threshold. Where the parameter behaves wildly and the question is binary in essence, the indicator path is more reliable than direct interpolation.
+
 The categorical approach is convenient because it needs no boundary drawn in advance. There is no need to decide whether partial replacement counts as dangerous. All types are mapped as they are, and the required combination of classes is assembled later from the probabilities. Rare classes with few boreholes give a noisy variogram, the tool warns about this in the log, so read the probability of such a class with caution.
 
 To learn the tool without real data, switch on **Add a categorical mineral-type field** in **Create sample wells (demo)**. A mintype field is added to the layer with a silvinite background and replacement spots after a mine, ready to run the tool on.
 
 With an uneven network you can set the optional **wt** weight field from tool **1.01 Declustering**. Each class indicator is then kriged toward its declustered proportion rather than zero, so far from the data the probability tends to the representative class proportion. Without weights the behaviour is unchanged.
 
+
+## Vector boundaries from the probabilities
+
+The zone map answers the question of who wins in a cell, and that is often not enough. Planning needs the transition band instead: where the class is firm, where it is contested, where the other class is firm. Two optional vector outputs give exactly that, both off by default.
+
+The levels are set by a parameter, by default 0.25, 0.5 and 0.75, which gives four bands: firmly no, two contested ones and firmly yes. The lines carry the class and the level. The polygons carry the class, the band bounds in the **P_MIN** and **P_MAX** fields, and a ready band label in the **band** field of the form "0.25 - 0.5". That label colours the layer by categories from green to red straight away, with no legend to set up by hand.
+
+One band may arrive as several features if it is split into separate patches of area. This is normal and convenient: the areas are computed patch by patch. The legend still has exactly as many rows as there are bands, because the colouring follows the band rather than one of its bounds.
+
+The boundaries are built from the probability channel rather than from the zone map, and this is not a detail. The zone map holds only the winner in a cell, whereas the position of the boundary inside the cell is already lost in it, so a contour of such a map runs in steps along the cell edges. Smoothing that staircase means inventing the position of the boundary. The probability field keeps this information, and a contour of it falls exactly where the model itself puts it.
+
+With two classes the level 0.5 coincides with the zone boundary: a class wins exactly where its probability exceeds one half. A single level of 0.5 therefore gives the usual binary map, only with a smooth boundary instead of a stepped one. With three or more classes these are different things, a class can win with 0.4, and what is built here is the probability of being that class, not the boundary of the winner.
+
+With two classes enter the one you care about into **Class for the contours**. The probabilities complement each other to one, so the second set would be a mirror duplicate of the first.
 
 # 3.02 External Drift Kriging
 

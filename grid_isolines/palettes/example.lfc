@@ -1,0 +1,43 @@
+<?xml version='1.0' encoding='utf-8'?>
+<LeapfrogColourPalette type="legend" version="1.0">
+  <Entry>
+    <Code>Overburden</Code>
+    <Colour>0.850980392157 0.78431372549 0.658823529412</Colour>
+  </Entry>
+  <Entry>
+    <Code>Sandstone</Code>
+    <Colour>0.909803921569 0.78431372549 0.41568627451</Colour>
+  </Entry>
+  <Entry>
+    <Code>Siltstone</Code>
+    <Colour>0.749019607843 0.643137254902 0.41568627451</Colour>
+  </Entry>
+  <Entry>
+    <Code>Claystone</Code>
+    <Colour>0.541176470588 0.482352941176 0.360784313725</Colour>
+  </Entry>
+  <Entry>
+    <Code>Limestone</Code>
+    <Colour>0.498039215686 0.780392156863 0.850980392157</Colour>
+  </Entry>
+  <Entry>
+    <Code>Anhydrite</Code>
+    <Colour>0.623529411765 0.890196078431 0.878431372549</Colour>
+  </Entry>
+  <Entry>
+    <Code>Rock salt</Code>
+    <Colour>0.227450980392 0.627450980392 1</Colour>
+  </Entry>
+  <Entry>
+    <Code>Sylvinite</Code>
+    <Colour>1 0.623529411765 0.41568627451</Colour>
+  </Entry>
+  <Entry>
+    <Code>Carnallite</Code>
+    <Colour>0.78431372549 0.41568627451 0.874509803922</Colour>
+  </Entry>
+  <Entry>
+    <Code>Waste</Code>
+    <Colour>0.619607843137 0.619607843137 0.619607843137</Colour>
+  </Entry>
+</LeapfrogColourPalette>

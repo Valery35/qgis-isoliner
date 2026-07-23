@@ -308,6 +308,156 @@ def test_attributes_and_spacing_tolerated():
     assert colours == {"АБ": "#008000"}
 
 
+# --- запись палитры и поставляемые файлы ----------------------------------
+
+def test_dump_and_parse_roundtrip():
+    """Записали и прочитали - получили то же самое, включая порядок."""
+    pairs = [("АБ", "#008000"), ("В", "#ffa500"), ("КрII", "#ff0000")]
+    text = pl.dump_palette(pairs)
+    colours, order = pl.parse_palette(text)
+    assert order == [c for c, _ in pairs]
+    assert colours == dict(pairs)
+
+
+def test_dump_skips_bad_and_duplicates():
+    text = pl.dump_palette([
+        ("АБ", "#008000"), ("", "#ffffff"), ("X", "не цвет"),
+        ("АБ", "#ff0000"), (None, "#ffffff")])
+    colours, order = pl.parse_palette(text)
+    assert order == ["АБ"] and colours["АБ"] == "#008000"
+
+
+def test_dump_escapes_xml_signs():
+    text = pl.dump_palette([("А&Б", "#008000"), ("<X>", "#ff0000")])
+    assert "&amp;" in text and "&lt;" in text
+    colours, _ = pl.parse_palette(text)
+    assert "А&Б" in colours and "<X>" in colours
+
+
+def test_dump_empty_raises():
+    for bad in ([], [("", "#fff")], None):
+        try:
+            pl.dump_palette(bad)
+        except pl.PaletteError:
+            continue
+        raise AssertionError("ожидалась PaletteError")
+
+
+def test_hex_to_fractions():
+    assert pl.hex_to_fractions("#ffffff") == (1.0, 1.0, 1.0)
+    assert pl.hex_to_fractions("#000") == (0.0, 0.0, 0.0)
+    r, g, b = pl.hex_to_fractions("#ffa500")
+    assert abs(r - 1.0) < 1e-9 and abs(g - 165 / 255.0) < 1e-9 and b == 0.0
+    for bad in (None, "", "не цвет", "#12"):
+        assert pl.hex_to_fractions(bad) is None
+
+
+def test_save_palette(tmp_path=None):
+    fd, path = tempfile.mkstemp(suffix=".lfc")
+    os.close(fd)
+    try:
+        n = pl.save_palette(path, [("АБ", "#008000"), ("В", "#ffa500")])
+        assert n == 2
+        p = pl.Palette.from_file(path)
+        assert p.get("АБ") == "#008000" and len(p) == 2
+    finally:
+        os.unlink(path)
+
+
+def test_bundled_palettes_readable():
+    """Поставляемые палитры должны читаться нашим же читателем: это и есть
+    проверка, что в архив попали годные файлы."""
+    found = dict(pl.bundled_palettes())
+    for name in ("example.lfc", "demo.lfc", "Plast_Name.lfc",
+                 "Sloy_Name.lfc", "Mineral_Ann.lfc"):
+        assert name in found, "нет поставляемой палитры %s" % name
+    for name, path in found.items():
+        s = pl.ReadSummary()
+        p = pl.Palette.from_file(path, s)
+        assert len(p) > 0 and s.kept == s.total, name
+
+
+def test_demo_palette_covers_demo_codes():
+    """Демо-палитра должна покрывать коды демо разреза 4.10, иначе демо
+    не покажет, зачем нужен вход палитры."""
+    path = dict(pl.bundled_palettes())["demo.lfc"]
+    p = pl.Palette.from_file(path)
+    for code in ("Q", "В1", "Пр1", "В2", "Пр2", "В3", "Д1", "Д2"):
+        assert p.get(code) is not None, code
+
+
+# --- тело между поверхностями --------------------------------------------
+
+def test_surface_role():
+    assert pl.surface_role("KpII_top") == ("top", "KpII")
+    assert pl.surface_role("KpII_bottom") == ("bottom", "KpII")
+    assert pl.surface_role("В_кровля") == ("top", "В")
+    assert pl.surface_role("В_подошва") == ("bottom", "В")
+    assert pl.surface_role("рельеф") == (None, "рельеф")
+    assert pl.surface_role("top_В") == ("top", "В")
+
+
+def test_body_from_pair_bed():
+    """Кровля и подошва одного имени это пласт."""
+    assert pl.body_from_pair("KpII_top", "KpII_bottom") == ("KpII", "bed")
+    assert pl.body_from_pair("B_top", "B_bottom") == ("B", "bed")
+    # регистр и латинские двойники не мешают опознать пару
+    assert pl.body_from_pair("КрII_top", "KpII_bottom")[1] == "bed"
+
+
+def test_body_from_pair_interbed():
+    """Подошва верхнего и кровля нижнего это межпластье, верхний первым."""
+    code, kind = pl.body_from_pair("KpI_bottom", "KpII_top")
+    assert (code, kind) == ("KpI-KpII", "interbed")
+    code, kind = pl.body_from_pair("B_bottom", "Г_top")
+    assert (code, kind) == ("B-Г", "interbed")
+
+
+def test_body_from_pair_unknown():
+    """Пара не по конвенции - ничего не выдумываем."""
+    assert pl.body_from_pair("рельеф", "B_top") == (None, None)
+    assert pl.body_from_pair("B_top", "KpII_top") == (None, None)
+    assert pl.body_from_pair("B_bottom", "KpII_bottom") == (None, None)
+
+
+def test_interbed_code_found_in_palette():
+    """Составной код ищется в палитре обычным путём, включая латиницу."""
+    text = HEAD + """<LeapfrogColourPalette>
+  <Entry><Code>КрI-КрII</Code><Colour>0.678431372549 0.847058823529 0.901960784314</Colour></Entry>
+</LeapfrogColourPalette>"""
+    p = pl.Palette(*pl.parse_palette(text))
+    code, kind = pl.body_from_pair("KpI_bottom", "KpII_top")
+    assert kind == "interbed"
+    assert p.get(code) == "#add8e6"
+
+
+def test_canonical_spelling():
+    """Подпись легенды берётся из палитры: в данных «KpII_top», на чертеже
+    «КрII». Значение категории при этом не меняется."""
+    text = HEAD + """<LeapfrogColourPalette>
+  <Entry><Code>КрII</Code><Colour>1 0 0</Colour></Entry>
+  <Entry><Code>АБ</Code><Colour>0 0.5 0</Colour></Entry>
+</LeapfrogColourPalette>"""
+    p = pl.Palette(*pl.parse_palette(text))
+    assert p.canonical("KpII_top") == "КрII"
+    assert p.canonical("KpII") == "КрII"
+    assert p.canonical("A'Б_top") == "АБ"
+    assert p.canonical("АБ") == "АБ"
+    assert p.canonical("нет такого") is None
+    assert p.canonical(None) is None
+
+
+def test_interbed_not_painted_as_bed():
+    """Соль между пластами не должна получить цвет пласта. Если составного
+    кода в палитре нет, берётся свой цвет, а не цвет соседней кровли."""
+    text = HEAD + """<LeapfrogColourPalette>
+  <Entry><Code>В</Code><Colour>1 0.647058823529 0</Colour></Entry>
+</LeapfrogColourPalette>"""
+    p = pl.Palette(*pl.parse_palette(text))
+    code, kind = pl.body_from_pair("B_bottom", "КрII_top")
+    assert kind == "interbed" and code == "B-КрII"
+    assert p.get(code) is None          # составного кода в палитре нет
+    assert p.get("B_bottom") == "#ffa500"  # а имя кровли дало бы цвет пласта
 def _run():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

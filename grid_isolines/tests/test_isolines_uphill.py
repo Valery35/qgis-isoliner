@@ -72,6 +72,73 @@ class UphillOrientation(unittest.TestCase):
         seg = body[body.find("_orient_uphill(") - 200:]
         self.assertIn("pushWarning", seg)
 
+    def _call_orient(self, flip):
+        """Исполнить _orient_uphill на заглушках и вернуть формулу up_side.
+
+        Из QGIS функция берёт только processing, поэтому её исходник
+        выполняется в контейнере, и видно, какое выражение она собирает.
+        """
+        ns = {"_tr": lambda s: s}
+        exec(compile(self._fn("_orient_uphill"), "orient", "exec"), ns)  # nosec
+        seen = []
+
+        class _P(object):
+            def run(self, name, params, **kw):
+                seen.append(params)
+                return {"OUTPUT": "tmp"}
+
+        class _F(object):
+            def pushInfo(self, msg):
+                pass
+
+        ns["_orient_uphill"](_P(), "in", ("rid", 1, 5.0), None, _F(),
+                             flip=flip)
+        return seen[0]["FORMULA"]
+
+    def test_flip_inverts_label_orientation(self):
+        """«Перевернуть» разворачивает и подписи, а не одни бергштрихи.
+
+        Подпись в QGIS отсчитывает верх текста от направления линии,
+        поэтому единственный рычаг здесь - направление геометрии. При
+        перевороте условие сохранения линии инвертируется.
+        """
+        normal = self._call_orient(0)
+        flipped = self._call_orient(-1)
+        self.assertIn("WHEN @vr >= @vl THEN 1 ELSE 0 END", normal)
+        self.assertIn("WHEN @vr >= @vl THEN 0 ELSE 1 END", flipped)
+        # «не переворачивать» ведёт себя как автоматический выбор
+        self.assertEqual(self._call_orient(1), normal)
+        # опрос растра по обе стороны линии не изменился
+        for e in (normal, flipped):
+            self.assertIn("radians(@a + 90)", e)
+            self.assertIn("radians(@a - 90)", e)
+
+    def test_flip_applied_once_not_twice(self):
+        """Переворот применяется ровно один раз.
+
+        Разворот геометрии сам меняет местами лево и право, а значит и
+        знак dn_sign. Если после него применить переворот ещё и в
+        _add_slope_side, два переворота погасят друг друга и штрихи
+        вернутся на прежнюю сторону: починка подписей сломала бы
+        бергштрихи.
+        """
+        body = self._fn("_finalize_lines")
+        self.assertIn("flip=hatch_flip", body)
+        self.assertIn("flip=0 if uphill_done else hatch_flip", body)
+        # флаг ставится только после удавшегося разворота: если разворот
+        # упал, геометрия осталась прежней и переворот обязан достаться
+        # бергштрихам
+        self.assertLess(body.index("_orient_uphill(processing"),
+                        body.index("uphill_done = True"))
+        self.assertEqual(body.count("uphill_done = False"), 1)
+
+    def test_switch_name_covers_labels(self):
+        """Имя переключателя больше не обещает одни бергштрихи."""
+        alg = os.path.join(os.path.dirname(HERE), "algorithms.py")
+        with open(alg, encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn('self.tr("Сторона бергштрихов и подписей")', src)
+
     def test_tool_exposes_option(self):
         alg = os.path.join(os.path.dirname(HERE), "algorithms.py")
         with open(alg, encoding="utf-8") as fh:

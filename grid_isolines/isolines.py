@@ -607,7 +607,7 @@ def _add_slope_side(processing, cur, slope_ref, context, feedback, flip=0):
     }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
 
 
-def _orient_uphill(processing, cur, slope_ref, context, feedback):
+def _orient_uphill(processing, cur, slope_ref, context, feedback, flip=0):
     """Разворачивает горизонтали так, чтобы верх подписи смотрел вверх по склону.
 
     Это и есть топографическая подпись. QGIS ставит подпись вдоль линии и
@@ -623,10 +623,18 @@ def _orient_uphill(processing, cur, slope_ref, context, feedback):
     бергштрихов. Поле up_side остаётся в слое: 1 означает, что линия оставлена
     как была, 0 что развёрнута. По нему видно, что инструмент сделал.
 
+    Переключатель стороны действует и здесь: при значении «перевернуть»
+    условие сохранения линии инвертируется, и подписи встают вверх ногами
+    относительно автоматического выбора. Это нужно, чтобы одна ручная
+    команда разворачивала всю картину разом, а не половину её.
+
     Бергштрихи от этого не страдают: сторона склона считается ПОСЛЕ разворота
-    и подстраивается сама.
+    и подстраивается сама. Важно только не применить переворот второй раз в
+    _add_slope_side, иначе штрихи вернутся на прежнюю сторону - за этим
+    следит _finalize_lines.
     """
     rid, band, eps = slope_ref
+    keep, turn = (0, 1) if flip < 0 else (1, 0)
     expr = (
         "with_variable('p', line_interpolate_point($geometry, $length/2.0),"
         " with_variable('a', line_interpolate_angle($geometry, $length/2.0),"
@@ -635,9 +643,12 @@ def _orient_uphill(processing, cur, slope_ref, context, feedback):
         "   with_variable('vl', raster_value('{rid}', {b}, "
         "project(@p, {e}, radians(@a - 90))),"
         "    CASE WHEN @vr IS NULL OR @vl IS NULL THEN 1"
-        "     WHEN @vr >= @vl THEN 1 ELSE 0 END))))"
-    ).format(rid=rid, b=int(band), e=float(eps))
-    feedback.pushInfo(_tr("Ориентация горизонталей вверх по склону…"))
+        "     WHEN @vr >= @vl THEN {keep} ELSE {turn} END))))"
+    ).format(rid=rid, b=int(band), e=float(eps), keep=keep, turn=turn)
+    feedback.pushInfo(_tr(
+        "Ориентация горизонталей вверх по склону: %s.")
+        % (_tr("зеркально (задано вручную)") if flip < 0
+           else _tr("как есть")))
     cur = processing.run("native:fieldcalculator", {
         "INPUT": cur, "FIELD_NAME": "up_side", "FIELD_TYPE": 1,
         "FIELD_LENGTH": 1, "FIELD_PRECISION": 0, "FORMULA": expr,
@@ -663,18 +674,29 @@ def _finalize_lines(processing, cur, interval, base, index_every, field_name,
     # сторону - бергштрихи легли бы вверх по склону. Проявляется только при
     # одновременно включённых депрессионном стиле и топографических подписях,
     # поэтому легко не заметить.
+    #
+    # ПЕРЕВОРОТ ПРИМЕНЯЕТСЯ РОВНО ОДИН РАЗ. Ручная команда «перевернуть» должна
+    # разворачивать и штрихи, и подписи, но подписи разворачиваются сменой
+    # направления линии, а это само по себе переставляет лево и право и меняет
+    # знак dn_sign. Если после такого разворота применить переворот ещё и в
+    # _add_slope_side, два переворота погасят друг друга и штрихи вернутся на
+    # прежнюю сторону. Поэтому при удавшемся развороте сторона склона
+    # считается без переворота: он уже учтён в направлении линий.
+    uphill_done = False
     if uphill_ref:
         # Разворот геометрии не должен ронять построение: не получилось -
         # выходим с обычными линиями и говорим об этом.
         try:
-            cur = _orient_uphill(processing, cur, uphill_ref, context, feedback)
+            cur = _orient_uphill(processing, cur, uphill_ref, context, feedback,
+                                 flip=hatch_flip)
+            uphill_done = True
         except Exception as e:
             feedback.pushWarning(
                 _tr("Не удалось развернуть линии вверх по склону: %s") % e)
     if slope_ref:
         try:
             cur = _add_slope_side(processing, cur, slope_ref, context, feedback,
-                                  flip=hatch_flip)
+                                  flip=0 if uphill_done else hatch_flip)
         except Exception as e:
             feedback.pushWarning(
                 _tr("Не удалось вычислить сторону склона (dn_sign): %s") % e)
@@ -1012,3 +1034,105 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
                                 crs, polygons_output, context, feedback)
 
     return {"lines": lines_out, "polygons": polys_out}
+
+
+def add_z_from_field(layer_path, field_name, context, feedback=None):
+    """Поднять вершины линий на отметку из поля: LineString -> LineStringZ.
+
+    Изолиния это линия равного уровня, поэтому Z у всех её вершин один и
+    равен значению поля. Такой слой при экспорте в DXF доносит высоту в
+    АвтоКАД и Кредо без ручного «задать Z». Работает над готовым слоем на
+    диске: перечитывает, переписывает геометрию, кладёт рядом _z-версию и
+    возвращает её путь. Плоский слой не портится.
+
+    Возвращает путь к слою с Z или исходный путь, если что-то пошло не так
+    (тогда высота остаётся в поле, как раньше).
+    """
+    from qgis.core import (QgsVectorLayer, QgsVectorFileWriter, QgsFeature,
+                           QgsGeometry, QgsLineString, QgsMultiLineString,
+                           QgsPoint, QgsWkbTypes)
+    src = QgsVectorLayer(layer_path, "iso", "ogr")
+    if not src.isValid():
+        return layer_path
+    idx = src.fields().indexOf(field_name)
+    if idx < 0:
+        if feedback is not None:
+            feedback.pushWarning(
+                "Поле высоты %s не найдено, Z не записан." % field_name)
+        return layer_path
+
+    fields = src.fields()
+    out_path = layer_path
+    lower = layer_path.lower()
+    for ext in (".gpkg", ".shp", ".geojson", ".json"):
+        if lower.endswith(ext):
+            out_path = layer_path[:-len(ext)] + "_z" + ext
+            break
+    else:
+        out_path = layer_path + "_z.gpkg"
+
+    driver = ("GPKG" if out_path.lower().endswith(".gpkg")
+              else "ESRI Shapefile" if out_path.lower().endswith(".shp")
+              else "GeoJSON")
+    # Многочастность источника сохраняем: изолиния одного уровня приходит
+    # одним объектом со всеми своими ветвями, и разбор её на отдельные
+    # объекты множит записи и дублирует подписи. Тип выхода берём от входа.
+    try:
+        multi = QgsWkbTypes.isMultiType(src.wkbType())
+    except Exception:  # nosec
+        multi = False
+    out_wkb = (QgsWkbTypes.Type.MultiLineStringZ if multi
+               else QgsWkbTypes.Type.LineStringZ)
+
+    opts = QgsVectorFileWriter.SaveVectorOptions()
+    opts.driverName = driver
+    ctx = context.transformContext() if context is not None else None
+    try:
+        writer = QgsVectorFileWriter.create(
+            out_path, fields, out_wkb, src.crs(), ctx, opts)
+    except Exception:  # старые сигнатуры QGIS
+        writer = QgsVectorFileWriter(
+            out_path, "UTF-8", fields, out_wkb, src.crs(), driver)
+    if writer.hasError() != QgsVectorFileWriter.WriterError.NoError:
+        return layer_path
+
+    n = 0
+    for feat in src.getFeatures():
+        try:
+            z = float(feat[idx])
+        except (TypeError, ValueError):
+            z = 0.0
+        geom = feat.geometry()
+        if geom is None or geom.isEmpty():
+            continue
+        try:
+            parts = (geom.asMultiPolyline() if geom.isMultipart()
+                     else [geom.asPolyline()])
+        except TypeError:  # QGIS 4: asMultiPolyline() на одиночной геометрии
+            parts = [geom.asPolyline()]
+        rings = [QgsLineString([QgsPoint(p.x(), p.y(), z) for p in pts])
+                 for pts in parts if len(pts) >= 2]
+        if not rings:
+            continue
+        if multi:
+            ml = QgsMultiLineString()
+            for ls in rings:
+                ml.addGeometry(ls)
+            fo = QgsFeature(fields)
+            fo.setAttributes(feat.attributes())
+            fo.setGeometry(QgsGeometry(ml))
+            writer.addFeature(fo)
+            n += 1
+        else:
+            for ls in rings:
+                fo = QgsFeature(fields)
+                fo.setAttributes(feat.attributes())
+                fo.setGeometry(QgsGeometry(ls))
+                writer.addFeature(fo)
+                n += 1
+    del writer
+    if feedback is not None:
+        feedback.pushInfo(
+            "Высота записана в Z геометрии: %d линий, поле %s."
+            % (n, field_name))
+    return out_path

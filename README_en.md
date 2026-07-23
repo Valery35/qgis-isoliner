@@ -38,7 +38,7 @@ The tools are split into five Processing groups — **"Grid and isolines"**, **"
 - **2.09 Peaks** — local maxima with two filters: the radius suppresses secondary tops, the drop cuts off bumps.
 - **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Also outputs gauge points for 2.15.
 - **2.15 Gauge point report** — watershed morphometry from a closure point: area, elevations, mean basin slope, length, fall and slope of the main stream. Polygons with attributes and an HTML report.
-- **2.16 Catchment of a line (ditch)** — the area intercepted by a hillside ditch or a gutter: the trace is rasterised and taken as the intake, the catchment is collected by flow. Burning the trace is a separate checkbox.
+- **2.16 Catchment of a line or an outline (ditches, open pits)** — the area intercepted by a hillside ditch, a gutter or an open pit outline. A line is rasterised and taken as the intake, a polygon is treated as an intake in its entirety, the catchment is collected by flow. Burning the trace is a separate checkbox.
 
 ### "3. Additional analysis tools" group
 
@@ -287,6 +287,11 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
+- **4.11.1** — vector boundaries from the probabilities in 3.01: level lines and band polygons between them with a ready colouring from green to red. The levels are set by a parameter, 0.25, 0.5 and 0.75 by default. They are built from the probability channel rather than from the zone map: a zone holds only the winner in a cell, so a contour of it runs in steps along the cell edges.
+- **4.9.0** — a nugget breakdown in 1.05: the first lag and, by name, the pairs of points that lifted it. A warning when the variogram fit is good for nothing, R2 below 0.1 or a nugget above half of the total sill.
+- **4.8.2** — the side switch in 1.04 now reverses the labels as well, not the hachures alone.
+- **4.8.1** — fixed the write-value-into-Z tick: the layer with Z was written to a separate file while the flat original was loaded into the project.
+- **4.8.0** — 2.16 accepts polygons as well as lines: an open pit outline, a wall, any closed intake. The write-value-into-Z tick in 1.04. A scope note in 2.15 and 2.16.
 - **4.7.1** — palette reading without the xml modules: a self-written scanner replaces the standard parser that the repository security scan rejects.
 - **4.7.0** — the Leapfrog colour palette (.lfc) in 4.01 and 4.02, the new 2.16 Catchment of a line (ditch) tool, demo ditch traces in 2.10, and gap counting in borehole columns.
 - **4.6.1** — Qt6 compatibility per the repository check: the fallback colour category used an empty QVariant instead of NULL from qgis.core. The pytest cache is no longer shipped, the secret scanner treated it as a finding.

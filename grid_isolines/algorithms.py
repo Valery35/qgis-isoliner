@@ -95,6 +95,7 @@ from .kb2d import (
     MODEL_SPHERICAL, MODEL_EXPONENTIAL, MODEL_GAUSSIAN, GAUSS_MIN_NUGGET_FRAC)
 from .isolines import (
     isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD,
+    add_z_from_field,
     _gaussian_nodata)
 from . import hydro
 from .fractal import (fractal_dimension_map, fractal_dimension_global,
@@ -104,10 +105,14 @@ from . import dem_glo30, osm_overpass, demo_relief
 from .hydro_fill import fill_depressions, DEFAULT_EPSILON
 from . import topo_flow, topo_gauge, topo_surface, topo_t2r, topo_smooth
 from . import palette_lfc  # чтение палитры Leapfrog, без QGIS
+from . import plast_reference  # справочник пластов, без QGIS
 
 GROUP = _tr("1. Грид и изолинии")
 GROUP_ID = "grid_isolines"
 GROUP_TOPO = _tr("2. Топография")
+# Цвет тела, для которого цвета нет: серый значит «не знаем».
+UNKNOWN_BODY_COLOR = "#b4b4b4"
+
 GROUP_TOPO_ID = "topography"
 # Диагностика вынесена в отдельную группу: подгрупп в Processing нет, дерево у
 # провайдера плоское, поэтому ветка делается именем, которое сортируется сразу
@@ -159,6 +164,33 @@ def _set_output_name(context, path, name):
             context.layerToLoadOnCompletionDetails(path).name = name
     except Exception:  # nosec
         pass
+
+
+def _move_load_on_completion(context, old, new):
+    """Перевесить отложенную загрузку со старого пути выхода на новый.
+
+    Processing регистрирует выходной слой по пути, который выдал
+    parameterAsOutputLayer, ещё до того, как алгоритм что-либо записал.
+    Если инструмент кладёт результат в другой файл (флажок Z в 1.04
+    пишет отдельный _z-слой рядом), про новый путь контекст не знает: в
+    проект приезжает старый файл, а имя слоя и стиль не встают, потому
+    что и то и другое стоит под проверкой willLoadLayerOnCompletion.
+
+    Переносим детали загрузки на новый путь и снимаем старый, чтобы в
+    дерево не приехали оба слоя. Молча ничего не делаем, когда путь не
+    менялся или загрузка не планировалась (пакетный режим, модель).
+    """
+    if not old or not new or old == new:
+        return False
+    try:
+        pending = dict(context.layersToLoadOnCompletion())
+        if old not in pending:
+            return False
+        pending[new] = pending.pop(old)
+        context.setLayersToLoadOnCompletion(pending)
+        return True
+    except Exception:  # nosec
+        return False
 
 
 ORDER_PROP = "isoliner/tree_order"
@@ -763,6 +795,76 @@ def _warn_data(feedback, xs, ys, vs):
             feedback.pushWarning(_tr(
                 "Все значения одинаковы: кригинг вырождается, вариограмма "
                 "нулевая. Проверьте выбранное поле."))
+
+
+def _warn_fit_quality(feedback, fit, r2_min=0.1, nug_max=0.5):
+    """Жёлтым, когда подбору нечего описывать или почти всё ушло в наггет.
+
+    Обе беды тихие: модель считается, параметры выводятся, кригинг отрабатывает
+    без единой ошибки и выдаёт ровное поле около среднего. Понять, что это не
+    карта, а среднее, можно только по R² и доле наггета, поэтому вытаскиваем их
+    из справочной строки в предупреждение.
+    """
+    if not fit or feedback is None:
+        return
+    try:
+        r2 = float(fit.get("r2", 0.0))
+        c0 = float(fit.get("nugget", 0.0))
+        total = c0 + float(fit.get("sill", 0.0))
+    except (TypeError, ValueError):
+        return
+    if r2 < float(r2_min):
+        feedback.pushWarning(_tr(
+            "Качество подгонки R²=%.3f ниже %.2g: модель почти ничего не "
+            "объясняет. Пользоваться её параметрами как есть нельзя - "
+            "проверьте выбросы и парные близкие точки.") % (r2, r2_min))
+    if total > 0.0 and c0 / total > float(nug_max):
+        feedback.pushWarning(_tr(
+            "Доля наггета %.0f%% от суммарного порога: связь на коротких "
+            "расстояниях не разрешена. Кригинг по такой модели сглаживает "
+            "оценку до среднего, а на карте дают «бычьи глаза».")
+            % (100.0 * c0 / total))
+
+
+def _report_nugget_pairs(feedback, xs, ys, vs, ev, data_var, top=5):
+    """Кто именно поднял наггет: первый лаг и пары-виновники поимённо.
+
+    В разреженной сети наггет обычно задают единицы пар, а не облако точек.
+    Печатаем размер первого лага, число пар в нём и сравнение с дисперсией,
+    затем самые тяжёлые пары внутри этого лага с координатами и значениями -
+    по координатам пару находят на карте за секунду.
+    """
+    if feedback is None:
+        return
+    from .kb2d import nugget_pairs
+    lag = np.asarray(ev.get("lag") or [], dtype=float)
+    gam = np.asarray(ev.get("gamma") or [], dtype=float)
+    npr = np.asarray(ev.get("npairs") or [], dtype=float)
+    if not len(lag) or not len(gam):
+        return
+    h1, g1 = float(lag[0]), float(gam[0])
+    n1 = int(npr[0]) if len(npr) else 0
+    feedback.pushInfo(_tr(
+        "Первый лаг: h=%.4g, пар %d, γ=%.4g при дисперсии данных %.4g.")
+        % (h1, n1, g1, data_var))
+    if data_var > 0.0 and g1 > data_var:
+        feedback.pushWarning(_tr(
+            "На первом лаге разброс уже выше общей дисперсии. Описать это "
+            "можно только наггетом, и кригинг после такого подбора будет "
+            "возвращать среднее вместо карты."))
+    try:
+        pairs = nugget_pairs(xs, ys, vs, h1, top=int(top))
+    except Exception:  # nosec
+        return
+    if not pairs:
+        return
+    feedback.pushInfo(_tr("Пары, формирующие наггет (внутри первого лага):"))
+    for _i, _j, dist, vi, vj, g in pairs:
+        feedback.pushInfo(_tr(
+            "  расстояние %.4g, значения %.4g и %.4g, вклад γ=%.4g "
+            "(x %.6g y %.6g / x %.6g y %.6g)")
+            % (dist, vi, vj, g,
+               float(xs[_i]), float(ys[_i]), float(xs[_j]), float(ys[_j])))
 
 
 # Профили обработки: именованные наборы «вариограмма (Структура 1) + наггет +
@@ -1626,6 +1728,13 @@ def _add_isoline_params(alg):
     alg.addParameter(QgsProcessingParameterString(
         alg.LEVELS, _tr("Явные уровни (через пробел) - приоритетнее шага"),
         defaultValue=_dv(alg, alg.LEVELS, ""), optional=True))
+    alg.addParameter(QgsProcessingParameterString(
+        alg.FIELD_NAME, _tr("Имя поля значения"),
+        defaultValue=_dv(alg, alg.FIELD_NAME, DEFAULT_FIELD)))
+    alg.addParameter(QgsProcessingParameterBoolean(
+        alg.ADD_Z,
+        _tr("Записать значение в Z геометрии (для DXF, АвтоКАД, Кредо)"),
+        defaultValue=_dv(alg, alg.ADD_Z, False)))
     alg.addParameter(QgsProcessingParameterNumber(
         alg.INDEX_EVERY, _tr("Главная изолиния каждая N-я (0 = выкл.)"),
         QgsProcessingParameterNumber.Type.Integer,
@@ -1643,9 +1752,6 @@ def _add_isoline_params(alg):
                                   "(0 = выкл.)"),
         QgsProcessingParameterNumber.Type.Integer,
         defaultValue=_dv(alg, alg.SMOOTH_LINE_ITER, 2), minValue=0, maxValue=5))
-    alg.addParameter(QgsProcessingParameterString(
-        alg.FIELD_NAME, _tr("Имя поля значения"),
-        defaultValue=_dv(alg, alg.FIELD_NAME, DEFAULT_FIELD)))
 
 
 # ===========================================================================
@@ -2102,6 +2208,9 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
     CELL_SIZE, EXTENT = "CELL_SIZE", "EXTENT"
     OUTPUT_PROB, OUTPUT_ZONE, OUTPUT_CONF = \
         "OUTPUT_PROB", "OUTPUT_ZONE", "OUTPUT_CONF"
+    PROB_LEVELS, PROB_CLASS = "PROB_LEVELS", "PROB_CLASS"
+    PROB_DENSIFY, PROB_SMOOTH = "PROB_DENSIFY", "PROB_SMOOTH"
+    OUTPUT_LINES, OUTPUT_BANDS = "OUTPUT_LINES", "OUTPUT_BANDS"
 
     def tr(self, s): return _tr(s)
     def helpUrl(self): return _help_url()
@@ -2173,7 +2282,285 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             self.OUTPUT_CONF, self.tr("Уверенность (макс. вероятность)"),
             optional=True, createByDefault=False))
 
+        lv = QgsProcessingParameterString(
+            self.PROB_LEVELS, self.tr("Уровни вероятности (через пробел)"),
+            defaultValue=_dv(self, self.PROB_LEVELS, "0.25 0.5 0.75"))
+        lv.setHelp(self.tr(
+            "Уровни для векторных границ, доли от 0 до 1. По умолчанию 0.25, "
+            "0.5 и 0.75: получаются полосы «уверенно нет», «спорно» с двух "
+            "сторон и «уверенно да». При двух классах уровень 0.5 совпадает с "
+            "границей зон, потому что класс побеждает ровно там, где его "
+            "вероятность выше половины. При трёх и более классах это уже "
+            "разные вещи: победить можно и с 0.4, и здесь строится именно "
+            "вероятность быть данным классом, а не граница победителя."))
+        self.addParameter(lv)
+        pc = QgsProcessingParameterString(
+            self.PROB_CLASS, self.tr("Класс для контуров (пусто - все)"),
+            defaultValue=_dv(self, self.PROB_CLASS, ""), optional=True)
+        pc.setHelp(self.tr(
+            "Имя класса ровно как в поле классов. При двух классах вписывайте "
+            "интересующий: вероятности дополняют друг друга до единицы, и "
+            "второй набор будет зеркальным дублем первого."))
+        self.addParameter(pc)
+        self.addParameter(_advanced(QgsProcessingParameterEnum(
+            self.PROB_DENSIFY, self.tr("Бикубическое сглаживание границ"),
+            options=[self.tr("выкл."), "×2", "×3", "×4"],
+            defaultValue=_dv(self, self.PROB_DENSIFY, 1))))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.PROB_SMOOTH, self.tr("Скругление границ (Chaikin), итераций"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.PROB_SMOOTH, 2),
+            minValue=0, maxValue=5)))
+        self.addParameter(QgsProcessingParameterVectorDestination(
+            self.OUTPUT_LINES, self.tr("Границы уровней вероятности (линии)"),
+            QgsProcessing.SourceType.TypeVectorLine,
+            optional=True, createByDefault=False))
+        self.addParameter(QgsProcessingParameterVectorDestination(
+            self.OUTPUT_BANDS, self.tr("Полосы вероятности (полигоны)"),
+            QgsProcessing.SourceType.TypeVectorPolygon,
+            optional=True, createByDefault=False))
+
         _restore_layer_defaults(self, (self.INPUT,))
+
+    @staticmethod
+    def _parse_levels(text):
+        """Уровни вероятности из строки: доли строго между 0 и 1.
+
+        Ноль и единица отбрасываются осознанно: контур по краю диапазона
+        либо пуст, либо совпадает с границей области, полезной линии там нет.
+        Порядок наводится, повторы убираются.
+        """
+        out = []
+        for tok in str(text or "").replace(",", " ").replace(";", " ").split():
+            try:
+                v = float(tok)
+            except ValueError:
+                continue
+            if 0.0 < v < 1.0:
+                out.append(round(v, 6))
+        return sorted(set(out))
+
+    def _prob_contours(self, parameters, context, feedback, prob_path,
+                       classes, nodata, results):
+        """Векторные границы по каналам вероятностей.
+
+        Строится по растру вероятностей, а не по карте зон: зона хранит только
+        победителя в ячейке, положение границы внутри ячейки в ней уже
+        потеряно, и контур такой карты идёт ступенями по краям ячеек.
+        Вероятность это непрерывное поле, и контур по ней ложится туда, куда
+        его ставит сама модель.
+
+        На класс приходится один прогон обычного построения изолиний с
+        полигонами, затем к результату дописывается имя класса - по нему
+        полигоны сразу раскрашиваются категориальным отрисовщиком. Один класс
+        пишется в выход напрямую, несколько сливаются.
+        """
+        lines_dest = self.parameterAsOutputLayer(
+            parameters, self.OUTPUT_LINES, context)
+        bands_dest = self.parameterAsOutputLayer(
+            parameters, self.OUTPUT_BANDS, context)
+        if not lines_dest and not bands_dest:
+            return
+        levels = self._parse_levels(
+            self.parameterAsString(parameters, self.PROB_LEVELS, context))
+        if not levels:
+            feedback.pushWarning(_tr(
+                "Уровни вероятности не заданы или лежат вне интервала от 0 до "
+                "1 - векторные границы не строились."))
+            return
+        want = (self.parameterAsString(parameters, self.PROB_CLASS, context)
+                or "").strip()
+        if want:
+            sel = [c for c in classes if str(c).strip() == want]
+            if not sel:
+                raise QgsProcessingException(_tr(
+                    "Класс «%s» не найден. Классы в данных: %s.")
+                    % (want, ", ".join(str(c) for c in classes)))
+        else:
+            sel = list(classes)
+        densify = (1, 2, 3, 4)[self.parameterAsEnum(
+            parameters, self.PROB_DENSIFY, context)]
+        smooth = self.parameterAsInt(parameters, self.PROB_SMOOTH, context)
+        levels_txt = " ".join(repr(float(v)) for v in levels)
+        feedback.pushInfo(_tr("Границы вероятности: классы %s, уровни %s.")
+                          % (", ".join(str(c) for c in sel), levels_txt))
+
+        made_lines, made_bands = [], []
+        bands = self._bands_from_levels(levels)
+        for c in sel:
+            band = classes.index(c) + 1
+            res = isolines_and_polygons(
+                prob_path, band, 0.0, 0.0, levels_txt, 0,
+                0.0, False, 0.0, densify, smooth, "P", True, nodata,
+                "TEMPORARY_OUTPUT", "TEMPORARY_OUTPUT", context, feedback)
+            for path, bucket in ((res["lines"], made_lines),
+                                 (res["polygons"], made_bands)):
+                if path:
+                    bucket.append(self._tag_class(path, c, context, feedback))
+
+        for bucket, dest, key, gtype in (
+                (made_lines, lines_dest, self.OUTPUT_LINES, 1),
+                (made_bands, bands_dest, self.OUTPUT_BANDS, 2)):
+            if not dest or not bucket:
+                continue
+            out = self._collect(bucket, dest, gtype, context, feedback,
+                                bands=bands)
+            if out:
+                results[key] = out
+                _set_output_name(context, out, _tr("Вероятность %s · %s") % (
+                    _tr("границы") if gtype == 1 else _tr("полосы"),
+                    ", ".join(str(c) for c in sel)))
+                if gtype == 2:
+                    # раскраска по полосе, а не по одной границе: категорий
+                    # ровно столько, сколько полос, и подпись читается как
+                    # диапазон
+                    colors = self._band_colors(len(bands))
+                    _attach_categories(
+                        context, out, None, "band",
+                        [(lbl, colors[i], lbl)
+                         for i, (_lo, _hi, lbl) in enumerate(bands)])
+
+    @staticmethod
+    def _tag_class(path, cls, context, feedback):
+        """Дописать имя класса в поле class. Без него полосы разных классов
+        после слияния неразличимы, а категориальный отрисовщик не за что
+        зацепить."""
+        from qgis import processing
+        try:
+            return processing.run("native:fieldcalculator", {
+                "INPUT": path, "FIELD_NAME": "class", "FIELD_TYPE": 2,
+                "FIELD_LENGTH": 64, "FIELD_PRECISION": 0,
+                "FORMULA": "'%s'" % str(cls).replace("'", "''"),
+                "OUTPUT": "TEMPORARY_OUTPUT",
+            }, context=context, feedback=feedback,
+                is_child_algorithm=True)["OUTPUT"]
+        except Exception as e:  # nosec
+            feedback.pushWarning(
+                _tr("Не удалось приписать класс «%s»: %s") % (cls, e))
+            return path
+
+    # Цвета полос: от зелёного к красному по возрастанию вероятности. Ряд взят
+    # расходящийся (RdYlGn наоборот) - на нём середина читается как «спорно», а
+    # не как промежуточный оттенок одного цвета.
+    _PROB_RAMP = ("#1a9850", "#91cf60", "#d9ef8b",
+                  "#fee08b", "#fc8d59", "#d73027")
+
+    @staticmethod
+    def _bands_from_levels(levels):
+        """Полосы между уровнями: [(низ, верх, подпись)] снизу вверх.
+
+        Границы диапазона добавляются сами: три уровня дают четыре полосы, от
+        нуля до первого уровня и от последнего до единицы включительно.
+        Подпись формируется здесь, а не выражением QGIS, чтобы вид числа был
+        предсказуем: %g убирает хвостовые нули и даёт «0.5», а не «0.50».
+        """
+        bounds = [0.0] + list(levels) + [1.0]
+        return [(bounds[i], bounds[i + 1],
+                 "%g - %g" % (bounds[i], bounds[i + 1]))
+                for i in range(len(bounds) - 1)]
+
+    @staticmethod
+    def _band_colors(n):
+        """n цветов из ряда, крайние всегда зелёный и красный."""
+        ramp = CategoricalIndicatorAlgorithm._PROB_RAMP
+        if n <= 1:
+            return [ramp[-1]]
+        last = len(ramp) - 1
+        return [ramp[int(round(i * last / float(n - 1)))] for i in range(n)]
+
+    @staticmethod
+    def _band_formula(bands):
+        """Выражение, приписывающее полигону подпись его полосы.
+
+        Сопоставление идёт по верхней границе: у полигона полосы она в
+        точности равна уровню, а нижняя у крайних полос зажата и сравнению не
+        помогает. Допуск нужен на случай, если границу чуть сдвинет
+        сглаживание.
+        """
+        parts = ["CASE"]
+        for _lo, hi, label in bands[:-1]:
+            parts.append(' WHEN "P_MAX" <= %.9g THEN \'%s\''
+                         % (hi + 1e-6, label.replace("'", "''")))
+        parts.append(" ELSE '%s' END" % bands[-1][2].replace("'", "''"))
+        return "".join(parts)
+
+    @staticmethod
+    def _tidy(path, gtype, dest, context, feedback, bands=None):
+        """Привести атрибуты к делу и записать в выход.
+
+        native:mergevectorlayers дописывает layer и path - имя и URI
+        временного слоя-источника. В готовом слое это мусор: класс уже лежит
+        в поле class, а URI временной памяти не нужен никому.
+
+        Полигоны полос приходят с ELEV_MIN и ELEV_MAX: так границы полосы
+        называет машинерия изолиний, для которой поле всегда отметка. Здесь
+        это доли вероятности, поэтому поля переименовываются в P_MIN и P_MAX
+        и зажимаются в [0, 1] - крайние полосы иначе выходят за диапазон на
+        тысячные и показывают отрицательную вероятность.
+        """
+        from qgis import processing
+        from qgis.core import QgsProcessingUtils
+        cur = path
+        try:
+            lyr = QgsProcessingUtils.mapLayerFromString(cur, context)
+            names = [f.name() for f in lyr.fields()] if lyr is not None else []
+        except Exception:  # nosec
+            names = []
+        try:
+            if gtype == 2 and "ELEV_MIN" in names:
+                for src_f, dst_f in (("ELEV_MIN", "P_MIN"),
+                                     ("ELEV_MAX", "P_MAX")):
+                    cur = processing.run("native:fieldcalculator", {
+                        "INPUT": cur, "FIELD_NAME": dst_f, "FIELD_TYPE": 0,
+                        "FIELD_LENGTH": 20, "FIELD_PRECISION": 6,
+                        "FORMULA": 'max(0, min(1, "%s"))' % src_f,
+                        "OUTPUT": "TEMPORARY_OUTPUT",
+                    }, context=context, feedback=feedback,
+                        is_child_algorithm=True)["OUTPUT"]
+            drop = [n for n in ("layer", "path", "ELEV_MIN", "ELEV_MAX")
+                    if n in names]
+            if drop:
+                cur = processing.run("native:deletecolumn", {
+                    "INPUT": cur, "COLUMN": drop,
+                    "OUTPUT": "TEMPORARY_OUTPUT",
+                }, context=context, feedback=feedback,
+                    is_child_algorithm=True)["OUTPUT"]
+            if gtype == 2 and bands:
+                cur = processing.run("native:fieldcalculator", {
+                    "INPUT": cur, "FIELD_NAME": "band", "FIELD_TYPE": 2,
+                    "FIELD_LENGTH": 32, "FIELD_PRECISION": 0,
+                    "FORMULA": CategoricalIndicatorAlgorithm._band_formula(
+                        bands),
+                    "OUTPUT": "TEMPORARY_OUTPUT",
+                }, context=context, feedback=feedback,
+                    is_child_algorithm=True)["OUTPUT"]
+        except Exception as e:  # nosec
+            feedback.pushWarning(
+                _tr("Не удалось убрать служебные поля: %s") % e)
+        return processing.run("native:savefeatures", {
+            "INPUT": cur, "OUTPUT": dest,
+        }, context=context, feedback=feedback,
+            is_child_algorithm=True)["OUTPUT"]
+
+    @staticmethod
+    def _collect(paths, dest, gtype, context, feedback, bands=None):
+        """Один слой берётся как есть, несколько сливаются. Затем чистка полей
+        и запись в выход - служебные поля слияния до пользователя не доходят."""
+        from qgis import processing
+        try:
+            if len(paths) == 1:
+                merged = paths[0]
+            else:
+                merged = processing.run("native:mergevectorlayers", {
+                    "LAYERS": paths, "OUTPUT": "TEMPORARY_OUTPUT",
+                }, context=context, feedback=feedback,
+                    is_child_algorithm=True)["OUTPUT"]
+            return CategoricalIndicatorAlgorithm._tidy(
+                merged, gtype, dest, context, feedback, bands=bands)
+        except Exception as e:  # nosec
+            feedback.pushWarning(
+                _tr("Не удалось собрать векторный выход: %s") % e)
+            return None
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
@@ -2309,6 +2696,8 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
 
         _set_output_name(context, prob_path, _tr("Вероятности минтипа"))
         _set_output_name(context, zone_path, _tr("Зоны минтипа"))
+        self._prob_contours(parameters, context, feedback, prob_path,
+                            classes, nodata, results)
         feedback.pushInfo(_tr("Коды зон: ") + "; ".join(
             "%d=%s" % (i, classes[i]) for i in range(K)))
         feedback.pushInfo(_tr(
@@ -2333,6 +2722,7 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
     CONFID, CONF_FRAC = "CONFID", "CONF_FRAC"
     HATCH = "HATCH"
     STYLE = "STYLE"
+    ADD_Z = "ADD_Z"
     FIELD_NAME, OUTPUT, OUTPUT_POLYGONS = "FIELD_NAME", "OUTPUT", "OUTPUT_POLYGONS"
 
     # выбор стиля линий -> имя пресета в папке styles (None = без стиля).
@@ -2387,7 +2777,7 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
             self.tr("Топографические подписи"),
             defaultValue=_dv(self, self.UPHILL, False)))
         self.addParameter(_advanced(QgsProcessingParameterEnum(
-            self.HATCH, self.tr("Сторона бергштрихов"),
+            self.HATCH, self.tr("Сторона бергштрихов и подписей"),
             options=[self.tr("автоматически"), self.tr("не переворачивать"),
                      self.tr("перевернуть")],
             defaultValue=_dv(self, self.HATCH, 0))))
@@ -2436,6 +2826,7 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
         densify = (1, 2, 3, 4)[self.parameterAsInt(
             parameters, self.DENSIFY, context)]
         field_name = self.parameterAsString(parameters, self.FIELD_NAME, context)
+        add_z = self.parameterAsBoolean(parameters, self.ADD_Z, context)
 
         # единые уровни для линий и полигонов: явные от пользователя, иначе
         # рассчитанные внутри диапазона растра (так совпадут и не «потеряются»
@@ -2481,6 +2872,11 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
                 hatch_flip={0: 0, 1: 1, 2: -1}[self.parameterAsEnum(
                     parameters, self.HATCH, context)])
             out, poly = res["lines"], res["polygons"]
+            if add_z:
+                out_z = add_z_from_field(out, field_name or DEFAULT_FIELD,
+                                         context, feedback)
+                _move_load_on_completion(context, out, out_z)
+                out = out_z
             _set_output_name(context, out, _tr("Изолинии · %s") % name)
             _set_output_name(context, poly, _tr("Полигоны · %s") % name)
             st = _OrderState()
@@ -2500,6 +2896,11 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
                                                  context),
                 hatch_flip={0: 0, 1: 1, 2: -1}[self.parameterAsEnum(
                     parameters, self.HATCH, context)])
+            if add_z:
+                out_z = add_z_from_field(out, field_name or DEFAULT_FIELD,
+                                         context, feedback)
+                _move_load_on_completion(context, out, out_z)
+                out = out_z
             _set_output_name(context, out, _tr("Изолинии · %s") % name)
             _attach_style(context, out, line_style)
             results = {self.OUTPUT: out}
@@ -4610,6 +5011,7 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
         if ev["subsampled"]:
             feedback.pushInfo(_tr("Точек много - для расчёта пар использована "
                               "случайная подвыборка %d точек.") % ev["n_used"])
+        _report_nugget_pairs(feedback, xs, ys, vs, ev, data_var)
         if maxlag and maxlag > 0:
             W = float(xs.max() - xs.min()); H = float(ys.max() - ys.min())
             spacing = (W * H / max(len(xs), 1)) ** 0.5 if W > 0 and H > 0 else 0.0
@@ -4685,6 +5087,7 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
                     _tr("Подбор: модель %s, C0=%.4g, C=%.4g, a=%.4g, R²=%.3f") % (
                         MODEL_LABELS[fit["model"]], fit["nugget"], fit["sill"],
                         fit["range"], fit["r2"]))
+                _warn_fit_quality(feedback, fit)
                 pname = self.parameterAsString(
                     parameters, self.SAVE_PROFILE, context)
                 if pname and pname.strip():
@@ -6424,6 +6827,31 @@ def _section_vex(feedback, aspect_mode, scale, length, dz):
 _nice_ticks = _sc.nice_ticks
 
 
+def _read_reference(source, feedback):
+    """Справочник пластов из слоя QGIS в plast_reference.Reference или None.
+
+    Слой (обычно из GeoPackage, подгруженный в проект) превращается в список
+    словарей по строке, дальше работает чистое ядро. Плохой справочник не
+    роняет прогон: сообщаем и возвращаем None, разрез строится без него.
+    """
+    if source is None:
+        return None
+    names = [f.name() for f in source.fields()]
+    rows = []
+    for feat in source.getFeatures():
+        rows.append({n: feat[n] for n in names})
+    try:
+        rsum = plast_reference.ReadSummary()
+        ref = plast_reference.Reference.from_rows(rows, rsum)
+        for ln in rsum.lines(_tr):
+            feedback.pushInfo(ln)
+        return ref
+    except plast_reference.ReferenceError as exc:
+        feedback.pushWarning(_tr(
+            "Справочник не прочитан (%s), разрез строится без него.") % exc)
+        return None
+
+
 class SectionAlgorithm(IsolinerAlgorithm):
     """Геологический разрез по линии. На вход - линия разреза и упорядоченный
     сверху вниз набор поверхностей (кровли и подошвы из кригинга). Пласты это
@@ -6434,6 +6862,8 @@ class SectionAlgorithm(IsolinerAlgorithm):
 
     LINE, SURFACES = "LINE", "SURFACES"
     PALETTE = "PALETTE"
+    REFERENCE = "REFERENCE"
+    BODIES = "BODIES"
     TREE_ORDER = "TREE_ORDER"
     BATCH, NAMEFLD = "BATCH", "NAMEFLD"
     LAYOUT, NCOLS, GAP = "LAYOUT", "NCOLS", "GAP"
@@ -6486,10 +6916,19 @@ class SectionAlgorithm(IsolinerAlgorithm):
             "Поверхности обычно получают кригингом (кровля, подошва пласта). "
             "Линию рисуют как обычный линейный слой. Расстояние и высота берутся "
             "в единицах карты. Свой кригинг инструмент не выполняет.\n\n"
-            "Полосы пластов на чертеже красятся по имени кровли. Если задать "
-            "палитру кодов Leapfrog (.lfc), цвета берутся из неё: имя слоя вида "
-            "«KpII_top» находит в палитре код пласта «КрII». Тот же файл "
-            "подаётся в 4.02, и полосы с колонками скважин совпадают по цвету.") + _credit())
+            "Справочник пластов (слой проекта) - главный источник, когда задан: "
+            "имя и цвет каждого тела берутся из него по порядку залегания, "
+            "а не из имён слоёв. Между кровлей и подошвой плагин находит "
+            "тело в порядке справочника, поэтому межпластья названы верно, "
+            "а там, где на разрезе показаны не все пласты, полоса честно "
+            "помечается серой с перечнем пропущенного. Догадки по именам "
+            "при этом отключаются.\n\n"
+            "Без справочника полосы красятся по имени кровли своим "
+            "детерминированным цветом, а межпластья остаются серыми. "
+            "Тот же справочник подаётся в 4.02, и тогда полосы пластов "
+            "и колонки скважин совпадают по цвету. Готовый стиль можно "
+            "сохранить в .qml и дальше править штатными средствами "
+            "QGIS.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -6541,12 +6980,11 @@ class SectionAlgorithm(IsolinerAlgorithm):
             self.SAMPLING, self.tr("Выборка растра"),
             options=[self.tr("билинейно"), self.tr("ближайший")],
             defaultValue=0)))
-        self.addParameter(QgsProcessingParameterFile(
-            self.PALETTE,
-            self.tr("Палитра кодов Leapfrog (.lfc), необязательно"),
-            behavior=QgsProcessingParameterFile.Behavior.File,
-            fileFilter=self.tr("Палитра Leapfrog (*.lfc *.LFC);;XML (*.xml);;Все файлы (*.*)"),
-            defaultValue=_dv(self, self.PALETTE, None), optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.REFERENCE,
+            self.tr("Справочник пластов (слой), необязательно"),
+            types=[QgsProcessing.SourceType.TypeVector],
+            defaultValue=_dv(self, self.REFERENCE, None), optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT_2D, self.tr("Чертёж разреза (расстояние × высота)"),
             type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
@@ -6776,41 +7214,70 @@ class SectionAlgorithm(IsolinerAlgorithm):
         # Пласт, названный тем же кодом, что в interval, совпадёт по цвету с
         # колонками скважин сам собой.
         if sink2d is not None:
-            # цвет полосы: из палитры по имени кровли (имя слоя вида
-            # «KpII_top» находит код пласта «КрII»), иначе свой
-            # детерминированный. Тот же файл подаётся в 4.02, и полосы с
-            # колонками скважин совпадают по цвету.
-            pal = None
-            ppath = self.parameterAsFile(parameters, self.PALETTE, context)
-            if ppath:
-                psum = palette_lfc.ReadSummary()
-                try:
-                    pal = palette_lfc.Palette.from_file(ppath, psum)
-                    for ln in psum.lines(_tr):
-                        feedback.pushInfo(ln)
-                except palette_lfc.PaletteError as exc:
-                    pal = None
-                    feedback.pushWarning(_tr(
-                        "Палитра не прочитана (%s), цвета считаются от "
-                        "кодов.") % exc)
+            # Справочник пластов - единственный источник цвета и имени
+            # тела. Имена кровли и подошвы приводятся к кодам (снятие хвоста
+            # роли _top/_bottom), тело между ними берётся из порядка
+            # справочника: между КрII и КрIIIа лежит КрII-КрIII - из данных,
+            # а не из разбора имени. Где справочника нет или тело не
+            # опознано, полоса серая, и это видно на чертеже.
+            ref = _read_reference(
+                self.parameterAsSource(parameters, self.REFERENCE, context),
+                feedback)
 
-            def _band_colour(name):
-                if pal is not None:
-                    col = pal.get(name)
-                    if col is not None:
-                        return col
-                return _dh.code_color(name)
+            bcats, n_ref, n_grey, rows = [], 0, 0, []
+            for k in range(len(surfs) - 1):
+                top_name, bot_name = surfs[k][2], surfs[k + 1][2]
+                bed, many = None, False
+                if ref is not None:
+                    rt, up = palette_lfc.surface_role(top_name)
+                    rb, lo = palette_lfc.surface_role(bot_name)
+                    got = ref.between(up, lo)
+                    if got == "many":
+                        many = True
+                    elif got is not None:
+                        bed = got
+                    elif (rt == "top" and rb == "bottom"
+                            and palette_lfc.normalize_code(up)
+                            == palette_lfc.normalize_code(lo)):
+                        bed = ref.get(up)
+                if bed is not None:
+                    col = bed.color or _dh.code_color(bed.code)
+                    bcats.append((top_name, col, bed.code))
+                    n_ref += 1
+                    rows.append((k + 1, top_name, bot_name, bed.body,
+                                 bed.code, col, "reference"))
+                elif many:
+                    span = ref.span_codes(up, lo)
+                    label = "%s...%s" % (span[0], span[-1]) if span \
+                        else top_name
+                    bcats.append((top_name, UNKNOWN_BODY_COLOR, label))
+                    n_grey += 1
+                    rows.append((k + 1, top_name, bot_name, "many",
+                                 label, UNKNOWN_BODY_COLOR, "many"))
+                else:
+                    # без справочника или тело не опознано: свой цвет от
+                    # имени кровли, серый если это похоже на межпластье
+                    col = _dh.code_color(top_name)
+                    bcats.append((top_name, col, top_name))
+                    n_grey += 1
+                    rows.append((k + 1, top_name, bot_name, "?",
+                                 top_name, col, "own"))
 
-            bcats = [(surfs[k][2], _band_colour(surfs[k][2]), surfs[k][2])
-                     for k in range(len(surfs) - 1)]
-            if pal is not None:
-                _names = [surfs[k][2] for k in range(len(surfs) - 1)]
-                _miss = [n for n in _names if pal.get(n) is None]
-                feedback.pushInfo(_tr("Цвета полос: из палитры %d, своих %d.")
-                                  % (len(_names) - len(_miss), len(_miss)))
-                if _miss:
-                    feedback.pushInfo(_tr("Нет в палитре: %s")
-                                      % ", ".join(_miss[:12]))
+            if ref is not None:
+                feedback.pushInfo(_tr("Полосы (кровля, подошва, тело):"))
+                for n, tn, bn, kind, label, col, src in rows:
+                    what = (_tr("пласт") if kind == "bed" else
+                            _tr("межпластье") if kind == "interbed" else
+                            _tr("пропущены пласты") if kind == "many" else
+                            _tr("не опознано"))
+                    how = (_tr("справочник") if src == "reference" else
+                           _tr("пласты не показаны") if src == "many" else
+                           _tr("свой цвет"))
+                    feedback.pushInfo("  %d. %s / %s -> %s %s, %s: %s"
+                                      % (n, tn, bn, what, label, how, col))
+                feedback.pushInfo(_tr(
+                    "Цвета полос: из справочника %d, серых %d.")
+                    % (n_ref, n_grey))
             _attach_categories(context, dest2d, _style_path("dh_bands"),
                                "top", bcats)
         sink3d, dest3d = self.parameterAsSink(
@@ -8401,7 +8868,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
     CORRIDOR = "CORRIDOR"
     CLIP, CLIP_TOL = "CLIP", "CLIP_TOL"
     SHEET = "SHEET"
-    PALETTE = "PALETTE"
+    REFERENCE = "REFERENCE"
     OUTPUT, OUTPUT_STICKS = "OUTPUT", "OUTPUT_STICKS"
     OUTPUT_LABELS, OUTPUT_3D = "OUTPUT_LABELS", "OUTPUT_3D"
 
@@ -8445,11 +8912,12 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             "в своей позиции, скважины не вылезают за чертёж. Колонка "
             "за краем полос этим входом не режется, там работает "
             "рамка.\n\n"
-            "Цвет интервала можно взять из палитры кодов Leapfrog - файла "
-            ".lfc с парами код и цвет. Коды, найденные в палитре, красятся "
-            "её цветами, порядок категорий в легенде идёт по палитре, а "
-            "коды вне палитры сохраняют свой детерминированный цвет. Без "
-            "палитры всё работает как раньше.") + _credit())
+            "Цвет интервала берётся из справочника пластов (слоя проекта) по "
+            "коду пласта. Тот же справочник подаётся в 4.01, поэтому "
+            "колонки скважин и полосы пластов совпадают по цвету, а "
+            "порядок категорий в легенде идёт по залеганию. Коды вне "
+            "справочника сохраняют свой детерминированный цвет. Без "
+            "справочника всё работает как раньше.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -8519,12 +8987,11 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             self.CLIP_TOL, self.tr("Допуск обрезки, ед. отметки"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.CLIP_TOL, 0.0), minValue=0.0)))
-        self.addParameter(QgsProcessingParameterFile(
-            self.PALETTE,
-            self.tr("Палитра кодов Leapfrog (.lfc), необязательно"),
-            behavior=QgsProcessingParameterFile.Behavior.File,
-            fileFilter=self.tr("Палитра Leapfrog (*.lfc *.LFC);;XML (*.xml);;Все файлы (*.*)"),
-            defaultValue=_dv(self, self.PALETTE, None), optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.REFERENCE,
+            self.tr("Справочник пластов (слой), необязательно"),
+            types=[QgsProcessing.SourceType.TypeVector],
+            defaultValue=_dv(self, self.REFERENCE, None), optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Интервалы скважин (чертёж)"),
             type=QgsProcessing.SourceType.TypeVectorLine))
@@ -8695,26 +9162,17 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         csrc, isrc, collars, holes, icode, labels = self._read_model(
             parameters, context, feedback, dsrc.sourceCrs())
 
-        # палитра кодов: если задана, цвет берётся из неё, а свой
-        # детерминированный цвет остаётся запасным для кодов вне палитры.
-        # Плохой файл не валит прогон: сообщаем и красим по-своему.
-        pal = None
-        pal_path = self.parameterAsFile(parameters, self.PALETTE, context)
-        if pal_path:
-            psum = palette_lfc.ReadSummary()
-            try:
-                pal = palette_lfc.Palette.from_file(pal_path, psum)
-                for ln in psum.lines(_tr):
-                    feedback.pushInfo(ln)
-            except palette_lfc.PaletteError as exc:
-                pal = None
-                feedback.pushWarning(_tr(
-                    "Палитра не прочитана (%s), цвета считаются от кодов.")
-                    % exc)
+        # справочник пластов: если задан, цвет кода берётся из него, и
+        # колонки скважин совпадают по цвету с полосами пластов из 4.01.
+        # Свой детерминированный цвет остаётся запасным для кодов вне
+        # справочника. Плохой слой не валит прогон.
+        ref = _read_reference(
+            self.parameterAsSource(parameters, self.REFERENCE, context),
+            feedback)
 
         def _colour_of(code):
-            if pal is not None:
-                col = pal.get(code)
+            if ref is not None:
+                col = ref.color(code)
                 if col is not None:
                     return col
             return _dh.code_color(code)
@@ -8749,13 +9207,13 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             QgsWkbTypes.Type.LineString, crs0)
         code_list = _dh.code_order(holes)
         if icode and code_list:
-            if pal is not None:
-                # порядок палитры геологический, он важнее порядка появления
-                # кодов в данных; неизвестные палитре коды уходят в конец,
-                # сохраняя между собой прежний порядок
+            if ref is not None:
+                # порядок справочника геологический, он важнее порядка
+                # появления кодов в данных; коды вне справочника уходят в
+                # конец, сохраняя между собой прежний порядок
                 code_list = sorted(
                     code_list,
-                    key=lambda c: (pal.rank(c), code_list.index(c)))
+                    key=lambda c: (ref.rank(c), code_list.index(c)))
             cats = [(c, _colour_of(c),
                      c if c else self.tr("(без кода)")) for c in code_list]
             _attach_categories(context, dest, _style_path("dh_intervals"),
@@ -9081,6 +9539,7 @@ class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
             "Вариограмма баллов: %s, наггет %.3f, порог %.3f, радиус %.4g (R2=%.2f).")
             % (MODEL_LABELS[fit["model"]], fit["nugget"], fit["sill"],
                fit["range"], fit["r2"]))
+        _warn_fit_quality(feedback, fit)
         radius = self.parameterAsDouble(parameters, self.RADIUS, context)
         if radius <= 0:
             radius = min(3.0 * fit["range"], math.hypot(width, height) or 1e12)
@@ -11699,7 +12158,11 @@ class GaugeReportAlgorithm(IsolinerAlgorithm):
             "друг в друга: каждый створ получает свой полный "
             "бассейн, а не остаток.\n\nЕдиницы метрические: ЦМР в метрах "
             "в метровой СК. Расходы и модули стока сознательно не "
-            "считаются, это морфометрия, а не расчётная гидрология.") + _credit())
+            "считаются, это морфометрия, а не расчётная гидрология.\n\n"
+            "Водосборы строятся по топологии рельефа. На территориях без "
+            "чётких границ стока - плоские поймы, гидравлические "
+            "перетоки, подпоры - результат следует проверять "
+            "гидродинамическим моделированием.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -11905,30 +12368,41 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return DitchCatchmentAlgorithm()
     def name(self): return "ditch_catchment"
     def displayName(self):
-        return self.tr("2.16 Водосбор линии (канавы)")
+        return self.tr("2.16 Водосбор линии и контура (канавы, карьеры)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
         return _help_version(self.tr(
-            "Площадь водосбора линейного приёмника: нагорной канавы, "
-            "лотка, кювета дороги. Отвечает на вопрос, какую площадь "
-            "линия перехватывает, когда самой канавы на ЦМР нет.\n\n"
-            "Врезать трассу в рельеф для этого не нужно. Трасса "
-            "растеризуется в ячейки, все они берутся семенами, и водосбор "
-            "это множество ячеек, чей путь стока приходит в любую ячейку "
-            "трассы. Трасса может быть ломаной, может пересекать "
-            "водораздел и может выходить за рамку ЦМР: наружная часть "
-            "просто не участвует.\n\n"
+            "Площадь водосбора приёмника: нагорной канавы, лотка, кювета "
+            "дороги или контура карьера. Отвечает на вопрос, какую "
+            "площадь приёмник перехватывает, когда самого приёмника на "
+            "ЦМР нет.\n\n"
+            "Входом служат линии или полигоны. Линия растеризуется в "
+            "ячейки, все они берутся приёмниками, и водосбор это множество "
+            "ячеек, чей путь стока приходит в любую ячейку трассы. "
+            "Полигон считается приёмником целиком, и контур, и вся "
+            "площадь внутри: внутри залитой депрессии (карьера) "
+            "направления стока условны, и опора на всю внутренность "
+            "снимает от них зависимость, дырки полигона входят в "
+            "приёмник тоже. Трасса "
+            "может быть ломаной, может пересекать водораздел и может "
+            "выходить за рамку ЦМР: наружная часть просто не "
+            "участвует.\n\n"
             "Врезка трассы - отдельная галочка и другой вопрос: удержит "
             "ли канава поток, если она мельче местных форм рельефа. "
             "Врезка опускает рельеф вдоль трассы на заданную глубину и "
             "тем самым меняет гидрологию, поэтому результат зависит от "
             "глубины и по умолчанию она выключена.\n\n"
             "Выход: полигоны водосборов с атрибутами (площадь, высоты, "
-            "средний уклон, длина трассы) и HTML-отчёт. Единицы "
-            "метрические: ЦМР в метрах в метровой системе координат.")
+            "средний уклон, длина трассы или контура, площадь приёмника) "
+            "и HTML-отчёт. Единицы метрические: ЦМР в метрах в метровой "
+            "системе координат.\n\n"
+            "Водосборы строятся по топологии рельефа. На территориях без "
+            "чётких границ стока - плоские поймы, гидравлические "
+            "перетоки, подпоры - результат следует проверять "
+            "гидродинамическим моделированием.")
             + _credit())
 
     def initAlgorithm(self, config=None):
@@ -11936,10 +12410,12 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterRasterLayer(
             self.INPUT, self.tr("Входная ЦМР")))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            self.LINES, self.tr("Трассы (линии канав, лотков, кюветов)"),
-            [QgsProcessing.SourceType.TypeVectorLine]))
+            self.LINES,
+            self.tr("Трассы и контуры (линии или полигоны)"),
+            [QgsProcessing.SourceType.TypeVectorLine,
+             QgsProcessing.SourceType.TypeVectorPolygon]))
         self.addParameter(QgsProcessingParameterBoolean(
-            self.MERGE, self.tr("Все трассы как один водосбор"),
+            self.MERGE, self.tr("Все объекты как один водосбор"),
             defaultValue=_dv(self, self.MERGE, False)))
         self.addParameter(QgsProcessingParameterBoolean(
             self.BURN, self.tr("Врезать трассу в рельеф (меняет гидрологию)"),
@@ -11967,7 +12443,29 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
         _restore_layer_defaults(self, (self.INPUT, self.LINES))
 
     _NUM_KEYS = ("area_km2", "z_mean", "z_min", "z_max", "slope_deg",
-                 "trace_km")
+                 "trace_km", "seed_km2")
+
+    def _polygon_rings_in(self, geom, transform):
+        """Внешние кольца полигона в СК растра. Дырки не отдаются:
+        затравка контура берётся сплошной внутренностью."""
+        out = []
+        if geom is None or geom.isEmpty():
+            return out
+        try:
+            geom = QgsGeometry(geom)
+            geom.transform(transform)
+        except QgsCsException:
+            return out
+        try:
+            parts = (geom.asMultiPolygon() if geom.isMultipart()
+                     else [geom.asPolygon()])
+        except TypeError:
+            # QGIS 4: asMultiPolygon() на одиночной геометрии бросает
+            parts = [geom.asPolygon()]
+        for rings in parts:
+            if rings and len(rings[0]) >= 3:
+                out.append([(p.x(), p.y()) for p in rings[0]])
+        return out
 
     def _line_vertices_in(self, geom, transform):
         """Вершины линии в СК растра. Мультилиния разворачивается в части."""
@@ -12012,10 +12510,21 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
         traces = []          # (номер, id объекта, ячейки, длина)
         for feat in lines.getFeatures():
             cells, length = [], 0.0
-            for verts in self._line_vertices_in(feat.geometry(), transform):
-                cells += topo_gauge.cells_along_polyline(
-                    verts, origin_x, origin_y, cell, (ny, nx))
-                length += topo_gauge.polyline_length(verts)
+            g = feat.geometry()
+            is_poly = (g is not None and not g.isEmpty()
+                       and QgsWkbTypes.geometryType(g.wkbType())
+                       == QgsWkbTypes.GeometryType.PolygonGeometry)
+            if is_poly:
+                rings = self._polygon_rings_in(g, transform)
+                cells = topo_gauge.cells_in_polygon(
+                    rings, origin_x, origin_y, cell, (ny, nx))
+                for ring in rings:
+                    length += topo_gauge.polyline_length(ring)
+            else:
+                for verts in self._line_vertices_in(g, transform):
+                    cells += topo_gauge.cells_along_polyline(
+                        verts, origin_x, origin_y, cell, (ny, nx))
+                    length += topo_gauge.polyline_length(verts)
             cells = list(dict.fromkeys(cells))
             if mask is not None and len(cells):
                 cells = [i for i in cells if not mask.ravel()[i]]
@@ -12023,14 +12532,14 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
                 traces.append([feat.id(), cells, length])
         if not traces:
             raise QgsProcessingException(self.tr(
-                "Ни одна трасса не легла на грид: проверьте охват ЦМР и "
-                "систему координат слоя линий."))
+                "Ни один объект не лёг на грид: проверьте охват ЦМР и "
+                "систему координат слоя трасс и контуров."))
         if merge:
             all_cells = list(dict.fromkeys(
                 [i for t in traces for i in t[1]]))
             total_len = sum(t[2] for t in traces)
             traces = [[traces[0][0], all_cells, total_len]]
-        feedback.pushInfo(self.tr("Трасс принято: %d, ячеек трассы: %d")
+        feedback.pushInfo(self.tr("Объектов принято: %d, ячеек приёмника: %d")
                           % (len(traces), sum(len(t[1]) for t in traces)))
 
         z = z0
@@ -12122,8 +12631,9 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
             ("z_min", _tr("Минимальная высота, м"), "%.2f"),
             ("z_max", _tr("Максимальная высота, м"), "%.2f"),
             ("slope_mean", _tr("Средний уклон водосбора, °"), "%.2f"),
-            ("trace_km", _tr("Длина трассы, км"), "%.3f"),
-            ("trace_cells", _tr("Ячеек трассы"), "%d"),
+            ("trace_km", _tr("Длина трассы или контура, км"), "%.3f"),
+            ("seed_km2", _tr("Площадь приёмника, км²"), "%.4f"),
+            ("trace_cells", _tr("Ячеек приёмника"), "%d"),
             ("cells", _tr("Ячеек в водосборе"), "%d"),
         ]
         title = _tr("Отчёт по водосборам трасс")
@@ -12143,10 +12653,13 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
                     label, "-" if v is None else fmt % v))
             out.append("</table>")
         method = _tr(
-            "Метод: трасса растеризована в ячейки, водосбор собран как "
-            "множество ячеек, чей путь стока приходит в трассу. "
+            "Метод: трасса или контур растеризованы в ячейки затравки, "
+            "полигон считается приёмником целиком, водосбор собран как "
+            "множество ячеек, чей путь стока приходит в приёмник. "
             "Заполнение понижений, направления D8. Морфометрия без "
-            "расчётной гидрологии.")
+            "расчётной гидрологии. Водосборы строятся по топологии "
+            "рельефа, на территориях без чётких границ стока результат "
+            "следует проверять гидродинамическим моделированием.")
         if burned:
             method += " " + _tr(
                 "Трасса врезана в рельеф на %.2f м, гидрология изменена "

@@ -231,6 +231,59 @@ def polyline_length(vertices):
                for i in range(1, len(vertices)))
 
 
+def cells_in_polygon(rings, origin_x, origin_y, cell, shape):
+    """Ячейки внутренности полигона плюс ячейки его контура: плоские индексы.
+
+    rings - внешние кольца полигона, каждое кольцо это список точек (x, y)
+    в координатах карты. Дырки сюда не передаются: затравка контура
+    (например карьера) берётся сплошной внутренностью, внутри залитой
+    депрессии направления стока условны и полагаться на них нельзя.
+
+    Внутренность собирается строчной развёрткой по центрам ячеек
+    (полуоткрытое правило пересечения ребра со строкой), контур
+    добавляется проходом cells_along_polyline, чтобы узкие части уже
+    одной ячейки не выпадали. Точки вне грида отбрасываются, повторы
+    убираются, кольцо замыкается само, если последняя точка не равна
+    первой.
+    """
+    ny, nx = shape
+    out, seen = [], set()
+
+    def _put(idx):
+        if idx not in seen:
+            seen.add(idx)
+            out.append(idx)
+
+    for ring in rings or []:
+        pts = [(float(p[0]), float(p[1])) for p in ring]
+        if len(pts) < 3:
+            continue
+        if pts[0] != pts[-1]:
+            pts.append(pts[0])
+        ys = [p[1] for p in pts]
+        r0 = max(0, int(math.floor((origin_y - max(ys)) / cell)))
+        r1 = min(ny - 1, int(math.floor((origin_y - min(ys)) / cell)))
+        for r in range(r0, r1 + 1):
+            yc = origin_y - (r + 0.5) * cell
+            xs = []
+            for i in range(1, len(pts)):
+                x1, y1 = pts[i - 1]
+                x2, y2 = pts[i]
+                if (y1 <= yc < y2) or (y2 <= yc < y1):
+                    xs.append(x1 + (x2 - x1) * (yc - y1) / (y2 - y1))
+            xs.sort()
+            for k in range(0, len(xs) - 1, 2):
+                c0 = max(0, int(math.ceil((xs[k] - origin_x) / cell - 0.5)))
+                c1 = min(nx - 1, int(math.floor(
+                    (xs[k + 1] - origin_x) / cell - 0.5)))
+                for c in range(c0, c1 + 1):
+                    _put(r * nx + c)
+        for idx in cells_along_polyline(pts, origin_x, origin_y, cell,
+                                        shape):
+            _put(idx)
+    return out
+
+
 def catchment_mask(downstream, shape, seed_idxs):
     """Водосбор набора ячеек: True у всех, чей путь стока приходит в любое
     из семян. Сами семена входят в водосбор."""
@@ -266,8 +319,9 @@ DITCH_KEYS = (
     "z_min",          # минимальная высота, м
     "z_max",          # максимальная высота, м
     "slope_mean",     # средний уклон водосбора (в единицах растра)
-    "trace_km",       # длина трассы, км
-    "trace_cells",    # ячеек трассы на гриде
+    "trace_km",       # длина трассы или контура, км
+    "seed_km2",       # площадь затравки, км² (у линии близка к нулю)
+    "trace_cells",    # ячеек затравки на гриде
     "cells",          # ячеек в водосборе
 )
 
@@ -288,6 +342,7 @@ def ditch_report(z, downstream, shape, seed_idxs, cellsize, trace_len=None,
     rep["cells"] = n_cells
     rep["trace_cells"] = len(seed_idxs)
     rep["area_km2"] = n_cells * float(cellsize) ** 2 / 1e6
+    rep["seed_km2"] = len(seed_idxs) * float(cellsize) ** 2 / 1e6
     rep["z_mean"], rep["z_min"], rep["z_max"] = zonal_stats(
         z, mask, nodata_mask)
     if slope is not None:
