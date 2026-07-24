@@ -31,7 +31,7 @@ header-includes:
 
 **Step 3. Streamlines - 2.06 River network.** Input: the DEM of step 1. Threshold 1000 cells, a denser network - a lower threshold. Line vertices already run downstream, as Topo2Raster requires.
 
-**Step 4. Summit marks - 2.09 Peaks.** Input: the DEM of step 1. Radius 500 m, drop 20 m. Output: points with the **z** field - the cure for tops above the last closed contour.
+**Step 4. Extreme marks - 2.09 Peaks and pits.** Input: the DEM of step 1. Radius 500 m, relief 20 m. Output: points with the **z**, **drop** and **kind** (peak or pit) fields, the elevation right in the geometry Z - the cure for the flat caps at closed contours, both tops and bottoms.
 
 **Step 5. Water bodies and cliffs - 2.02 Download base topography by extent.** The same extent. From OSM we take what a raster cannot give: water bodies (flat planes) and cliffs (barriers). OSM watercourses and peaks are a fallback for steps 3-4 when ele is filled.
 
@@ -54,7 +54,7 @@ Control: 1.04 over the result with the same step, overlaid on the contours of st
 | **2.06** River network | DEM | lines: order (Strahler), acc\_out, length\_m | threshold = head catchment / cell area. 1000 at 30 m ≈ 0.9 km² |
 | **2.07** Basins | DEM, pour points (opt.) | polygons: basin, area\_m2 (+ label raster) | without points: from mouths by threshold. Point snap to the accumulation max, 150 m |
 | **2.08** Slope and aspect | DEM | two rasters, degrees | Horn 3×3 as gdaldem. Aspect: downslope azimuth, flats = -1 |
-| **2.09** Peaks | DEM | points: z, drop | a 500 m radius suppresses secondary tops, a 20 m drop cuts bumps |
+| **2.09** Peaks and pits | DEM | points: z, drop, kind (PointZ) | both signs always. A 500 m radius suppresses secondary tops, a 20 m relief cuts bumps and puddles |
 
 \endgroup
 

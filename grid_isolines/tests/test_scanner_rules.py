@@ -67,16 +67,6 @@ def test_no_unsafe_constructs():
     assert not bad, "сканер каталога это заблокирует:\n  " + "\n  ".join(bad)
 
 
-def test_palette_reader_is_self_written():
-    """У читателя палитры должен быть свой сканер полей: это и есть замена
-    небезопасному разбору XML."""
-    path = os.path.join(PKG, "palette_lfc.py")
-    with open(path, encoding="utf-8") as f:
-        code = f.read()
-    assert "_RE_ENTRY" in code and "re.compile" in code
-    assert "MAX_TEXT" in code, "нет предела размера входного файла"
-
-
 def _run():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

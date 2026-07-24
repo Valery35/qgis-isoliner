@@ -35,7 +35,7 @@ The tools are split into five Processing groups — **"Grid and isolines"**, **"
 - **2.06 River network** — links from heads and junctions downstream, the Strahler order, the output fits 2.03 as streamlines.
 - **2.07 Basins and watersheds** — from pour points snapped to the accumulation maximum, or automatically from mouths. Polygons and a label raster.
 - **2.08 Slope and aspect** — the Horn 3×3 kernel as in gdaldem, aspect as the downslope azimuth, flat cells flagged.
-- **2.09 Peaks** — local maxima with two filters: the radius suppresses secondary tops, the drop cuts off bumps.
+- **2.09 Peaks and pits** — local extremes of both signs with two filters: the radius suppresses secondary tops, the relief threshold cuts off bumps and puddles. The elevation is written into the geometry Z: the spot points go to DXF together with the contours and remove the flat caps of a surface at closed contours.
 - **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Also outputs gauge points for 2.15.
 - **2.15 Gauge point report** — watershed morphometry from a closure point: area, elevations, mean basin slope, length, fall and slope of the main stream. Polygons with attributes and an HTML report.
 - **2.16 Catchment of a line or an outline (ditches, open pits)** — the area intercepted by a hillside ditch, a gutter or an open pit outline. A line is rasterised and taken as the intake, a polygon is treated as an intake in its entirety, the catchment is collected by flow. Burning the trace is a separate checkbox.
@@ -63,6 +63,7 @@ The tools are split into five Processing groups — **"Grid and isolines"**, **"
 - **4.08 Unproject from the section (beta)** — the reverse projection of objects drawn on the section back into real coordinates with Z.
 - **4.09 Shaft wall unwrap (beta)** — a cylindrical section around an axis in arc-elevation axes.
 - **4.10 Create a section example** — a stack of surfaces, a line and boreholes with elevation fields, to try the section without kriging.
+- **4.11 Bed reference template** — adds the bundled bed reference to the project (37 rows of the Verkhnekamskoye deposit): code, bedding order, body kind and colour. It is read by 4.01 and 4.02, and the band and column colours come from it.
 
 ### "5. Fractal analysis" group
 
@@ -287,6 +288,13 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
+- **4.17.0** — pre-release pass: the RU and EN manuals gained a section on 4.11, parameter labels were aligned, the PDFs were rebuilt.
+- **4.16.1** — the composite bed КрIIIа+б (the sum of КрIIIа, КрIIIа-б and КрIIIб) is back in the reference template, above КрIIIб-в. Composite bodies are painted grey #969696: the colour of a conglomerate does not follow from its parts, a person sets it.
+- **4.16.0** — the new 4.11 Bed reference template tool adds the template straight to the project. The reference drop-down in 4.01 and 4.02 is limited to tables without geometry. The word optional is gone from the parameter labels, QGIS adds that mark itself.
+- **4.15.0** — the palettes folder and all the Leapfrog palette code are gone: the sections now have a single source of colour, the bed reference. The code matching rules (KpII_top finds КрII) are kept in full.
+- **4.14.0** — the bed reference template ships with the plugin (the templates folder, xlsx and csv). Manuals: the colour sections of 4.01 and 4.02 were rewritten around the reference, the previous ones described a palette the tools no longer had.
+- **4.13.0** — the burn in 2.16 gained the chute-sloping-to-the-outfall profile: the bottom descends monotonically and the water does not spill over the bank on wavy relief (a technique from Ivan Ivanov).
+- **4.12.0** — 2.09 is renamed Peaks and pits and always searches both signs, the elevation goes into the geometry Z. Spot points at the extremes remove the flat caps of a surface built from contours alone.
 - **4.11.1** — vector boundaries from the probabilities in 3.01: level lines and band polygons between them with a ready colouring from green to red. The levels are set by a parameter, 0.25, 0.5 and 0.75 by default. They are built from the probability channel rather than from the zone map: a zone holds only the winner in a cell, so a contour of it runs in steps along the cell edges.
 - **4.9.0** — a nugget breakdown in 1.05: the first lag and, by name, the pairs of points that lifted it. A warning when the variogram fit is good for nothing, R2 below 0.1 or a nugget above half of the total sill.
 - **4.8.2** — the side switch in 1.04 now reverses the labels as well, not the hachures alone.

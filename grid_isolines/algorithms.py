@@ -2245,7 +2245,7 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.CLASS_FIELD, None)))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
-            self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
+            self.tr("Поле весов декластеризации (из 1.01)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
         self.addParameter(QgsProcessingParameterNumber(
@@ -3353,11 +3353,11 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
             self.ZFIELD, self.tr("Поле значения Z"), parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric))
         self.addParameter(QgsProcessingParameterField(
-            self.IDFIELD, self.tr("Поле номера скважины (необязательно)"),
+            self.IDFIELD, self.tr("Поле номера скважины"),
             parentLayerParameterName=self.INPUT, optional=True))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
-            self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
+            self.tr("Поле весов декластеризации (из 1.01)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
         _add_cv_params(self)
@@ -4493,7 +4493,7 @@ class VariableSupportDensityAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Плотность (переменная опора)")))
         se = QgsProcessingParameterRasterDestination(
-            self.OUTPUT_SIGMA, self.tr("Эффективная сигма (необязательно)"),
+            self.OUTPUT_SIGMA, self.tr("Эффективная сигма"),
             optional=True, createByDefault=False)
         self.addParameter(se)
 
@@ -4878,11 +4878,11 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
             type=QgsProcessingParameterField.DataType.Numeric))
         self.addParameter(QgsProcessingParameterField(
             self.GROUP_FIELD,
-            self.tr("Поле группировки (необязательно, напр. вид разведки)"),
+            self.tr("Поле группировки (напр. вид разведки)"),
             parentLayerParameterName=self.INPUT, optional=True))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
-            self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
+            self.tr("Поле весов декластеризации (из 1.01)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
@@ -5437,7 +5437,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
             type=QgsProcessingParameterField.DataType.Numeric))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
-            self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
+            self.tr("Поле весов декластеризации (из 1.01)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
         self.addParameter(QgsProcessingParameterNumber(
@@ -6360,6 +6360,99 @@ class DarcyFluxAlgorithm(IsolinerAlgorithm):
         return results
 
 
+class PlastReferenceTemplateAlgorithm(IsolinerAlgorithm):
+    """4.11 Образец справочника пластов: кладёт поставляемый шаблон в проект.
+
+    Образец лежит файлом в каталоге плагина, куда пользователь не ходит. Без
+    этого инструмента справочник приходится искать руками в папке модуля, а
+    не найдя - подавать в 4.01 первую попавшуюся таблицу и получать разрез
+    без цвета. Здесь он одним прогоном оказывается в проекте и сразу виден в
+    выпадающем списке инструментов разреза.
+
+    Слой выдаётся обычным выходом, поэтому Processing сам решает, оставить
+    его временным или записать в файл: пользователь волен сохранить образец
+    и править его под своё месторождение.
+    """
+
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return PlastReferenceTemplateAlgorithm()
+    def name(self): return "plast_reference_template"
+    def displayName(self):
+        return self.tr("4.11 Образец справочника пластов")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP3)
+    def groupId(self): return GROUP3_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Кладёт в проект поставляемый образец справочника пластов - тот, "
+            "что читают инструменты 4.01 и 4.02. Это таблица без геометрии: "
+            "одна строка на пласт или междупластье, сверху вниз по разрезу, "
+            "с кодом, порядком залегания, телом и цветом.\n\n"
+            "Образец собран по Верхнекамскому месторождению, 36 строк от "
+            "покровных отложений до нижней каменной соли. Для другого "
+            "месторождения он служит скелетом: сохраните слой в файл и "
+            "правьте коды, порядок и цвета под свою стратиграфию.\n\n"
+            "Тело («пласт» или «междупластье») заполняет геолог, и это не "
+            "формальность. Из кода тело не выводится: АБ выглядит как «А "
+            "плюс Б», но это цельный пласт, а Б-В - междупластье, хотя "
+            "пласта Б в списке нет. Инструмент значения тела не "
+            "пересчитывает.\n\n"
+            "Тот же файл лежит в папке templates внутри каталога плагина в "
+            "видах xlsx и csv, если удобнее открыть его вне QGIS.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Справочник пластов (образец)"),
+            type=QgsProcessing.SourceType.TypeVector))
+
+    @staticmethod
+    def template_path():
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "templates", "plast_reference_vkmks.csv")
+
+    def _process(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        path = self.template_path()
+        if not os.path.exists(path):
+            raise QgsProcessingException(_tr(
+                "Образец справочника не найден в поставке: %s") % path)
+        rsum = plast_reference.ReadSummary()
+        ref = plast_reference.Reference.from_csv(path, summary=rsum)
+        for ln in rsum.lines(_tr):
+            feedback.pushInfo(ln)
+
+        fields = QgsFields()
+        fields.append(QgsField("code", QVariant.String))
+        fields.append(QgsField("order", QVariant.Int))
+        fields.append(QgsField("body", QVariant.String))
+        fields.append(QgsField("color", QVariant.String))
+        fields.append(QgsField("strata", QVariant.String))
+        fields.append(QgsField("note", QVariant.String))
+        sink, dest_id = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.NoGeometry)
+        for b in sorted(ref.beds, key=lambda x: x.order):
+            feat = QgsFeature(fields)
+            feat["code"] = b.code
+            feat["order"] = int(b.order)
+            # наружу отдаём словами, как в файле: справочник читает человек
+            feat["body"] = (_tr("междупластье") if b.is_interbed
+                            else _tr("пласт"))
+            feat["color"] = b.color or ""
+            feat["strata"] = getattr(b, "strata", "") or ""
+            feat["note"] = getattr(b, "note", "") or ""
+            sink.addFeature(feat)
+        feedback.pushInfo(_tr(
+            "Образец положен в проект. Подайте его в 4.01 и 4.02 как "
+            "«Справочник пластов (таблица)»."))
+        _set_output_name(context, dest_id, _tr("Справочник пластов (образец)"))
+        return {self.OUTPUT: dest_id}
+
+
 class SectionDemoAlgorithm(IsolinerAlgorithm):
     """Демо-данные для разреза: три гладкие стопкой поверхности (две залежи) с
     падением и волнистой переменной мощностью, плюс линия через площадь. Готово
@@ -6861,7 +6954,6 @@ class SectionAlgorithm(IsolinerAlgorithm):
     растры-поверхности."""
 
     LINE, SURFACES = "LINE", "SURFACES"
-    PALETTE = "PALETTE"
     REFERENCE = "REFERENCE"
     BODIES = "BODIES"
     TREE_ORDER = "TREE_ORDER"
@@ -6946,7 +7038,7 @@ class SectionAlgorithm(IsolinerAlgorithm):
             self.BATCH, self.tr("Разрез по каждой линии слоя"),
             defaultValue=_dv(self, self.BATCH, True)))
         self.addParameter(QgsProcessingParameterField(
-            self.NAMEFLD, self.tr("Поле имени разреза (необязательно)"),
+            self.NAMEFLD, self.tr("Поле имени разреза"),
             parentLayerParameterName=self.LINE, optional=True))
         self.addParameter(QgsProcessingParameterEnum(
             self.LAYOUT, self.tr("Раскладка нескольких разрезов"),
@@ -6982,7 +7074,9 @@ class SectionAlgorithm(IsolinerAlgorithm):
             defaultValue=0)))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.REFERENCE,
-            self.tr("Справочник пластов (слой), необязательно"),
+            self.tr("Справочник пластов (таблица)"),
+            # только таблицы без геометрии: справочник это список
+            # тел, а не слой карты
             types=[QgsProcessing.SourceType.TypeVector],
             defaultValue=_dv(self, self.REFERENCE, None), optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
@@ -8066,7 +8160,7 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             layerType=QgsProcessing.SourceType.TypeVectorAnyGeometry))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.SECTION2D,
-            self.tr("Чертёж разреза (для высоты рамки, необязательно)"),
+            self.tr("Чертёж разреза (для высоты рамки)"),
             optional=True))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.ZMIN, self.tr("Низ диапазона Z (если нет чертежа)"),
@@ -8989,7 +9083,9 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.CLIP_TOL, 0.0), minValue=0.0)))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.REFERENCE,
-            self.tr("Справочник пластов (слой), необязательно"),
+            self.tr("Справочник пластов (таблица)"),
+            # только таблицы без геометрии: справочник это список
+            # тел, а не слой карты
             types=[QgsProcessing.SourceType.TypeVector],
             defaultValue=_dv(self, self.REFERENCE, None), optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
@@ -9407,7 +9503,7 @@ class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
             type=QgsProcessingParameterField.DataType.Numeric))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
-            self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
+            self.tr("Поле весов декластеризации (из 1.01)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
         self.addParameter(QgsProcessingParameterNumber(
@@ -9830,11 +9926,11 @@ class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
             type=QgsProcessingParameterField.DataType.Numeric,
             defaultValue=_dv(self, self.ZFIELD, None)))
         self.addParameter(QgsProcessingParameterField(
-            self.IDFIELD, self.tr("Поле номера скважины (необязательно)"),
+            self.IDFIELD, self.tr("Поле номера скважины"),
             parentLayerParameterName=self.INPUT, optional=True))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
-            self.tr("Поле весов декластеризации (из 1.01, необязательно)"),
+            self.tr("Поле весов декластеризации (из 1.01)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
         self.addParameter(QgsProcessingParameterEnum(
@@ -11421,7 +11517,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
             self.RAVINE, self.tr("Овражно-балочная сеть"),
             defaultValue=_dv(self, self.RAVINE, False)))
         self.addParameter(QgsProcessingParameterExtent(
-            self.EXTENT, self.tr("Куда положить (охват, необязательно)"),
+            self.EXTENT, self.tr("Куда положить (охват)"),
             optional=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Демо-рельеф")))
@@ -12359,6 +12455,7 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
     MERGE = "MERGE"
     BURN = "BURN"
     BURN_DEPTH = "BURN_DEPTH"
+    BURN_PROFILE, BURN_SLOPE = "BURN_PROFILE", "BURN_SLOPE"
     FILL = "FILL"
     EPSILON = "EPSILON"
     OUT_POLY = "OUT_POLY"
@@ -12420,6 +12517,16 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterBoolean(
             self.BURN, self.tr("Врезать трассу в рельеф (меняет гидрологию)"),
             defaultValue=_dv(self, self.BURN, False)))
+        self.addParameter(_advanced(QgsProcessingParameterEnum(
+            self.BURN_PROFILE, self.tr("Профиль врезки"),
+            options=[self.tr("постоянная глубина"),
+                     self.tr("жёлоб с уклоном к стоку")],
+            defaultValue=_dv(self, self.BURN_PROFILE, 0))))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BURN_SLOPE, self.tr("Продольный уклон дна жёлоба, м/м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.BURN_SLOPE, 0.002),
+            minValue=0.0, maxValue=1.0)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.BURN_DEPTH, self.tr("Глубина врезки, м"),
             QgsProcessingParameterNumber.Type.Double,
@@ -12508,6 +12615,7 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
         transform = QgsCoordinateTransform(lines.sourceCrs(), layer.crs(),
                                            context.transformContext())
         traces = []          # (номер, id объекта, ячейки, длина)
+        line_runs, poly_cells_all = [], []
         for feat in lines.getFeatures():
             cells, length = [], 0.0
             g = feat.geometry()
@@ -12530,6 +12638,13 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
                 cells = [i for i in cells if not mask.ravel()[i]]
             if cells:
                 traces.append([feat.id(), cells, length])
+                # для жёлоба ячейки линии нужны в порядке вдоль трассы,
+                # у полигона порядка вдоль нет - он врезается постоянной
+                # глубиной при любом профиле
+                if is_poly:
+                    poly_cells_all.extend(cells)
+                else:
+                    line_runs.append(list(cells))
         if not traces:
             raise QgsProcessingException(self.tr(
                 "Ни один объект не лёг на грид: проверьте охват ЦМР и "
@@ -12544,11 +12659,27 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
 
         z = z0
         if burn and depth > 0:
-            burn_cells = [i for t in traces for i in t[1]]
-            z = topo_gauge.burn_trace(z0, burn_cells, depth, mask)
-            feedback.pushInfo(self.tr(
-                "Трасса врезана на %.2f м: гидрология изменена намеренно, "
-                "результат зависит от глубины.") % depth)
+            profile = self.parameterAsEnum(
+                parameters, self.BURN_PROFILE, context)
+            bslope = self.parameterAsDouble(
+                parameters, self.BURN_SLOPE, context)
+            if profile == 1:
+                # жёлоб: линии монотонным дном к стоку, полигоны постоянной
+                # глубиной - у внутренности контура нет порядка вдоль
+                z = topo_gauge.burn_trace_sloped(
+                    z0, line_runs, depth, bslope, cell, mask)
+                if poly_cells_all:
+                    z = topo_gauge.burn_trace(z, poly_cells_all, depth, mask)
+                feedback.pushInfo(self.tr(
+                    "Трасса врезана жёлобом: глубина %.2f м, продольный "
+                    "уклон дна %.4g. Гидрология изменена намеренно, "
+                    "результат зависит от параметров.") % (depth, bslope))
+            else:
+                burn_cells = [i for t in traces for i in t[1]]
+                z = topo_gauge.burn_trace(z0, burn_cells, depth, mask)
+                feedback.pushInfo(self.tr(
+                    "Трасса врезана на %.2f м: гидрология изменена намеренно, "
+                    "результат зависит от глубины.") % depth)
         z, dir_idx, downstream, acc = _topo_flow_from_dem(
             z, mask, do_fill, epsilon, feedback, self.tr)
         feedback.pushInfo(self.tr("Уклон бассейна (Horn)..."))
@@ -12731,7 +12862,7 @@ class SlopeAspectAlgorithm(IsolinerAlgorithm):
 
 
 class PeaksAlgorithm(IsolinerAlgorithm):
-    """2.09 Вершины: локальные максимумы с фильтром превышения."""
+    """2.09 Вершины и ямы: локальные экстремумы с фильтром превышения."""
 
     INPUT = "INPUT"
     RADIUS = "RADIUS"
@@ -12742,19 +12873,28 @@ class PeaksAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return PeaksAlgorithm()
     def name(self): return "peaks_extract"
     def displayName(self):
-        return self.tr("2.09 Вершины")
+        return self.tr("2.09 Вершины и ямы")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
         return _help_version(self.tr(
-            "Находит вершины: ячейки, самые высокие в квадратном окне "
-            "заданного радиуса, с превышением над минимумом окна не "
-            "меньше порога. Радиус отсекает второстепенные макушки "
-            "рядом с главной, превышение отсекает кочки на равнине. "
+            "Находит вершины и ямы: ячейки, самые высокие или самые "
+            "низкие в квадратном окне заданного радиуса, с перепадом к "
+            "противоположному краю окна не меньше порога. Радиус "
+            "отсекает второстепенные макушки рядом с главной, перепад "
+            "отсекает кочки и лужи на равнине.\n\n"
+            "Ищутся всегда оба знака. Главный потребитель точек - "
+            "поверхность в АвтоКАДе или Кредо, построенная по "
+            "горизонталям: без пикета внутри каждой замкнутой "
+            "горизонтали вершина превращается в плоскую площадку, а яма "
+            "в плоское дно, и объёмы считаются с ошибкой до величины "
+            "сечения. Точки несут отметку в Z геометрии и выгружаются в "
+            "DXF вместе с горизонталями.\n\n"
             "Выход: точечный слой в группе Топография с полями z "
-            "(высота, м) и drop (превышение, м).") + _credit())
+            "(отметка, м), drop (перепад, м, у ямы это глубина) и kind "
+            "(peak или pit).") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -12765,11 +12905,11 @@ class PeaksAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.RADIUS, 500.0), minValue=1.0))
         self.addParameter(QgsProcessingParameterNumber(
-            self.MIN_DROP, self.tr("Минимальное превышение, м"),
+            self.MIN_DROP, self.tr("Минимальный перепад, м"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.MIN_DROP, 20.0), minValue=0.0))
         self.addParameter(QgsProcessingParameterFeatureSink(
-            self.OUTPUT, self.tr("Вершины (точки)"),
+            self.OUTPUT, self.tr("Вершины и ямы (точки)"),
             QgsProcessing.SourceType.TypeVectorPoint))
 
         _restore_layer_defaults(self, (self.INPUT,))
@@ -12783,22 +12923,30 @@ class PeaksAlgorithm(IsolinerAlgorithm):
         radius = self.parameterAsDouble(parameters, self.RADIUS, context)
         min_drop = self.parameterAsDouble(parameters, self.MIN_DROP, context)
         z, mask, gt, proj, cell = _topo_read_dem(layer, self.tr)
-        peaks = topo_surface.find_peaks(z, cell, radius, min_drop,
-                                        nodata_mask=mask)
+        found = topo_surface.find_extremes(z, cell, radius, min_drop,
+                                           nodata_mask=mask)
         fields = QgsFields()
         fields.append(QgsField("z", QVariant.Double))
         fields.append(QgsField("drop", QVariant.Double))
+        fields.append(QgsField("kind", QVariant.String))
+        # Z пишется в геометрию всегда: у точки экстремума отметка это её
+        # суть, а не опция. Точек десятки, довода про размер файла, как у
+        # массовых изолиний в 1.04, здесь нет. PointZ уходит в DXF вместе
+        # с горизонталями и закрывает плоские шапки поверхности.
         sink, dest_id = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
-            QgsWkbTypes.Type.Point, layer.crs())
-        for r, c, zv, dv in peaks:
+            QgsWkbTypes.Type.PointZ, layer.crs())
+        for r, c, zv, dv, kind in found:
             feat = QgsFeature(fields)
-            feat.setGeometry(QgsGeometry.fromPointXY(
-                QgsPointXY(*_topo_cell_xy(gt, r, c))))
+            x, y = _topo_cell_xy(gt, r, c)
+            feat.setGeometry(QgsGeometry(QgsPoint(x, y, zv)))
             feat["z"] = zv
             feat["drop"] = dv
+            feat["kind"] = kind
             sink.addFeature(feat)
-        feedback.pushInfo(self.tr("Найдено вершин: %d") % len(peaks))
+        n_peak = sum(1 for t in found if t[4] == "peak")
+        feedback.pushInfo(self.tr("Найдено вершин: %d, ям: %d")
+                          % (n_peak, len(found) - n_peak))
         _topo_group_layer(context, dest_id, self.tr("Топография"))
         return {self.OUTPUT: dest_id}
 
@@ -13723,7 +13871,7 @@ class TerracingCheckAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.INTERVAL, 0.0), minValue=0.0))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            self.CONTOURS, self.tr("Горизонтали для определения сечения (необязательно)"),
+            self.CONTOURS, self.tr("Горизонтали для определения сечения"),
             [QgsProcessing.SourceType.TypeVectorLine], optional=True))
         self.addParameter(QgsProcessingParameterField(
             self.FIELD, self.tr("Поле отметки горизонталей"),
@@ -13997,7 +14145,7 @@ class TerraceSmoothAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.INTERVAL, 0.0), minValue=0.0))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            self.CONTOURS, self.tr("Горизонтали для определения сечения (необязательно)"),
+            self.CONTOURS, self.tr("Горизонтали для определения сечения"),
             [QgsProcessing.SourceType.TypeVectorLine], optional=True))
         self.addParameter(QgsProcessingParameterField(
             self.FIELD, self.tr("Поле отметки горизонталей"),
@@ -14221,6 +14369,7 @@ ALGORITHMS = [
     GeophysProfilesDemoAlgorithm,
     CategoricalIndicatorAlgorithm,
     SectionDemoAlgorithm,
+    PlastReferenceTemplateAlgorithm,
     FlowGradientAlgorithm,
     ExternalDriftKrigingAlgorithm,
     ExceedanceProbabilityAlgorithm,

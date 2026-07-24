@@ -1720,17 +1720,21 @@ The 3D fence is not moved by the layout. It stands in real coordinates, each wal
 
 The first section always gets a zero offset, so a run over a single line gives exactly the same drawing as before.
 
-## Band colours: the Leapfrog palette
+## Band colours: the bed reference
 
-The bed bands are coloured by the roof name. Without a palette the colour is computed from the name itself and does not jump between runs, but it is arbitrary.
+The bed bands are coloured by the roof name. Without a reference the colour is computed from the name itself: it does not jump between runs, but it is arbitrary.
 
-The optional **Leapfrog colour palette (.lfc)** input takes a legend file with code and colour pairs. Codes found in it are painted with its colours, the order of the legend categories follows the palette (its order is geological), and codes outside the palette keep their previous colour. The log gets the line "Band colours: N from the palette, M own" and the list of the ones not found, which immediately shows whether the right palette was supplied.
+The optional **Bed reference (table)** input makes the colour meaningful. The reference is an ordinary project layer, a GeoPackage or an Excel table, with one row per bed and per interbed, top to bottom down the section. Three columns are required: the body code, the number from the top, and the body kind. The colour is optional, but it is usually the very reason the reference is supplied.
 
-Layer names rarely match the palette codes word for word, so the lookup is a ladder from strict to tolerant: the exact code, then ignoring case and outer spaces, then a normalised form (the role suffix `_top`, `_bottom`, `_кровля`, `_подошва` is stripped and Latin look-alike letters are folded into Cyrillic), and finally the same form without apostrophes. This is how `KpII_top` finds the bed code `КрII` and `A'Б_top` finds `АБ`. The strict steps come first, so if the palette holds both `АБ` and `А'Б` as different beds, each keeps its own colour.
+The **body** column holds the word bed or interbed, and this is a law rather than a guess. The body cannot be derived from the code. The bed **АБ** looks like "А plus Б" by its spelling, yet it is a single bed containing А, Б, the А-А' parting and А'. The interbed **Б-В** cannot be derived from the code at all, because there is no bed Б in the list, there is АБ. The body is decided by the geologist, and the machine does not recompute it.
 
-The same file goes into 4.02, and then the bands and the borehole columns match in colour.
+The top-to-bottom order gives the reference a second ability: finding the body between two boundaries. If the section runs the roofs of КрII and КрIIIа, then by order the interbed КрII-КрIII lies between them, and the band takes its name and colour. Beds that did not make it onto the section are marked grey and listed in the log, which shows at once what is missing from the set of surfaces.
 
-The palette file is read by a self-written parser rather than the standard XML modules: a foreign file may carry expanded entities and external references, so DOCTYPE declarations and entity references are not resolved and the input has a size limit. A broken or foreign file does not abort the run.
+Layer names rarely match the codes word for word, so the lookup is a ladder from strict to tolerant: the exact code, then ignoring case and outer spaces, then a normalised form (the role suffix `_top`, `_bottom`, `_кровля`, `_подошва` is stripped and Latin look-alike letters are folded into Cyrillic), and finally the same form without apostrophes. This is how `KpII_top` finds the code `КрII` and `A'Б_top` finds `АБ`. The strict steps come first, so if the reference holds both `АБ` and `А'Б` as different bodies, each keeps its own.
+
+The same reference goes into 4.02, and then the bands and the borehole columns speak one language of codes and match in colour.
+
+A ready sample for the Verkhnekamskoye deposit lives in the **templates** folder inside the plugin directory: 36 rows from the cover deposits down to the lower rock salt, with colours and bodies. The file comes in two forms, `plast_reference_vkmks.xlsx` and `plast_reference_vkmks.csv`. Take it as a starting point and edit it for your own deposit: the **strata** and **note** columns are optional, they are read but not used yet, and are left for future development.
 
 ## Attributes of the output layers
 
@@ -1774,7 +1778,7 @@ All the section layers carry two common fields: **sec** with the section name an
 | Columns in the grid (Adv.) | Number of columns for the grid layout. | 2 |
 | Gap between sections (Adv.) | A fraction of the drawing extent. | 0.15 |
 | Raster sampling (Adv.) | Bilinear or nearest. | bilinear |
-| Leapfrog colour palette (.lfc) | Band colours from a legend, optional. | empty |
+| Bed reference (table) | Colour, body and order from data. | empty |
 | Section drawing (distance × elevation) | The output polygon layer for a layout. | created |
 | 3D fence (PolygonZ) | The output layer of vertical walls in real coordinates. | created |
 
@@ -1820,13 +1824,11 @@ The frame is one for the whole drawing, while the roof of the uppermost sequence
 
 The tolerance under the advanced parameters widens the frame and the bands outwards, in elevation units. Only the geometry is clipped, the ztop and zbot attributes keep the true interval elevations. A clipping summary is printed to the log per section.
 
-## Column colours: the Leapfrog palette
+## Column colours: the bed reference
 
-By default the interval colour is computed from its code and does not change between runs. The optional **Leapfrog colour palette (.lfc)** input replaces those colours with the legend ones: codes found in the palette are painted from it, the order of the legend categories follows it, and codes outside it keep their previous colour. The log gets the palette reading summary, the line "Colours: N codes from the palette, M own" and the list of codes not found.
+By default the interval colour is computed from its code and does not change between runs. The optional **Bed reference (table)** input replaces those colours with the reference ones: codes found in it are painted from it, the order of the legend categories follows the bedding from top to bottom, and codes outside it keep their previous colour. The log gets the reading summary and a line on how many codes were found.
 
-The lookup is tolerant, by the same ladder as in 4.01 (case, role suffix, Latin look-alike letters, apostrophes). A broken or foreign file does not abort the run: the tool warns and colours by its own rule.
-
-Different palettes for the two tools are normal. The drawing bands carry a bed code while the borehole intervals often carry a rock type, so 4.01 gets the stratigraphic palette and 4.02 the lithological one, and their colours are not meant to match. If the interval table does have a bed index field, set it as the code field and supply the same palette as in 4.01 - the columns will then merge with the bands, and only the disagreement between the borehole and the built surface will stand out.
+The reference for 4.01 and 4.02 may be one and the same, and that is its strength. The drawing bands carry a bed code while the borehole intervals often carry a rock type. If the interval table does have a bed index field, set it as the code field and supply the same reference as in 4.01 - the columns will then merge with the bands in colour, and only the disagreement between the borehole and the built surface will stand out. If the intervals carry lithology instead, a bed reference will not help there, that needs a legend of its own.
 
 ## Parameters
 
@@ -1841,7 +1843,7 @@ Different palettes for the two tools are normal. The drawing bands carry a bed c
 | collar and interval fields (Adv.) | Overrides of the automatic field search. | found automatically |
 | Collar label field (Adv.) | Where the short collar label comes from. | number |
 | Clipping tolerance (Adv.) | Widening of the frame and the bands, elevation units. | 0 |
-| Leapfrog colour palette (.lfc) | Column colours from a legend, optional. | empty |
+| Bed reference (table) | Colour and code order from data. | empty |
 | Borehole intervals (drawing) | Vertical segments coloured by code. | created |
 | Borehole traces (drawing) | Lines from the collar to the end of hole. | created |
 | Collars on the drawing | Points labelled from number. | created |
@@ -2050,6 +2052,32 @@ The workflow is shown in section 4.01: the surfaces go into **Cross-section alon
 | Overturned TIN | 3D faces of an overturned fold for 4.06. | on request |
 
 The full list of output-layer fields is in the **Section data** appendix section ("Demo-layer fields" at the end of the manual).
+
+# 4.11 Bed reference template
+
+The tool adds the bundled bed reference template to the project - the very one read by **4.01** and **4.02**. The reason is simple: the template lives as a file inside the plugin directory, where a user does not normally look. Without this step the reference has to be hunted for by hand, and failing that, the first table at hand gets fed into the section and the drawing comes out without colour.
+
+The tool has no parameters. One run, and the **Bed reference (template)** layer appears in the project and is immediately visible in the drop-down of the section tools.
+
+## What is inside
+
+A table without geometry, one row per bed or interbed, top to bottom down the section. The columns are the body code, the number from the top, the body kind (bed or interbed) and the colour, plus the optional strata and note columns, which are read but not used yet.
+
+The template is built for the Verkhnekamskoye deposit: 37 rows from the cover deposits down to the lower rock salt. For another deposit it serves as a skeleton. Save the layer to a file by the standard QGIS means and edit the codes, the order and the colours for your own stratigraphy.
+
+## The body is filled in by the geologist
+
+This is the main thing to understand about the reference, which is why it is repeated here. The body cannot be derived from the code. The bed **АБ** looks like "А plus Б" by its spelling, yet it is a single bed containing А, Б, the А-А' parting and А'. The interbed **Б-В** cannot be derived from the code at all, because there is no bed Б in the list, there is АБ. The tool does not recompute the body values and in that sense is no wiser than the person who entered them.
+
+## Composite bodies are grey
+
+The template holds **КрIIIа+б**, a composite body: the sum of КрIIIа, the КрIIIа-б interbed and КрIIIб. Such conglomerates are painted grey in the reference, the same shade the plugin uses to mark the unrecognised. The reason is that the colour of a composite body does not follow from the colours of its parts: the parts may differ, and any choice would be arbitrary. Grey reads as "colour not set", and it is the person who sets it.
+
+Holding the whole next to its parts in one list has a price worth knowing. The top-to-bottom order is single, so between **КрIIIб** and **КрIIIв** there are now two bodies rather than one, and such a pair of boundaries on a section yields a grey band with a list instead of the interbed name. At the coarse granularity, between **КрIIIа+б** and **КрIIIв**, everything works out as usual.
+
+## The same file outside QGIS
+
+The template lives in the **templates** folder inside the plugin directory in two forms, `plast_reference_vkmks.xlsx` and `plast_reference_vkmks.csv`. The Excel workbook has a second sheet with the filling rules. Edit it any way you find convenient, the section tools accept a project table, a GeoPackage and a CSV alike.
 
 # 5.01 Fractal dimension
 

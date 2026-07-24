@@ -315,6 +315,65 @@ def test_ditch_report_seed_km2():
     assert len(set(tg.DITCH_KEYS)) == len(tg.DITCH_KEYS)
 
 
+def test_burn_sloped_bottom_is_monotone_to_outfall():
+    """Дно жёлоба монотонно падает к стоку, перевала через борт нет.
+
+    Приём Иванова: постоянная глубина на волнистом рельефе даёт дно,
+    которое поднимается по ходу трассы, и вода переваливает. Жёлоб обязан
+    это исключить.
+    """
+    ox, oy, cell = _grid_geo()
+    ny, nx = 3, 10
+    # волнистый профиль вдоль ряда 1: вниз, потом горб
+    z = np.zeros((ny, nx))
+    z[1, :] = [10, 9, 8, 9.5, 11, 8, 7, 8.5, 6, 5]
+    run = [1 * nx + c for c in range(nx)]
+    out = tg.burn_trace_sloped(z, [run], depth=1.0, slope=0.01, cell=cell)
+    bottom = out.ravel()[np.asarray(run)]
+    # сток к концу (правый край ниже), падение строго монотонное
+    assert (np.diff(bottom) <= -0.01 * cell + 1e-12).all()
+    # дно нигде не выше исходной врезки
+    assert (bottom <= z[1, :] - 1.0 + 1e-12).all()
+    # чужие ячейки не тронуты
+    assert (out[0, :] == z[0, :]).all() and (out[2, :] == z[2, :]).all()
+
+
+def test_burn_sloped_direction_follows_low_end():
+    """Направление стока выбирается по нижнему концу трассы."""
+    ox, oy, cell = _grid_geo()
+    nx = 8
+    z = np.zeros((1, nx))
+    z[0, :] = np.linspace(2.0, 9.0, nx)   # низкий конец слева
+    run = list(range(nx))
+    out = tg.burn_trace_sloped(z, [run], depth=0.5, slope=0.01, cell=cell)
+    bottom = out.ravel()[np.asarray(run)]
+    assert (np.diff(bottom) >= 0.01 * cell - 1e-12).all()  # падает к началу
+
+
+def test_burn_sloped_zero_slope_still_monotone():
+    """Нулевой уклон даёт бегущий минимум: рост дна запрещён и без него."""
+    ox, oy, cell = _grid_geo()
+    z = np.array([[5.0, 3.0, 6.0, 2.0]])
+    run = [0, 1, 2, 3]
+    out = tg.burn_trace_sloped(z, [run], depth=1.0, slope=0.0, cell=cell)
+    bottom = out.ravel()[np.asarray(run)]
+    assert (np.diff(bottom) <= 1e-12).all()
+    assert bottom[-1] == 1.0
+
+
+def test_burn_sloped_nodata_and_degenerate():
+    ox, oy, cell = _grid_geo()
+    z = np.array([[5.0, 4.0, 3.0]])
+    mask = np.array([[False, True, False]])
+    out = tg.burn_trace_sloped(z, [[0, 1, 2]], 1.0, 0.01, cell,
+                               nodata_mask=mask)
+    assert out[0, 1] == 4.0            # nodata не тронута
+    assert out[0, 0] == 4.0 and out[0, 2] <= 2.0
+    # пустые входы - копия без изменений
+    assert (tg.burn_trace_sloped(z, [], 1.0, 0.01, cell) == z).all()
+    assert (tg.burn_trace_sloped(z, [[0]], 0.0, 0.01, cell) == z).all()
+
+
 def test_polyline_length():
     assert abs(tg.polyline_length([(0, 0), (30, 40)]) - 50.0) < 1e-9
     assert tg.polyline_length([(0, 0)]) == 0.0

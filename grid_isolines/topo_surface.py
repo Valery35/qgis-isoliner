@@ -111,3 +111,29 @@ def find_peaks(z, cell, radius_m, min_drop, nodata_mask=None):
             continue
         out.append((rr, cc, float(z[rr, cc]), float(drop[rr, cc])))
     return out
+
+
+def find_extremes(z, cell, radius_m, min_drop, nodata_mask=None):
+    """Вершины и ямы разом: (row, col, z, drop, kind), kind это peak или pit.
+
+    Яма ищется тем же find_peaks на обращённом рельефе - локальный минимум
+    это локальный максимум минус-поверхности, а превышение над минимумом
+    окна становится глубиной под максимумом. Отметка z и величина drop
+    возвращаются в исходных знаках: у ямы z это её настоящая отметка, а
+    drop положительная глубина.
+
+    Обе половины нужны одновременно: поверхность, построенная по одним
+    горизонталям, кладёт плоскую шапку на каждую замкнутую горизонталь, и
+    ошибка объёма на вершине и в яме одна и та же с разным знаком.
+    Пикеты экстремумов её закрывают.
+    """
+    z = np.asarray(z, dtype=np.float64)
+    peaks = [(r, c, zv, dv, "peak")
+             for r, c, zv, dv in find_peaks(z, cell, radius_m, min_drop,
+                                            nodata_mask=nodata_mask)]
+    pits = [(r, c, float(z[r, c]), dv, "pit")
+            for r, c, _zv, dv in find_peaks(-z, cell, radius_m, min_drop,
+                                            nodata_mask=nodata_mask)]
+    out = peaks + pits
+    out.sort(key=lambda t: -abs(t[3]))
+    return out

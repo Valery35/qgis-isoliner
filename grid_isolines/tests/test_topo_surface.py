@@ -96,5 +96,69 @@ class TestPeaks(unittest.TestCase):
         self.assertEqual(len(far), 1)
 
 
+class TestExtremes(unittest.TestCase):
+    """Вершины и ямы разом: обёртка find_extremes.
+
+    Пришло из чата сообщества: поверхность в АвтоКАДе по одним
+    горизонталям кладёт плоскую шапку на каждую замкнутую горизонталь,
+    и пикеты нужны сразу на ямы и вершины.
+    """
+
+    def _hill_and_pit(self):
+        ny, nx = 60, 80
+        yy, xx = np.mgrid[0:ny, 0:nx]
+        z = np.full((ny, nx), 100.0)
+        z += 50.0 * np.exp(-(((xx - 20) ** 2 + (yy - 30) ** 2) / 60.0))
+        z -= 40.0 * np.exp(-(((xx - 60) ** 2 + (yy - 30) ** 2) / 40.0))
+        return z
+
+    def test_both_kinds_found(self):
+        got = ts.find_extremes(self._hill_and_pit(), cell=10.0,
+                               radius_m=150.0, min_drop=5.0)
+        kinds = sorted(t[4] for t in got)
+        self.assertEqual(kinds, ["peak", "pit"])
+
+    def test_pit_keeps_true_elevation_and_positive_depth(self):
+        """У ямы z это её настоящая отметка, а drop положительная глубина.
+
+        Обращение рельефа - деталь реализации, наружу знаки выходят
+        исходные: точка ямы обязана лечь на поверхность в АвтоКАДе, а
+        не отразиться от неё.
+        """
+        z = self._hill_and_pit()
+        got = ts.find_extremes(z, cell=10.0, radius_m=150.0, min_drop=5.0)
+        pit = [t for t in got if t[4] == "pit"][0]
+        r, c, zv, dv, _k = pit
+        self.assertAlmostEqual(zv, float(z[r, c]), places=9)
+        self.assertLess(zv, 100.0)      # яма ниже равнины
+        self.assertGreater(dv, 5.0)     # глубина положительная
+
+    def test_peak_half_matches_find_peaks(self):
+        """Вершинная половина в точности совпадает с прежним find_peaks.
+
+        Старые прогоны по вершинам воспроизводятся, добавились только
+        ямы.
+        """
+        z = self._hill_and_pit()
+        old = ts.find_peaks(z, cell=10.0, radius_m=150.0, min_drop=5.0)
+        new = [t[:4] for t in ts.find_extremes(z, cell=10.0, radius_m=150.0,
+                                               min_drop=5.0)
+               if t[4] == "peak"]
+        self.assertEqual(sorted(old), sorted(new))
+
+    def test_flat_field_gives_nothing(self):
+        z = np.full((40, 40), 7.0)
+        self.assertEqual(ts.find_extremes(z, cell=10.0, radius_m=100.0,
+                                          min_drop=1.0), [])
+
+    def test_nodata_respected(self):
+        z = self._hill_and_pit()
+        mask = np.zeros(z.shape, dtype=bool)
+        mask[20:40, 50:70] = True     # яма вырезана из данных
+        got = ts.find_extremes(z, cell=10.0, radius_m=150.0, min_drop=5.0,
+                               nodata_mask=mask)
+        self.assertEqual([t[4] for t in got], ["peak"])
+
+
 if __name__ == "__main__":
     unittest.main()

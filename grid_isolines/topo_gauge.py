@@ -312,6 +312,54 @@ def burn_trace(z, seed_idxs, depth, nodata_mask=None):
     return out
 
 
+def burn_trace_sloped(z, ordered_runs, depth, slope, cell, nodata_mask=None):
+    """Врезка жёлобом: дно опускается монотонно в сторону стока.
+
+    Приём Ивана Иванова из обсуждения водосборов: постоянная глубина не
+    гарантирует, что поток пойдёт по канаве - при локальных вариациях
+    рельефа дно канавы может подниматься по ходу трассы, и вода
+    переваливает через борт. Жёлоб решает это монотонностью: дно каждой
+    трассы не имеет права расти в направлении стока.
+
+    ordered_runs - список трасс, каждая это плоские индексы ячеек В ПОРЯДКЕ
+    ВДОЛЬ ЛИНИИ (как их отдаёт cells_along_polyline). Направление стока
+    выбирается по концам врезанного профиля: к более низкому концу.
+    Дно: сначала z минус depth, затем бегущий минимум в направлении стока
+    с обязательным падением slope*cell на ячейку. Итоговая отметка ячейки
+    это минимум исходной врезки и дна, то есть выше «рельеф минус depth»
+    дно не поднимается никогда.
+
+    Точных расстояний между ячейками не считается: диагональный шаг принят
+    равным cell. Уклон здесь подбираемый параметр, а не измеренная
+    величина, и такое упрощение честно.
+
+    Ячейки nodata пропускаются и не участвуют ни в профиле, ни в дне.
+    """
+    out = np.array(z, dtype=np.float64, copy=True)
+    if depth <= 0 or not ordered_runs:
+        return out
+    flat = out.ravel()
+    nd = (np.asarray(nodata_mask, dtype=bool).ravel()
+          if nodata_mask is not None else None)
+    step = float(slope) * float(cell)
+    for run in ordered_runs:
+        idx = [int(i) for i in run if nd is None or not nd[i]]
+        if not idx:
+            continue
+        ai = np.asarray(idx, dtype=np.int64)
+        prof = flat[ai] - float(depth)
+        if len(idx) > 1 and prof[0] < prof[-1]:
+            order = slice(None, None, -1)      # сток к началу трассы
+        else:
+            order = slice(None)                # сток к концу
+        p = prof[order].copy()
+        for k in range(1, len(p)):
+            p[k] = min(p[k], p[k - 1] - step)
+        prof[order] = p
+        flat[ai] = prof
+    return out
+
+
 # ключи отчёта по линейному водосбору, в порядке вывода
 DITCH_KEYS = (
     "area_km2",       # площадь водосбора, км²
