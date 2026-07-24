@@ -147,3 +147,55 @@ def write_geotiff(z, out_path, gdal_module, osr_module, cell=DEFAULT_CELL,
     band.FlushCache()
     ds = None
     return out_path
+
+
+# --- проектная площадка для примерки объёмов (2.18) ----------------------
+
+def design_pad(z, frac=0.4, zones=3, dz=0.0):
+    """Проектная поверхность: горизонтальная площадка в середине рельефа.
+
+    Нужна для примерки инструмента 2.18: чтобы считать объёмы, нужна пара
+    поверхностей, а демо до сих пор выдавало одну.
+
+    Отметка площадки берётся средним рельефа внутри области, а не круглым
+    числом и не медианой. Это не вкусовщина, а точный ответ: объём равен
+    сумме разностей на площадь ячейки, значит нетто обращается в ноль
+    ровно тогда, когда отметка равна среднему. Медиана делит пополам
+    ячейки, а не кубометры, и баланс при ней не сходится. Круглое число
+    вообще легко даёт вырожденный случай, где вся площадка выше рельефа.
+
+    Сдвиг dz поднимает или опускает площадку от этой отметки, чтобы на
+    демо можно было получить и привозной грунт, и вывозной.
+
+    Возвращает (design, bounds, pad_z, zone_bounds), где bounds это
+    (r0, r1, c0, c1) полуинтервалами, а zone_bounds список таких же
+    четвёрок, режущих область по столбцам.
+    """
+    z = np.asarray(z, dtype=float)
+    ny, nx = z.shape
+    frac = float(frac)
+    if not (0.05 <= frac <= 0.9):
+        raise ValueError("Доля области работ должна быть от 0.05 до 0.9.")
+    zones = max(1, int(zones))
+
+    hw = max(2, int(round(nx * frac / 2.0)))
+    hh = max(2, int(round(ny * frac / 2.0)))
+    cx, cy = nx // 2, ny // 2
+    c0, c1 = max(0, cx - hw), min(nx, cx + hw)
+    r0, r1 = max(0, cy - hh), min(ny, cy + hh)
+    if c1 - c0 < zones:
+        zones = max(1, c1 - c0)
+
+    inside = z[r0:r1, c0:c1]
+    pad_z = float(np.nanmean(inside)) + float(dz)
+
+    design = z.astype(float).copy()
+    design[r0:r1, c0:c1] = pad_z
+
+    edges = np.linspace(c0, c1, zones + 1)
+    zone_bounds = []
+    for k in range(zones):
+        a, b = int(round(edges[k])), int(round(edges[k + 1]))
+        if b > a:
+            zone_bounds.append((r0, r1, a, b))
+    return design, (r0, r1, c0, c1), pad_z, zone_bounds

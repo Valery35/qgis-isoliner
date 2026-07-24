@@ -103,6 +103,7 @@ from .fractal import (fractal_dimension_map, fractal_dimension_global,
                       minkowski_dimension)
 from . import dem_glo30, osm_overpass, demo_relief
 from .hydro_fill import fill_depressions, DEFAULT_EPSILON
+from . import volumes as _vol
 from . import topo_flow, topo_gauge, topo_surface, topo_t2r, topo_smooth
 from . import palette_lfc  # чтение палитры Leapfrog, без QGIS
 from . import plast_reference  # справочник пластов, без QGIS
@@ -698,15 +699,36 @@ def _dv(alg, key, fallback):
     return getattr(alg, "_defaults", {}).get(key, fallback)
 
 
+def _alive_layer_ref(v):
+    """Проверяет, что запомненная ссылка на слой всё ещё разрешается: id
+    находится в текущем проекте или строка указывает на существующий файл.
+    Мёртвый id нельзя подставлять значением по умолчанию: комбо выглядит
+    пустым, а внутри сидит непустое нерабочее значение, и запуск падает с
+    «некорректным значением» без видимой причины. Список ссылок чистится
+    пословно; пустой после чистки список считается мёртвым целиком."""
+    if isinstance(v, str):
+        if QgsProject.instance().mapLayer(v) is not None:
+            return v
+        path = v.split("|", 1)[0]
+        return v if path and os.path.exists(path) else None
+    if isinstance(v, list):
+        kept = [x for x in v if _alive_layer_ref(x)]
+        return kept or None
+    return None
+
+
 def _restore_layer_defaults(alg, keys):
     """Подставляет запомненные id слоёв значениями по умолчанию параметров.
-    Зовётся в конце initAlgorithm, парой к _remember_layers."""
+    Зовётся в конце initAlgorithm, парой к _remember_layers. Подставляются
+    только живые ссылки: см. _alive_layer_ref."""
     for k in keys:
         try:
             v = _dv(alg, k, None) or _dv(alg, _mem_key(k), None)
             pd = alg.parameterDefinition(k)
             if v and pd is not None:
-                pd.setDefaultValue(v)
+                v = _alive_layer_ref(v)
+                if v:
+                    pd.setDefaultValue(v)
         except Exception:  # nosec
             pass
 
@@ -11452,6 +11474,10 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
     OUTPUT = "OUTPUT"
     GAUGES = "GAUGES"
     DITCHES = "DITCHES"
+    DESIGN = "DESIGN"
+    WORKZONES = "WORKZONES"
+    PAD_FRAC = "PAD_FRAC"
+    PAD_DZ = "PAD_DZ"
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return TopoDemoReliefAlgorithm()
@@ -11482,7 +11508,17 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
             "нарочно сдвинутые в сторону от водотока - готовая еда для "
             "инструмента 2.15 «Отчёт по створу» и наглядная проверка "
             "притяжки, и две демо-трассы канав поперёк тальвегов для "
-            "инструмента 2.16 «Водосбор линии».")
+            "инструмента 2.16 «Водосбор линии».\n"
+            "\nДва необязательных выхода дают готовую пару для "
+            "инструмента 2.18 «Насыпи и выемки»: проектную "
+            "поверхность и полигоны участков работ. Площадка "
+            "горизонтальная, её отметка берётся медианой рельефа "
+            "внутри области. Это не вкусовщина: объём есть сумма "
+            "разностей, и нетто обращается в ноль ровно при "
+            "отметке, равной среднему, поэтому демо сразу даёт "
+            "сошедшийся баланс. Сдвиг отметки в дополнительных "
+            "параметрах уводит его в привозной или вывозной грунт. "
+            "По умолчанию оба выхода выключены.")
             + _credit())
 
     def initAlgorithm(self, config=None):
@@ -11529,6 +11565,22 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
             self.DITCHES, self.tr("Трассы канав (демо)"),
             type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
             createByDefault=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.PAD_FRAC, self.tr("Доля площади под область работ"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.PAD_FRAC, 0.4),
+            minValue=0.05, maxValue=0.9)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.PAD_DZ, self.tr("Сдвиг отметки площадки, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.PAD_DZ, 0.0))))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.DESIGN, self.tr("Проектная поверхность (демо для 2.18)"),
+            optional=True, createByDefault=False))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.WORKZONES, self.tr("Участки работ (демо для 2.18)"),
+            type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
+            createByDefault=False))
 
     def _process(self, parameters, context, feedback):
         nx = self.parameterAsInt(parameters, self.NX, context)
@@ -11678,6 +11730,63 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
                 _topo_group_layer(context, ddest, self.tr("Топография"),
                                   collapse=False)
                 results[self.DITCHES] = ddest
+
+        # демо-пара для 2.18: проектная площадка и участки работ. Считается
+        # только если человек задал выход, по умолчанию выключено - тем, кому
+        # нужен один рельеф, лишних слоёв в дереве не появится.
+        out_design = self.parameterAsOutputLayer(parameters, self.DESIGN,
+                                                 context)
+        zfields = QgsFields()
+        zfields.append(QgsField("name", QVariant.String))
+        zsink, zdest = self.parameterAsSink(
+            parameters, self.WORKZONES, context, zfields,
+            QgsWkbTypes.Type.Polygon, crs)
+        if out_design or zsink is not None:
+            frac = self.parameterAsDouble(parameters, self.PAD_FRAC, context)
+            try:
+                dz = self.parameterAsDouble(parameters, self.PAD_DZ, context)
+                design, bnds, pad_z, zbounds = demo_relief.design_pad(
+                    z, frac=frac or 0.4, dz=dz)
+            except ValueError as exc:
+                raise QgsProcessingException(str(exc))
+            r0, r1, c0, c1 = bnds
+            if out_design:
+                demo_relief.write_geotiff(
+                    design, out_design, gdal, osr, cell=cell, epsg=epsg,
+                    wkt=wkt, as_int16=False, origin_x=origin_x,
+                    origin_y=origin_y)
+                feedback.pushInfo(self.tr(
+                    "Проектная площадка: отметка %.2f м, область %d на %d "
+                    "ячеек. Отметка равна среднему рельефа внутри области "
+                    "плюс сдвиг %.2f м, при нулевом сдвиге баланс сходится "
+                    "точно. Пара для 2.18 готова: «стало» это площадка, "
+                    "«было» это рельеф.")
+                    % (pad_z, c1 - c0, r1 - r0, dz))
+                _set_output_name(context, out_design,
+                                 self.tr("Проектная поверхность (демо)"))
+                _topo_group_layer(context, out_design, self.tr("Топография"))
+                results[self.DESIGN] = out_design
+            if zsink is not None:
+                for k, (a0, a1, b0, b1) in enumerate(zbounds):
+                    x0 = origin_x + b0 * cell
+                    x1 = origin_x + b1 * cell
+                    y0 = origin_y - a0 * cell
+                    y1 = origin_y - a1 * cell
+                    ring = [QgsPointXY(x0, y0), QgsPointXY(x1, y0),
+                            QgsPointXY(x1, y1), QgsPointXY(x0, y1),
+                            QgsPointXY(x0, y0)]
+                    fz = QgsFeature(zfields)
+                    fz.setGeometry(QgsGeometry.fromPolygonXY([ring]))
+                    fz.setAttributes([self.tr("Участок-%d") % (k + 1)])
+                    zsink.addFeature(fz)
+                feedback.pushInfo(self.tr(
+                    "Участки работ: %d, режут область по столбцам.")
+                    % len(zbounds))
+                _set_output_name(context, zdest,
+                                 self.tr("Участки работ (демо)"))
+                _topo_group_layer(context, zdest, self.tr("Топография"),
+                                  collapse=False)
+                results[self.WORKZONES] = zdest
         return results
 
 
@@ -12465,7 +12574,7 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return DitchCatchmentAlgorithm()
     def name(self): return "ditch_catchment"
     def displayName(self):
-        return self.tr("2.16 Водосбор линии и контура (канавы, карьеры)")
+        return self.tr("2.16 Водосбор. Линии и контуры (канавы, карьеры)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
@@ -14355,7 +14464,363 @@ def _write_smooth_report(path, before, after, z_before, z_after, interval,
         fh.write(html)
 
 
+class CutFillAlgorithm(IsolinerAlgorithm):
+    """2.18 Насыпи и выемки: объёмы между двумя поверхностями."""
+
+    AFTER = "AFTER"
+    AFTER_BAND = "AFTER_BAND"
+    BEFORE = "BEFORE"
+    BEFORE_BAND = "BEFORE_BAND"
+    BASE_Z = "BASE_Z"
+    ZONES = "ZONES"
+    ZONE_FIELD = "ZONE_FIELD"
+    DEAD = "DEAD"
+    TOL = "TOL"
+    OUTPUT_DIFF = "OUTPUT_DIFF"
+    OUTPUT_HTML = "OUTPUT_HTML"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return CutFillAlgorithm()
+    def name(self): return "cutfill"
+    def displayName(self):
+        return self.tr("2.18 Насыпи и выемки (объёмы работ)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPO)
+    def groupId(self): return GROUP_TOPO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Считает объёмы земляных работ между двумя поверхностями: что "
+            "насыпано, что снято и сходится ли баланс.\n"
+            "\nФормула простая: разность отметок по ячейкам, умноженная на "
+            "площадь ячейки. Знак принят такой - разность считается «стало "
+            "минус было», поэтому положительная разность это насыпь, а "
+            "отрицательная выемка. В ArcGIS знак обратный, при сверке это "
+            "стоит помнить.\n"
+            "\nПоверхность сравнения задаётся растром или, если её нет, "
+            "одной отметкой числом. Отметка удобна для площадки под "
+            "планировку и для подсчёта от уреза воды.\n"
+            "\n**Приведение к одной сетке.** Две матрицы почти никогда не "
+            "лежат на одной сетке. Хозяином сетки берётся первая, вторая "
+            "приводится билинейно. Ближайший сосед здесь не годится, он "
+            "возвращает ступени. За краем данных объём не считается, "
+            "высоты не экстраполируются.\n"
+            "\n**Почему цифры расходятся с другими программами.** Почти "
+            "никогда не из-за формулы. Билинейное приведение объём "
+            "сохраняет, сдвиг сетки сам по себе ничего не меняет. "
+            "Расхождение даёт состав ячеек: чуть иначе обрезанная рамка, "
+            "другая маска, полшага на границе участка. Поэтому в журнал "
+            "печатаются начало сетки, шаг и число ячеек обеих матриц. "
+            "Сверяйте сначала их, а потом уже объёмы.\n"
+            "\n**Мёртвая зона** отсекает фон. Две поверхности, полученные "
+            "разными способами, всегда шумят на сантиметры, и без отсечки "
+            "весь этот шум попадает то в насыпь, то в выемку и раздувает "
+            "обе цифры, не меняя нетто. По умолчанию отсечки нет, задавайте "
+            "её осознанно и указывайте в отчёте.\n"
+            "\nПолигоны участков считаются отдельно, каждый со своими "
+            "числами. Поле участка может быть числовым или текстовым.\n"
+            "\n**Чего инструмент не делает.** Это не САПР. Откосы с "
+            "заложением, бермы, послойные ведомости и посадку проектной "
+            "поверхности он не строит. И объём геометрический не равен "
+            "объёму грунта: разрыхление и уплотнение применяет "
+            "проектировщик.\n"
+            "\nЛиния нулевых работ отдельным инструментом не нужна: "
+            "постройте изолинию нуля по растру разности обычным "
+            "инструментом изолиний из растра.\n"
+            "\nВыход: растр разности (метры, положительное это насыпь) и "
+            "отчёт HTML с числами по участкам и итогом.\n\n") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.AFTER, self.tr("Поверхность «стало» (проектная, новая)")))
+        self.addParameter(_advanced(QgsProcessingParameterBand(
+            self.AFTER_BAND, self.tr("Канал поверхности «стало»"),
+            parentLayerParameterName=self.AFTER, defaultValue=1)))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.BEFORE, self.tr("Поверхность «было» (исходная)"),
+            optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterBand(
+            self.BEFORE_BAND, self.tr("Канал поверхности «было»"),
+            parentLayerParameterName=self.BEFORE, defaultValue=1)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.BASE_Z, self.tr("Отметка сравнения, м (если растра «было» нет)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.BASE_Z, 0.0), optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.ZONES, self.tr("Участки работ (полигоны)"),
+            [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.ZONE_FIELD, self.tr("Поле названия участка"),
+            parentLayerParameterName=self.ZONES, optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.DEAD, self.tr("Мёртвая зона по высоте, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.DEAD, 0.0), minValue=0.0))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.TOL, self.tr("Допуск баланса, доля оборота"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.TOL, 0.05),
+            minValue=0.0, maxValue=1.0)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_DIFF, self.tr("Растр разности (насыпь положительна)"),
+            optional=True, createByDefault=True))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            self.OUTPUT_HTML, self.tr("Ведомость объёмов (HTML)"),
+            self.tr("HTML files (*.html)"), optional=True,
+            createByDefault=True))
+
+        _restore_layer_defaults(self, (self.AFTER, self.BEFORE, self.ZONES))
+
+    def _read(self, layer, band, feedback, title):
+        ds = gdal.Open(layer.source())
+        if ds is None:
+            raise QgsProcessingException(
+                self.tr("Не удалось открыть растр: %s") % title)
+        b = ds.GetRasterBand(band or 1)
+        arr = b.ReadAsArray().astype(float)
+        nd = b.GetNoDataValue()
+        if nd is not None:
+            arr = np.where(arr == nd, np.nan, arr)
+        gt = ds.GetGeoTransform()
+        proj = ds.GetProjection()
+        ds = None
+        feedback.pushInfo(self.tr(
+            "%s: сетка %dx%d, ячейка %.6g на %.6g, начало %.6f %.6f.")
+            % (title, arr.shape[1], arr.shape[0],
+               _vol.cell_size(gt)[0], _vol.cell_size(gt)[1],
+               _vol.grid_origin(gt)[0], _vol.grid_origin(gt)[1]))
+        return arr, gt, proj
+
+    def _process(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.AFTER, self.BEFORE, self.ZONES))
+
+        lay_a = self.parameterAsRasterLayer(parameters, self.AFTER, context)
+        if lay_a is None:
+            raise QgsProcessingException(self.tr("Не задана поверхность «стало»."))
+        band_a = self.parameterAsInt(parameters, self.AFTER_BAND, context) or 1
+        after, gt, proj = self._read(lay_a, band_a, feedback,
+                                     self.tr("Стало"))
+
+        lay_b = self.parameterAsRasterLayer(parameters, self.BEFORE, context)
+        if lay_b is not None:
+            band_b = self.parameterAsInt(parameters, self.BEFORE_BAND,
+                                         context) or 1
+            before, gt_b, _p = self._read(lay_b, band_b, feedback,
+                                          self.tr("Было"))
+            if _vol.same_grid(gt, after.shape, gt_b, before.shape):
+                feedback.pushInfo(self.tr(
+                    "Сетки совпадают, приведение не требуется."))
+            else:
+                feedback.pushWarning(self.tr(
+                    "Сетки разные. Поверхность «было» приведена билинейно к "
+                    "сетке поверхности «стало». Объём считается только там, "
+                    "где данные есть у обеих."))
+                before = _vol.resample_bilinear(before, gt_b, gt, after.shape)
+        else:
+            base_z = self.parameterAsDouble(parameters, self.BASE_Z, context)
+            feedback.pushInfo(self.tr(
+                "Растр «было» не задан, сравнение с отметкой %.4g м.") % base_z)
+            before = np.full(after.shape, float(base_z))
+
+        diff = _vol.difference(after, before)
+        area = _vol.cell_area(gt)
+        dead = self.parameterAsDouble(parameters, self.DEAD, context)
+        tol = self.parameterAsDouble(parameters, self.TOL, context) or 0.05
+
+        st = _vol.cutfill_stats(diff, area, dead)
+        feedback.pushInfo(self.tr(
+            "Площадь ячейки %.6g, ячеек с данными %d, без данных %d.")
+            % (area, st["cells_valid"], st["cells_nodata"]))
+        if dead > 0:
+            feedback.pushInfo(self.tr(
+                "Мёртвая зона %.4g м: ячейки с меньшим модулем разности "
+                "считаются неизменными.") % dead)
+        feedback.pushInfo(self.tr(
+            "Насыпь %s, выемка %s, нетто %s (в кубах СК).")
+            % (_vol.format_volume(st["fill_volume"]),
+               _vol.format_volume(st["cut_volume"]),
+               _vol.format_volume(st["net_volume"])))
+        feedback.pushInfo(self.tr(
+            "Наибольшая насыпь %s м, наибольшая выемка %s м.")
+            % (_vol.format_number(st["max_fill"], 2),
+               _vol.format_number(st["max_cut"], 2)))
+
+        key = _vol.balance_verdict(st, tol)
+        verdict = {
+            "balanced": self.tr("Баланс сходится в пределах допуска."),
+            "import": self.tr("Насыпи больше выемки: грунт надо привозить."),
+            "export": self.tr("Выемки больше насыпи: грунт надо вывозить."),
+            "empty": self.tr("Работ не обнаружено: разности нет."),
+        }[key]
+        feedback.pushInfo(verdict)
+
+        # участки
+        zones = None
+        src_z = self.parameterAsSource(parameters, self.ZONES, context)
+        z_field = self.parameterAsString(parameters, self.ZONE_FIELD, context)
+        if src_z is not None:
+            zones = self._zone_stats(src_z, z_field, diff, gt, proj, area,
+                                     dead, context, feedback)
+
+        res = {}
+        out_diff = self.parameterAsOutputLayer(parameters, self.OUTPUT_DIFF,
+                                               context)
+        if out_diff:
+            drv = gdal.GetDriverByName("GTiff")
+            ny, nx = diff.shape
+            dst = drv.Create(out_diff, nx, ny, 1, gdal.GDT_Float32,
+                             options=["COMPRESS=DEFLATE", "PREDICTOR=3"])
+            dst.SetGeoTransform(gt)
+            if proj:
+                dst.SetProjection(proj)
+            ob = dst.GetRasterBand(1)
+            ob.SetNoDataValue(-9999.0)
+            ob.WriteArray(np.where(np.isfinite(diff), diff,
+                                   -9999.0).astype(np.float32))
+            ob.SetDescription(_tr("разность, м (насыпь положительна)"))
+            ob.FlushCache()
+            dst = None
+            res[self.OUTPUT_DIFF] = out_diff
+            _set_output_name(context, out_diff, _tr("Насыпи и выемки"))
+            _topo_group_layer(context, out_diff, self.tr("Топография"))
+
+        html = self.parameterAsFileOutput(parameters, self.OUTPUT_HTML,
+                                          context)
+        if html:
+            _write_cutfill_report(html, st, zones, verdict, gt, dead)
+            res[self.OUTPUT_HTML] = html
+        _save_values(self, _saved)
+        return res
+
+    def _zone_stats(self, src, field, diff, gt, proj, area, dead, context,
+                    feedback):
+        """Растеризует участки в метки и считает объёмы по каждому."""
+        from osgeo import ogr
+        names = {}
+        ny, nx = diff.shape
+        drv = ogr.GetDriverByName("Memory")
+        ogr_ds = drv.CreateDataSource("zones")
+        ogr_lyr = ogr_ds.CreateLayer("zones", None, ogr.wkbPolygon)
+        ogr_lyr.CreateField(ogr.FieldDefn("code", ogr.OFTInteger))
+        code = 0
+        tr = QgsCoordinateTransform(src.sourceCrs(),
+                                    QgsCoordinateReferenceSystem(proj),
+                                    context.project()) if proj else None
+        for ft in src.getFeatures():
+            geom = QgsGeometry(ft.geometry())
+            if geom.isEmpty():
+                continue
+            if tr is not None:
+                try:
+                    geom.transform(tr)
+                except Exception:  # nosec
+                    pass
+            code += 1
+            names[code] = (str(ft[field]) if field
+                           else self.tr("участок %d") % code)
+            f = ogr.Feature(ogr_lyr.GetLayerDefn())
+            f.SetGeometry(ogr.CreateGeometryFromWkt(geom.asWkt()))
+            f.SetField("code", code)
+            ogr_lyr.CreateFeature(f)
+            f = None
+        if code == 0:
+            feedback.pushWarning(self.tr("В слое участков нет геометрии."))
+            return None
+
+        mem = gdal.GetDriverByName("MEM").Create("", nx, ny, 1, gdal.GDT_Int32)
+        mem.SetGeoTransform(gt)
+        if proj:
+            mem.SetProjection(proj)
+        mem.GetRasterBand(1).Fill(0)
+        gdal.RasterizeLayer(mem, [1], ogr_lyr,
+                            options=["ATTRIBUTE=code", "ALL_TOUCHED=FALSE"])
+        labels = mem.GetRasterBand(1).ReadAsArray()
+        mem = None
+        ogr_ds = None
+
+        stats = _vol.zone_stats(diff, labels, area, dead)
+        out = []
+        for c in sorted(stats):
+            s = stats[c]
+            out.append((names.get(c, str(c)), s))
+            feedback.pushInfo(self.tr(
+                "Участок %s: насыпь %s, выемка %s, нетто %s.")
+                % (names.get(c, str(c)),
+                   _vol.format_volume(s["fill_volume"]),
+                   _vol.format_volume(s["cut_volume"]),
+                   _vol.format_volume(s["net_volume"])))
+        return out
+
+
+def _write_cutfill_report(path, st, zones, verdict, gt, dead):
+    """HTML-ведомость объёмов: итог, участки и описание сетки."""
+    dx, dy = _vol.cell_size(gt)
+    ox, oy = _vol.grid_origin(gt)
+    fv, fa = _vol.format_volume, _vol.format_area_ha
+    rows = [
+        (_tr("насыпь, куб. м"), fv(st["fill_volume"])),
+        (_tr("выемка, куб. м"), fv(st["cut_volume"])),
+        (_tr("нетто, куб. м"), fv(st["net_volume"])),
+        (_tr("площадь насыпи, га"), fa(st["fill_area"])),
+        (_tr("площадь выемки, га"), fa(st["cut_area"])),
+        (_tr("площадь без изменений, га"), fa(st["flat_area"])),
+        (_tr("наибольшая насыпь, м"), _vol.format_number(st["max_fill"], 2)),
+        (_tr("наибольшая выемка, м"), _vol.format_number(st["max_cut"], 2)),
+        # Ниже группировка разрядов намеренно не применяется. Координата и
+        # шаг это не сумма, разделённые пробелом разряды в паре координат
+        # читаются как четыре числа вместо двух.
+        (_tr("мёртвая зона, м"), "%g" % dead),
+        (_tr("ячейка"), "%g x %g" % (dx, dy)),
+        (_tr("начало сетки"), "%.4f, %.4f" % (ox, oy)),
+        (_tr("ячеек с данными"), _vol.format_number(st["cells_valid"])),
+        (_tr("ячеек без данных"), _vol.format_number(st["cells_nodata"])),
+    ]
+    table = ("<table border='1' cellpadding='4' cellspacing='0'>%s</table>"
+             % "".join("<tr><td>%s</td><td align='right'>%s</td></tr>" % r
+                       for r in rows))
+
+    zone_html = ""
+    if zones:
+        head = ("<tr><th>%s</th><th>%s</th><th>%s</th><th>%s</th></tr>"
+                % (_tr("участок"), _tr("насыпь"), _tr("выемка"), _tr("нетто")))
+        body = "".join(
+            "<tr><td>%s</td><td align='right'>%s</td>"
+            "<td align='right'>%s</td><td align='right'>%s</td></tr>"
+            % (n, fv(s["fill_volume"]), fv(s["cut_volume"]),
+               fv(s["net_volume"]))
+            for n, s in zones)
+        tot = ("<tr><td><b>%s</b></td><td align='right'><b>%s</b></td>"
+               "<td align='right'><b>%s</b></td>"
+               "<td align='right'><b>%s</b></td></tr>"
+               % (_tr("итого"),
+                  fv(sum(s["fill_volume"] for _n, s in zones)),
+                  fv(sum(s["cut_volume"] for _n, s in zones)),
+                  fv(sum(s["net_volume"] for _n, s in zones))))
+        zone_html = ("<h3>%s</h3><table border='1' cellpadding='4' "
+                     "cellspacing='0'>%s%s%s</table>"
+                     % (_tr("По участкам, куб. м"), head, body, tot))
+
+    note = _tr(
+        "Объём геометрический. Разрыхление, уплотнение и послойные грунты "
+        "здесь не применяются, это работа проектировщика. Расхождение с "
+        "другой программой сверяйте сначала по описанию сетки выше: почти "
+        "всегда дело в составе ячеек, а не в формуле.")
+
+    title = _tr("Ведомость объёмов работ")
+    html = ("<html><head><meta charset='utf-8'><title>%s</title></head><body>"
+            "<h2>%s</h2>%s<p><b>%s</b></p>%s<p>%s</p>%s</body></html>" % (
+                title, title, table, verdict, zone_html, note,
+                _version_footer()))
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(html)
+
+
 ALGORITHMS = [
+    CutFillAlgorithm,
     DeclusteringAlgorithm,
     Kriging2DAlgorithm,
     MinCurvatureAlgorithm,
