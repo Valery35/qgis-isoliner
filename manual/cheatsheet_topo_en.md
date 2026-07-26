@@ -55,6 +55,9 @@ Control: 1.04 over the result with the same step, overlaid on the contours of st
 | **2.07** Basins | DEM, pour points (opt.) | polygons: basin, area\_m2 (+ label raster) | without points: from mouths by threshold. Point snap to the accumulation max, 150 m |
 | **2.08** Slope and aspect | DEM | two rasters, degrees | Horn 3×3 as gdaldem. Aspect: downslope azimuth, flats = -1 |
 | **2.09** Peaks and pits | DEM | points: z, drop, kind (PointZ) | both signs always. A 500 m radius suppresses secondary tops, a 20 m relief cuts bumps and puddles |
+| **2.15** Gauge report | DEM, gauge points | points with catchment and slope | snapping to the accumulation maximum. HTML report |
+| **2.16** Catchment. Lines and outlines | DEM, lines or polygons | catchment polygon, area | a polygon is an intake as a whole, both the outline and the area inside. For a pit that removes the dependence on flow directions in the hollow |
+| **2.18** Cut and fill | two surfaces, or a surface and an elevation | difference raster, HTML statement | the sign is "after minus before". Grids are aligned bilinearly. The dead band cuts background noise |
 
 \endgroup
 

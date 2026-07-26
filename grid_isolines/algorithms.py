@@ -717,6 +717,18 @@ def _alive_layer_ref(v):
     return None
 
 
+def _dv_layer(alg, key):
+    """Запомненная ссылка на слой значением по умолчанию, только если живая.
+
+    Часть параметров подставляет память напрямую в объявлении, минуя
+    _restore_layer_defaults, и на них страж не срабатывал. Так в 4.22.0
+    всплыл справочник пластов: слой из прошлого проекта уже удалён, комбо
+    пустое, а запуск падает с «некорректным значением». Один и тот же
+    дефект, вход другой, поэтому проверка должна стоять на обоих входах.
+    """
+    return _alive_layer_ref(_dv(alg, key, None))
+
+
 def _restore_layer_defaults(alg, keys):
     """Подставляет запомненные id слоёв значениями по умолчанию параметров.
     Зовётся в конце initAlgorithm, парой к _remember_layers. Подставляются
@@ -6985,6 +6997,8 @@ class SectionAlgorithm(IsolinerAlgorithm):
     OUTPUT_2D, OUTPUT_3D, OUTPUT_DEF = "OUTPUT_2D", "OUTPUT_3D", "OUTPUT_DEF"
     OUTPUT_CORNERS, OUTPUT_CORNERS_V = "OUTPUT_CORNERS", "OUTPUT_CORNERS_V"
     OUTPUT_AXES, NAXES = "OUTPUT_AXES", "NAXES"
+    OUTPUT_SURF = "OUTPUT_SURF"
+    ZBASE = "ZBASE"
     OUTPUT_TABLE = "OUTPUT_TABLE"
 
     def tr(self, s): return _tr(s)
@@ -7001,6 +7015,13 @@ class SectionAlgorithm(IsolinerAlgorithm):
             "задаются списком и упорядочиваются сверху вниз (кровля, подошва, "
             "следующая кровля и так далее). Пласты строятся как полосы между "
             "соседними поверхностями, поэтому N поверхностей дают N−1 пластов.\n"
+            "\nОдна поверхность это законный случай: пластов не будет, а линия \n"
+            "рельефа, рамка, оси и определение разреза построятся. С этого \n"
+            "геологический разрез обычно и начинается: профиль по ЦМР, поверх \n"
+            "него пересечения инструментом **4.05**, геология вниз рисуется \n"
+            "вручную. Низ рамки в таком разрезе задавайте отметкой в \n"
+            "дополнительных параметрах, иначе рамка обожмёт рельеф и рисовать \n"
+            "под ним будет негде.\n"
             "\nПо умолчанию порядок поверхностей берётся из дерева слоёв "
             "проекта (сверху вниз), совпадая с панелью слоёв. Снимите галочку "
             "**Порядок поверхностей из дерева слоёв проекта**, чтобы задать "
@@ -7100,7 +7121,7 @@ class SectionAlgorithm(IsolinerAlgorithm):
             # только таблицы без геометрии: справочник это список
             # тел, а не слой карты
             types=[QgsProcessing.SourceType.TypeVector],
-            defaultValue=_dv(self, self.REFERENCE, None), optional=True))
+            defaultValue=_dv_layer(self, self.REFERENCE), optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT_2D, self.tr("Чертёж разреза (расстояние × высота)"),
             type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
@@ -7127,6 +7148,11 @@ class SectionAlgorithm(IsolinerAlgorithm):
             type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
             createByDefault=False))
         self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_SURF,
+            self.tr("Линии поверхностей на чертеже"),
+            type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT_TABLE,
             self.tr("Таблица углов: азимут и расстояние (чертёж)"),
             type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
@@ -7135,6 +7161,9 @@ class SectionAlgorithm(IsolinerAlgorithm):
             self.NAXES, self.tr("Количество отметок высоты на осях"),
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.NAXES, 5), minValue=2, maxValue=50)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.ZBASE, self.tr("Низ рамки, отметка (пусто: по данным)"),
+            QgsProcessingParameterNumber.Type.Double, optional=True)))
 
         _restore_layer_defaults(self, (self.LINE, self.SURFACES))
 
@@ -7158,9 +7187,9 @@ class SectionAlgorithm(IsolinerAlgorithm):
         if src is None:
             raise QgsProcessingException(self.tr("Не задана линия разреза."))
         layers = self.parameterAsLayerList(parameters, self.SURFACES, context)
-        if not layers or len(layers) < 2:
+        if not layers:
             raise QgsProcessingException(self.tr(
-                "Нужно минимум две поверхности (кровля и подошва)."))
+                "Нужна хотя бы одна поверхность."))
         # Порядок поверхностей задаёт, какая полоса чей пласт. По умолчанию
         # берём его из дерева слоёв проекта (сверху вниз), а не из порядка
         # отметок в виджете - так порядок совпадает с панелью слоёв и не
@@ -7269,9 +7298,27 @@ class SectionAlgorithm(IsolinerAlgorithm):
         for nm, why in skipped:
             feedback.pushWarning(_tr("Линия «%s» пропущена: %s") % (nm, why))
 
+        # Низ рамки опускаем до расчёта масштаба, а не после: в режиме
+        # отношения габаритов масштаб считается по размаху высот, и чертёж
+        # должен быть в масштабе той рамки, которую человек увидит.
+        zbase = None
+        if parameters.get(self.ZBASE) is not None:
+            zbase = self.parameterAsDouble(parameters, self.ZBASE, context)
+            for sm in samples:
+                if zbase < sm.zmin:
+                    sm.zmin = zbase
+                    sm.dz = sm.zmax - sm.zmin
+
         vex = _sc.common_vex(samples, vmode, vscale)
-        secs = [_sc.build_section(None, surfs, vex=vex, naxes=naxes, samples=sm)
+        secs = [_sc.build_section(None, surfs, vex=vex, naxes=naxes,
+                                  samples=sm, zbase=zbase)
                 for sm in samples]
+        if len(surfs) == 1:
+            feedback.pushInfo(self.tr(
+                "Поверхность одна: пластов нет, построены линия рельефа, "
+                "рамка, оси и определение разреза. Этого достаточно, чтобы "
+                "наносить пересечения инструментом 4.05 и рисовать геологию "
+                "вручную."))
 
         # раскладка: первый разрез всегда в нуле, поэтому одиночный прогон
         # совпадает с прежним поведением до координаты
@@ -7321,9 +7368,22 @@ class SectionAlgorithm(IsolinerAlgorithm):
 
         crs_line = src.sourceCrs()
         f2 = self._fields()
-        sink2d, dest2d = self.parameterAsSink(
-            parameters, self.OUTPUT_2D, context, f2,
-            QgsWkbTypes.Type.Polygon, _section_draw_crs())
+        # Одна поверхность - пластов не будет, а значит полосам чертежа и
+        # стенкам забора взяться неоткуда. Слои не создаём вовсе, а не прячем
+        # из результата: destination-параметр регистрирует слой на загрузку
+        # сам, и подавления в результате мало, пустые слои всё равно попадали
+        # в дерево и выглядели поломкой.
+        single_surface = (len(surfs) == 1)
+        if single_surface:
+            sink2d, dest2d = None, None
+            feedback.pushInfo(self.tr(
+                "Поверхность одна: полосы пластов и забор 3D не строятся, "
+                "слои для них не создаются. Рельеф выходит слоем линий "
+                "поверхностей."))
+        else:
+            sink2d, dest2d = self.parameterAsSink(
+                parameters, self.OUTPUT_2D, context, f2,
+                QgsWkbTypes.Type.Polygon, _section_draw_crs())
         # полосы пластов красятся тем же механизмом, что скважины в 4.02:
         # категория на пласт по имени кровли (поле top), цвет детерминирован
         # от имени, тонкий чёрный контур из базового стиля, легенда в дереве.
@@ -7394,11 +7454,15 @@ class SectionAlgorithm(IsolinerAlgorithm):
                 feedback.pushInfo(_tr(
                     "Цвета полос: из справочника %d, серых %d.")
                     % (n_ref, n_grey))
-            _attach_categories(context, dest2d, _style_path("dh_bands"),
-                               "top", bcats)
-        sink3d, dest3d = self.parameterAsSink(
-            parameters, self.OUTPUT_3D, context, f2,
-            QgsWkbTypes.Type.PolygonZ, crs_line)
+            if dest2d is not None:
+                _attach_categories(context, dest2d, _style_path("dh_bands"),
+                                   "top", bcats)
+        if single_surface:
+            sink3d, dest3d = None, None
+        else:
+            sink3d, dest3d = self.parameterAsSink(
+                parameters, self.OUTPUT_3D, context, f2,
+                QgsWkbTypes.Type.PolygonZ, crs_line)
         fdef = QgsFields()
         fdef.append(QgsField("sec", QVariant.String))
         fdef.append(QgsField("sec_id", QVariant.Int))
@@ -7448,6 +7512,13 @@ class SectionAlgorithm(IsolinerAlgorithm):
         sinkax, destax = self.parameterAsSink(
             parameters, self.OUTPUT_AXES, context, faxis,
             QgsWkbTypes.Type.LineString, crs0)
+        fsurf = QgsFields()
+        for nm, tp in (("sec", QVariant.String), ("sec_id", QVariant.Int),
+                       ("num", QVariant.Int), ("name", QVariant.String)):
+            fsurf.append(QgsField(nm, tp))
+        sinksf, destsf = self.parameterAsSink(
+            parameters, self.OUTPUT_SURF, context, fsurf,
+            QgsWkbTypes.Type.LineString, _section_draw_crs())
         ftab = QgsFields()
         ftab.append(QgsField("sec", QVariant.String))
         ftab.append(QgsField("sec_id", QVariant.Int))
@@ -7475,11 +7546,31 @@ class SectionAlgorithm(IsolinerAlgorithm):
             ytop, ybot = sc_.ytop + oy, sc_.ybot + oy
             length = sc_.length
             tag = [nm, fid]
-            if not sc_.beds:
+            # Пластов нет по двум разным причинам. Поверхность одна - пластов
+            # и не должно быть, это разрез по рельефу. Поверхностей несколько
+            # и пластов нет - линия действительно мимо данных.
+            if not sc_.beds and len(surfs) > 1:
                 feedback.pushWarning(_tr(
                     "Линия «%s» не пересекает поверхности, разрез пуст.") % nm)
                 continue
             n_built += 1
+
+            # линии поверхностей на чертеже: без них разрез по одной
+            # поверхности остался бы рамкой без рельефа
+            if sinksf is not None:
+                for k, zk in enumerate(sc_.zs):
+                    zk = np.asarray(zk, dtype=float)
+                    good = np.isfinite(zk)
+                    for (i0, i1) in _sc.valid_runs(good):
+                        if i1 - i0 < 1:
+                            continue
+                        pts = [QgsPointXY(float(sc_.d[i]) + ox,
+                                          float(zk[i]) * sc_.vex + oy)
+                               for i in range(i0, i1 + 1)]
+                        fs = QgsFeature(fsurf)
+                        fs.setGeometry(QgsGeometry.fromPolylineXY(pts))
+                        fs.setAttributes(tag + [k + 1, surfs[k][2]])
+                        sinksf.addFeature(fs)
 
             for c in sc_.corners:
                 cname = "УГ-%d" % c["num"]
@@ -7564,9 +7655,13 @@ class SectionAlgorithm(IsolinerAlgorithm):
                     "Разрез «%s»: пластов %d, длина %.4g ед., смещение "
                     "(%.4g, %.4g).") % (nm, len(sc_.beds), length, ox, oy))
 
-        if nbed == 0:
+        if nbed == 0 and len(surfs) > 1:
             raise QgsProcessingException(self.tr(
                 "Линия не пересекает поверхности: разрез пуст."))
+        if nbed == 0 and n_built == 0:
+            raise QgsProcessingException(self.tr(
+                "Ни одной линии не удалось построить: проверьте, что линия "
+                "лежит в пределах поверхности."))
         if len(secs) == 1:
             feedback.pushInfo(_tr(
                 "Разрез построен: %d пластов, длина %.4g ед., шаг %.4g.")
@@ -7588,10 +7683,19 @@ class SectionAlgorithm(IsolinerAlgorithm):
                 "Пропущено вырожденных полигонов чертежа: %d (пустые или "
                 "нулевой площади, в слой не добавлены).") % n_skipped_2d)
         res = {}
-        if sink2d is not None:
+        # Пластов нет, значит полосам взяться неоткуда, и оба полигональных
+        # выхода вышли бы пустыми слоями. В дерево их не отдаём: пустой слой
+        # в проекте выглядит поломкой, хотя всё построено верно.
+        beds_empty = (nbed == 0)
+        if beds_empty:
+            feedback.pushInfo(self.tr(
+                "Пластов нет, поэтому чертёж полос и забор 3D пустые и в "
+                "проект не добавлены. Рельеф смотрите в слое линий "
+                "поверхностей."))
+        if sink2d is not None and not beds_empty:
             _set_output_name(context, dest2d, _tr("Разрез (чертёж)"))
             res[self.OUTPUT_2D] = dest2d
-        if sink3d is not None:
+        if sink3d is not None and not beds_empty:
             _set_output_name(context, dest3d, _tr("Разрез (3D-забор)"))
             res[self.OUTPUT_3D] = dest3d
         if sinkdef is not None:
@@ -7609,11 +7713,15 @@ class SectionAlgorithm(IsolinerAlgorithm):
         if sinktab is not None:
             _set_output_name(context, desttab, _tr("Таблица углов разреза"))
             res[self.OUTPUT_TABLE] = desttab
+        if sinksf is not None:
+            _set_output_name(context, destsf, _tr("Линии поверхностей"))
+            res[self.OUTPUT_SURF] = destsf
         _save_values(self, _saved)
         # Явный порядок в дереве: оформление сверху, иначе полосы пластов
         # закроют точки, оси и таблицу. Определение разреза служебное, вниз.
         ordered_keys = (self.OUTPUT_CORNERS, self.OUTPUT_CORNERS_V,
                         self.OUTPUT_AXES, self.OUTPUT_TABLE,
+                        self.OUTPUT_SURF,
                         self.OUTPUT_2D, self.OUTPUT_3D, self.OUTPUT_DEF)
         ordered = [res[k] for k in ordered_keys if k in res]
         ordered += [v for k, v in res.items() if k not in ordered_keys]
@@ -9040,11 +9148,11 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.LINE_DEF, self.tr("Определение разреза (линия с полем vex)"),
             types=[QgsProcessing.SourceType.TypeVectorLine],
-            defaultValue=_dv(self, self.LINE_DEF, None), optional=False))
+            defaultValue=_dv_layer(self, self.LINE_DEF), optional=False))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.COLLAR, self.tr("Устья скважин (collar)"),
             types=[QgsProcessing.SourceType.TypeVectorPoint],
-            defaultValue=_dv(self, self.COLLAR, None), optional=False))
+            defaultValue=_dv_layer(self, self.COLLAR), optional=False))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.CID, self.tr("Поле идентификатора скважины (collar)"),
             parentLayerParameterName=self.COLLAR, defaultValue="hole_id",
@@ -9066,7 +9174,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.INTERVAL, self.tr("Интервалы скважин (interval, таблица)"),
             types=[QgsProcessing.SourceType.TypeVector],
-            defaultValue=_dv(self, self.INTERVAL, None), optional=False))
+            defaultValue=_dv_layer(self, self.INTERVAL), optional=False))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.IID, self.tr("Поле идентификатора скважины (interval)"),
             parentLayerParameterName=self.INTERVAL, defaultValue="hole_id",
@@ -9098,7 +9206,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             self.SHEET,
             self.tr("Чертёж разреза (полигоны из 4.01, для обрезки)"),
             types=[QgsProcessing.SourceType.TypeVectorPolygon],
-            defaultValue=_dv(self, self.SHEET, None), optional=True))
+            defaultValue=_dv_layer(self, self.SHEET), optional=True))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.CLIP_TOL, self.tr("Допуск обрезки, ед. отметки"),
             QgsProcessingParameterNumber.Type.Double,
@@ -9109,7 +9217,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             # только таблицы без геометрии: справочник это список
             # тел, а не слой карты
             types=[QgsProcessing.SourceType.TypeVector],
-            defaultValue=_dv(self, self.REFERENCE, None), optional=True))
+            defaultValue=_dv_layer(self, self.REFERENCE), optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Интервалы скважин (чертёж)"),
             type=QgsProcessing.SourceType.TypeVectorLine))

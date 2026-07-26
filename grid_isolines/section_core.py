@@ -355,8 +355,8 @@ def sample_section(vertices, surfaces, step=0.0, bilinear=True):
     """Профиль вдоль линии: пикеты, координаты, отметки всех поверхностей."""
     if len(vertices) < 2:
         raise ValueError("нужно минимум две вершины линии")
-    if len(surfaces) < 2:
-        raise ValueError("нужно минимум две поверхности")
+    if len(surfaces) < 1:
+        raise ValueError("нужна хотя бы одна поверхность")
     length = polyline_length(vertices)
     if length <= 0:
         raise ValueError("длина линии равна нулю")
@@ -401,12 +401,17 @@ def common_vex(samples, mode, value):
 def build_section(vertices, surfaces, step=0.0, vmode=VMODE_ASPECT,
                   vscale=10.0, bilinear=True, naxes=5, pad_frac=0.05,
                   vex=None, with_table=True, table_labels=("d", "Аз"),
-                  samples=None):
+                  samples=None, zbase=None):
     """Построить разрез по линии и стопке поверхностей сверху вниз.
 
     vertices: список (x, y) вершин линии.
     surfaces: список (arr, gt, name), arr с nan на месте nodata, порядок
-        сверху вниз. N поверхностей дают N-1 пластов.
+        сверху вниз. N поверхностей дают N-1 пластов. Одна поверхность это
+        законный случай: пластов нет, остаётся линия рельефа с рамкой, осями
+        и определением разреза. Геологический разрез обычно с этого и
+        начинается, а пласты появляются позже.
+    zbase: отметка низа рамки. Пусто - рамка по данным. С одной поверхностью
+        рамка иначе обжимает рельеф и рисовать под ним негде.
     step: шаг выборки в единицах карты, 0 или меньше - по минимальной ячейке.
     vex: готовый множитель. Если задан, vmode и vscale не используются. Так
         пакет из нескольких разрезов получает единый вертикальный масштаб.
@@ -423,6 +428,16 @@ def build_section(vertices, surfaces, step=0.0, vmode=VMODE_ASPECT,
     zmn, zmx, dz = sm.zmin, sm.zmax, sm.dz
     vertices = sm.vertices
     names = sm.names
+
+    # Низ рамки задан вручную: опускаем нижнюю границу до него и пересчитываем
+    # размах. Именно размах, а не только рамку: в режиме отношения габаритов
+    # вертикальный масштаб считается по нему, и чертёж должен быть в масштабе
+    # той рамки, которую человек увидит.
+    if zbase is not None:
+        zb = float(zbase)
+        if zb < zmn:
+            zmn = zb
+            dz = zmx - zmn
 
     if vex is None:
         vex = vex_from_mode(vmode, vscale, length, dz)

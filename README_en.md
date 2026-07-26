@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data, building isolines and working with terrain.
-The tools are split into five Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Fractal analysis"** — forty-four in all:
+The tools are split into five Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Fractal analysis"** — fifty-two in all:
 
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
@@ -36,9 +36,10 @@ The tools are split into five Processing groups — **"Grid and isolines"**, **"
 - **2.07 Basins and watersheds** — from pour points snapped to the accumulation maximum, or automatically from mouths. Polygons and a label raster.
 - **2.08 Slope and aspect** — the Horn 3×3 kernel as in gdaldem, aspect as the downslope azimuth, flat cells flagged.
 - **2.09 Peaks and pits** — local extremes of both signs with two filters: the radius suppresses secondary tops, the relief threshold cuts off bumps and puddles. The elevation is written into the geometry Z: the spot points go to DXF together with the contours and remove the flat caps of a surface at closed contours.
-- **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Also outputs gauge points for 2.15.
+- **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Outputs gauge points for 2.15, ditch traces for 2.16 and, optionally, a pair of surfaces with work areas for 2.18.
 - **2.15 Gauge point report** — watershed morphometry from a closure point: area, elevations, mean basin slope, length, fall and slope of the main stream. Polygons with attributes and an HTML report.
-- **2.16 Catchment of a line or an outline (ditches, open pits)** — the area intercepted by a hillside ditch, a gutter or an open pit outline. A line is rasterised and taken as the intake, a polygon is treated as an intake in its entirety, the catchment is collected by flow. Burning the trace is a separate checkbox.
+- **2.16 Catchment. Lines and outlines (ditches, open pits)** — the area intercepted by a hillside ditch, a gutter or an open pit outline. A line is rasterised and taken as the intake, a polygon is treated as an intake in its entirety, the catchment is collected by flow. Burning the trace is a separate checkbox.
+- **2.18 Cut and fill (earthwork volumes)** — volumes between two surfaces, or a surface and an elevation: fill, cut, balance. Grids are aligned bilinearly, the dead band cuts background noise, work areas are counted separately. A difference raster and an HTML statement.
 
 ### "3. Additional analysis tools" group
 
@@ -53,7 +54,7 @@ The tools are split into five Processing groups — **"Grid and isolines"**, **"
 
 ### "4. Cross-sections" group
 
-- **4.01 Cross-section along a line** — a geological section along a line and a stack of surfaces: beds as bands, two outputs (a distance×elevation drawing and a 3D fence of PolygonZ). The order of the surfaces comes from the project layer tree. By default it builds a section for every line of the layer, with a layout of the drawings and a common vertical scale, the sections being told apart by the sec and sec_id fields.
+- **4.01 Cross-section along a line** — a geological section along a line and a stack of surfaces: beds as bands, a distance×elevation drawing, a 3D fence of PolygonZ and surface lines. A single surface is a legitimate case: a section over the terrain without beds, with the frame bottom set by elevation. The order of the surfaces comes from the project layer tree. By default it builds a section for every line of the layer, with a layout of the drawings and a common vertical scale, the sections being told apart by the sec and sec_id fields.
 - **4.02 Boreholes on the section (drilling model)** — boreholes from a collar and interval layer pair (the minimal mining-package model) onto every drawing of the definition at once. Fields are found automatically by the contract names, collars are reprojected into the definition CRS, the tolerant reader reports a summary to the log, colours and a legend by code, clipping by the frame and by the drawing bands, collar labels from number, an optional 3D output.
 - **4.03 Bed composition on the section** — paints the bed band by a composition grid: continuous grade as slices, categorical rock type as facies zones.
 - **4.04 Intersect surfaces with the section** — surface grids onto the section as lines (aquifers, marker surfaces).
@@ -288,6 +289,17 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
+- **4.24.0** — catalogue release, folding in the 4.18-4.23 nightlies.
+- **4.23.1** — with a single surface 4.01 no longer creates layers for bed bands and the 3D fence: suppressing them in the result is not enough, a destination parameter registers the layer for loading by itself.
+- **4.23.0** — the section over a single surface was brought to a working state, plus the new "Surface lines on the drawing" output.
+- **4.22.1** — layer memory: the liveness guard was closed on its second entrance, direct parameter defaults used to bypass it.
+- **4.22.0** — 4.01 builds a section over a single surface, and the frame bottom by elevation appeared in the advanced parameters.
+- **4.21.1** — the 2.18 statement prints numbers with digit grouping, areas in hectares, and a total row in the per-area table.
+- **4.21.0** — demo relief 2.10 outputs a pair of surfaces for 2.18: a design pad and work areas. The pad elevation is the mean, at which the net is exactly zero.
+- **4.20.0** — the new 2.18 Cut and fill (earthwork volumes) tool.
+- **4.19.1** — 2.16 renamed to "Catchment. Lines and outlines": the tool accepts polygons as well.
+- **4.19.0** — 2.17 Densify contours by secants was removed. The technique was checked by measurement: on 2.03 Topo2Raster the attraction of elevations to the levels grew from 1.09 to 1.14, as did the curvature and the depression filling, so the technique gave no benefit.
+- **4.18.3** — the memory of input layers no longer substitutes dead references: the id is checked for resolvability in the current project.
 - **4.17.0** — pre-release pass: the RU and EN manuals gained a section on 4.11, parameter labels were aligned, the PDFs were rebuilt.
 - **4.16.1** — the composite bed КрIIIа+б (the sum of КрIIIа, КрIIIа-б and КрIIIб) is back in the reference template, above КрIIIб-в. Composite bodies are painted grey #969696: the colour of a conglomerate does not follow from its parts, a person sets it.
 - **4.16.0** — the new 4.11 Bed reference template tool adds the template straight to the project. The reference drop-down in 4.01 and 4.02 is limited to tables without geometry. The word optional is gone from the parameter labels, QGIS adds that mark itself.

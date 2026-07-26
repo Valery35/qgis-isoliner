@@ -1014,8 +1014,18 @@ A utility generator: synthetic terrain from a tilted plain, hills and a winding 
 | Demo relief | Output raster. | - |
 | Gauge points (demo) | Three points near the thalwegs for tool 2.15. | created |
 | Ditch traces (demo) | Two polylines across the thalwegs for tool 2.16. | created |
+| Fraction of the area for the works (Adv.) | Size of the area under the design pad. | 0.4 |
+| Pad elevation offset, m (Adv.) | Moves the balance into imported or exported soil. | 0 |
+| Design surface (demo) | The pair to the relief for tool 2.18. | off |
+| Work areas (demo) | Three polygons for the 2.18 breakdown. | off |
 
 The tool exists for the manual examples, tests and offline work. Live data comes from 2.01. The **Compact int16** checkbox outputs the raster in whole meters for shipping demo fragments.
+
+## A pair of surfaces for volumes
+
+Two outputs, off by default, give a ready pair for tool **2.18 Cut and fill**: a design pad and work area polygons. The pad is horizontal, and outside the work area the natural relief remains.
+
+The pad elevation is the mean of the relief inside the area, and that is not a matter of taste but the exact answer. Volume is a sum of differences multiplied by the cell area, and the net turns to zero exactly when the elevation equals the mean. The median splits cells in half, not cubic metres, and the balance does not close with it. So the demo comes out with a balance that closes, while the elevation offset in the advanced parameters moves it into imported or exported soil: all three verdicts of 2.18 are checked in two runs.
 
 Three demo gauge points and two demo ditch traces are produced along with the relief: a hillside ditch above the strongest thalweg and a gutter further downslope, both polylines with a bend, so that the rasterisation of a turning trace is exercised as well. They are placed at the strongest thalwegs, spread across the grid, and deliberately shifted a few cells aside from the stream, so that the snapping in tool 2.15 can be seen bringing the gauge back onto the stream. The points are deterministic from the same seed as the relief.
 
@@ -1239,7 +1249,7 @@ The tool computes basin morphometry and nothing else. Discharges, runoff moduli,
 
 Catchments are built from the topology of the relief. On terrain without clear flow boundaries - flat floodplains, hydraulic transfers and backwater - the result should be verified by hydrodynamic modelling.
 
-# 2.16 Catchment of a line or an outline (ditches, open pits)
+# 2.16 Catchment. Lines and outlines (ditches, open pits)
 
 The tool computes the catchment area of an intake: a hillside ditch, a chute, a road gutter or the outline of an open pit. The question is how much area the intake intercepts when the intake itself is not on the DEM yet.
 
@@ -1302,6 +1312,76 @@ Burning changes the hydrology deliberately, so it is off by default and the resu
 The tool answers the question about area, not about discharge. Discharges, runoff moduli and the capacity of the ditch belong to computational hydrology by the codes of practice and are out of scope. Units are assumed metric.
 
 Catchments are built from the topology of the relief. On terrain without clear flow boundaries - flat floodplains, hydraulic transfers and backwater - the result should be verified by hydrodynamic modelling.
+
+# 2.18 Cut and fill (earthwork volumes)
+
+The tool computes earthwork volumes between two surfaces: what was filled, what was removed and whether the balance closes. It is needed wherever there is a before-and-after survey or a design surface: a pad to be graded, a spoil heap, an open pit, the silting of a pond, ground subsidence.
+
+The formula is plain to the point of embarrassment: the difference of elevations per cell multiplied by the cell area. All the difficulty lies not in it but around it, which is what the rest of this section is about.
+
+## The sign and the reference surface
+
+The difference is taken as "after minus before". A positive difference is fill, material was added. A negative one is cut, material was removed. ArcGIS uses the opposite sign in its Cut/Fill tool, which is worth remembering when cross-checking figures.
+
+The reference surface is given either as a raster or, when there is none, as a single elevation. An elevation is handy for a pad to be graded and for counting from a water line: there is no need to make a raster of constant height for that.
+
+## Bringing both to one grid
+
+Two matrices almost never sit on the same grid. The first surface owns the grid and the second is resampled onto it bilinearly. Nearest neighbour will not do here: it brings back the very steps that the terracing check looks for. Beyond the data no volume is computed and elevations are not extrapolated.
+
+The log prints the origin, the step and the cell count of both matrices, and whether any resampling took place. This is not decoration but a working instrument, see the next section.
+
+## Why figures differ from other programs
+
+Almost never because of the formula. Bilinear resampling preserves the volume: the bilinear weights sum to one, so a grid shift on its own changes nothing. This is locked down by a test.
+
+The difference comes from which cells took part: a slightly different clip, another mask, half a step at the boundary of a work area. So when reconciling with Civil, Credo or any other program, first compare the grid description from the log and the number of cells counted, and only then the volumes. Nine times out of ten the investigation ends there.
+
+## The dead band
+
+Two surfaces produced by different means always rustle by centimetres. Without a cut-off all that background lands in fill or in cut and inflates both figures without changing the net.
+
+The dead band is set in metres: cells whose absolute difference is smaller count as unchanged. By default there is no cut-off. Set it deliberately and state it in the report: it appears in the statement as a separate row precisely for that.
+
+## Work areas and the balance
+
+Work area polygons are counted separately, each with its own figures. The area name field may be numeric or text. The per-area table has a total row, and it must agree with the header: that is a simple and reliable check that the rasterisation of the areas neither lost nor duplicated cells.
+
+The balance verdict looks at the share of the net in the turnover, not at its magnitude. A hundred cubic metres of imbalance against a turnover of a hundred thousand is a balance, while against a turnover of two hundred it is hauling away half of it. The tolerance is set as a fraction of the turnover, five percent by default.
+
+## Outputs
+
+A difference raster in metres, positive is fill. An HTML statement with the total, the per-area breakdown and the grid description.
+
+The line of zero works is not built by a separate tool, and that is deliberate: it is the zero contour over the difference raster, build it with **1.04 Contours from a raster**.
+
+## Parameters
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Surface "after" | The design surface or the new survey. Owns the grid. | required |
+| Surface "before" | The original survey. Empty - compare against an elevation. | empty |
+| Reference elevation, m | Used when there is no "before" raster. | 0 |
+| Work areas (polygons) | Splits the statement by area. | empty |
+| Area name field | Numeric or text. | empty |
+| Dead band in elevation, m | Cuts the background noise off. | 0 |
+| Balance tolerance (Adv.) | Fraction of the turnover for the verdict. | 0.05 |
+| Difference raster | The output raster, fill is positive. | created |
+| Earthwork volume report (HTML) | The report with the total and the areas. | created |
+
+## A quick check on the demo
+
+**2.10 Demo relief** produces a ready pair: switch on the **Design surface (demo)** and **Work areas (demo)** outputs. Feed the pad as "after", the relief as "before" and the areas as polygons. Fill and cut must come out equal figure for figure, the net zero and the verdict about a balance that closes. The pad elevation offset in the advanced parameters of 2.10 moves the balance into imported or exported soil, so all three verdicts are checked in two runs.
+
+Fill matching cut at a zero offset is also an independent check of the tool itself: an error in the formula or in the grid alignment would show up right here.
+
+## Scope
+
+The volume is geometric. Bulking, compaction and layered soils are not applied here, that is the designer's work.
+
+The accuracy at the boundary of the works is set by the cell size: the volume along the outline is always biased by about half a cell per running metre of boundary. On a small outline with a coarse cell that bias can exceed the volume itself, so compute small pads on a grid commensurate with their size.
+
+The tool does not build side slopes, benches or layered statements, and it does not fit a design surface onto the terrain. That is the work of computer-aided design systems.
 
 # 3.01 Categorical indicator kriging
 
@@ -1672,7 +1752,17 @@ The tool sits in the **Cross-sections** group and works as a post-processing ste
 
 ## How beds are defined
 
-The surfaces are supplied as a list and ordered top to bottom: roof, floor, then the next roof, and so on. Beds are built as bands between adjacent surfaces, so N surfaces give N minus one beds. Two surfaces, a roof and a floor, are enough for one bed. For a sequence of beds, add the surfaces in stratigraphic order.
+The surfaces are supplied as a list and ordered top to bottom: roof, floor, then the next roof, and so on. Beds are built as bands between adjacent surfaces, so N surfaces give N minus one beds. Two surfaces, a roof and a floor, are enough for one bed. For a sequence of beds, add the surfaces in stratigraphic order. A single surface is allowed as well, that is a section over the terrain without beds, see the next section.
+
+## A section over a single surface
+
+A single surface is a legitimate case, not an error. There will be no beds by definition, but the terrain line, the frame, the axes with ticks, the corner points and the section definition are all built. A geological section usually starts exactly there: first a profile over the DEM, then intersections with the mapped geology plotted on it by tool **4.05**, and the geology drawn downwards by hand.
+
+Bed bands and the 3D fence are not built in such a run, and no layers are created for them at all. An empty layer in a project looks like a breakage even though everything was built correctly, so it is better not to create it than to create it and hide it.
+
+The terrain comes out as the **Surface lines on the drawing** layer. Give it your own line style and labels: the drawing is finished on top of that layer.
+
+Set the frame bottom by elevation in the advanced parameters for such a section. Without it the frame hugs the data with a small margin and there is no room to draw below the terrain. The elevation is taken into account before the vertical scale is computed, so in the aspect ratio mode the drawing comes out at the scale of exactly the frame you will see. An elevation above the data is ignored: this is the bottom of the frame, not a clip from above.
 
 ## The layer tree sets the order of the surfaces
 
@@ -1688,9 +1778,11 @@ When the tree order is not suitable for some reason, uncheck **Surface order fro
 
 The demo generator (4.10) arranges its six surfaces in the tree by stratigraphy itself, so nothing needs rearranging on the demo data.
 
-## Two outputs
+## Outputs
 
 The section drawing is polygons in axes of distance along the line and elevation. The elevation can be stretched by a vertical exaggeration so thin beds read well. This layer goes into a print layout as a ready section. Its coordinate system is conventional, with distance and elevation in map units.
+
+Surface lines is every supplied surface as a separate line in the drawing axes, with the **sec**, **sec_id**, **num** and **name** fields. Breaks over missing data are preserved. When working with beds the layer is optional, the roof and the floor are already visible as band edges, but it lets you label and style the roof line separately from the fill. With a single surface it is the only layer carrying the terrain.
 
 The 3D fence is the same bands but as vertical PolygonZ walls in real coordinates. They are viewed in the 3D Map View next to the kriging surfaces: the grid is set as terrain, and the section walls show the beds in space.
 
@@ -1779,8 +1871,10 @@ All the section layers carry two common fields: **sec** with the section name an
 | Gap between sections (Adv.) | A fraction of the drawing extent. | 0.15 |
 | Raster sampling (Adv.) | Bilinear or nearest. | bilinear |
 | Bed reference (table) | Colour, body and order from data. | empty |
-| Section drawing (distance × elevation) | The output polygon layer for a layout. | created |
-| 3D fence (PolygonZ) | The output layer of vertical walls in real coordinates. | created |
+| Frame bottom, elevation (Adv.) | Lowers the frame so there is room to draw. Empty - from the data. | empty |
+| Surface lines on the drawing | The output line layer, one line per surface. | created |
+| Section drawing (distance × elevation) | The output polygon layer for a layout. Not created with a single surface. | created |
+| 3D fence (PolygonZ) | The output layer of vertical walls in real coordinates. Not created with a single surface. | created |
 
 Each bed gets attributes: a number, the roof and floor names, the mean thickness and the section length. Colour the layer by bed number or by thickness. Where a surface is undefined (nodata), the band breaks and the bed splits into several polygons.
 

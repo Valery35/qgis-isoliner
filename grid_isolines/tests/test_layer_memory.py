@@ -57,7 +57,26 @@ def test_guard_checks_project_and_path():
     assert "isinstance(v, list)" in body, "страж не чистит списки слоёв"
 
 
+def test_direct_defaults_also_guarded():
+    """Прямые дефолты слоёв тоже проходят через стража.
+
+    Часть параметров подставляет память в самом объявлении, минуя
+    _restore_layer_defaults. В 4.22.0 на этом упал справочник пластов в
+    4.01: страж стоял на одном входе из двух. Проверяем, что слоёвых
+    параметров с незащищённым _dv не осталось.
+    """
+    with open(SRC, encoding="utf-8") as f:
+        text = f.read()
+    body = _func_body(text, "_dv_layer")
+    assert "_alive_layer_ref(" in body, "помощник не зовёт стража"
+
+    for key in ("REFERENCE", "LINE_DEF", "COLLAR", "INTERVAL", "SHEET"):
+        bad = "defaultValue=_dv(self, self.%s, None)" % key
+        assert bad not in text, "%s подставляется в обход стража" % key
+
+
 if __name__ == "__main__":
     test_guard_called_before_default()
     test_guard_checks_project_and_path()
+    test_direct_defaults_also_guarded()
     print("test_layer_memory: OK")

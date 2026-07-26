@@ -279,12 +279,14 @@ def test_build_section_rejects_bad_input():
             pass
         else:
             raise AssertionError("ожидалась ValueError на вершинах %r" % (bad,))
+    # Одна поверхность больше не ошибка: это разрез по рельефу без пластов,
+    # см. test_single_surface_gives_line_without_beds.
     try:
-        sc.build_section(_line(), surfs[:1], step=10.0)
+        sc.build_section(_line(), [], step=10.0)
     except ValueError:
         pass
     else:
-        raise AssertionError("ожидалась ValueError на одной поверхности")
+        raise AssertionError("ожидалась ValueError на пустом списке")
     try:
         sc.build_section([(5.0, 5.0), (5.0, 5.0)], surfs, step=10.0)
     except ValueError:
@@ -486,6 +488,58 @@ def test_single_section_layout_is_identity():
     s1 = sc.build_section(None, surfs, vex=10.0, samples=sm)
     off = sc.layout_offsets([s1.bbox_full], sc.LAYOUT_STACK)
     assert off == [(0.0, 0.0)]
+
+
+# --- одна поверхность и низ рамки ---------------------------------------
+
+def _relief():
+    """Одна наклонная поверхность: рельеф с настоящим размахом высот.
+
+    Ровная плоскость для этих проверок не годится: у неё zmin равен zmax,
+    размах нулевой, и отметок на осях законно не возникает.
+    """
+    arr, gt = _plane_grid(0.2, 0.0, 0.0)
+    return [(arr, gt, "Рельеф")]
+
+
+def test_single_surface_gives_line_without_beds():
+    """Одна поверхность это законный разрез: пластов нет, рамка и оси есть.
+
+    Геологический разрез почти всегда начинается с линии рельефа, а пласты
+    появляются позже. Раньше инструмент на этом месте отказывался работать.
+    """
+    r = sc.build_section(_line(), _relief(), step=10.0,
+                         vmode=sc.VMODE_FACTOR, vscale=5.0)
+    assert r.beds == []
+    assert len(r.corners) >= 2
+    assert r.ticks
+    assert r.bbox_full is not None
+
+
+def test_zbase_lowers_frame():
+    """Низ рамки опускается до заданной отметки, чтобы было где рисовать."""
+    plain = sc.build_section(_line(), _relief(), step=10.0,
+                             vmode=sc.VMODE_FACTOR, vscale=1.0)
+    deep = sc.build_section(_line(), _relief(), step=10.0,
+                            vmode=sc.VMODE_FACTOR, vscale=1.0, zbase=50.0)
+    assert min(deep.ticks) < min(plain.ticks)
+    assert deep.bbox_full[1] < plain.bbox_full[1]
+
+
+def test_zbase_above_data_ignored():
+    """Отметка выше данных рамку не поднимает: это низ, а не обрезка."""
+    plain = sc.build_section(_line(), _relief(), step=10.0,
+                             vmode=sc.VMODE_FACTOR, vscale=1.0)
+    high = sc.build_section(_line(), _relief(), step=10.0,
+                            vmode=sc.VMODE_FACTOR, vscale=1.0, zbase=1e6)
+    assert high.bbox_full == plain.bbox_full
+
+
+def test_two_surfaces_still_give_bed():
+    """Обычный случай не сломан: две поверхности дают пласт."""
+    r = sc.build_section(_line(), _stack([200.0, 150.0]), step=10.0,
+                         vmode=sc.VMODE_FACTOR, vscale=5.0)
+    assert len(r.beds) == 1
 
 
 def _run():
