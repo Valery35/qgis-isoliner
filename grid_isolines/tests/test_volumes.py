@@ -189,6 +189,29 @@ def test_format_area_in_hectares():
     assert V.format_area_ha(59509800) == "5\u00a0950.98"
 
 
+def test_clip_to_zones_keeps_inside_only():
+    """Обрезка гасит всё вне участков и не трогает то, что внутри."""
+    diff = np.arange(16, dtype=float).reshape(4, 4)
+    labels = np.zeros((4, 4), dtype=int)
+    labels[1:3, 1:3] = 1
+    out = V.clip_to_zones(diff, labels)
+    assert np.isnan(out[0, 0]) and np.isnan(out[3, 3])
+    assert out[1, 1] == diff[1, 1] and out[2, 2] == diff[2, 2]
+    assert int(np.count_nonzero(np.isfinite(out))) == 4
+
+
+def test_clip_does_not_change_zone_volumes():
+    """Обрезка не меняет объёмы по участкам: она про картинку, не про счёт."""
+    rng = np.random.default_rng(11)
+    diff = rng.normal(0.0, 1.0, size=(30, 30))
+    labels = np.zeros((30, 30), dtype=int)
+    labels[5:15, 5:15] = 1
+    before = V.zone_stats(diff, labels, area=1.0)[1]
+    after = V.zone_stats(V.clip_to_zones(diff, labels), labels, area=1.0)[1]
+    assert abs(before["fill_volume"] - after["fill_volume"]) < 1e-9
+    assert abs(before["cut_volume"] - after["cut_volume"]) < 1e-9
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 
 if __name__ == "__main__":

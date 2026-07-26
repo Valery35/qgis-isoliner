@@ -699,6 +699,49 @@ def _dv(alg, key, fallback):
     return getattr(alg, "_defaults", {}).get(key, fallback)
 
 
+def _rasterize_mask(src, gt, shape, target_crs, context):
+    """Булева маска «внутри полигонов слоя» на сетке (gt, shape).
+
+    Геометрия переводится в СК растра: слой границы человек берёт какой
+    есть, и совпадения систем координат ждать не приходится. Возвращает
+    None, если в слое нет ни одной геометрии.
+    """
+    from osgeo import ogr
+    ny, nx = int(shape[0]), int(shape[1])
+    drv = ogr.GetDriverByName("Memory")
+    ds = drv.CreateDataSource("mask")
+    lyr = ds.CreateLayer("mask", None, ogr.wkbPolygon)
+    tr = None
+    if target_crs is not None and src.sourceCrs() != target_crs:
+        tr = QgsCoordinateTransform(src.sourceCrs(), target_crs,
+                                    context.project())
+    n = 0
+    for ft in src.getFeatures():
+        geom = QgsGeometry(ft.geometry())
+        if geom.isEmpty():
+            continue
+        if tr is not None:
+            try:
+                geom.transform(tr)
+            except Exception:  # nosec
+                continue
+        f = ogr.Feature(lyr.GetLayerDefn())
+        f.SetGeometry(ogr.CreateGeometryFromWkt(geom.asWkt()))
+        lyr.CreateFeature(f)
+        f = None
+        n += 1
+    if n == 0:
+        return None
+    mem = gdal.GetDriverByName("MEM").Create("", nx, ny, 1, gdal.GDT_Byte)
+    mem.SetGeoTransform(gt)
+    mem.GetRasterBand(1).Fill(0)
+    gdal.RasterizeLayer(mem, [1], lyr, burn_values=[1])
+    out = mem.GetRasterBand(1).ReadAsArray().astype(bool)
+    mem = None
+    ds = None
+    return out
+
+
 def _alive_layer_ref(v):
     """Проверяет, что запомненная ссылка на слой всё ещё разрешается: id
     находится в текущем проекте или строка указывает на существующий файл.
@@ -6497,6 +6540,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
     SURF4, SURF5, SURF6 = "SURF4", "SURF5", "SURF6"
     LINE = "LINE"
     COLLAR, INTERVAL = "COLLAR", "INTERVAL"
+    REFDEMO = "REFDEMO"
     BED1, BED2 = "BED1", "BED2"
     FAULT, MARKER, ZONE = "FAULT", "MARKER", "ZONE"
     TIN = "TIN"
@@ -6517,11 +6561,27 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             "вмещающих и два промышленных (2-й и 4-й, тонкие).\n\nПодайте шесть "
             "поверхностей сверху вниз (1...6) и линию в «Разрез по линии». "
             "Получите пять пластов на чертеже и 3D-забор. Кригинг для демо не "
-            "нужен, поверхности уже растровые. Заодно выдаётся "
-            "пара слоёв модели бурения collar и interval (устья "
-            "точками с Z и таблица интервалов по контракту, скважины вдоль "
-            "всех трёх линий, годятся выноске на разрез и 3D), а также по "
-            "многоканальному гриду на каждый "
+            "нужен, поверхности уже растровые.\n"
+            "\n**Скважины с интервалами опробования.** Выдаётся готовая пара "
+            "слоёв модели бурения: **устья collar** (точки с отметкой и "
+            "глубиной забоя) и **интервалы interval** (таблица hole_id, from, "
+            "to, code, глубины по стволу от устья). Контракт тот же, по "
+            "которому выгружает Геоконструктор, поэтому инструмент **4.02 "
+            "Скважины на разрезе** пробуется без своих данных: 4.10, потом "
+            "4.01 по любой линии, потом 4.02 с этой парой. Скважины стоят "
+            "вдоль всех трёх линий и годятся также для 3D.\n"
+            "\nВместе с ними выдаётся **справочник пластов демо**: те же "
+            "коды, что стоят в интервалах, с порядком залегания, телом и "
+            "цветом. Подайте его в **4.02**, и колонки скважин получат "
+            "цвет и порядок в легенде. Поставляемый справочник из 4.11 "
+            "кодов демо не знает, он собран по Верхнекамскому "
+            "месторождению.\n"
+            "\nПолосы пластов в 4.01 демо-справочник не красит, и это не "
+            "недоделка, а устройство поиска: пласт там ищется по именам "
+            "слоёв кровли и подошвы, а поверхности демо названы просто "
+            "номерами. На своих данных, где слои названы кодами пластов, "
+            "тот же справочник красит и полосы, и колонки.\n"
+            "\nЕщё выдаётся по многоканальному гриду на каждый "
             "промышленный пласт. Конвенция каналов: 1 кровля, 2 подошва, "
             "3+ параметры (здесь содержание и минтип, независимые "
             "стохастические поля). Пласт как блочная модель: один файл кормит "
@@ -6558,6 +6618,10 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             self.INTERVAL, self.tr("Интервалы скважин interval (таблица)"),
             type=QgsProcessing.SourceType.TypeVector, optional=True,
             createByDefault=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.REFDEMO, self.tr("Справочник пластов (демо)"),
+            type=QgsProcessing.SourceType.TypeVector, optional=True,
+            createByDefault=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.BED1, self.tr("Пласт 1-й пром. (каналы: кровля, подошва, содержание, минтип)"),
             optional=True, createByDefault=True))
@@ -6578,6 +6642,51 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             self.TIN, self.tr("Опрокинутая TIN (3D-грани для пересечения)"),
             type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
             createByDefault=True))
+
+    # порядок, тело и цвет демо-стратиграфии. Пласты вмещающие серо-зелёные,
+    # промышленные красные (соляная традиция), покровные отложения песчаные.
+    DEMO_REF = (
+        ("Q", "Покровные отложения", "#d9c89a"),
+        ("В1", "Вмещающий 1", "#9fb59a"),
+        ("Пр1", "Промышленный 1", "#c0504d"),
+        ("В2", "Вмещающий 2", "#8fa88b"),
+        ("Пр2", "Промышленный 2", "#d16a67"),
+        ("В3", "Вмещающий 3", "#7f9a7c"),
+    )
+
+    def _write_demo_reference(self, parameters, context, feedback, codes):
+        """Справочник пластов под коды демо: код, порядок, тело, цвет.
+
+        Тот же формат, что читают 4.01 и 4.02, поэтому полосы пластов и
+        колонки скважин демо сходятся по цвету и по порядку залегания.
+        """
+        fields = QgsFields()
+        for nm in ("code", "order", "body", "color", "strata", "note"):
+            fields.append(QgsField(
+                nm, QVariant.Int if nm == "order" else QVariant.String))
+        sink, dest = self.parameterAsSink(
+            parameters, self.REFDEMO, context, fields,
+            QgsWkbTypes.Type.NoGeometry)
+        if sink is None:
+            return
+        names = {c: (n, col) for c, n, col in self.DEMO_REF}
+        for k, code in enumerate(codes):
+            nm, col = names.get(code, (code, "#999999"))
+            f = QgsFeature(fields)
+            f["code"] = code
+            f["order"] = k + 1
+            f["body"] = self.tr("пласт")
+            f["color"] = col
+            f["strata"] = nm
+            f["note"] = ""
+            sink.addFeature(f)
+        _set_output_name(context, dest, self.tr("Справочник пластов (демо)"))
+        feedback.pushInfo(self.tr(
+            "Справочник пластов демо: %d строк под коды интервалов. Подайте "
+            "его в 4.02, и колонки скважин получат цвет и порядок в легенде. "
+            "Полосы пластов 4.01 он не красит: там пласт ищется по именам "
+            "слоёв поверхностей, а поверхности демо кода пласта не несут.")
+            % len(codes))
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
@@ -6747,8 +6856,13 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         isink, idest = self.parameterAsSink(
             parameters, self.INTERVAL, context, fint,
             QgsWkbTypes.Type.NoGeometry)
+        # Список кодов один на интервалы и на справочник: разъехаться им
+        # негде. Справочник пишется независимо от выходов скважин - он нужен
+        # сам по себе, а не только вместе с ними.
+        codes = ["Q", "В1", "Пр1", "В2", "Пр2", "В3"]
+        self._write_demo_reference(parameters, context, feedback, codes)
+
         if csink is not None and isink is not None:
-            codes = ["Q", "В1", "Пр1", "В2", "Пр2", "В3"]
             kcl_of = {"Пр1": grade1, "Пр2": grade2}
             xc_mid = 0.5 * (xmin + xmax)
             numbers = {"Д1": 0, "Д2": 0}
@@ -13180,6 +13294,7 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
     LAKES = "LAKES"
     LAKES_FIELD = "LAKES_FIELD"
     EXTENT = "EXTENT"
+    BOUNDARY = "BOUNDARY"
     CELL = "CELL"
     ITERATIONS = "ITERATIONS"
     MIN_DROP = "MIN_DROP"
@@ -13216,7 +13331,13 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             "Все слои приводятся к СК первого заданного слоя, она "
             "должна быть метрической. Финальное заполнение понижений "
             "флажком. Выход: GeoTIFF float32, высоты в метрах, nodata "
-            "-9999, слой в группе Топография.") + _credit())
+            "-9999, слой в группе Топография.\n"
+            "\n**Граница области построения** ограничивает поверхность "
+            "полигоном, как outer boundary в САПР. Маска накладывается "
+            "после интерполяции, а не отсечением входа: данные снаружи "
+            "продолжают формировать поверхность у самой границы, и края "
+            "не заворачиваются. Слой границы можно подавать в любой "
+            "системе координат, геометрия переводится сама.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -13250,6 +13371,9 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             type=QgsProcessingParameterField.DataType.Numeric))
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Охват (пусто: по слоям)"), optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.BOUNDARY, self.tr("Граница области построения (полигон)"),
+            [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             self.CELL, self.tr("Размер ячейки, м"),
             QgsProcessingParameterNumber.Type.Double,
@@ -13520,6 +13644,30 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
                 % (n_raised, max_raise))
 
         gt = (x0, cell, 0.0, y_top, 0.0, -cell)
+
+        # Граница области построения. Маска накладывается ПОСЛЕ интерполяции,
+        # а не отсечением входа: данные снаружи продолжают формировать
+        # поверхность у самой границы, и края не заворачиваются. Так же
+        # устроена outer boundary в САПР: она ограничивает поверхность, а не
+        # исходные измерения.
+        bsrc = self.parameterAsSource(parameters, self.BOUNDARY, context)
+        if bsrc is not None:
+            mask = _rasterize_mask(bsrc, gt, z.shape, target_crs, context)
+            if mask is None:
+                feedback.pushWarning(self.tr(
+                    "В слое границы нет геометрии, обрезка не выполнена."))
+            else:
+                inside = int(np.count_nonzero(mask))
+                if inside == 0:
+                    raise QgsProcessingException(self.tr(
+                        "Граница не пересекает область построения: "
+                        "проверьте систему координат слоя границы."))
+                z = np.where(mask, z, np.nan)
+                feedback.pushInfo(self.tr(
+                    "Граница области: внутри %d ячеек из %d (%.1f процента), "
+                    "снаружи поверхность не выдаётся.")
+                    % (inside, z.size, 100.0 * inside / z.size))
+
         srs = osr.SpatialReference()
         auth = target_crs.authid()
         if auth.startswith("EPSG:"):
@@ -14584,6 +14732,8 @@ class CutFillAlgorithm(IsolinerAlgorithm):
     ZONE_FIELD = "ZONE_FIELD"
     DEAD = "DEAD"
     TOL = "TOL"
+    CLIP = "CLIP"
+    OUTPUT_ZONES = "OUTPUT_ZONES"
     OUTPUT_DIFF = "OUTPUT_DIFF"
     OUTPUT_HTML = "OUTPUT_HTML"
 
@@ -14626,7 +14776,16 @@ class CutFillAlgorithm(IsolinerAlgorithm):
             "обе цифры, не меняя нетто. По умолчанию отсечки нет, задавайте "
             "её осознанно и указывайте в отчёте.\n"
             "\nПолигоны участков считаются отдельно, каждый со своими "
-            "числами. Поле участка может быть числовым или текстовым.\n"
+            "числами. Поле участка может быть числовым или текстовым. "
+            "Выход **Участки с объёмами** повторяет эти полигоны с "
+            "объёмами в атрибутах, чтобы подписать их прямо на карте: "
+            "ведомость HTML для согласования, атрибуты для оформления.\n"
+            "\nФлажок **Обрезать растр разности по участкам** гасит "
+            "разность за контуром работ. За контуром она складывается "
+            "из шума съёмки, а растянутая на неё цветовая шкала прячет "
+            "то, ради чего растр и смотрят. На числа обрезка не влияет: "
+            "статистика считается до неё, и в ведомости остаются оба "
+            "итога, по всей площади и по участкам.\n"
             "\n**Чего инструмент не делает.** Это не САПР. Откосы с "
             "заложением, бермы, послойные ведомости и посадку проектной "
             "поверхности он не строит. И объём геометрический не равен "
@@ -14670,6 +14829,13 @@ class CutFillAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.TOL, 0.05),
             minValue=0.0, maxValue=1.0)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.CLIP, self.tr("Обрезать растр разности по участкам"),
+            defaultValue=_dv(self, self.CLIP, False)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_ZONES, self.tr("Участки с объёмами (полигоны)"),
+            type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
+            createByDefault=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT_DIFF, self.tr("Растр разности (насыпь положительна)"),
             optional=True, createByDefault=True))
@@ -14767,14 +14933,75 @@ class CutFillAlgorithm(IsolinerAlgorithm):
         feedback.pushInfo(verdict)
 
         # участки
-        zones = None
+        zones, labels, zgeoms = None, None, None
         src_z = self.parameterAsSource(parameters, self.ZONES, context)
         z_field = self.parameterAsString(parameters, self.ZONE_FIELD, context)
         if src_z is not None:
-            zones = self._zone_stats(src_z, z_field, diff, gt, proj, area,
-                                     dead, context, feedback)
+            zones, labels, zgeoms = self._zone_stats(
+                src_z, z_field, diff, gt, proj, area, dead, context, feedback)
 
         res = {}
+
+        # Слой участков с числами: те же полигоны плюс объёмы в атрибутах.
+        # Ведомость HTML хороша для согласования, а подписать участки на
+        # карте можно только атрибутами, поэтому выход отдельный.
+        zfields = QgsFields()
+        for nm, tp in (("name", QVariant.String),
+                       ("fill_vol", QVariant.Double),
+                       ("cut_vol", QVariant.Double),
+                       ("net_vol", QVariant.Double),
+                       ("fill_area", QVariant.Double),
+                       ("cut_area", QVariant.Double),
+                       ("max_fill", QVariant.Double),
+                       ("max_cut", QVariant.Double),
+                       ("cells", QVariant.Int),
+                       ("verdict", QVariant.String)):
+            zfields.append(QgsField(nm, tp))
+        sinkz, destz = self.parameterAsSink(
+            parameters, self.OUTPUT_ZONES, context, zfields,
+            QgsWkbTypes.Type.Polygon,
+            src_z.sourceCrs() if src_z is not None
+            else QgsCoordinateReferenceSystem(proj))
+        if sinkz is not None and zones:
+            vmap = {
+                "balanced": self.tr("баланс"),
+                "import": self.tr("привоз"),
+                "export": self.tr("вывоз"),
+                "empty": self.tr("нет работ"),
+            }
+            for nm, st_z, code in zones:
+                fz = QgsFeature(zfields)
+                fz.setGeometry(zgeoms[code])
+                fz.setAttributes([
+                    nm,
+                    round(st_z["fill_volume"], 2),
+                    round(st_z["cut_volume"], 2),
+                    round(st_z["net_volume"], 2),
+                    round(st_z["fill_area"], 2),
+                    round(st_z["cut_area"], 2),
+                    round(st_z["max_fill"], 3),
+                    round(st_z["max_cut"], 3),
+                    int(st_z["cells_valid"]),
+                    vmap[_vol.balance_verdict(st_z, tol)],
+                ])
+                sinkz.addFeature(fz)
+            res[self.OUTPUT_ZONES] = destz
+            _set_output_name(context, destz, _tr("Участки с объёмами"))
+
+        # Обрезка только для картинки и только после подсчёта: итог по всей
+        # площади и итог по участкам это два разных числа, оба остаются в
+        # ведомости.
+        if self.parameterAsBoolean(parameters, self.CLIP, context):
+            if labels is None:
+                feedback.pushWarning(self.tr(
+                    "Обрезка запрошена, но участки не заданы: растр разности "
+                    "выдан целиком."))
+            else:
+                diff = _vol.clip_to_zones(diff, labels)
+                feedback.pushInfo(self.tr(
+                    "Растр разности обрезан по участкам. Числа в ведомости "
+                    "посчитаны до обрезки и не изменились."))
+
         out_diff = self.parameterAsOutputLayer(parameters, self.OUTPUT_DIFF,
                                                context)
         if out_diff:
@@ -14815,6 +15042,7 @@ class CutFillAlgorithm(IsolinerAlgorithm):
         ogr_lyr = ogr_ds.CreateLayer("zones", None, ogr.wkbPolygon)
         ogr_lyr.CreateField(ogr.FieldDefn("code", ogr.OFTInteger))
         code = 0
+        geoms = {}
         tr = QgsCoordinateTransform(src.sourceCrs(),
                                     QgsCoordinateReferenceSystem(proj),
                                     context.project()) if proj else None
@@ -14830,6 +15058,7 @@ class CutFillAlgorithm(IsolinerAlgorithm):
             code += 1
             names[code] = (str(ft[field]) if field
                            else self.tr("участок %d") % code)
+            geoms[code] = QgsGeometry(ft.geometry())
             f = ogr.Feature(ogr_lyr.GetLayerDefn())
             f.SetGeometry(ogr.CreateGeometryFromWkt(geom.asWkt()))
             f.SetField("code", code)
@@ -14837,7 +15066,7 @@ class CutFillAlgorithm(IsolinerAlgorithm):
             f = None
         if code == 0:
             feedback.pushWarning(self.tr("В слое участков нет геометрии."))
-            return None
+            return None, None, None
 
         mem = gdal.GetDriverByName("MEM").Create("", nx, ny, 1, gdal.GDT_Int32)
         mem.SetGeoTransform(gt)
@@ -14854,14 +15083,14 @@ class CutFillAlgorithm(IsolinerAlgorithm):
         out = []
         for c in sorted(stats):
             s = stats[c]
-            out.append((names.get(c, str(c)), s))
+            out.append((names.get(c, str(c)), s, c))
             feedback.pushInfo(self.tr(
                 "Участок %s: насыпь %s, выемка %s, нетто %s.")
                 % (names.get(c, str(c)),
                    _vol.format_volume(s["fill_volume"]),
                    _vol.format_volume(s["cut_volume"]),
                    _vol.format_volume(s["net_volume"])))
-        return out
+        return out, labels, geoms
 
 
 def _write_cutfill_report(path, st, zones, verdict, gt, dead):
@@ -14898,16 +15127,16 @@ def _write_cutfill_report(path, st, zones, verdict, gt, dead):
         body = "".join(
             "<tr><td>%s</td><td align='right'>%s</td>"
             "<td align='right'>%s</td><td align='right'>%s</td></tr>"
-            % (n, fv(s["fill_volume"]), fv(s["cut_volume"]),
-               fv(s["net_volume"]))
-            for n, s in zones)
+            % (z[0], fv(z[1]["fill_volume"]), fv(z[1]["cut_volume"]),
+               fv(z[1]["net_volume"]))
+            for z in zones)
         tot = ("<tr><td><b>%s</b></td><td align='right'><b>%s</b></td>"
                "<td align='right'><b>%s</b></td>"
                "<td align='right'><b>%s</b></td></tr>"
                % (_tr("итого"),
-                  fv(sum(s["fill_volume"] for _n, s in zones)),
-                  fv(sum(s["cut_volume"] for _n, s in zones)),
-                  fv(sum(s["net_volume"] for _n, s in zones))))
+                  fv(sum(z[1]["fill_volume"] for z in zones)),
+                  fv(sum(z[1]["cut_volume"] for z in zones)),
+                  fv(sum(z[1]["net_volume"] for z in zones))))
         zone_html = ("<h3>%s</h3><table border='1' cellpadding='4' "
                      "cellspacing='0'>%s%s%s</table>"
                      % (_tr("По участкам, куб. м"), head, body, tot))

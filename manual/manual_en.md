@@ -896,6 +896,14 @@ Inside, a two-stroke cycle runs at every grid level: membrane smoothing sets the
 
 The default extent is taken from the layers with a two-cell margin. All layers are brought to the CRS of the first given layer, which must be metric. The final **depression filling** is on by default, its logic is described in 2.04.
 
+## The boundary of the build area
+
+A polygon limits the surface the same way an outer boundary does in design systems: beyond it no raster is output, there is nodata.
+
+What matters is not the clipping itself but the moment it is applied. The mask goes on **after** the interpolation rather than by clipping the input data. Points, contours and thalwegs beyond the boundary keep shaping the surface right at it, so the edges do not curl. Had we clipped the input instead, an artificial break would appear at the boundary: the interpolator would have nothing to lean on from the outside.
+
+Supply the boundary layer in any coordinate system, the geometry is transformed automatically. The log prints how many cells fell inside and what share of the area that is. If none did, the run stops with a note to check the coordinate system: that is almost always the reason.
+
 # 2.04 Terrain preparation
 
 Prepares a DEM for analysis with two independent modifications, each toggled by its own checkbox, in a fixed order: smoothing first, then filling.
@@ -1351,7 +1359,9 @@ The balance verdict looks at the share of the net in the turnover, not at its ma
 
 ## Outputs
 
-A difference raster in metres, positive is fill. An HTML statement with the total, the per-area breakdown and the grid description.
+A difference raster in metres, positive is fill. An HTML statement with the total, the per-area breakdown and the grid description. The **Work areas with volumes** layer: the same polygons that were supplied, plus the volumes in the attributes (`fill_vol`, `cut_vol`, `net_vol`, the areas, the largest elevations, the cell count and the verdict). The statement is for approval, while labelling the areas straight on the map is only possible from attributes, so it is a separate output.
+
+The **Clip the difference raster to the work areas** checkbox blanks the difference outside the outline of the works. Outside it the difference is made of survey noise, and a colour ramp stretched over it hides the very thing the raster is looked at for. Clipping does not affect the figures: the statistics are computed before it, and both totals stay in the statement, over the whole area and per work area.
 
 The line of zero works is not built by a separate tool, and that is deliberate: it is the zero contour over the difference raster, build it with **1.04 Contours from a raster**.
 
@@ -1365,6 +1375,8 @@ The line of zero works is not built by a separate tool, and that is deliberate: 
 | Work areas (polygons) | Splits the statement by area. | empty |
 | Area name field | Numeric or text. | empty |
 | Dead band in elevation, m | Cuts the background noise off. | 0 |
+| Clip the difference raster to the work areas | Blanks the difference outside the outline. Does not affect the figures. | off |
+| Work areas with volumes (polygons) | The area polygons with volumes in the attributes. | created |
 | Balance tolerance (Adv.) | Fraction of the turnover for the verdict. | 0.05 |
 | Difference raster | The output raster, fill is positive. | created |
 | Earthwork volume report (HTML) | The report with the total and the areas. | created |
@@ -2111,7 +2123,15 @@ Each marker surface gives the line of its intersection with the shaft wall - whe
 
 The **Create a section example** tool prepares a complete training set for the **Cross-sections** group, so its tools can be tried without kriging real data. In the panel it stands last in the **Cross-sections** group.
 
-A single run outputs six stacked surfaces with a dip and variable thickness (five interbedded beds, the 2nd and 4th industrial and thin), three section lines across the area (a polyline with two bends, a short straight one and a slanted one), boreholes along the first line with surface-elevation fields h1...h6, and a multiband grid per industrial bed. The bed-grid band convention: band 1 - the roof, band 2 - the bottom, bands 3 and further - parameters (here the content and the mineral type with a replacement zone; the content fields of the beds are independent, stochastic). One file describes the whole bed - like a block model where new parameters are added as bands. For the intersection tools it adds demo vectors: a fault without an elevation, a marker contour with Z, a replacement zone, and an overturned TIN fold from PolygonZ 3D faces.
+A single run outputs six stacked surfaces with a dip and variable thickness (five interbedded beds, the 2nd and 4th industrial and thin), three section lines across the area (a polyline with two bends, a short straight one and a slanted one), a ready pair of drilling-model layers, and a multiband grid per industrial bed. The bed-grid band convention: band 1 - the roof, band 2 - the bottom, bands 3 and further - parameters (here the content and the mineral type with a replacement zone; the content fields of the beds are independent, stochastic). One file describes the whole bed - like a block model where new parameters are added as bands. For the intersection tools it adds demo vectors: a fault without an elevation, a marker contour with Z, a replacement zone, and an overturned TIN fold from PolygonZ 3D faces.
+
+## Boreholes with sampling intervals
+
+The pair of drilling-model layers is produced ready, by the same contract Geoconstructor exports by. Along with it a **demo bed reference** is produced: the very codes that stand in the intervals, with the bedding order, the body kind and the colour. The bundled reference from 4.11 is built for the Verkhnekamskoye deposit and does not know the demo codes, so without its own reference the demo columns had no colour.
+
+The demo reference does not colour the bed bands in 4.01, and that is how the lookup works rather than an omission. There a bed is determined by the names of the roof and floor layers: the role is stripped from a layer named **KpII_top**, the code **КрII** remains, and the reference is queried by it. The demo surfaces are named by plain numbers and carry no bed code, so the bands keep their default colours. On your own data, where the layers are named by bed codes, the same reference colours both the bands and the columns. **Collars** is a point layer with the collar elevation and the end of hole, **intervals** is an ordinary table with depths along the hole from the collar and the bed code.
+
+So tool **4.02 Boreholes on the section** can be tried without your own data and without touching a database: run 4.10, then 4.01 along any of the three lines, then 4.02 with that pair, the section definition and the demo reference. The borehole columns get their colour and legend order. The boreholes stand along all three lines, so the columns land on any drawing. The same pair suits three-dimensional viewing unchanged: there the depth goes straight into Z, without a vertical scale or a layout offset.
 
 ![The multiband bed-grid convention: bands 1-2 carry the geometry (roof and bottom), bands 3+ the parameters; one file feeds tool 4.03.](images/bed_grid_scheme_en.png){width=70%}
 
@@ -2120,7 +2140,9 @@ A single run outputs six stacked surfaces with a dip and variable thickness (fiv
 | Layer | Geometry | Attributes |
 |---|---|---|
 | Section lines (demo) | line | name (Section 1, 2, 3). Three traces of different length: a polyline with two bends (the vertices test the stationing), a short straight one and a slanted one with a single bend. |
-| Boreholes (demo) | points | name; h1…h6 - elevations of the six surfaces at the borehole. |
+| Collars (demo) | points | hole_id, z (collar elevation), eoh (end of hole), number for the label. |
+| Intervals (demo) | table | hole_id, from, to (depths along the hole from the collar), code (bed index). |
+| Bed reference (demo) | table | code, order, body, color, strata. Matching the demo interval codes. |
 | Zone (demo, polygon) | polygon | name. For the vector-intersection tool 4.05. |
 | Fault (demo, 2D) | line | name. Crosses the trace, moved off the line bend. |
 | Marker with Z (demo, 3D) | line Z | name. Tests 3D geometries in 4.05. |
@@ -2439,7 +2461,8 @@ Point layer **Subsidence profiles (trough, tours: N)**:
 
 - **Surface 1…6** (rasters) - elevations of six stacked surfaces, m. Top to bottom: 1 roof of the upper host, 2 roof and 3 floor of the 1st productive, 4 roof and 5 floor of the 2nd productive, 6 floor of the lower host.
 - **Section lines (demo)** (line): field **name** - line name (Section 1, 2, 3).
-- **Section wells (demo)** (points): **name** (SKR-NNN), **h1…h6** - elevations of the six surfaces at the well, m.
+- **Collars (demo)** (points): **hole_id**, **z** - collar elevation, **eoh** - end of hole, **number** - label.
+- **Intervals (demo)** (table): **hole_id**, **from**, **to** - depths along the hole from the collar, **code** - bed index.
 - **1st productive bed (demo)** and **2nd productive bed (demo)** (multiband rasters): band 1 roof (m), band 2 floor (m), band 3 content (percent), band 4 mineral type (category 1 or 2).
 - **Fault (demo, 2D)** (line): **name**.
 - **Marker with Z (demo, 3D)** (line with Z): **name**.
