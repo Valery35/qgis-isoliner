@@ -6,7 +6,11 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
+<<<<<<< HEAD
 version=4.40.0
+=======
+version=4.33.0
+>>>>>>> 9619b6af5a646c890a0de1e3400de5d1e4f57c9c
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,6 +22,7 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
+<<<<<<< HEAD
 changelog=4.40.0
     - 2.20 перешёл с пар один-к-одному на формы. На прогоне по демо 20 пар
       опирались всего на 13 подошв: трассировка режет длинную бровку на
@@ -106,6 +111,9 @@ changelog=4.40.0
     - Связка закреплена безголовым тестом: детектор прогоняется по
       демо-карьеру и обязан находить истинные линии.
     4.33.0
+=======
+changelog=4.33.0
+>>>>>>> 9619b6af5a646c890a0de1e3400de5d1e4f57c9c
     - В 4.05 две галочки по просьбе Василия Швалева: «Сохранять имя
       исходного слоя» и «Сохранять стиль исходного слоя». Работают, когда
       подан один слой. Обе по умолчанию выключены, прежние прогоны
