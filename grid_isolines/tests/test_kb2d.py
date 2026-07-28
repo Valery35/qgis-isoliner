@@ -433,6 +433,51 @@ def test_categorical_indicator_grids():
     assert cv.min() >= 0.0 and cv.max() <= 1.0  # уверенность в [0,1]
 
 
+def test_rescale_nugget_keeps_total_variance():
+    """Перенос доли самородка не трогает общую дисперсию и радиусы."""
+    from kb2d import Variogram, rescale_nugget
+    vg = Variogram(0.4, [{"it": 1, "cc": 0.6, "aa": 300.0,
+                          "ang": 0.0, "anis": 1.0}])
+    for frac in (0.0, 0.25, 1.0):
+        out = rescale_nugget(vg, frac)
+        assert abs((out.c0 + sum(out.cc)) - 1.0) < 1e-9
+        assert abs(out.c0 - frac) < 1e-9
+        assert out.aa == vg.aa
+    assert rescale_nugget(vg, None) is vg
+
+
+def test_zero_nugget_holds_value_next_to_the_borehole():
+    """Самородок роняет оценку в шаге от скважины, ноль её удерживает.
+
+    Ровно в точке замера кригинг точен при любом самородке, но ячейка почти
+    никогда не садится на устье. В пяти метрах от скважины подобранный
+    самородок 0.5 уводит вероятность под порог 0.5, а обнулённый оставляет её
+    при своём классе. Это и есть механизм, из-за которого скважина «В»
+    оказывалась вне своей зоны.
+    """
+    from kb2d import Variogram, build_grid, rescale_nugget
+    xd = np.array([100.0, 300.0, 500.0, 300.0])
+    yd = np.array([100.0, 100.0, 300.0, 500.0])
+    zd = np.array([1.0, 0.0, 0.0, 0.0])            # индикатор 0/1
+    base = Variogram(0.5, [{"it": 1, "cc": 0.5, "aa": 400.0,
+                            "ang": 0.0, "anis": 1.0}])
+
+    def near_first_point(vg):
+        # узел грида в 5 м от скважины, строка 30 отвечает нижнему краю
+        g = build_grid(xd, yd, zd, vg, 0, 0.0, 1, 8, 1e12, -9999.0,
+                       105.0, 105.0, 20.0, 31, 31)
+        return float(g[30, 0])
+
+    def at_first_point(vg):
+        g = build_grid(xd, yd, zd, vg, 0, 0.0, 1, 8, 1e12, -9999.0,
+                       100.0, 100.0, 20.0, 31, 31)
+        return float(g[30, 0])
+
+    assert abs(at_first_point(base) - 1.0) < 1e-6          # в самой точке точен
+    assert near_first_point(base) < 0.5                    # рядом провалился
+    assert near_first_point(rescale_nugget(base, 0.0)) > 0.9
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

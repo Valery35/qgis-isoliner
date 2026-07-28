@@ -1418,6 +1418,7 @@ Parameters:
 | Point layer | Source points. | - |
 | Categorical field (class) | The class field (mineral type, lithotype). Empty and NULL are excluded. | - |
 | Search radius, min/max points, cell size, extent | Search and grid - as in "2D Kriging". | as in "2D Kriging" |
+| Nugget share | The share of the nugget in the fitted variogram, from 0 to 1. Empty means as fitted. | empty |
 | Class probabilities (multiband) | Raster: one band per class, the class name in the band description. | - |
 | Zone map (most likely class) | Raster of the most-likely class code; the code mapping goes to the Log. | - |
 | Confidence (max probability) | Raster of the maximum probability: where the class is firm, where it is contested. | optional |
@@ -1435,6 +1436,18 @@ Coding the classes as numbers 1, 2, 3 and interpolating that code is not allowed
 ![Indicator kriging on synthetics: categorised wells (red - replacement, white - sylvinite) turn into a class-probability map. A 0.5 threshold cuts the domain outline from it.](images/indicator_probability.png){width=74%}
 
 Separate indicators do not sum to exactly one and may go slightly out of range, a known property of the method. So the estimate of each class is clipped to zero-one, and then the class probabilities are normalised so that in every cell they sum to one.
+
+## When a borehole misses its own zone
+
+A common complaint: a borehole of the hazardous class is drawn outside the hazardous zone. This is not a failure of the fit but a property of the nugget, and it is worth understanding before touching the other parameters.
+
+Exactly at the measured point the kriging is exact whatever the nugget: the estimate at a node that lands on the collar equals the indicator itself. But a grid node almost never lands on a collar. With a non-zero nugget the surface has a discontinuity around the point, and a few metres away the estimate already drops to the local mean. On a synthetic example with a nugget of 0.5, five metres from a lone borehole of the hazardous class the probability falls to 0.47, that is below the 0.5 threshold, while with the nugget set to zero it stays at 0.97.
+
+Hence the **Nugget share** parameter. An empty field leaves the automatic fit as it is. Zero makes the surface smooth next to the data, and a borehole keeps its class in its own cell. The total variance is preserved when the share is moved, only the smoothness changes, so the scale of the probabilities does not drift. The fitted shares per class are printed to the Log, so it makes sense to simply look at them first: a large nugget means the classes are mixed at short distances, and that is a meaningful fact about the data rather than an obstacle.
+
+The nugget should be zeroed with open eyes. It is not an invention of the fit: it measures how much neighbouring boreholes disagree on the class. Zero means a decision to treat every measurement as exact and binding. For hazard maps that is often right, because the cost of a miss and the cost of a false alarm are not symmetric, but the map becomes harsher and patchier afterwards.
+
+The second thing the hit depends on is the cell. The estimate is computed at the cell centre, and if boreholes of different classes fall into one cell, no nugget will separate them. Set the cell finer than the spacing between neighbouring boreholes. The third is the polygon boundary: the probability bands are built from the raster with smoothing and rounding, and both move the level line slightly relative to the cells. If a point is outside a band by a hair, check this first by turning both smoothings off.
 
 ## What you get
 
@@ -2059,6 +2072,8 @@ Unlike **Project objects onto the section** (approximate, corridor-based) this i
 | Layers to intersect | Lines and polygons mixed, in a single run. The src field in the outputs keeps the source layer. | - |
 | Section drawing | A fallback source of frame height for older definitions without zmin/zmax. | optional |
 | Carry the feature attributes onto the section | The fields of the source features go into the outputs, so the marks can be coloured and labelled by your own data. | on |
+| Keep the name of the source layer | The output is named after the source layer when a single one is supplied. | off |
+| Keep the style of the source layer | The appearance is taken from the source layer rather than from the standard style of the module. | off |
 | Terrain line on the drawing | The surface line layer from 4.01. The top of zones and faults follows the terrain rather than the frame. | optional |
 | Bottom line on the drawing | The same layer or a part of it. The bottom of zones and faults follows the sole rather than the frame. | optional |
 | Field with the bottom elevation of bands and verticals | The bottom of each feature from its own attribute. | optional |
@@ -2071,6 +2086,16 @@ Unlike **Project objects onto the section** (approximate, corridor-based) this i
 
 Empty outputs are not created: each object type goes only into its own layer.
 
+
+## The name and the style of the source layer
+
+Two checkboxes for the case of a single supplied layer. Both are off by default, so earlier runs reproduce unchanged.
+
+**Keep the name of the source layer.** The output is named after the source: a geology layer gives "Geology on the section" instead of the generic "Zone bands on the section". If a single layer produced several kinds of features at once, the kind is appended to the name, otherwise three layers in the tree would carry the same one.
+
+**Keep the style of the source layer.** The appearance is taken from the layer itself rather than from the standard style of the module. Together with carrying the attributes this removes the main piece of manual work on the section: a categorised geology colouring by a field lands on the bands as it is, with no need to repeat the palette by hand. The style is carried over when the geometry type matches: polygons into bands, lines without an elevation into verticals. A line with a Z elevation gives a point, a line style will not fit it, and the standard one stays there.
+
+If several layers are supplied, both checkboxes stay silent, because the outputs merge all the sources into one layer, and a line explaining why goes to the log.
 
 ## Clipping by the terrain and by the bottom line
 

@@ -467,17 +467,27 @@ class _StylePostProcessor(QgsProcessingLayerPostProcessorInterface):
     """Накладывает .qml-стиль на загруженный слой и, опционально, регистрирует
     его id для перестановки порядка (линии над полигонами). У слоя может быть
     только один пост-процессор, поэтому стиль и порядок объединены здесь."""
-    def __init__(self, style_path=None, order_state=None, role=None):
+    def __init__(self, style_path=None, order_state=None, role=None,
+                 renderer=None):
         super().__init__()
         self.style_path = style_path
         self.order_state = order_state
         self.role = role
+        self.renderer = renderer
 
     def postProcessLayer(self, layer, context, feedback):
         _finalize_layer(layer, getattr(self, "history", []))
         try:
             if self.style_path and os.path.exists(self.style_path):
                 layer.loadNamedStyle(self.style_path)
+                layer.triggerRepaint()
+        except Exception:  # nosec
+            pass
+        try:
+            # Рендерер исходного слоя кладётся поверх штатного стиля: сам
+            # объект один на все выходы, поэтому каждому слою достаётся копия.
+            if self.renderer is not None:
+                layer.setRenderer(self.renderer.clone())
                 layer.triggerRepaint()
         except Exception:  # nosec
             pass
@@ -493,11 +503,12 @@ class _StylePostProcessor(QgsProcessingLayerPostProcessorInterface):
             pass
 
 
-def _attach_style(context, path, style_path=None, order_state=None, role=None):
+def _attach_style(context, path, style_path=None, order_state=None, role=None,
+                  renderer=None):
     """Вешает на выходной слой пост-процессор стиля (и порядка, если задан)."""
     try:
         if path and context.willLoadLayerOnCompletion(path):
-            pp = _StylePostProcessor(style_path, order_state, role)
+            pp = _StylePostProcessor(style_path, order_state, role, renderer)
             _KEEP_ALIVE.append(pp)
             context.layerToLoadOnCompletionDetails(path).setPostProcessor(pp)
             _PP_PATHS.add(path)
@@ -2283,6 +2294,7 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
     WEIGHT_FIELD = "WEIGHT_FIELD"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
     CELL_SIZE, EXTENT = "CELL_SIZE", "EXTENT"
+    NUGGET = "NUGGET"
     OUTPUT_PROB, OUTPUT_ZONE, OUTPUT_CONF = \
         "OUTPUT_PROB", "OUTPUT_ZONE", "OUTPUT_CONF"
     PROB_LEVELS, PROB_CLASS = "PROB_LEVELS", "PROB_CLASS"
@@ -2309,7 +2321,18 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             "вероятного класса, соответствие кодов в Журнале) и растр "
             "уверенности (максимум вероятности). Пустые и NULL исключаются. "
             "Вариограмма каждого индикатора подбирается автоматически "
-            "(сферическая).") + _credit())
+            "(сферическая).\n\n**Доля самородка** правит подобранную модель, "
+            "когда карта расходится с фактами. При ненулевом самородке "
+            "кригинг не проходит через данные: в узле со скважиной оценка "
+            "тянется к соседям, и одиночная скважина среди чужого класса "
+            "получает вероятность ниже своей. Ноль в этом поле делает оценку "
+            "точной в точках замеров. Общая дисперсия при этом сохраняется, "
+            "меняется только гладкость поверхности. Подобранные доли "
+            "печатаются в журнал, так что сначала стоит просто посмотреть на "
+            "них.\n\nТочность в точке ещё зависит от ячейки: оценка считается "
+            "в центре ячейки, и если в одну ячейку попало несколько скважин "
+            "разных классов, ни один самородок этого не разведёт. Ячейку "
+            "задавайте мельче расстояния между соседними скважинами.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -2337,6 +2360,20 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             self.MAX_POINTS, self.tr("Макс. количество точек"),
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.MAX_POINTS, 24), minValue=1, maxValue=120))
+        nug = QgsProcessingParameterNumber(
+            self.NUGGET,
+            self.tr("Доля самородка (пусто = из подбора, 0 = точно через данные)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.NUGGET, None),
+            minValue=0.0, maxValue=1.0, optional=True)
+        nug.setHelp(self.tr(
+            "Доля самородка в подобранной вариограмме, от 0 до 1. Пустое поле "
+            "оставляет подбор как есть. Ноль делает кригинг точным в точках "
+            "замеров: вероятность в узле со скважиной равна её собственному "
+            "индикатору, а не сглаженному среднему по соседям. Общая "
+            "дисперсия сохраняется, меняется только гладкость. Подобранные и "
+            "применённые доли печатаются в журнал."))
+        self.addParameter(nug)
         cs = QgsProcessingParameterNumber(
             self.CELL_SIZE, self.tr("Размер ячейки (0 = авто, min(охват)/50)"),
             QgsProcessingParameterNumber.Type.Double,
@@ -2725,10 +2762,30 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
                 feedback.pushWarning(self.tr(
                     "Поле весов содержит пустые или неположительные "
                     "значения - веса игнорируются."))
+        nug = None
+        if parameters.get(self.NUGGET) is not None:
+            nug = self.parameterAsDouble(parameters, self.NUGGET, context)
+            nug = min(max(float(nug), 0.0), 1.0)
+
+        def on_model(cls, fitted, used, rng):
+            if nug is None:
+                feedback.pushInfo(_tr(
+                    "Класс «%s»: самородок из подбора %.2f, радиус %.0f.")
+                    % (cls, fitted, rng))
+            else:
+                feedback.pushInfo(_tr(
+                    "Класс «%s»: самородок из подбора %.2f, применён %.2f, "
+                    "радиус %.0f.") % (cls, fitted, used, rng))
+
         probs, zone, conf = categorical_indicator_grids(
             xs, ys, labels, classes, xmn, ymn, cell, nx, ny,
             ndmin=ndmin, ndmax=ndmax, radius=radius, nodata=nodata,
-            progress=prog, wts=wts)
+            progress=prog, wts=wts, nugget_frac=nug, on_model=on_model)
+        if nug is not None and nug <= 0.0:
+            feedback.pushInfo(_tr(
+                "Самородок обнулён: оценка проходит через данные. В узле со "
+                "скважиной вероятность равна её классу, если ячейка мельче "
+                "расстояния между соседними скважинами."))
 
         geotr = (xmin, cell, 0.0, ymin + ny * cell, 0.0, -cell)
         wkt = None
@@ -8367,6 +8424,7 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
     LINE_DEF, TARGET, SECTION2D = "LINE_DEF", "TARGET", "SECTION2D"
     ZMIN, ZMAX = "ZMIN", "ZMAX"
     KEEPATTR = "KEEPATTR"
+    KEEPNAME, KEEPSTYLE = "KEEPNAME", "KEEPSTYLE"
     RELIEF = "RELIEF"
     FLOOR = "FLOOR"
     BOTFIELD = "BOTFIELD"
@@ -8403,6 +8461,16 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             "растр ЦМР: разрез мог строиться по другой поверхности, и тогда "
             "растр с чертежом разойдутся, а обрезать надо по тому, что "
             "человек видит. Разрезы сопоставляются по полю sec_id.\n"
+            "\n**Сохранять имя и стиль исходного слоя** - две галочки для "
+            "случая, когда подан один слой. Выход тогда называется по нему "
+            "(«Геология на разрезе» вместо «Полосы зон на разрезе»), а "
+            "оформление берётся у самого слоя, а не из штатного стиля "
+            "модуля. Раскраска по полю переносится вместе с атрибутами, "
+            "поэтому категорийный стиль геологии ложится на разрез как есть, "
+            "без ручного повторения палитры. Слоёв подано несколько - обе "
+            "галочки молчат и в журнал уходит строка почему. Линия с "
+            "отметкой Z даёт точку, и линейный стиль на неё не встанет, там "
+            "тоже остаётся штатный.\n"
             "\n**Обрезка снизу по линии низа** устроена так же и работает "
             "по той же линии с чертежа: подайте слой подошвы, почвы пласта "
             "или любой нижней поверхности, и низ зон и разломов ляжет по "
@@ -8443,6 +8511,12 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterBoolean(
             self.KEEPATTR, self.tr("Переносить атрибуты объектов на разрез"),
             defaultValue=_dv(self, self.KEEPATTR, True)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.KEEPNAME, self.tr("Сохранять имя исходного слоя"),
+            defaultValue=_dv(self, self.KEEPNAME, False)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.KEEPSTYLE, self.tr("Сохранять стиль исходного слоя"),
+            defaultValue=_dv(self, self.KEEPSTYLE, False)))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.RELIEF, self.tr("Линия рельефа на чертеже (обрезка сверху)"),
             [QgsProcessing.SourceType.TypeVectorLine], optional=True))
@@ -8737,6 +8811,53 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                 "определение от «Разрез по линии» (в нём уже есть высота) либо "
                 "подайте чертёж разреза или задайте диапазон Z. Такие объекты "
                 "пропущены."))
+        keepname = self.parameterAsBool(parameters, self.KEEPNAME, context)
+        keepstyle = self.parameterAsBool(parameters, self.KEEPSTYLE, context)
+        one = layers[0] if len(layers) == 1 else None
+        if (keepname or keepstyle) and one is None:
+            feedback.pushInfo(_tr(
+                "Имя и стиль исходного слоя переносятся, только когда подан "
+                "один слой. Подано слоёв %d, выходы остаются штатными.")
+                % len(layers))
+        kinds = [k for k, has in (("points", bool(pts)), ("lines", bool(lns)),
+                                  ("bands", bool(bds))) if has]
+
+        def _out_name(kind, default):
+            """Имя выхода: от исходного слоя, когда он один и так велено.
+
+            Один слой родил один вид объектов - имя без уточнения, как его и
+            просили: «Геология на разрезе». Видов несколько - к имени
+            добавляется вид, иначе три слоя в дереве назывались бы одинаково.
+            """
+            if not keepname or one is None:
+                return default
+            if len(kinds) == 1:
+                return _tr("%s на разрезе") % one.name()
+            tail = {"points": _tr("точки на разрезе"),
+                    "lines": _tr("вертикали на разрезе"),
+                    "bands": _tr("полосы на разрезе")}[kind]
+            return "%s · %s" % (one.name(), tail)
+
+        def _out_renderer(geom_type, kind):
+            """Рендерер исходного слоя, если он ложится на этот тип выхода.
+
+            Полигоны идут в полосы, линии без Z в вертикали - там оформление
+            переносится один в один. Линия с Z даёт точку, и линейный
+            рендерер на неё не встанет, поэтому остаётся штатный стиль.
+            """
+            if not keepstyle or one is None:
+                return None
+            try:
+                if QgsWkbTypes.geometryType(one.wkbType()) != geom_type:
+                    feedback.pushInfo(_tr(
+                        "Стиль исходного слоя не подходит выходу «%s»: другой "
+                        "тип геометрии. Остаётся штатный стиль.") % kind)
+                    return None
+                r = one.renderer()
+                return r.clone() if r is not None else None
+            except Exception:  # nosec
+                return None
+
         if cut_off:
             feedback.pushInfo(_tr(
                 "Срезано кромками целиком: объектов %d. Обычно это зоны "
@@ -8766,8 +8887,12 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                     fa.setAttributes([sec, sid, sname, lab, d, z] + ex)
                     sp.addFeature(fa)
                 res[self.OUT_POINTS] = dp
-                _set_output_name(context, dp, _tr("Точки на разрезе"))
-                _attach_style(context, dp, _style_path("section_vpoints"))
+                _set_output_name(context, dp, _out_name(
+                    "points", _tr("Точки на разрезе")))
+                _attach_style(context, dp, _style_path("section_vpoints"),
+                              renderer=_out_renderer(
+                                  QgsWkbTypes.GeometryType.PointGeometry,
+                                  _tr("Точки на разрезе")))
         if lns:
             flines = QgsFields()
             flines.append(QgsField("sec", QVariant.String))
@@ -8787,8 +8912,12 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                     fa.setAttributes([sec, sid, sname, lab, d] + ex)
                     sl.addFeature(fa)
                 res[self.OUT_LINES] = dl
-                _set_output_name(context, dl, _tr("Вертикали на разрезе"))
-                _attach_style(context, dl, _style_path("section_vlines"))
+                _set_output_name(context, dl, _out_name(
+                    "lines", _tr("Вертикали на разрезе")))
+                _attach_style(context, dl, _style_path("section_vlines"),
+                              renderer=_out_renderer(
+                                  QgsWkbTypes.GeometryType.LineGeometry,
+                                  _tr("Вертикали на разрезе")))
         if bds:
             fbands = QgsFields()
             fbands.append(QgsField("sec", QVariant.String))
@@ -8810,8 +8939,12 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                     fa.setAttributes([sec, sid, sname, lab, a, b] + ex)
                     sb.addFeature(fa)
                 res[self.OUT_BANDS] = db
-                _set_output_name(context, db, _tr("Полосы зон на разрезе"))
-                _attach_style(context, db, _style_path("section_vbands"))
+                _set_output_name(context, db, _out_name(
+                    "bands", _tr("Полосы зон на разрезе")))
+                _attach_style(context, db, _style_path("section_vbands"),
+                              renderer=_out_renderer(
+                                  QgsWkbTypes.GeometryType.PolygonGeometry,
+                                  _tr("Полосы зон на разрезе")))
         _save_values(self, _saved)
         _set_group(context, GRP_SECTION, list(res.values()), force=True,
                    history=_provenance(self, parameters))

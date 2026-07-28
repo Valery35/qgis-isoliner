@@ -905,9 +905,39 @@ def _auto_indicator_variogram(xd, yd, ind, n_lags=15, maxlag=None):
             "cc": fit["sill"], "aa": fit["range"], "ang": 0.0, "anis": 1.0}])
 
 
+def rescale_nugget(vg, frac):
+    """Переставляет долю самородка, не трогая общую дисперсию и радиусы.
+
+    frac - доля самородка в сумме c0 и структурных силлов, от 0 до 1. Ноль
+    делает кригинг точным интерполятором: оценка в узле со скважиной равна
+    самому замеру. Общая дисперсия сохраняется, поэтому меняется только
+    гладкость поверхности, а не её масштаб.
+
+    Возвращает новую вариограмму, исходная не трогается. При frac = None
+    возвращается она же.
+    """
+    if frac is None:
+        return vg
+    frac = min(max(float(frac), 0.0), 1.0)
+    total = vg.c0 + sum(vg.cc)
+    if total <= 0.0:
+        return vg
+    c0 = total * frac
+    rest = total - c0
+    old = sum(vg.cc)
+    scale = (rest / old) if old > 0.0 else 0.0
+    structs = [{"it": it, "cc": cc * scale, "aa": aa, "ang": ang, "anis": an}
+               for it, cc, aa, ang, an in
+               zip(vg.it, vg.cc, vg.aa, vg.ang, vg.anis)]
+    if not structs:
+        structs = [{"it": 1, "cc": rest, "aa": EPS, "ang": 0.0, "anis": 1.0}]
+    return Variogram(c0, structs)
+
+
 def categorical_indicator_grids(xd, yd, labels, classes, xmn, ymn, cell, nx, ny,
                                 ndmin=4, ndmax=24, radius=None, nodata=-9999.0,
-                                models=None, progress=None, wts=None):
+                                models=None, progress=None, wts=None,
+                                nugget_frac=None, on_model=None):
     """Категориальный индикаторный кригинг.
 
     На каждый класс из classes строит индикатор 0/1, кригует простым
@@ -924,6 +954,15 @@ def categorical_indicator_grids(xd, yd, labels, classes, xmn, ymn, cell, nx, ny,
       probs - float32 ny×nx×K, нормированные вероятности (nodata вне области),
       zone  - int32 ny×nx, индекс самого вероятного класса (-1 = нет оценки),
       conf  - float32 ny×nx, максимум нормированной вероятности (nodata вне).
+
+    nugget_frac - доля самородка в подобранной вариограмме, от 0 до 1. None
+    оставляет подбор как есть. Ноль делает кригинг точным в точках замеров:
+    вероятность в узле со скважиной равна её собственному индикатору, а не
+    сглаженному среднему по соседям. Общая дисперсия при переносе доли
+    сохраняется, меняется только гладкость.
+
+    on_model - необязательный обработчик (класс, доля самородка из подбора,
+    доля после подстановки, радиус) для журнала.
 
     radius - радиус поиска (по умолчанию по размеру грида). models - список
     готовых Variogram по классам или None (тогда авто-подбор по индикатору)."""
@@ -944,6 +983,13 @@ def categorical_indicator_grids(xd, yd, labels, classes, xmn, ymn, cell, nx, ny,
             skmean_k = 0.0
         vg = (models[k] if (models and k < len(models) and models[k] is not None)
               else _auto_indicator_variogram(xd, yd, ind))
+        tot = vg.c0 + sum(vg.cc)
+        fitted = (vg.c0 / tot) if tot > 0 else 0.0
+        vg = rescale_nugget(vg, nugget_frac)
+        tot2 = vg.c0 + sum(vg.cc)
+        if on_model is not None:
+            on_model(c, fitted, (vg.c0 / tot2) if tot2 > 0 else 0.0,
+                     max(vg.aa) if vg.aa else 0.0)
         prog = (lambda d, t, _k=k: progress(_k, K, d, t)) if progress else None
         raw[:, :, k] = build_grid(xd, yd, ind, vg, 0, skmean_k, ndmin, ndmax,
                                   rad2, nodata, xmn, ymn, cell, nx, ny,

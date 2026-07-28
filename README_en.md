@@ -289,6 +289,8 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
+- **4.33.0** — two checkboxes in 4.05: keep the name and keep the style of the source layer. A categorised geology colouring lands on the section as it is.
+- **4.32.0** — 3.01 got a "Nugget share" parameter: zero makes the estimate exact next to the data, and a borehole keeps its class in its own cell. The fitted nugget and range per class are printed to the log.
 - **4.31.0** — 4.05 clips zones and faults from below by the bottom line of the drawing, a pair to the clipping from above. The "beta" mark is off 4.07 and 4.08.
 - **4.30.0** — 4.05 clips zones and faults from above by the terrain line of the drawing, the bottom of bands is read from a feature field.
 - **4.29.0** — 4.05 carries the feature attributes onto the drawing: bands and verticals are coloured by their own fields.
