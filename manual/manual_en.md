@@ -896,6 +896,18 @@ Inside, a two-stroke cycle runs at every grid level: membrane smoothing sets the
 
 The default extent is taken from the layers with a two-cell margin. All layers are brought to the CRS of the first given layer, which must be metric. The final **depression filling** is on by default, its logic is described in 2.04.
 
+## Three-dimensional thalwegs
+
+A thalweg without elevations works as a condition: a downstream fall is maintained along it, while the actual height is decided by the interpolator from the surrounding data. When the line carries vertex elevations, they become hard nodes, and a survey along the channel starts setting the bed rather than hinting at the direction.
+
+The elevations are then brought once to a downstream fall. The reason is not tidiness but the way the computation works: a channel survey is noisy, some vertices go uphill, and such a node would fight the fall enforcement on every iteration. Relaxation pins the cell to the elevation, the enforcement pushes it lower, and round it goes. After the correction the enforcement becomes a no-op and there is nothing left to fight.
+
+The correction only goes downwards: the tool never invents an elevation above the measured one. Its largest value is printed to the log, and it shows how noisy the survey was.
+
+Cells where a thalweg elevation disagrees with another node by more than five centimetres are counted separately. Usually this is a channel crossing a contour, and the thalweg wins there. The number of such places is reported as a warning: such a disagreement must not be resolved silently.
+
+A line without elevations behaves as before, and a mixed layer is handled object by object.
+
 ## The boundary of the build area
 
 A polygon limits the surface the same way an outer boundary does in design systems: beyond it no raster is output, there is nodata.
@@ -2016,7 +2028,7 @@ The **Intersect surfaces with the section** tool places surface grids onto the s
 
 This is how water tables, marker surfaces, the salt roof and anomaly surfaces are placed on the section. The inputs are the section definition and a list of grids, the output is lines in the section axes (and optionally 3D lines in real coordinates).
 
-The object-projection, unprojection and shaft-unwrap tools are marked **(beta)**: they work, but their interface and example set are still being refined.
+Projection and unprojection have been proved on real data and no longer carry the **(beta)** mark. The shaft wall unwrap stays marked: it works, but its interface and example set are still being refined.
 
 ## Parameters
 
@@ -2046,6 +2058,11 @@ Unlike **Project objects onto the section** (approximate, corridor-based) this i
 | Section definition | The definition layer from 4.01: the line, vex and frame height. Enough for objects without Z. | - |
 | Layers to intersect | Lines and polygons mixed, in a single run. The src field in the outputs keeps the source layer. | - |
 | Section drawing | A fallback source of frame height for older definitions without zmin/zmax. | optional |
+| Carry the feature attributes onto the section | The fields of the source features go into the outputs, so the marks can be coloured and labelled by your own data. | on |
+| Terrain line on the drawing | The surface line layer from 4.01. The top of zones and faults follows the terrain rather than the frame. | optional |
+| Bottom line on the drawing | The same layer or a part of it. The bottom of zones and faults follows the sole rather than the frame. | optional |
+| Field with the bottom elevation of bands and verticals | The bottom of each feature from its own attribute. | optional |
+| The bottom value is a depth from the top (Adv.) | Switches the field from an absolute elevation to a depth. | off |
 | Bottom of Z range (Adv.) | The lower frame elevation when neither a definition with height nor a drawing is given. | 0 |
 | Top of Z range (Adv.) | The upper frame elevation in the same case. | 0 |
 | Verticals on the section | Output for lines without Z (a fault, a boundary): a full-height vertical. | created |
@@ -2053,6 +2070,33 @@ Unlike **Project objects onto the section** (approximate, corridor-based) this i
 | Zone bands on the section | Output for polygons (a plan zone): a vertical band over the interval. | created |
 
 Empty outputs are not created: each object type goes only into its own layer.
+
+
+## Clipping by the terrain and by the bottom line
+
+Zones and faults are drawn over the full height of the frame by default: it is known where the feature crosses the line and unknown how deep it goes. Three optional parameters remove that limitation at the edges.
+
+**The terrain line on the drawing** clips the features from above. Supply the terrain line layer that **4.01 Cross-section along a line** outputs. The top of zones and faults will follow the terrain, and the upper edge of a band will repeat its breaks rather than stay straight.
+
+The clipping follows the line from the drawing rather than the DEM raster, and that is deliberate. The section may have been built over a different surface, and then the raster and the drawing would diverge. Clipping must follow what the person has in front of them. Sections are matched by the **sec_id** field, so in a batch run each drawing is clipped by its own profile.
+
+**The bottom line on the drawing** clips the features from below and works the same way. Supply the sole, the floor of a seam or any lower surface from the same drawing. With no line supplied the bottom stays on the frame.
+
+If the layer holds several surfaces, clipping follows the envelope: the highest one above, the lowest one below. The **Surface lines on the drawing** output therefore fits as it is and can go into both inputs at once. When one particular surface is needed, supply the layer filtered by the **name** field.
+
+Both edges are computed at the same stations, the nodes of both lines being merged into one set. Otherwise the top and the bottom, each computed at its own stations, would cross between the nodes and the band would come out inverted. The bottom is never raised above the top: where the bottom line runs over the terrain, the band collapses and the feature is not output at all. The count of features cut away entirely is printed to the log, and these are usually zones lying above the terrain.
+
+**The bottom elevation field** sets the bottom of bands and verticals per feature, from the attribute of the feature itself. By default the value is read as an absolute elevation. A checkbox in the advanced parameters switches it to a depth from the top of the feature, which is handy when the data holds the thickness of a zone rather than its floor. The bottom is never taken below the frame.
+
+## Feature attributes on the section
+
+The **Carry the feature attributes onto the section** checkbox is on by default. The point is simple: the bands and verticals on the drawing are coloured and labelled by your own fields, without joining back to the source layer by hand.
+
+Several layers are supplied and their schemas differ, so the columns are merged into one common set. A field a layer does not have stays empty. The same name in different layers counts as one column, and the type is taken from the first layer where it occurred.
+
+Names that clash with the service ones (**sec**, **src**, **label**, **d**, **z**, **d1**, **d2**) are renamed with a suffix. This is not cosmetic: the **d** column carries the distance along the section, and a feature attribute with the same name would silently replace the coordinate, which you would only notice on the drawing.
+
+The number of merged columns is printed to the log.
 
 # 4.06 Intersect a TIN with the section
 
@@ -2076,7 +2120,7 @@ An important limit: **a QGIS mesh is 2.5D**, its height is a scalar per vertex, 
 
 Supply at least one of the two inputs - TIN faces or a mesh.
 
-# 4.07 Project objects onto the section (beta)
+# 4.07 Project objects onto the section
 
 The **Project objects onto the section** tool projects points, lines and polygons onto the section line. For each vertex the horizontal coordinate is the distance along the line to its projection, the height is the elevation from the 3D geometry or from a chosen field. Distant objects are cut off by a corridor.
 
@@ -2090,7 +2134,7 @@ The **Project objects onto the section** tool projects points, lines and polygon
 
 This generalises the borehole projection to any objects: anomalies, sampling points, traces, outlines. The result is in the section axes, placed on top of the drawing.
 
-# 4.08 Unproject from the section (beta)
+# 4.08 Unproject from the section
 
 The **Unproject from the section** tool does the reverse: objects drawn on the section drawing are returned to real coordinates. The horizontal coordinate of a vertex is read as the distance along the line (giving the plan), the height as the elevation Z = height / vex. The line and vex come from the same definition the drawing was built with.
 

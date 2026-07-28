@@ -542,6 +542,187 @@ def test_two_surfaces_still_give_bed():
     assert len(r.beds) == 1
 
 
+# --- сведение полей нескольких слоёв ------------------------------------
+
+def test_merge_fields_union_and_maps():
+    """Общие колонки собираются по всем слоям, карта указывает на источник."""
+    names, maps = sc.merge_field_names([["age", "type"], ["age", "note"]])
+    assert names == ["age", "type", "note"]
+    assert maps[0] == [0, 1, -1]
+    assert maps[1] == [0, -1, 1]
+
+
+def test_merge_fields_renames_reserved():
+    """Имя, совпадающее со служебным, переименовывается, а не затирает его.
+
+    Это не косметика: колонка d несёт расстояние вдоль разреза, и атрибут
+    объекта с тем же именем молча подменил бы координату.
+    """
+    names, maps = sc.merge_field_names(
+        [["d", "z", "age"]], reserved=("sec", "d", "z"))
+    assert names[0] != "d" and names[1] != "z"
+    assert names[0].startswith("d") and names[1].startswith("z")
+    assert names[2] == "age"
+    assert maps[0] == [0, 1, 2]
+
+
+def test_merge_fields_same_name_is_one_column():
+    """Одинаковое имя в разных слоях это одна колонка, а не две."""
+    names, _ = sc.merge_field_names([["age"], ["age"], ["age"]])
+    assert names == ["age"]
+
+
+def test_merge_fields_empty_layer():
+    """Слой без полей не ломает карту и не добавляет колонок."""
+    names, maps = sc.merge_field_names([[], ["age"]])
+    assert names == ["age"]
+    assert maps[0] == [-1] and maps[1] == [0]
+
+
+# --- обрезка по линии рельефа -------------------------------------------
+
+def test_profile_merges_parts_and_sorts():
+    """Части сводятся в одну ломаную, возрастающую по X."""
+    prof = sc.profile_from_lines([([20.0, 10.0], [95.0, 105.0]),
+                                  ([0.0], [100.0])])
+    px, py = prof
+    assert list(px) == [0.0, 10.0, 20.0]
+    assert list(py) == [100.0, 105.0, 95.0]
+
+
+def test_profile_takes_higher_on_duplicate_x():
+    """На вертикальном участке берётся верхняя точка.
+
+    Профиль нужен для обрезки сверху, и занизить кромку хуже, чем завысить:
+    в первом случае объект молча срежется, во втором останется видимым.
+    """
+    prof = sc.profile_from_lines([([5.0, 5.0], [90.0, 110.0])])
+    assert list(prof[1]) == [110.0]
+
+
+def test_profile_y_holds_at_edges():
+    """За краем профиля держится крайнее значение, а не пустота."""
+    prof = sc.profile_from_lines([([10.0, 20.0], [100.0, 90.0])])
+    assert sc.profile_y_at(prof, 0.0) == 100.0
+    assert sc.profile_y_at(prof, 99.0) == 90.0
+
+
+def test_profile_takes_lower_on_duplicate_x_for_floor():
+    """Для нижней кромки на том же участке берётся нижняя точка.
+
+    Правило зеркальное верхнему: срезать лишнее хуже, чем оставить лишнее
+    видимым. Тем же ходом слой из нескольких поверхностей сводится к нижней
+    огибающей.
+    """
+    prof = sc.profile_from_lines([([5.0, 5.0], [90.0, 110.0])],
+                                 keep_high=False)
+    assert list(prof[1]) == [90.0]
+
+
+def test_clip_top_follows_relief():
+    """Кромка идёт по рельефу и повторяет его переломы."""
+    prof = sc.profile_from_lines([([0.0, 10.0, 20.0], [100.0, 105.0, 95.0])])
+    xs = sc.band_nodes((prof, None), 2.0, 18.0)
+    edge = sc.edge_along(prof, xs, 110.0, True)
+    assert edge[0][0] == 2.0 and edge[-1][0] == 18.0
+    assert any(abs(x - 10.0) < 1e-9 for x, _y in edge)
+    assert all(y <= 110.0 for _x, y in edge)
+
+
+def test_clip_top_keeps_frame_when_relief_above():
+    """Где рельеф выше рамки, кромка остаётся по рамке."""
+    prof = sc.profile_from_lines([([0.0, 20.0], [200.0, 200.0])])
+    xs = sc.band_nodes((prof,), 5.0, 15.0)
+    edge = sc.edge_along(prof, xs, 100.0, True)
+    assert all(abs(y - 100.0) < 1e-9 for _x, y in edge)
+
+
+def test_clip_bottom_follows_floor():
+    """Нижняя кромка идёт по линии низа там, где она выше рамки."""
+    prof = sc.profile_from_lines([([0.0, 10.0, 20.0], [40.0, 60.0, 30.0])],
+                                 keep_high=False)
+    xs = sc.band_nodes((prof,), 2.0, 18.0)
+    edge = sc.edge_along(prof, xs, 20.0, False)
+    assert any(abs(x - 10.0) < 1e-9 for x, _y in edge)
+    assert all(y >= 20.0 for _x, y in edge)
+    assert max(y for _x, y in edge) > 20.0
+
+
+def test_clip_bottom_keeps_frame_when_floor_below():
+    """Где линия низа ниже рамки, кромка остаётся по рамке."""
+    prof = sc.profile_from_lines([([0.0, 20.0], [-50.0, -50.0])],
+                                 keep_high=False)
+    xs = sc.band_nodes((prof,), 5.0, 15.0)
+    edge = sc.edge_along(prof, xs, 0.0, False)
+    assert all(abs(y) < 1e-9 for _x, y in edge)
+
+
+def test_edges_without_profile_are_flat():
+    """Без профиля поведение прежнее: прямые кромки по рамке."""
+    xs = sc.band_nodes((None, None), 1.0, 4.0)
+    assert sc.edge_along(None, xs, 50.0, True) == [(1.0, 50.0), (4.0, 50.0)]
+    assert sc.edge_along(None, xs, 10.0, False) == [(1.0, 10.0), (4.0, 10.0)]
+
+
+def test_band_nodes_are_common_to_both_edges():
+    """Станции общие на верх и низ, иначе кольцо завязалось бы бантиком.
+
+    Узлы обеих ломаных попадают в один набор, и кромки считаются в одних и
+    тех же станциях. Между общими узлами обе кромки прямые, поэтому пересечься
+    незамеченно они не могут.
+    """
+    ptop = sc.profile_from_lines([([0.0, 7.0, 20.0], [100.0, 90.0, 100.0])])
+    pbot = sc.profile_from_lines([([0.0, 13.0, 20.0], [10.0, 20.0, 10.0])],
+                                 keep_high=False)
+    xs = sc.band_nodes((ptop, pbot), 2.0, 18.0)
+    assert xs[0] == 2.0 and xs[-1] == 18.0
+    assert any(abs(x - 7.0) < 1e-9 for x in xs)
+    assert any(abs(x - 13.0) < 1e-9 for x in xs)
+    assert xs == sorted(xs)
+    top = sc.edge_along(ptop, xs, 200.0, True)
+    bot = sc.edge_along(pbot, xs, 0.0, False)
+    assert [x for x, _y in top] == [x for x, _y in bot]
+
+
+def test_band_ring_is_closed_and_has_area():
+    """Кольцо замкнуто и имеет площадь, обход идёт низ-верх."""
+    xs = sc.band_nodes((None, None), 0.0, 10.0)
+    top = sc.edge_along(None, xs, 100.0, True)
+    bot = sc.edge_along(None, xs, 60.0, False)
+    ring = sc.band_ring(bot, top)
+    assert ring[0] == ring[-1]
+    assert abs(abs(sc.ring_area(ring)) - 400.0) < 1e-6
+
+
+def test_band_collapses_instead_of_bowtie():
+    """Линия низа выше рельефа схлопывает полосу, а не выворачивает её.
+
+    Без зажима кромки перехлестнулись бы, и кольцо вышло бы бантиком:
+    геометрия с самопересечением, площадь которой ничего не значит.
+    """
+    ptop = sc.profile_from_lines([([0.0, 10.0], [50.0, 50.0])])
+    pbot = sc.profile_from_lines([([0.0, 10.0], [80.0, 80.0])],
+                                 keep_high=False)
+    xs = sc.band_nodes((ptop, pbot), 1.0, 9.0)
+    top = sc.edge_along(ptop, xs, 100.0, True)
+    bot = sc.clamp_below(sc.edge_along(pbot, xs, 0.0, False), top)
+    assert all(y <= ty for (_x, y), (_tx, ty) in zip(bot, top))
+    assert sc.band_is_flat(bot, top)
+
+
+def test_band_stays_when_floor_below_relief():
+    """Обычный случай: низ ниже верха, полоса остаётся и стоит на линии низа."""
+    ptop = sc.profile_from_lines([([0.0, 10.0], [90.0, 70.0])])
+    pbot = sc.profile_from_lines([([0.0, 10.0], [20.0, 30.0])],
+                                 keep_high=False)
+    xs = sc.band_nodes((ptop, pbot), 0.0, 10.0)
+    top = sc.edge_along(ptop, xs, 100.0, True)
+    bot = sc.clamp_below(sc.edge_along(pbot, xs, 0.0, False), top)
+    assert not sc.band_is_flat(bot, top)
+    assert abs(bot[0][1] - 20.0) < 1e-9 and abs(bot[-1][1] - 30.0) < 1e-9
+    assert abs(sc.ring_area(sc.band_ring(bot, top))) > 0.0
+
+
 def _run():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

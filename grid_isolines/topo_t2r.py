@@ -456,3 +456,51 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
     if z.shape != (ny, nx):
         z = _upsample(z, (ny, nx))
     return z, x0, y_top
+
+
+def monotone_down(z, min_drop=DEFAULT_MIN_DROP):
+    """Отметки вдоль цепочки приводятся к строго падающим вниз по течению.
+
+    Нужна для трёхмерных тальвегов. Измеренные отметки по руслу шумят, и
+    отдельные вершины уходят вверх по течению. Если подать их жёсткими
+    узлами как есть, они начнут спорить с принуждением падения: релаксация
+    пришпиливает ячейку к отметке, принуждение продавливает её ниже, и так
+    по кругу. Поэтому шум срезается один раз на входе, а не каждую итерацию.
+
+    Приём тот же, что в _enforce_streams: накопленный минимум по цепочке с
+    поправкой на обязательный уклон, поэтому результат согласован с ним и
+    принуждение после этого становится пустой операцией.
+    """
+    z = np.asarray(z, dtype=float)
+    if z.size < 2:
+        return z.copy()
+    step = np.arange(z.size, dtype=float) * float(min_drop)
+    return np.minimum.accumulate(z + step) - step
+
+
+def count_conflicts(pts_a, pts_b, cell, tol=0.05):
+    """Сколько ячеек получают два жёстких узла с разной отметкой.
+
+    Оба набора пришпиливаются к сетке, и если в одну ячейку попали узлы
+    из разных источников с расхождением больше допуска, побеждает тот,
+    что записан последним. Молча так делать нельзя: пересечение русла с
+    горизонталью это обычное дело, и человек должен знать, где данные
+    спорят между собой.
+    """
+    a = np.asarray(pts_a, dtype=float)
+    b = np.asarray(pts_b, dtype=float)
+    if a.size == 0 or b.size == 0:
+        return 0
+    cell = float(cell) or 1.0
+    key_a = {}
+    for x, y, z in a:
+        key_a[(int(np.floor(x / cell)), int(np.floor(y / cell)))] = z
+    n = 0
+    seen = set()
+    for x, y, z in b:
+        k = (int(np.floor(x / cell)), int(np.floor(y / cell)))
+        za = key_a.get(k)
+        if za is not None and abs(za - z) > tol and k not in seen:
+            seen.add(k)
+            n += 1
+    return n

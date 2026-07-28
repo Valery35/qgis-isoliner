@@ -8366,6 +8366,11 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
 
     LINE_DEF, TARGET, SECTION2D = "LINE_DEF", "TARGET", "SECTION2D"
     ZMIN, ZMAX = "ZMIN", "ZMAX"
+    KEEPATTR = "KEEPATTR"
+    RELIEF = "RELIEF"
+    FLOOR = "FLOOR"
+    BOTFIELD = "BOTFIELD"
+    BOTDEPTH = "BOTDEPTH"
     OUT_LINES, OUT_POINTS, OUT_BANDS = "OUT_LINES", "OUT_POINTS", "OUT_BANDS"
 
     def tr(self, s): return _tr(s)
@@ -8391,7 +8396,36 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             "поэтому для объектов без Z подавать ничего не нужно. Если в "
             "определении высоты нет, она берётся из чертежа разреза или из "
             "диапазона Z в дополнительных параметрах.\n\n"
-            "В отличие от «Проекции объектов на разрез» (приблизительной, по "
+            "\n**Обрезка сверху по линии рельефа.** Подайте слой линий рельефа "
+            "с чертежа, тот самый, что выдаёт «Разрез по линии». Верх зон и "
+            "разломов ляжет по рельефу, а не по рамке, и кромка полосы "
+            "повторит его переломы. Берётся именно линия с чертежа, а не "
+            "растр ЦМР: разрез мог строиться по другой поверхности, и тогда "
+            "растр с чертежом разойдутся, а обрезать надо по тому, что "
+            "человек видит. Разрезы сопоставляются по полю sec_id.\n"
+            "\n**Обрезка снизу по линии низа** устроена так же и работает "
+            "по той же линии с чертежа: подайте слой подошвы, почвы пласта "
+            "или любой нижней поверхности, и низ зон и разломов ляжет по "
+            "ней. Когда линии нет, низ остаётся по рамке. Если в слое "
+            "несколько поверхностей, обрезка идёт по огибающей: сверху по "
+            "самой высокой, снизу по самой низкой. Нужна одна конкретная "
+            "поверхность, подайте слой, отфильтрованный по полю name.\n"
+            "\n**Поле нижней отметки** задаёт низ полос и вертикалей "
+            "поштучно, чтобы наносить зоны своей глубины, а не на всю "
+            "рамку. По умолчанию значение читается как абсолютная отметка. "
+            "Флажок в дополнительных параметрах переключает его на глубину "
+            "от верха объекта. Низ ниже рамки не опускается.\n"
+            "\n**Атрибуты объектов переносятся на разрез.** Флажок включён по "
+            "умолчанию. Слоёв подаётся несколько, схемы у них разные, "
+            "поэтому колонки сводятся в один общий набор: поле, которого у "
+            "слоя нет, остаётся пустым, а одинаковое имя в разных слоях "
+            "считается одной колонкой. Имена, совпадающие со служебными "
+            "(sec, src, label, d, z, d1, d2), переименовываются с "
+            "суффиксом: иначе атрибут объекта молча подменил бы координату "
+            "разреза. Благодаря этому полосы и вертикали красятся по "
+            "возрасту, индексу или любому своему полю без ручного "
+            "связывания.\n"
+            "\nВ отличие от «Проекции объектов на разрез» (приблизительной, по "
             "коридору) это точное пересечение.") + _credit())
 
     def initAlgorithm(self, config=None):
@@ -8406,6 +8440,21 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             self.SECTION2D,
             self.tr("Чертёж разреза (для высоты рамки)"),
             optional=True))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.KEEPATTR, self.tr("Переносить атрибуты объектов на разрез"),
+            defaultValue=_dv(self, self.KEEPATTR, True)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.RELIEF, self.tr("Линия рельефа на чертеже (обрезка сверху)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.FLOOR, self.tr("Линия низа на чертеже (обрезка снизу)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.BOTFIELD, self.tr("Поле нижней отметки полос и вертикалей"),
+            parentLayerParameterName=self.TARGET, optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.BOTDEPTH, self.tr("Нижняя отметка это глубина от верха"),
+            defaultValue=_dv(self, self.BOTDEPTH, False))))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.ZMIN, self.tr("Низ диапазона Z (если нет чертежа)"),
             QgsProcessingParameterNumber.Type.Double,
@@ -8427,13 +8476,16 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
             createByDefault=True))
 
-        _restore_layer_defaults(self, (self.LINE_DEF, self.SECTION2D, self.TARGET))
+        _restore_layer_defaults(self, (self.LINE_DEF, self.SECTION2D,
+                                       self.RELIEF, self.FLOOR, self.TARGET))
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         _remember_layers(self, parameters, context, _saved,
-                         single=(self.LINE_DEF, self.SECTION2D), multi=(self.TARGET,))
+                         single=(self.LINE_DEF, self.SECTION2D,
+                                 self.RELIEF, self.FLOOR),
+                         multi=(self.TARGET,))
         src = self.parameterAsSource(parameters, self.LINE_DEF, context)
         layers = self.parameterAsLayerList(parameters, self.TARGET, context)
         if src is None or not layers:
@@ -8466,8 +8518,112 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                     return low[cand]
             return None
 
+        # Общий набор колонок на все слои: схемы разные, поле, которого у
+        # слоя нет, останется пустым. Служебные имена не отдаются, иначе
+        # атрибут объекта затрёт координату разреза незаметно для человека.
+        keep = self.parameterAsBoolean(parameters, self.KEEPATTR, context)
+        reserved = ("sec", "sec_id", "src", "label", "d", "z", "d1", "d2")
+        extra_names, extra_maps, extra_defs, origin = [], {}, [], []
+        if keep:
+            per_layer = [[f.name() for f in l.fields()] if l is not None else []
+                         for l in layers]
+            extra_names, maps = _sc.merge_field_names(per_layer, reserved)
+            for n, l in enumerate(layers):
+                if l is not None:
+                    extra_maps[l.id()] = maps[n]
+            src_types, seen = {}, set()
+            for l in layers:
+                if l is None:
+                    continue
+                for f in l.fields():
+                    if f.name() not in seen:
+                        seen.add(f.name())
+                        origin.append(f.name())
+                        src_types[f.name()] = f.type()
+            extra_defs = [QgsField(extra_names[k], src_types[origin[k]])
+                          for k in range(len(extra_names))]
+            if extra_names:
+                feedback.pushInfo(self.tr(
+                    "Атрибуты объектов переносятся на разрез: колонок %d.")
+                    % len(extra_names))
+
+        def _extra_of(lyr, ft):
+            """Значения объекта, разложенные по общим колонкам."""
+            if not keep or not extra_names:
+                return []
+            mp = extra_maps.get(lyr.id())
+            if not mp:
+                return [None] * len(extra_names)
+            av = ft.attributes()
+            return [av[i] if 0 <= i < len(av) else None for i in mp]
+
+        # Профиль рельефа с чертежа: по нему обрезается верх зон и разломов.
+        # Берём именно линию с чертежа, а не растр ЦМР: разрез мог строиться
+        # по другой поверхности, и тогда растр и чертёж разойдутся, а человек
+        # обрезает по тому, что видит.
+        def _profiles(key, keep_high):
+            """Профили обрезки по разрезам, из слоя линий с чертежа.
+
+            Совпадающие станции сводятся к огибающей: сверху к верхней,
+            снизу к нижней. Поэтому слой из нескольких поверхностей годится
+            как есть, а нужна одна конкретная - подаётся отфильтрованный.
+            """
+            out = {}
+            psrc = self.parameterAsSource(parameters, key, context)
+            if psrc is None:
+                return out
+            by_sec = {}
+            fnames = [f.name().lower() for f in psrc.fields()]
+            i_sid = fnames.index("sec_id") if "sec_id" in fnames else -1
+            for ft in psrc.getFeatures():
+                g = ft.geometry()
+                if g.isEmpty():
+                    continue
+                k = ft.attributes()[i_sid] if i_sid >= 0 else None
+                try:
+                    multi = g.asMultiPolyline() or []
+                except TypeError:
+                    multi = []
+                if not multi:
+                    ln = g.asPolyline()
+                    multi = [ln] if ln else []
+                for ln in multi:
+                    by_sec.setdefault(k, []).append(
+                        ([p.x() for p in ln], [p.y() for p in ln]))
+            for k, parts in by_sec.items():
+                out[k] = _sc.profile_from_lines(parts, keep_high=keep_high)
+            return out
+
+        relief = _profiles(self.RELIEF, True)
+        if relief:
+            feedback.pushInfo(self.tr(
+                "Обрезка сверху по линии рельефа: профилей %d.") % len(relief))
+        floor = _profiles(self.FLOOR, False)
+        if floor:
+            feedback.pushInfo(self.tr(
+                "Обрезка снизу по линии низа: профилей %d.") % len(floor))
+
+        bot_field = self.parameterAsString(parameters, self.BOTFIELD, context)
+        bot_is_depth = self.parameterAsBoolean(parameters, self.BOTDEPTH,
+                                               context)
+
+        def _bottom_of(ft, ytop_draw, vex, oy, ybot):
+            """Низ полосы: из поля объекта, иначе низ рамки."""
+            if not bot_field:
+                return ybot
+            try:
+                v = float(ft[bot_field])
+            except Exception:  # nosec
+                return ybot
+            if v != v:
+                return ybot
+            y = ((ytop_draw - v * vex) if bot_is_depth
+                 else (v * vex + oy))
+            return max(ybot, min(y, ytop_draw))
+
         pts, lns, bds = [], [], []
         warned_h = False
+        cut_off = 0  # объекты, целиком ушедшие за кромки обрезки
         for dd in defs:
             # каждый разрез обрабатывается своей линией, своим масштабом и
             # своим смещением раскладки, результат копится в общие списки
@@ -8478,6 +8634,8 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             have_height = ybot is not None
             if have_height:
                 ybot, ytop = ybot + oy, ytop + oy
+            prof = relief.get(dd["sec_id"], relief.get(None))
+            proff = floor.get(dd["sec_id"], floor.get(None))
             for lyr in layers:
                 if lyr is None:
                     continue
@@ -8526,10 +8684,26 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                                     pts.append(tuple(tag) + (
                                         d + ox, float(zval),
                                         float(zval) * vex + oy,
-                                        sname, lab))
+                                        sname, lab, _extra_of(lyr, ft)))
                             elif have_height:
+                                yt = ytop
+                                if prof is not None:
+                                    yr = _sc.profile_y_at(prof, d + ox)
+                                    if yr is not None:
+                                        yt = min(ytop, yr)
+                                yb = _bottom_of(ft, yt, vex, oy, ybot)
+                                if proff is not None:
+                                    yf = _sc.profile_y_at(proff, d + ox)
+                                    if yf is not None:
+                                        yb = max(yb, min(yf, yt))
+                                if yt - yb <= 1e-9:
+                                    # низ дошёл до верха: вертикаль целиком
+                                    # за кромкой, нулевой отрезок не пишем
+                                    cut_off += 1
+                                    continue
                                 lns.append(tuple(tag) + (
-                                    d + ox, ybot, ytop, sname, lab))
+                                    d + ox, yb, yt, sname, lab,
+                                    _extra_of(lyr, ft)))
                             else:
                                 warned_h = True
                         elif pt == QgsWkbTypes.GeometryType.LineGeometry:
@@ -8544,15 +8718,29 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                             if not have_height:
                                 warned_h = True
                             elif b > a:
+                                xs = _sc.band_nodes((prof, proff),
+                                                    a + ox, b + ox)
+                                top = _sc.edge_along(prof, xs, ytop, True)
+                                yt_min = min(y for _x, y in top)
+                                yb = _bottom_of(ft, yt_min, vex, oy, ybot)
+                                bot = _sc.clamp_below(
+                                    _sc.edge_along(proff, xs, yb, False), top)
+                                if _sc.band_is_flat(bot, top):
+                                    cut_off += 1
+                                    continue
                                 bds.append(tuple(tag) + (
-                                    a + ox, b + ox, ybot, ytop,
-                                    sname, lab))
+                                    a + ox, b + ox, bot, top,
+                                    sname, lab, _extra_of(lyr, ft)))
         if warned_h:
             feedback.pushWarning(_tr(
                 "Для объектов без отметки Z нужна высота рамки. Возьмите "
                 "определение от «Разрез по линии» (в нём уже есть высота) либо "
                 "подайте чертёж разреза или задайте диапазон Z. Такие объекты "
                 "пропущены."))
+        if cut_off:
+            feedback.pushInfo(_tr(
+                "Срезано кромками целиком: объектов %d. Обычно это зоны "
+                "выше рельефа или ниже линии низа.") % cut_off)
         feedback.pushInfo(_tr("Пересечения: точек %d, вертикалей %d, полос %d.")
                           % (len(pts), len(lns), len(bds)))
 
@@ -8566,14 +8754,16 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             fpoints.append(QgsField("label", QVariant.String))
             fpoints.append(QgsField("d", QVariant.Double))
             fpoints.append(QgsField("z", QVariant.Double))
+            for fd in extra_defs:
+                fpoints.append(QgsField(fd))
             sp, dp = self.parameterAsSink(parameters, self.OUT_POINTS, context,
                                           fpoints, QgsWkbTypes.Type.Point, empty)
             if sp is not None:
-                for sec, sid, d, z, ydraw, sname, lab in pts:
+                for sec, sid, d, z, ydraw, sname, lab, ex in pts:
                     fa = QgsFeature(fpoints)
                     fa.setGeometry(QgsGeometry.fromPointXY(
                         QgsPointXY(d, ydraw)))
-                    fa.setAttributes([sec, sid, sname, lab, d, z])
+                    fa.setAttributes([sec, sid, sname, lab, d, z] + ex)
                     sp.addFeature(fa)
                 res[self.OUT_POINTS] = dp
                 _set_output_name(context, dp, _tr("Точки на разрезе"))
@@ -8585,14 +8775,16 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             flines.append(QgsField("src", QVariant.String))
             flines.append(QgsField("label", QVariant.String))
             flines.append(QgsField("d", QVariant.Double))
+            for fd in extra_defs:
+                flines.append(QgsField(fd))
             sl, dl = self.parameterAsSink(parameters, self.OUT_LINES, context,
                                           flines, QgsWkbTypes.Type.LineString, empty)
             if sl is not None:
-                for sec, sid, d, yb, yt, sname, lab in lns:
+                for sec, sid, d, yb, yt, sname, lab, ex in lns:
                     fa = QgsFeature(flines)
                     fa.setGeometry(QgsGeometry.fromPolylineXY(
                         [QgsPointXY(d, yb), QgsPointXY(d, yt)]))
-                    fa.setAttributes([sec, sid, sname, lab, d])
+                    fa.setAttributes([sec, sid, sname, lab, d] + ex)
                     sl.addFeature(fa)
                 res[self.OUT_LINES] = dl
                 _set_output_name(context, dl, _tr("Вертикали на разрезе"))
@@ -8605,16 +8797,17 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             fbands.append(QgsField("label", QVariant.String))
             fbands.append(QgsField("d1", QVariant.Double))
             fbands.append(QgsField("d2", QVariant.Double))
+            for fd in extra_defs:
+                fbands.append(QgsField(fd))
             sb, db = self.parameterAsSink(parameters, self.OUT_BANDS, context,
                                           fbands, QgsWkbTypes.Type.Polygon, empty)
             if sb is not None:
-                for sec, sid, a, b, yb, yt, sname, lab in bds:
+                for sec, sid, a, b, bot, top, sname, lab, ex in bds:
                     fa = QgsFeature(fbands)
-                    fa.setGeometry(QgsGeometry.fromPolygonXY([[
-                        QgsPointXY(a, yb), QgsPointXY(b, yb),
-                        QgsPointXY(b, yt), QgsPointXY(a, yt),
-                        QgsPointXY(a, yb)]]))
-                    fa.setAttributes([sec, sid, sname, lab, a, b])
+                    ring = [QgsPointXY(x, y)
+                            for x, y in _sc.band_ring(bot, top)]
+                    fa.setGeometry(QgsGeometry.fromPolygonXY([ring]))
+                    fa.setAttributes([sec, sid, sname, lab, a, b] + ex)
                     sb.addFeature(fa)
                 res[self.OUT_BANDS] = db
                 _set_output_name(context, db, _tr("Полосы зон на разрезе"))
@@ -8830,7 +9023,7 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionProjectAlgorithm()
     def name(self): return "section_project_objects"
-    def displayName(self): return self.tr("4.07 Проекция объектов на разрез (бета)")
+    def displayName(self): return self.tr("4.07 Проекция объектов на разрез")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP3)
     def groupId(self): return GROUP3_ID
@@ -8954,7 +9147,7 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionUnprojectAlgorithm()
     def name(self): return "section_unproject"
-    def displayName(self): return self.tr("4.08 Спроецировать с разреза (бета)")
+    def displayName(self): return self.tr("4.08 Спроецировать с разреза")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP3)
     def groupId(self): return GROUP3_ID
@@ -13332,6 +13525,15 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             "должна быть метрической. Финальное заполнение понижений "
             "флажком. Выход: GeoTIFF float32, высоты в метрах, nodata "
             "-9999, слой в группе Топография.\n"
+            "\n**Трёхмерные тальвеги.** Если у линии тальвега есть отметки "
+            "вершин, они становятся жёсткими узлами, а не только условием "
+            "падения: промер по руслу перестаёт быть подсказкой и начинает "
+            "задавать дно. Отметки при этом один раз приводятся к падающим "
+            "вниз по течению, потому что измерения шумят, и вершина, ушедшая "
+            "вверх, спорила бы с принуждением падения каждую итерацию. "
+            "Правка идёт только вниз, наибольшая её величина печатается в "
+            "журнал. Линия без отметок ведёт себя как прежде, разнотипный "
+            "слой разбирается по объектам.\n"
             "\n**Граница области построения** ограничивает поверхность "
             "полигоном, как outer boundary в САПР. Маска накладывается "
             "после интерполяции, а не отсечением входа: данные снаружи "
@@ -13432,6 +13634,54 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             for line in multi:
                 if len(line) >= 2:
                     yield feat, np.array([[p.x(), p.y()] for p in line])
+
+    def _iter_lines_z(self, source, target_crs, context):
+        """Ломаные и отметки их вершин, если геометрия трёхмерная.
+
+        Возвращает (xy, z) на каждую часть: z это массив той же длины
+        или None. Разнотипный слой разбирается по объектам, как урез:
+        линия с Z даёт узлы, линия без Z ведёт себя как прежде.
+        """
+        tf = self._transformer(source, target_crs, context)
+        for feat in source.getFeatures():
+            geom = feat.geometry()
+            if geom.isEmpty():
+                continue
+            has_z = False
+            zs_all = []
+            try:
+                ab = geom.constGet()
+                has_z = ab is not None and ab.is3D()
+                if has_z:
+                    zs_all = [p.z() for p in ab.vertices()]
+            except Exception:  # nosec
+                has_z = False
+            try:
+                geom.transform(tf)
+            except QgsCsException as exc:
+                _topo_log("объект вне области СК, пропущен: %s" % exc)
+                continue
+            try:
+                multi = geom.asMultiPolyline()
+            except TypeError:
+                multi = []
+            if not multi:
+                line = geom.asPolyline()
+                multi = [line] if line else []
+            idx = 0
+            for line in multi:
+                n = len(line)
+                chunk = zs_all[idx:idx + n] if has_z else []
+                idx += n
+                if n < 2:
+                    continue
+                xy = np.array([[p.x(), p.y()] for p in line])
+                z = None
+                if len(chunk) == n:
+                    arr = np.array(chunk, dtype=float)
+                    if np.all(np.isfinite(arr)):
+                        z = arr
+                yield xy, z
 
     def _collect_points(self, source, field, target_crs, context):
         pts = []
@@ -13600,8 +13850,33 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
 
         streams = []
         if src_streams is not None:
-            streams = [xy for _f, xy in self._iter_lines(
-                src_streams, target_crs, context)]
+            n_z, n_flat, max_fix = 0, 0, 0.0
+            extra = []
+            for xy, zline in self._iter_lines_z(src_streams, target_crs,
+                                                context):
+                streams.append(xy)
+                if zline is None:
+                    n_flat += 1
+                    continue
+                zm = topo_t2r.monotone_down(zline, min_drop)
+                max_fix = max(max_fix, float(np.max(np.abs(zline - zm))))
+                extra.extend(np.column_stack([xy, zm]).tolist())
+                n_z += 1
+            if n_z:
+                before = len(pts)
+                pts = np.vstack([pts, np.array(extra, dtype=np.float64)])
+                feedback.pushInfo(self.tr(
+                    "Тальвеги с отметками: %d из %d, узлов добавлено %d. "
+                    "Отметки приведены к падающим вниз по течению, "
+                    "наибольшая правка %.3f м.")
+                    % (n_z, n_z + n_flat, len(pts) - before, max_fix))
+                n_conf = topo_t2r.count_conflicts(pts[:before],
+                                              pts[before:], cell)
+                if n_conf:
+                    feedback.pushWarning(self.tr(
+                        "Отметки тальвегов спорят с другими узлами в %d "
+                        "ячейках: там окажется значение тальвега. Обычно "
+                        "это пересечение русла с горизонталью.") % n_conf)
         breaklines = []
         if src_breaks is not None:
             breaklines = [xy for _f, xy in self._iter_lines(

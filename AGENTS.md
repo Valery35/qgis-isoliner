@@ -141,7 +141,7 @@ displayName, поэтому ниже инструменты перечислен
 - 4.02 `BoreholesOnSectionAlgorithm` - скважины на разрезе (опц. вход определения для общего vex)
 - 4.03 `CompositionOnSectionAlgorithm` - состав пласта на разрезе (то же)
 - 4.04 `SectionGridIntersectAlgorithm` - пересечение поверхностей (гридов) с разрезом
-- 4.05 `SectionVectorIntersectAlgorithm` - пересечение векторов (мультислои) с разрезом: линия без Z -> вертикаль на всю высоту, линия с Z -> точка на отметке, полигон -> полоса; высота рамки из определения разреза (поля zmin/zmax от 4.01), иначе чертёж/Z-диапазон; пустые выходы не создаются; стили section_vlines/vpoints/vbands; поле src
+- 4.05 `SectionVectorIntersectAlgorithm` - пересечение векторов (мультислои) с разрезом: линия без Z -> вертикаль на всю высоту, линия с Z -> точка на отметке, полигон -> полоса; высота рамки из определения разреза (поля zmin/zmax от 4.01), иначе чертёж/Z-диапазон; пустые выходы не создаются; стили section_vlines/vpoints/vbands; поле src; атрибуты исходных слоёв переносятся на чертёж (сведение схем, служебные имена с суффиксом); обрезка сверху по линии рельефа и снизу по линии низа с чертежа (входы RELIEF и FLOOR, сопоставление по sec_id, огибающая при нескольких поверхностях, кромки в общих станциях через `band_nodes`/`edge_along`/`clamp_below`, схлопнутые полосы не выдаются); поле нижней отметки объекта с флажком «глубина от верха»
 - 4.06 `SectionTinIntersectAlgorithm` - пересечение TIN (3D-граней PolygonZ и/или меша) с разрезом: ядро `tin_section_trace` в kb2d.py (треугольник × вертикальная штора), нависание/опрокинутое воспроизводится (многозначно по высоте); 2D-трасса + опц. 3D; стиль section_tin
 - 4.07 `SectionProjectAlgorithm` - проекция объектов на разрез (бета)
 - 4.08 `SectionUnprojectAlgorithm` - спроецировать с разреза (бета)
@@ -184,6 +184,16 @@ displayName, поэтому ниже инструменты перечислен
   в плагин (zip собирается из `grid_isolines/`).
 - PDF (RU и EN) пересобирать **всегда, когда правился `manual.md`**, и отдавать
   без напоминания: `cd manual && ./build_pdf.sh`.
+- Рецепт скрипта записан здесь на случай его потери: `pandoc <исходник>
+  --from=markdown --pdf-engine=xelatex --toc --toc-depth=3 -V geometry:margin=2cm
+  -V mainfont="DejaVu Serif" -V monofont="DejaVu Sans Mono"
+  -V monofontoptions="Scale=0.8" -V colorlinks=true`, затем Ghostscript
+  `-sDEVICE=pdfwrite -dCompatibilityLevel=1.5` с понижением картинок до 150 dpi
+  по трём каналам. Лист **letter** (papersize не задаётся), заголовок и язык
+  берутся из шапки самого `manual.md` - ключ `-M title` поверх шапки ломает
+  кириллицу в титуле. Пакет `float` с `floatplacement{figure}{H}` **не**
+  подключать: он добавляет две лишние страницы. Контроль сборки - объём:
+  RU 111 страниц и EN 107 на тексте от 4.30.0.
 - Скрипт кладёт результат в `grid_isolines/doc/Isoliner.pdf` и `…/Isoliner_en.pdf` -
   только эти PDF уходят в плагин.
 - Шпаргалка по топографии: исходники `manual/cheatsheet_topo_ru.md` и

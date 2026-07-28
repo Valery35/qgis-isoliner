@@ -58,10 +58,10 @@ The tools are split into five Processing groups — **"Grid and isolines"**, **"
 - **4.02 Boreholes on the section (drilling model)** — boreholes from a collar and interval layer pair (the minimal mining-package model) onto every drawing of the definition at once. Fields are found automatically by the contract names, collars are reprojected into the definition CRS, the tolerant reader reports a summary to the log, colours and a legend by code, clipping by the frame and by the drawing bands, collar labels from number, an optional 3D output.
 - **4.03 Bed composition on the section** — paints the bed band by a composition grid: continuous grade as slices, categorical rock type as facies zones.
 - **4.04 Intersect surfaces with the section** — surface grids onto the section as lines (aquifers, marker surfaces).
-- **4.05 Vector intersection with the section** — lines and polygons by exact intersection: a line without Z as a vertical, with Z as a point, a polygon as a band.
+- **4.05 Vector intersection with the section** — lines and polygons by exact intersection: a line without Z as a vertical, with Z as a point, a polygon as a band. Clipping from above by the terrain line and from below by the bottom line of the drawing, a per-feature bottom from a field, the attributes of the source layers carried onto the drawing.
 - **4.06 Intersect a TIN with the section** — cuts 3D faces and meshes with the section: overhangs and overturned folds are reproduced.
-- **4.07 Project objects onto the section (beta)** — points, lines and polygons onto the section drawing, the elevation from 3D or a field.
-- **4.08 Unproject from the section (beta)** — the reverse projection of objects drawn on the section back into real coordinates with Z.
+- **4.07 Project objects onto the section** — points, lines and polygons onto the section drawing, the elevation from 3D or a field.
+- **4.08 Unproject from the section** — the reverse projection of objects drawn on the section back into real coordinates with Z.
 - **4.09 Shaft wall unwrap (beta)** — a cylindrical section around an axis in arc-elevation axes.
 - **4.10 Create a section example** — a stack of surfaces, a line and boreholes with elevation fields, to try the section without kriging.
 - **4.11 Bed reference template** — adds the bundled bed reference to the project (37 rows of the Verkhnekamskoye deposit): code, bedding order, body kind and colour. It is read by 4.01 and 4.02, and the band and column colours come from it.
@@ -289,6 +289,14 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
+- **4.31.0** — 4.05 clips zones and faults from below by the bottom line of the drawing, a pair to the clipping from above. The "beta" mark is off 4.07 and 4.08.
+- **4.30.0** — 4.05 clips zones and faults from above by the terrain line of the drawing, the bottom of bands is read from a feature field.
+- **4.29.0** — 4.05 carries the feature attributes onto the drawing: bands and verticals are coloured by their own fields.
+- **4.28.0** — thalwegs in 2.03 may carry elevations: a survey along the channel sets the bed, not only the direction of fall.
+- **4.27.0** — the 4.10 demo outputs its own bed reference matching the codes of its intervals.
+- **4.26.1** — the demo boreholes are given a section of their own in the 4.10 help, in the manuals and in the README.
+- **4.26.0** — 2.03 got a build boundary: a polygon limits the surface, the mask is applied after interpolation.
+- **4.25.0** — 2.18 outputs a layer of areas with volumes in the attributes and can clip the difference raster by those areas.
 - **4.24.0** — catalogue release, folding in the 4.18-4.23 nightlies.
 - **4.23.1** — with a single surface 4.01 no longer creates layers for bed bands and the 3D fence: suppressing them in the result is not enough, a destination parameter registers the layer for loading by itself.
 - **4.23.0** — the section over a single surface was brought to a working state, plus the new "Surface lines on the drawing" output.
