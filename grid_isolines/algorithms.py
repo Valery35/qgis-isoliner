@@ -105,6 +105,7 @@ from . import dem_glo30, osm_overpass, demo_relief
 from .hydro_fill import fill_depressions, DEFAULT_EPSILON
 from . import volumes as _vol
 from . import topo_flow, topo_gauge, topo_surface, topo_t2r, topo_smooth
+from . import topo_break, demo_pit
 from . import palette_lfc  # чтение палитры Leapfrog, без QGIS
 from . import plast_reference  # справочник пластов, без QGIS
 
@@ -467,17 +468,27 @@ class _StylePostProcessor(QgsProcessingLayerPostProcessorInterface):
     """Накладывает .qml-стиль на загруженный слой и, опционально, регистрирует
     его id для перестановки порядка (линии над полигонами). У слоя может быть
     только один пост-процессор, поэтому стиль и порядок объединены здесь."""
-    def __init__(self, style_path=None, order_state=None, role=None):
+    def __init__(self, style_path=None, order_state=None, role=None,
+                 renderer=None):
         super().__init__()
         self.style_path = style_path
         self.order_state = order_state
         self.role = role
+        self.renderer = renderer
 
     def postProcessLayer(self, layer, context, feedback):
         _finalize_layer(layer, getattr(self, "history", []))
         try:
             if self.style_path and os.path.exists(self.style_path):
                 layer.loadNamedStyle(self.style_path)
+                layer.triggerRepaint()
+        except Exception:  # nosec
+            pass
+        try:
+            # Рендерер исходного слоя кладётся поверх штатного стиля: сам
+            # объект один на все выходы, поэтому каждому слою достаётся копия.
+            if self.renderer is not None:
+                layer.setRenderer(self.renderer.clone())
                 layer.triggerRepaint()
         except Exception:  # nosec
             pass
@@ -493,11 +504,12 @@ class _StylePostProcessor(QgsProcessingLayerPostProcessorInterface):
             pass
 
 
-def _attach_style(context, path, style_path=None, order_state=None, role=None):
+def _attach_style(context, path, style_path=None, order_state=None, role=None,
+                  renderer=None):
     """Вешает на выходной слой пост-процессор стиля (и порядка, если задан)."""
     try:
         if path and context.willLoadLayerOnCompletion(path):
-            pp = _StylePostProcessor(style_path, order_state, role)
+            pp = _StylePostProcessor(style_path, order_state, role, renderer)
             _KEEP_ALIVE.append(pp)
             context.layerToLoadOnCompletionDetails(path).setPostProcessor(pp)
             _PP_PATHS.add(path)
@@ -558,6 +570,121 @@ class _CategorizedPostProcessor(QgsProcessingLayerPostProcessorInterface):
             layer.triggerRepaint()
         except Exception:  # nosec - раскраска не должна ронять загрузку
             pass
+
+
+class _BreakStylePostProcessor(QgsProcessingLayerPostProcessorInterface):
+    """Раскраска структурных линий, собранная в коде, а не в QML.
+
+    Data-defined цвет из QML на живом QGIS 4 не срабатывает: сначала это
+    вылезло на полосах разреза, теперь повторилось на кандидатах бровок.
+    Поэтому рендерер строится правилами, без выражений в свойствах символа.
+
+    Режим solid - один цвет на слой (выходы 2.20, там перепада в полях
+    нет). Режим по перепаду - два семейства по виду (бровки тёплые, подошвы
+    холодные) и четыре класса по величине, границы классов берутся
+    квантилями самого слоя, поэтому раскраска подстраивается под данные.
+    """
+
+    def __init__(self, solid=None, width=0.6):
+        super().__init__()
+        self.solid = solid
+        self.width = width
+
+    def _sym(self, layer, color, width):
+        from qgis.core import QgsSymbol
+        from qgis.PyQt.QtGui import QColor
+        sym = QgsSymbol.defaultSymbol(layer.geometryType())
+        sym.setColor(QColor(color))
+        try:
+            sym.setWidth(width)
+        except Exception:  # nosec - у не-линейных символов ширины нет
+            pass
+        return sym
+
+    def postProcessLayer(self, layer, context, feedback):
+        _finalize_layer(layer, getattr(self, "history", []))
+        try:
+            if self.solid:
+                from qgis.core import QgsSingleSymbolRenderer
+                layer.setRenderer(QgsSingleSymbolRenderer(
+                    self._sym(layer, self.solid, self.width)))
+                layer.triggerRepaint()
+                return
+            from qgis.core import QgsRuleBasedRenderer
+            vals = []
+            for f in layer.getFeatures():
+                v = f.attribute("drop")
+                try:
+                    v = float(v)
+                except (TypeError, ValueError):
+                    continue
+                if v == v:
+                    vals.append(v)
+            if not vals:
+                return
+            vals.sort()
+
+            def q(p):
+                return vals[min(len(vals) - 1, int(p * len(vals)))]
+
+            lo, hi = vals[0], vals[-1]
+            spread = hi - lo
+            # Классы по квантилям осмысленны, только когда перепад
+            # действительно разный. На карьере с одинаковыми уступами
+            # разброс единицы процентов, и деление на четыре класса
+            # рубит шум: в легенде получается «бровка 10-10». В таком
+            # случае оставляем один класс на вид.
+            if hi <= 0 or spread / hi < 0.15:
+                edges = [lo]
+            else:
+                edges = sorted(set([lo, q(0.25), q(0.5), q(0.75)]))
+            dec = 0 if spread >= 100 else (1 if spread >= 5 else
+                                           (2 if spread >= 0.5 else 3))
+            families = (
+                ("brow", _tr("бровка"),
+                 ["#fdd0a2", "#fdae6b", "#e6550d", "#a63603"]),
+                ("toe", _tr("подошва"),
+                 ["#c6dbef", "#9ecae1", "#3182bd", "#08519c"]),
+            )
+            widths = [0.3, 0.5, 0.8, 1.3]
+            root = QgsRuleBasedRenderer.Rule(None)
+            for kind, kname, colors in families:
+                for i, e_lo in enumerate(edges):
+                    e_hi = edges[i + 1] if i + 1 < len(edges) else None
+                    lo, hi = e_lo, e_hi
+                    filt = '"kind" = \'%s\' AND "drop" >= %.6g' % (kind, lo)
+                    if hi is not None:
+                        filt += ' AND "drop" < %.6g' % hi
+                    if len(edges) == 1:
+                        label = "%s %s" % (kname, _tr("все"))
+                    elif hi is not None:
+                        label = "%s %.*f-%.*f" % (kname, dec, lo, dec, hi)
+                    else:
+                        label = "%s %.*f+" % (kname, dec, lo)
+                    # один класс - берём насыщенный цвет и среднюю толщину,
+                    # иначе слой вышел бы бледным и тонким на ровном месте
+                    k = 3 if len(edges) == 1 else min(i, 3)
+                    wk = 2 if len(edges) == 1 else min(i, 3)
+                    rule = QgsRuleBasedRenderer.Rule(
+                        self._sym(layer, colors[k], widths[wk]))
+                    rule.setFilterExpression(filt)
+                    rule.setLabel(label)
+                    root.appendChild(rule)
+            layer.setRenderer(QgsRuleBasedRenderer(root))
+            layer.triggerRepaint()
+        except Exception:  # nosec - раскраска не должна ронять загрузку
+            pass
+
+
+def _attach_break_style(context, path, solid=None, width=0.6):
+    """Вешает раскраску структурных линий (кандидаты или выходы пар)."""
+    try:
+        if path and context.willLoadLayerOnCompletion(path):
+            pp = _BreakStylePostProcessor(solid=solid, width=width)
+            _KEEP_ALIVE.append(pp)
+            context.layerToLoadOnCompletionDetails(path).setPostProcessor(pp)
+    except Exception:  # nosec
+        pass
 
 
 def _attach_categories(context, path, style_path, field, cats):
@@ -2283,6 +2410,7 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
     WEIGHT_FIELD = "WEIGHT_FIELD"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
     CELL_SIZE, EXTENT = "CELL_SIZE", "EXTENT"
+    NUGGET = "NUGGET"
     OUTPUT_PROB, OUTPUT_ZONE, OUTPUT_CONF = \
         "OUTPUT_PROB", "OUTPUT_ZONE", "OUTPUT_CONF"
     PROB_LEVELS, PROB_CLASS = "PROB_LEVELS", "PROB_CLASS"
@@ -2309,7 +2437,18 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             "вероятного класса, соответствие кодов в Журнале) и растр "
             "уверенности (максимум вероятности). Пустые и NULL исключаются. "
             "Вариограмма каждого индикатора подбирается автоматически "
-            "(сферическая).") + _credit())
+            "(сферическая).\n\n**Доля самородка** правит подобранную модель, "
+            "когда карта расходится с фактами. При ненулевом самородке "
+            "кригинг не проходит через данные: в узле со скважиной оценка "
+            "тянется к соседям, и одиночная скважина среди чужого класса "
+            "получает вероятность ниже своей. Ноль в этом поле делает оценку "
+            "точной в точках замеров. Общая дисперсия при этом сохраняется, "
+            "меняется только гладкость поверхности. Подобранные доли "
+            "печатаются в журнал, так что сначала стоит просто посмотреть на "
+            "них.\n\nТочность в точке ещё зависит от ячейки: оценка считается "
+            "в центре ячейки, и если в одну ячейку попало несколько скважин "
+            "разных классов, ни один самородок этого не разведёт. Ячейку "
+            "задавайте мельче расстояния между соседними скважинами.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -2337,6 +2476,20 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             self.MAX_POINTS, self.tr("Макс. количество точек"),
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.MAX_POINTS, 24), minValue=1, maxValue=120))
+        nug = QgsProcessingParameterNumber(
+            self.NUGGET,
+            self.tr("Доля самородка (пусто = из подбора, 0 = точно через данные)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.NUGGET, None),
+            minValue=0.0, maxValue=1.0, optional=True)
+        nug.setHelp(self.tr(
+            "Доля самородка в подобранной вариограмме, от 0 до 1. Пустое поле "
+            "оставляет подбор как есть. Ноль делает кригинг точным в точках "
+            "замеров: вероятность в узле со скважиной равна её собственному "
+            "индикатору, а не сглаженному среднему по соседям. Общая "
+            "дисперсия сохраняется, меняется только гладкость. Подобранные и "
+            "применённые доли печатаются в журнал."))
+        self.addParameter(nug)
         cs = QgsProcessingParameterNumber(
             self.CELL_SIZE, self.tr("Размер ячейки (0 = авто, min(охват)/50)"),
             QgsProcessingParameterNumber.Type.Double,
@@ -2725,10 +2878,30 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
                 feedback.pushWarning(self.tr(
                     "Поле весов содержит пустые или неположительные "
                     "значения - веса игнорируются."))
+        nug = None
+        if parameters.get(self.NUGGET) is not None:
+            nug = self.parameterAsDouble(parameters, self.NUGGET, context)
+            nug = min(max(float(nug), 0.0), 1.0)
+
+        def on_model(cls, fitted, used, rng):
+            if nug is None:
+                feedback.pushInfo(_tr(
+                    "Класс «%s»: самородок из подбора %.2f, радиус %.0f.")
+                    % (cls, fitted, rng))
+            else:
+                feedback.pushInfo(_tr(
+                    "Класс «%s»: самородок из подбора %.2f, применён %.2f, "
+                    "радиус %.0f.") % (cls, fitted, used, rng))
+
         probs, zone, conf = categorical_indicator_grids(
             xs, ys, labels, classes, xmn, ymn, cell, nx, ny,
             ndmin=ndmin, ndmax=ndmax, radius=radius, nodata=nodata,
-            progress=prog, wts=wts)
+            progress=prog, wts=wts, nugget_frac=nug, on_model=on_model)
+        if nug is not None and nug <= 0.0:
+            feedback.pushInfo(_tr(
+                "Самородок обнулён: оценка проходит через данные. В узле со "
+                "скважиной вероятность равна её классу, если ячейка мельче "
+                "расстояния между соседними скважинами."))
 
         geotr = (xmin, cell, 0.0, ymin + ny * cell, 0.0, -cell)
         wkt = None
@@ -8366,6 +8539,12 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
 
     LINE_DEF, TARGET, SECTION2D = "LINE_DEF", "TARGET", "SECTION2D"
     ZMIN, ZMAX = "ZMIN", "ZMAX"
+    KEEPATTR = "KEEPATTR"
+    KEEPNAME, KEEPSTYLE = "KEEPNAME", "KEEPSTYLE"
+    RELIEF = "RELIEF"
+    FLOOR = "FLOOR"
+    BOTFIELD = "BOTFIELD"
+    BOTDEPTH = "BOTDEPTH"
     OUT_LINES, OUT_POINTS, OUT_BANDS = "OUT_LINES", "OUT_POINTS", "OUT_BANDS"
 
     def tr(self, s): return _tr(s)
@@ -8391,7 +8570,46 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             "поэтому для объектов без Z подавать ничего не нужно. Если в "
             "определении высоты нет, она берётся из чертежа разреза или из "
             "диапазона Z в дополнительных параметрах.\n\n"
-            "В отличие от «Проекции объектов на разрез» (приблизительной, по "
+            "\n**Обрезка сверху по линии рельефа.** Подайте слой линий рельефа "
+            "с чертежа, тот самый, что выдаёт «Разрез по линии». Верх зон и "
+            "разломов ляжет по рельефу, а не по рамке, и кромка полосы "
+            "повторит его переломы. Берётся именно линия с чертежа, а не "
+            "растр ЦМР: разрез мог строиться по другой поверхности, и тогда "
+            "растр с чертежом разойдутся, а обрезать надо по тому, что "
+            "человек видит. Разрезы сопоставляются по полю sec_id.\n"
+            "\n**Сохранять имя и стиль исходного слоя** - две галочки для "
+            "случая, когда подан один слой. Выход тогда называется по нему "
+            "(«Геология на разрезе» вместо «Полосы зон на разрезе»), а "
+            "оформление берётся у самого слоя, а не из штатного стиля "
+            "модуля. Раскраска по полю переносится вместе с атрибутами, "
+            "поэтому категорийный стиль геологии ложится на разрез как есть, "
+            "без ручного повторения палитры. Слоёв подано несколько - обе "
+            "галочки молчат и в журнал уходит строка почему. Линия с "
+            "отметкой Z даёт точку, и линейный стиль на неё не встанет, там "
+            "тоже остаётся штатный.\n"
+            "\n**Обрезка снизу по линии низа** устроена так же и работает "
+            "по той же линии с чертежа: подайте слой подошвы, почвы пласта "
+            "или любой нижней поверхности, и низ зон и разломов ляжет по "
+            "ней. Когда линии нет, низ остаётся по рамке. Если в слое "
+            "несколько поверхностей, обрезка идёт по огибающей: сверху по "
+            "самой высокой, снизу по самой низкой. Нужна одна конкретная "
+            "поверхность, подайте слой, отфильтрованный по полю name.\n"
+            "\n**Поле нижней отметки** задаёт низ полос и вертикалей "
+            "поштучно, чтобы наносить зоны своей глубины, а не на всю "
+            "рамку. По умолчанию значение читается как абсолютная отметка. "
+            "Флажок в дополнительных параметрах переключает его на глубину "
+            "от верха объекта. Низ ниже рамки не опускается.\n"
+            "\n**Атрибуты объектов переносятся на разрез.** Флажок включён по "
+            "умолчанию. Слоёв подаётся несколько, схемы у них разные, "
+            "поэтому колонки сводятся в один общий набор: поле, которого у "
+            "слоя нет, остаётся пустым, а одинаковое имя в разных слоях "
+            "считается одной колонкой. Имена, совпадающие со служебными "
+            "(sec, src, label, d, z, d1, d2), переименовываются с "
+            "суффиксом: иначе атрибут объекта молча подменил бы координату "
+            "разреза. Благодаря этому полосы и вертикали красятся по "
+            "возрасту, индексу или любому своему полю без ручного "
+            "связывания.\n"
+            "\nВ отличие от «Проекции объектов на разрез» (приблизительной, по "
             "коридору) это точное пересечение.") + _credit())
 
     def initAlgorithm(self, config=None):
@@ -8406,6 +8624,27 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             self.SECTION2D,
             self.tr("Чертёж разреза (для высоты рамки)"),
             optional=True))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.KEEPATTR, self.tr("Переносить атрибуты объектов на разрез"),
+            defaultValue=_dv(self, self.KEEPATTR, True)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.KEEPNAME, self.tr("Сохранять имя исходного слоя"),
+            defaultValue=_dv(self, self.KEEPNAME, False)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.KEEPSTYLE, self.tr("Сохранять стиль исходного слоя"),
+            defaultValue=_dv(self, self.KEEPSTYLE, False)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.RELIEF, self.tr("Линия рельефа на чертеже (обрезка сверху)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.FLOOR, self.tr("Линия низа на чертеже (обрезка снизу)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.BOTFIELD, self.tr("Поле нижней отметки полос и вертикалей"),
+            parentLayerParameterName=self.TARGET, optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.BOTDEPTH, self.tr("Нижняя отметка это глубина от верха"),
+            defaultValue=_dv(self, self.BOTDEPTH, False))))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.ZMIN, self.tr("Низ диапазона Z (если нет чертежа)"),
             QgsProcessingParameterNumber.Type.Double,
@@ -8427,13 +8666,16 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
             createByDefault=True))
 
-        _restore_layer_defaults(self, (self.LINE_DEF, self.SECTION2D, self.TARGET))
+        _restore_layer_defaults(self, (self.LINE_DEF, self.SECTION2D,
+                                       self.RELIEF, self.FLOOR, self.TARGET))
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         _remember_layers(self, parameters, context, _saved,
-                         single=(self.LINE_DEF, self.SECTION2D), multi=(self.TARGET,))
+                         single=(self.LINE_DEF, self.SECTION2D,
+                                 self.RELIEF, self.FLOOR),
+                         multi=(self.TARGET,))
         src = self.parameterAsSource(parameters, self.LINE_DEF, context)
         layers = self.parameterAsLayerList(parameters, self.TARGET, context)
         if src is None or not layers:
@@ -8466,8 +8708,112 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                     return low[cand]
             return None
 
+        # Общий набор колонок на все слои: схемы разные, поле, которого у
+        # слоя нет, останется пустым. Служебные имена не отдаются, иначе
+        # атрибут объекта затрёт координату разреза незаметно для человека.
+        keep = self.parameterAsBoolean(parameters, self.KEEPATTR, context)
+        reserved = ("sec", "sec_id", "src", "label", "d", "z", "d1", "d2")
+        extra_names, extra_maps, extra_defs, origin = [], {}, [], []
+        if keep:
+            per_layer = [[f.name() for f in l.fields()] if l is not None else []
+                         for l in layers]
+            extra_names, maps = _sc.merge_field_names(per_layer, reserved)
+            for n, l in enumerate(layers):
+                if l is not None:
+                    extra_maps[l.id()] = maps[n]
+            src_types, seen = {}, set()
+            for l in layers:
+                if l is None:
+                    continue
+                for f in l.fields():
+                    if f.name() not in seen:
+                        seen.add(f.name())
+                        origin.append(f.name())
+                        src_types[f.name()] = f.type()
+            extra_defs = [QgsField(extra_names[k], src_types[origin[k]])
+                          for k in range(len(extra_names))]
+            if extra_names:
+                feedback.pushInfo(self.tr(
+                    "Атрибуты объектов переносятся на разрез: колонок %d.")
+                    % len(extra_names))
+
+        def _extra_of(lyr, ft):
+            """Значения объекта, разложенные по общим колонкам."""
+            if not keep or not extra_names:
+                return []
+            mp = extra_maps.get(lyr.id())
+            if not mp:
+                return [None] * len(extra_names)
+            av = ft.attributes()
+            return [av[i] if 0 <= i < len(av) else None for i in mp]
+
+        # Профиль рельефа с чертежа: по нему обрезается верх зон и разломов.
+        # Берём именно линию с чертежа, а не растр ЦМР: разрез мог строиться
+        # по другой поверхности, и тогда растр и чертёж разойдутся, а человек
+        # обрезает по тому, что видит.
+        def _profiles(key, keep_high):
+            """Профили обрезки по разрезам, из слоя линий с чертежа.
+
+            Совпадающие станции сводятся к огибающей: сверху к верхней,
+            снизу к нижней. Поэтому слой из нескольких поверхностей годится
+            как есть, а нужна одна конкретная - подаётся отфильтрованный.
+            """
+            out = {}
+            psrc = self.parameterAsSource(parameters, key, context)
+            if psrc is None:
+                return out
+            by_sec = {}
+            fnames = [f.name().lower() for f in psrc.fields()]
+            i_sid = fnames.index("sec_id") if "sec_id" in fnames else -1
+            for ft in psrc.getFeatures():
+                g = ft.geometry()
+                if g.isEmpty():
+                    continue
+                k = ft.attributes()[i_sid] if i_sid >= 0 else None
+                try:
+                    multi = g.asMultiPolyline() or []
+                except TypeError:
+                    multi = []
+                if not multi:
+                    ln = g.asPolyline()
+                    multi = [ln] if ln else []
+                for ln in multi:
+                    by_sec.setdefault(k, []).append(
+                        ([p.x() for p in ln], [p.y() for p in ln]))
+            for k, parts in by_sec.items():
+                out[k] = _sc.profile_from_lines(parts, keep_high=keep_high)
+            return out
+
+        relief = _profiles(self.RELIEF, True)
+        if relief:
+            feedback.pushInfo(self.tr(
+                "Обрезка сверху по линии рельефа: профилей %d.") % len(relief))
+        floor = _profiles(self.FLOOR, False)
+        if floor:
+            feedback.pushInfo(self.tr(
+                "Обрезка снизу по линии низа: профилей %d.") % len(floor))
+
+        bot_field = self.parameterAsString(parameters, self.BOTFIELD, context)
+        bot_is_depth = self.parameterAsBoolean(parameters, self.BOTDEPTH,
+                                               context)
+
+        def _bottom_of(ft, ytop_draw, vex, oy, ybot):
+            """Низ полосы: из поля объекта, иначе низ рамки."""
+            if not bot_field:
+                return ybot
+            try:
+                v = float(ft[bot_field])
+            except Exception:  # nosec
+                return ybot
+            if v != v:
+                return ybot
+            y = ((ytop_draw - v * vex) if bot_is_depth
+                 else (v * vex + oy))
+            return max(ybot, min(y, ytop_draw))
+
         pts, lns, bds = [], [], []
         warned_h = False
+        cut_off = 0  # объекты, целиком ушедшие за кромки обрезки
         for dd in defs:
             # каждый разрез обрабатывается своей линией, своим масштабом и
             # своим смещением раскладки, результат копится в общие списки
@@ -8478,6 +8824,8 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             have_height = ybot is not None
             if have_height:
                 ybot, ytop = ybot + oy, ytop + oy
+            prof = relief.get(dd["sec_id"], relief.get(None))
+            proff = floor.get(dd["sec_id"], floor.get(None))
             for lyr in layers:
                 if lyr is None:
                     continue
@@ -8526,10 +8874,26 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                                     pts.append(tuple(tag) + (
                                         d + ox, float(zval),
                                         float(zval) * vex + oy,
-                                        sname, lab))
+                                        sname, lab, _extra_of(lyr, ft)))
                             elif have_height:
+                                yt = ytop
+                                if prof is not None:
+                                    yr = _sc.profile_y_at(prof, d + ox)
+                                    if yr is not None:
+                                        yt = min(ytop, yr)
+                                yb = _bottom_of(ft, yt, vex, oy, ybot)
+                                if proff is not None:
+                                    yf = _sc.profile_y_at(proff, d + ox)
+                                    if yf is not None:
+                                        yb = max(yb, min(yf, yt))
+                                if yt - yb <= 1e-9:
+                                    # низ дошёл до верха: вертикаль целиком
+                                    # за кромкой, нулевой отрезок не пишем
+                                    cut_off += 1
+                                    continue
                                 lns.append(tuple(tag) + (
-                                    d + ox, ybot, ytop, sname, lab))
+                                    d + ox, yb, yt, sname, lab,
+                                    _extra_of(lyr, ft)))
                             else:
                                 warned_h = True
                         elif pt == QgsWkbTypes.GeometryType.LineGeometry:
@@ -8544,15 +8908,76 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                             if not have_height:
                                 warned_h = True
                             elif b > a:
+                                xs = _sc.band_nodes((prof, proff),
+                                                    a + ox, b + ox)
+                                top = _sc.edge_along(prof, xs, ytop, True)
+                                yt_min = min(y for _x, y in top)
+                                yb = _bottom_of(ft, yt_min, vex, oy, ybot)
+                                bot = _sc.clamp_below(
+                                    _sc.edge_along(proff, xs, yb, False), top)
+                                if _sc.band_is_flat(bot, top):
+                                    cut_off += 1
+                                    continue
                                 bds.append(tuple(tag) + (
-                                    a + ox, b + ox, ybot, ytop,
-                                    sname, lab))
+                                    a + ox, b + ox, bot, top,
+                                    sname, lab, _extra_of(lyr, ft)))
         if warned_h:
             feedback.pushWarning(_tr(
                 "Для объектов без отметки Z нужна высота рамки. Возьмите "
                 "определение от «Разрез по линии» (в нём уже есть высота) либо "
                 "подайте чертёж разреза или задайте диапазон Z. Такие объекты "
                 "пропущены."))
+        keepname = self.parameterAsBool(parameters, self.KEEPNAME, context)
+        keepstyle = self.parameterAsBool(parameters, self.KEEPSTYLE, context)
+        one = layers[0] if len(layers) == 1 else None
+        if (keepname or keepstyle) and one is None:
+            feedback.pushInfo(_tr(
+                "Имя и стиль исходного слоя переносятся, только когда подан "
+                "один слой. Подано слоёв %d, выходы остаются штатными.")
+                % len(layers))
+        kinds = [k for k, has in (("points", bool(pts)), ("lines", bool(lns)),
+                                  ("bands", bool(bds))) if has]
+
+        def _out_name(kind, default):
+            """Имя выхода: от исходного слоя, когда он один и так велено.
+
+            Один слой родил один вид объектов - имя без уточнения, как его и
+            просили: «Геология на разрезе». Видов несколько - к имени
+            добавляется вид, иначе три слоя в дереве назывались бы одинаково.
+            """
+            if not keepname or one is None:
+                return default
+            if len(kinds) == 1:
+                return _tr("%s на разрезе") % one.name()
+            tail = {"points": _tr("точки на разрезе"),
+                    "lines": _tr("вертикали на разрезе"),
+                    "bands": _tr("полосы на разрезе")}[kind]
+            return "%s · %s" % (one.name(), tail)
+
+        def _out_renderer(geom_type, kind):
+            """Рендерер исходного слоя, если он ложится на этот тип выхода.
+
+            Полигоны идут в полосы, линии без Z в вертикали - там оформление
+            переносится один в один. Линия с Z даёт точку, и линейный
+            рендерер на неё не встанет, поэтому остаётся штатный стиль.
+            """
+            if not keepstyle or one is None:
+                return None
+            try:
+                if QgsWkbTypes.geometryType(one.wkbType()) != geom_type:
+                    feedback.pushInfo(_tr(
+                        "Стиль исходного слоя не подходит выходу «%s»: другой "
+                        "тип геометрии. Остаётся штатный стиль.") % kind)
+                    return None
+                r = one.renderer()
+                return r.clone() if r is not None else None
+            except Exception:  # nosec
+                return None
+
+        if cut_off:
+            feedback.pushInfo(_tr(
+                "Срезано кромками целиком: объектов %d. Обычно это зоны "
+                "выше рельефа или ниже линии низа.") % cut_off)
         feedback.pushInfo(_tr("Пересечения: точек %d, вертикалей %d, полос %d.")
                           % (len(pts), len(lns), len(bds)))
 
@@ -8566,18 +8991,24 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             fpoints.append(QgsField("label", QVariant.String))
             fpoints.append(QgsField("d", QVariant.Double))
             fpoints.append(QgsField("z", QVariant.Double))
+            for fd in extra_defs:
+                fpoints.append(QgsField(fd))
             sp, dp = self.parameterAsSink(parameters, self.OUT_POINTS, context,
                                           fpoints, QgsWkbTypes.Type.Point, empty)
             if sp is not None:
-                for sec, sid, d, z, ydraw, sname, lab in pts:
+                for sec, sid, d, z, ydraw, sname, lab, ex in pts:
                     fa = QgsFeature(fpoints)
                     fa.setGeometry(QgsGeometry.fromPointXY(
                         QgsPointXY(d, ydraw)))
-                    fa.setAttributes([sec, sid, sname, lab, d, z])
+                    fa.setAttributes([sec, sid, sname, lab, d, z] + ex)
                     sp.addFeature(fa)
                 res[self.OUT_POINTS] = dp
-                _set_output_name(context, dp, _tr("Точки на разрезе"))
-                _attach_style(context, dp, _style_path("section_vpoints"))
+                _set_output_name(context, dp, _out_name(
+                    "points", _tr("Точки на разрезе")))
+                _attach_style(context, dp, _style_path("section_vpoints"),
+                              renderer=_out_renderer(
+                                  QgsWkbTypes.GeometryType.PointGeometry,
+                                  _tr("Точки на разрезе")))
         if lns:
             flines = QgsFields()
             flines.append(QgsField("sec", QVariant.String))
@@ -8585,18 +9016,24 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             flines.append(QgsField("src", QVariant.String))
             flines.append(QgsField("label", QVariant.String))
             flines.append(QgsField("d", QVariant.Double))
+            for fd in extra_defs:
+                flines.append(QgsField(fd))
             sl, dl = self.parameterAsSink(parameters, self.OUT_LINES, context,
                                           flines, QgsWkbTypes.Type.LineString, empty)
             if sl is not None:
-                for sec, sid, d, yb, yt, sname, lab in lns:
+                for sec, sid, d, yb, yt, sname, lab, ex in lns:
                     fa = QgsFeature(flines)
                     fa.setGeometry(QgsGeometry.fromPolylineXY(
                         [QgsPointXY(d, yb), QgsPointXY(d, yt)]))
-                    fa.setAttributes([sec, sid, sname, lab, d])
+                    fa.setAttributes([sec, sid, sname, lab, d] + ex)
                     sl.addFeature(fa)
                 res[self.OUT_LINES] = dl
-                _set_output_name(context, dl, _tr("Вертикали на разрезе"))
-                _attach_style(context, dl, _style_path("section_vlines"))
+                _set_output_name(context, dl, _out_name(
+                    "lines", _tr("Вертикали на разрезе")))
+                _attach_style(context, dl, _style_path("section_vlines"),
+                              renderer=_out_renderer(
+                                  QgsWkbTypes.GeometryType.LineGeometry,
+                                  _tr("Вертикали на разрезе")))
         if bds:
             fbands = QgsFields()
             fbands.append(QgsField("sec", QVariant.String))
@@ -8605,20 +9042,25 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             fbands.append(QgsField("label", QVariant.String))
             fbands.append(QgsField("d1", QVariant.Double))
             fbands.append(QgsField("d2", QVariant.Double))
+            for fd in extra_defs:
+                fbands.append(QgsField(fd))
             sb, db = self.parameterAsSink(parameters, self.OUT_BANDS, context,
                                           fbands, QgsWkbTypes.Type.Polygon, empty)
             if sb is not None:
-                for sec, sid, a, b, yb, yt, sname, lab in bds:
+                for sec, sid, a, b, bot, top, sname, lab, ex in bds:
                     fa = QgsFeature(fbands)
-                    fa.setGeometry(QgsGeometry.fromPolygonXY([[
-                        QgsPointXY(a, yb), QgsPointXY(b, yb),
-                        QgsPointXY(b, yt), QgsPointXY(a, yt),
-                        QgsPointXY(a, yb)]]))
-                    fa.setAttributes([sec, sid, sname, lab, a, b])
+                    ring = [QgsPointXY(x, y)
+                            for x, y in _sc.band_ring(bot, top)]
+                    fa.setGeometry(QgsGeometry.fromPolygonXY([ring]))
+                    fa.setAttributes([sec, sid, sname, lab, a, b] + ex)
                     sb.addFeature(fa)
                 res[self.OUT_BANDS] = db
-                _set_output_name(context, db, _tr("Полосы зон на разрезе"))
-                _attach_style(context, db, _style_path("section_vbands"))
+                _set_output_name(context, db, _out_name(
+                    "bands", _tr("Полосы зон на разрезе")))
+                _attach_style(context, db, _style_path("section_vbands"),
+                              renderer=_out_renderer(
+                                  QgsWkbTypes.GeometryType.PolygonGeometry,
+                                  _tr("Полосы зон на разрезе")))
         _save_values(self, _saved)
         _set_group(context, GRP_SECTION, list(res.values()), force=True,
                    history=_provenance(self, parameters))
@@ -8830,7 +9272,7 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionProjectAlgorithm()
     def name(self): return "section_project_objects"
-    def displayName(self): return self.tr("4.07 Проекция объектов на разрез (бета)")
+    def displayName(self): return self.tr("4.07 Проекция объектов на разрез")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP3)
     def groupId(self): return GROUP3_ID
@@ -8954,7 +9396,7 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionUnprojectAlgorithm()
     def name(self): return "section_unproject"
-    def displayName(self): return self.tr("4.08 Спроецировать с разреза (бета)")
+    def displayName(self): return self.tr("4.08 Спроецировать с разреза")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP3)
     def groupId(self): return GROUP3_ID
@@ -13332,6 +13774,15 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             "должна быть метрической. Финальное заполнение понижений "
             "флажком. Выход: GeoTIFF float32, высоты в метрах, nodata "
             "-9999, слой в группе Топография.\n"
+            "\n**Трёхмерные тальвеги.** Если у линии тальвега есть отметки "
+            "вершин, они становятся жёсткими узлами, а не только условием "
+            "падения: промер по руслу перестаёт быть подсказкой и начинает "
+            "задавать дно. Отметки при этом один раз приводятся к падающим "
+            "вниз по течению, потому что измерения шумят, и вершина, ушедшая "
+            "вверх, спорила бы с принуждением падения каждую итерацию. "
+            "Правка идёт только вниз, наибольшая её величина печатается в "
+            "журнал. Линия без отметок ведёт себя как прежде, разнотипный "
+            "слой разбирается по объектам.\n"
             "\n**Граница области построения** ограничивает поверхность "
             "полигоном, как outer boundary в САПР. Маска накладывается "
             "после интерполяции, а не отсечением входа: данные снаружи "
@@ -13432,6 +13883,54 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             for line in multi:
                 if len(line) >= 2:
                     yield feat, np.array([[p.x(), p.y()] for p in line])
+
+    def _iter_lines_z(self, source, target_crs, context):
+        """Ломаные и отметки их вершин, если геометрия трёхмерная.
+
+        Возвращает (xy, z) на каждую часть: z это массив той же длины
+        или None. Разнотипный слой разбирается по объектам, как урез:
+        линия с Z даёт узлы, линия без Z ведёт себя как прежде.
+        """
+        tf = self._transformer(source, target_crs, context)
+        for feat in source.getFeatures():
+            geom = feat.geometry()
+            if geom.isEmpty():
+                continue
+            has_z = False
+            zs_all = []
+            try:
+                ab = geom.constGet()
+                has_z = ab is not None and ab.is3D()
+                if has_z:
+                    zs_all = [p.z() for p in ab.vertices()]
+            except Exception:  # nosec
+                has_z = False
+            try:
+                geom.transform(tf)
+            except QgsCsException as exc:
+                _topo_log("объект вне области СК, пропущен: %s" % exc)
+                continue
+            try:
+                multi = geom.asMultiPolyline()
+            except TypeError:
+                multi = []
+            if not multi:
+                line = geom.asPolyline()
+                multi = [line] if line else []
+            idx = 0
+            for line in multi:
+                n = len(line)
+                chunk = zs_all[idx:idx + n] if has_z else []
+                idx += n
+                if n < 2:
+                    continue
+                xy = np.array([[p.x(), p.y()] for p in line])
+                z = None
+                if len(chunk) == n:
+                    arr = np.array(chunk, dtype=float)
+                    if np.all(np.isfinite(arr)):
+                        z = arr
+                yield xy, z
 
     def _collect_points(self, source, field, target_crs, context):
         pts = []
@@ -13600,8 +14099,33 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
 
         streams = []
         if src_streams is not None:
-            streams = [xy for _f, xy in self._iter_lines(
-                src_streams, target_crs, context)]
+            n_z, n_flat, max_fix = 0, 0, 0.0
+            extra = []
+            for xy, zline in self._iter_lines_z(src_streams, target_crs,
+                                                context):
+                streams.append(xy)
+                if zline is None:
+                    n_flat += 1
+                    continue
+                zm = topo_t2r.monotone_down(zline, min_drop)
+                max_fix = max(max_fix, float(np.max(np.abs(zline - zm))))
+                extra.extend(np.column_stack([xy, zm]).tolist())
+                n_z += 1
+            if n_z:
+                before = len(pts)
+                pts = np.vstack([pts, np.array(extra, dtype=np.float64)])
+                feedback.pushInfo(self.tr(
+                    "Тальвеги с отметками: %d из %d, узлов добавлено %d. "
+                    "Отметки приведены к падающим вниз по течению, "
+                    "наибольшая правка %.3f м.")
+                    % (n_z, n_z + n_flat, len(pts) - before, max_fix))
+                n_conf = topo_t2r.count_conflicts(pts[:before],
+                                              pts[before:], cell)
+                if n_conf:
+                    feedback.pushWarning(self.tr(
+                        "Отметки тальвегов спорят с другими узлами в %d "
+                        "ячейках: там окажется значение тальвега. Обычно "
+                        "это пересечение русла с горизонталью.") % n_conf)
         breaklines = []
         if src_breaks is not None:
             breaklines = [xy for _f, xy in self._iter_lines(
@@ -15156,6 +15680,556 @@ def _write_cutfill_report(path, st, zones, verdict, gt, dead):
         fh.write(html)
 
 
+
+class BreaklineCandidatesAlgorithm(IsolinerAlgorithm):
+    """2.19 Кандидаты бровок и подошв из ЦМР."""
+
+    INPUT = "INPUT"
+    MIN_DROP = "MIN_DROP"
+    MIN_LEN = "MIN_LEN"
+    PROBE = "PROBE"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return BreaklineCandidatesAlgorithm()
+    def name(self): return "breakline_candidates"
+    def displayName(self):
+        return self.tr("2.19 Кандидаты бровок и подошв")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPO)
+    def groupId(self): return GROUP_TOPO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Находит кандидатов структурных линий: места, где уклон "
+            "меняется быстрее всего. Бровки и подошвы уступов, борта "
+            "карьеров, кромки насыпей и врезов. Признаком служит градиент "
+            "уклона, гребни признака утоньшаются и трассируются в ломаные, "
+            "знак кривизны делит их на бровки и подошвы. Работает на "
+            "плотной съёмке: шум в сантиметры на метровой ячейке гасится "
+            "сглаживанием и правилом «излом без перепада не излом».\n\n"
+            "**Перепад меряется в базе замера**, а не по всей ширине "
+            "уступа. База по умолчанию 8 ячеек в каждую сторону от линии: на "
+            "метровой ячейке это ±8 м, чего хватает на карьерный уступ. Если "
+            "откос шире базы, drop покажет только её часть, и это видно "
+            "сразу - у десятиметрового уступа при базе в три ячейки перепад "
+            "прочитается как три метра. Базу задавайте по ширине откоса в "
+            "ячейках.\n\n"
+            "Инструмент нарочно отдаёт больше, чем нужно, вместе с числами "
+            "для отбора. Каждая линия несёт перепад поперёк (drop, м), "
+            "длину, средний уклон сторон и вид (brow, toe, flat). Слой "
+            "приходит с раскраской по перепаду: мелочь бледная, крупное "
+            "яркое. Порог значимости - решение человека: двигайте фильтр "
+            "слоя по полю drop, глядя на карту, а не пересчитывая. "
+            "Формального признака бровки не существует, существует перепад, "
+            "который вы готовы считать уступом.\n\n"
+            "Процентили перепада по всем кандидатам печатаются в журнал - "
+            "готовая подсказка, где резать. Выход: линейный слой в группе "
+            "Топография.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.INPUT, self.tr("Входная ЦМР")))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.MIN_DROP, self.tr("Минимальный перепад (отсечка шума), м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.MIN_DROP, 0.5), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.MIN_LEN, self.tr("Минимальная длина линии, ячеек"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.MIN_LEN, 10), minValue=2))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.PROBE, self.tr("База замера перепада, ячеек"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.PROBE, 8), minValue=1, maxValue=60)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Кандидаты бровок и подошв"),
+            QgsProcessing.SourceType.TypeVectorLine))
+        _restore_layer_defaults(self, (self.INPUT,))
+
+    def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT,))
+        _save_values(self, _mem)
+        layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
+        min_drop = self.parameterAsDouble(parameters, self.MIN_DROP, context)
+        min_len = self.parameterAsInt(parameters, self.MIN_LEN, context)
+        probe = self.parameterAsInt(parameters, self.PROBE, context)
+        z, mask, gt, proj, cell = _topo_read_dem(layer, self.tr)
+        feedback.pushInfo(self.tr(
+            "Детектор: ячейка %.2f м, отсечка %.2f м, база замера %d ячеек "
+            "(%.1f м в каждую сторону). Перепад меряется в этой базе, и "
+            "полную высоту уступа он показывает, только когда база покрывает "
+            "ширину откоса.") % (cell, min_drop, probe, probe * cell))
+        cands = topo_break.breakline_candidates(
+            z, cell, min_drop=min_drop, min_len_cells=min_len,
+            nodata_mask=mask, probe=probe)
+        fields = QgsFields()
+        fields.append(QgsField("kind", QVariant.String))
+        fields.append(QgsField("drop", QVariant.Double))
+        fields.append(QgsField("length_m", QVariant.Double))
+        fields.append(QgsField("slope_deg", QVariant.Double))
+        sink, dest_id = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.LineString, layer.crs())
+        for cd in cands:
+            feat = QgsFeature(fields)
+            pts = [QgsPointXY(*_topo_cell_xy(gt, r, c))
+                   for r, c in cd["cells"]]
+            feat.setGeometry(QgsGeometry.fromPolylineXY(pts))
+            feat["kind"] = cd["kind"]
+            feat["drop"] = cd["drop"]
+            feat["length_m"] = cd["length_m"]
+            feat["slope_deg"] = cd["slope_deg"]
+            sink.addFeature(feat)
+        n_brow = sum(1 for c in cands if c["kind"] == "brow")
+        n_toe = sum(1 for c in cands if c["kind"] == "toe")
+        feedback.pushInfo(self.tr(
+            "Кандидатов: %d (бровок %d, подошв %d).")
+            % (len(cands), n_brow, n_toe))
+        if cands:
+            dr = sorted(c["drop"] for c in cands)
+
+            def pct(p):
+                return dr[min(len(dr) - 1, int(p / 100.0 * len(dr)))]
+            feedback.pushInfo(self.tr(
+                "Перепад по кандидатам, м: p25=%.2f, p50=%.2f, p75=%.2f, "
+                "p90=%.2f, максимум %.2f. Отбор значимых - фильтром слоя "
+                "по полю drop.") % (pct(25), pct(50), pct(75), pct(90),
+                                    dr[-1]))
+        _set_output_name(context, dest_id,
+                         self.tr("Кандидаты бровок и подошв"))
+        _attach_break_style(context, dest_id)
+        # collapse=False обязателен: сворачивание узла вешает свой
+        # пост-процессор, а он у слоя один, и стиль был бы затёрт
+        _topo_group_layer(context, dest_id, self.tr("Топография"),
+                          collapse=False)
+        return {self.OUTPUT: dest_id}
+
+
+class BreaklinePairsAlgorithm(IsolinerAlgorithm):
+    """2.20 Бровки и подошвы в работу: отметки, пары, готовые входы."""
+
+    INPUT = "INPUT"
+    DEM = "DEM"
+    KIND_FIELD = "KIND_FIELD"
+    MIN_DROP = "MIN_DROP"
+    MAX_DIST = "MAX_DIST"
+    MIN_SHARE = "MIN_SHARE"
+    TOP = "TOP"
+    BOTTOM = "BOTTOM"
+    ORPHANS = "ORPHANS"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return BreaklinePairsAlgorithm()
+    def name(self): return "breakline_pairs"
+    def displayName(self):
+        return self.tr("2.20 Бровки и подошвы в работу")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPO)
+    def groupId(self): return GROUP_TOPO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Превращает кандидатов из 2.19 в рабочие структурные линии: "
+            "снимает отметки с ЦМР, собирает пары бровка-подошва и "
+            "раскладывает их по двум слоям, Верх и Низ, с общим полем "
+            "связи. Выход подаётся дальше как есть, руками править "
+            "нечего.\n\n"
+            "Пары собираются спуском по склону, а не по близости. От "
+            "каждой пробной вершины бровки идёт спуск по направлениям "
+            "стока, пока не встретится подошва, и подошвы голосуют. Так "
+            "работает физика уступа: вода с бровки скатывается по откосу "
+            "ровно к его подошве. На кривом борту с узкими бермами "
+            "ближайшая по расстоянию подошва часто принадлежит соседнему "
+            "уступу, и выбор по близости ошибается там, где спуск прав.\n\n"
+            "Одна подошва может собрать несколько бровок, и это норма: "
+            "трассировка режет длинную бровку на куски, и все куски "
+            "спускаются к той же подошве. Результат группируется по "
+            "подошве, поэтому в выходе форма это одна подошва и множество "
+            "бровок при ней с общим полем связи, а подошва пишется один "
+            "раз, а не по разу на каждую бровку.\n\n"
+            "Непарные линии не пропадают молча, а уходят в третий слой с "
+            "причиной в атрибуте: спуск не дошёл до подошвы (обычно предел "
+            "пути мал или бровка ложная) либо спуск разошёлся по разным "
+            "подошвам (обычно линия склеила два уступа).\n\n"
+            "Отсечка по перепаду повторяет фильтр 2.19: сюда можно подать "
+            "весь слой кандидатов и отобрать значимые прямо здесь, не "
+            "заводя отдельный отфильтрованный слой. Выходы: два линейных "
+            "слоя LineStringZ с полями kind и link, готовые входы для "
+            "построения поверхности, и слой непарных.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Кандидаты (выход 2.19)"),
+            [QgsProcessing.SourceType.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.DEM, self.tr("ЦМР (та же, что в 2.19)")))
+        self.addParameter(QgsProcessingParameterField(
+            self.KIND_FIELD, self.tr("Поле вида (brow, toe)"),
+            parentLayerParameterName=self.INPUT, defaultValue="kind",
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.MIN_DROP, self.tr("Отсечка по перепаду, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.MIN_DROP, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.MAX_DIST, self.tr("Предел пути спуска, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.MAX_DIST, 50.0), minValue=1.0))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MIN_SHARE, self.tr("Доля согласных проб"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.MIN_SHARE, 0.4),
+            minValue=0.1, maxValue=1.0)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.TOP, self.tr("Верх (бровки)"),
+            QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.BOTTOM, self.tr("Низ (подошвы)"),
+            QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.ORPHANS, self.tr("Непарные линии"),
+            QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=True))
+        _restore_layer_defaults(self, (self.INPUT, self.DEM))
+
+    def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT, self.DEM))
+        _save_values(self, _mem)
+        src = self.parameterAsSource(parameters, self.INPUT, context)
+        dem = self.parameterAsRasterLayer(parameters, self.DEM, context)
+        kfield = self.parameterAsString(parameters, self.KIND_FIELD, context)
+        min_drop = self.parameterAsDouble(parameters, self.MIN_DROP, context)
+        max_dist = self.parameterAsDouble(parameters, self.MAX_DIST, context)
+        min_share = self.parameterAsDouble(parameters, self.MIN_SHARE, context)
+        z, mask, gt, proj, cell = _topo_read_dem(dem, self.tr)
+        ny, nx = z.shape
+
+        fnames = [f.name().lower() for f in src.fields()]
+        i_kind = fnames.index((kfield or "kind").lower()) \
+            if (kfield or "kind").lower() in fnames else -1
+        i_drop = fnames.index("drop") if "drop" in fnames else -1
+
+        def to_cells(geom):
+            out = []
+            try:
+                parts = geom.asMultiPolyline() or []
+            except TypeError:
+                parts = []
+            if not parts:
+                ln = geom.asPolyline()
+                parts = [ln] if ln else []
+            for ln in parts:
+                for p in ln:
+                    c = int((p.x() - gt[0]) / gt[1])
+                    r = int((p.y() - gt[3]) / gt[5])
+                    if 0 <= r < ny and 0 <= c < nx:
+                        if not out or out[-1] != (r, c):
+                            out.append((r, c))
+            return out
+
+        brows, toes, skipped = [], [], 0
+        for ft in src.getFeatures():
+            g = ft.geometry()
+            if g.isEmpty():
+                continue
+            attrs = ft.attributes()
+            if i_drop >= 0 and min_drop > 0.0:
+                try:
+                    if float(attrs[i_drop]) < min_drop:
+                        skipped += 1
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            kind = str(attrs[i_kind]).lower() if i_kind >= 0 else ""
+            cells = to_cells(g)
+            if len(cells) < 2:
+                continue
+            if kind.startswith("toe"):
+                toes.append(cells)
+            elif kind.startswith("brow"):
+                brows.append(cells)
+        feedback.pushInfo(self.tr(
+            "Подано бровок %d, подошв %d, отсечено по перепаду %d.")
+            % (len(brows), len(toes), skipped))
+        if not brows or not toes:
+            raise QgsProcessingException(self.tr(
+                "Нужны линии обоих видов. Проверьте поле вида: ожидаются "
+                "значения brow и toe, как их пишет 2.19."))
+
+        groups, unpaired = topo_break.pair_breaklines(
+            brows, toes, z, cell, max_dist=max_dist, min_share=min_share,
+            nodata_mask=mask)
+
+        fields = QgsFields()
+        fields.append(QgsField("kind", QVariant.String))
+        fields.append(QgsField("link", QVariant.String))
+        top_sink, top_id = self.parameterAsSink(
+            parameters, self.TOP, context, fields,
+            QgsWkbTypes.Type.LineStringZ, dem.crs())
+        bot_sink, bot_id = self.parameterAsSink(
+            parameters, self.BOTTOM, context, fields,
+            QgsWkbTypes.Type.LineStringZ, dem.crs())
+        ofields = QgsFields()
+        ofields.append(QgsField("kind", QVariant.String))
+        ofields.append(QgsField("reason", QVariant.String))
+        orp_sink, orp_id = self.parameterAsSink(
+            parameters, self.ORPHANS, context, ofields,
+            QgsWkbTypes.Type.LineString, dem.crs())
+
+        def write(sink, cells, flds, values, with_z=True):
+            zs = topo_break.sample_z(z, cells, nodata_mask=mask)
+            pts = []
+            for (r, c), zv in zip(cells, zs):
+                x, y = _topo_cell_xy(gt, r, c)
+                pts.append(QgsPoint(x, y, zv if zv == zv else 0.0))
+            feat = QgsFeature(flds)
+            if with_z:
+                feat.setGeometry(QgsGeometry.fromPolyline(pts))
+            else:
+                feat.setGeometry(QgsGeometry.fromPolylineXY(
+                    [QgsPointXY(p.x(), p.y()) for p in pts]))
+            feat.setAttributes(list(values))
+            sink.addFeature(feat)
+
+        for g in groups:
+            # подошва пишется один раз на группу, бровки все со своим же
+            # полем связи: форма это одна подошва и множество бровок при ней
+            write(bot_sink, toes[g["toe"]], fields, ["toe", g["link"]])
+            for bi in g["brows"]:
+                write(top_sink, brows[bi], fields, ["brow", g["link"]])
+        for u in unpaired:
+            cells = brows[u["idx"]] if u["kind"] == "brow" else toes[u["idx"]]
+            write(orp_sink, cells, ofields, [u["kind"], self.tr(u["reason"])],
+                  with_z=False)
+
+        n_brows = sum(len(g["brows"]) for g in groups)
+        feedback.pushInfo(self.tr(
+            "Собрано форм: %d (подошв %d, бровок при них %d). Непарных "
+            "линий: %d. Одна подошва собирает несколько бровок, когда "
+            "трассировка разрезала длинную бровку на куски.")
+            % (len(groups), len(groups), n_brows, len(unpaired)))
+        if groups:
+            worst = min(g["share"] for g in groups)
+            feedback.pushInfo(self.tr(
+                "Наименьшая доля согласных проб в форме: %.2f. Низкая доля "
+                "означает, что линия склеила два уступа.") % worst)
+        _set_output_name(context, top_id, self.tr("Верх (бровки)"))
+        _set_output_name(context, bot_id, self.tr("Низ (подошвы)"))
+        _attach_break_style(context, top_id, solid="#a63603", width=0.8)
+        _attach_break_style(context, bot_id, solid="#08519c", width=0.8)
+        _topo_group_layer(context, top_id, self.tr("Топография"),
+                          collapse=False)
+        _topo_group_layer(context, bot_id, self.tr("Топография"),
+                          collapse=False)
+        results = {self.TOP: top_id, self.BOTTOM: bot_id}
+        if unpaired:
+            _set_output_name(context, orp_id, self.tr("Непарные линии"))
+            _topo_group_layer(context, orp_id, self.tr("Топография"),
+                              collapse=False)
+            results[self.ORPHANS] = orp_id
+        return results
+
+
+class TopoDemoPitAlgorithm(IsolinerAlgorithm):
+    """2.21 Демо-карьер: рельеф с известными бровками и подошвами."""
+
+    NX = "NX"
+    NY = "NY"
+    CELL = "CELL"
+    SEED = "SEED"
+    CRS = "CRS"
+    BENCHES = "BENCHES"
+    BENCH_H = "BENCH_H"
+    NOISE = "NOISE"
+    DUMP = "DUMP"
+    DITCH = "DITCH"
+    EXTENT = "EXTENT"
+    OUTPUT = "OUTPUT"
+    TRUTH = "TRUTH"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return TopoDemoPitAlgorithm()
+    def name(self): return "topo_demo_pit"
+    def displayName(self):
+        return self.tr("2.21 Создать пример карьера (демо)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPO)
+    def groupId(self): return GROUP_TOPO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Создаёт демо-карьер: волнистое основание, эллиптический "
+            "карьер с уступами и бермами, съезд, прорезающий уступы, "
+            "отвал с плоским верхом и сходящаяся нагорная канава. Всё "
+            "детерминировано зерном.\n\n"
+            "Главная ценность - второй выход, истинные структурные линии "
+            "с трёхмерными вершинами: бровки, подошвы и тальвег канавы с "
+            "полем связи пары. На дуге съезда линии уступов честно "
+            "разорваны, у канавы три линии сходятся в точку. Пара "
+            "растр-линии служит эталоном для 2.19 (полнота и точность "
+            "детектора меряются числом), готовым входом для построения "
+            "поверхности и учебным примером - и всё это без закрытых "
+            "данных.\n\n"
+            "**Охват** только кладёт демо на место и не меняет его "
+            "размер: формы карьера физичны, уступ 10 м при откосе 7 м, и "
+            "растягивать их до километров бессмысленно. Размер задают "
+            "«Ширина» и «Высота» в ячейках. Если у проекта система "
+            "координат местная или неизвестная, выберите её же в «СК "
+            "выхода»: пересчёт охвата из неизвестной системы в UTM даёт "
+            "бессмыслицу, и демо уедет неизвестно куда.\n\n"
+            "Выходы: GeoTIFF float32 и линейный слой LineStringZ с полями "
+            "kind (brow, toe, thalweg) и link, в группе Топография.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterNumber(
+            self.NX, self.tr("Ширина, ячеек"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.NX, demo_pit.DEFAULT_NX),
+            minValue=60, maxValue=4000))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.NY, self.tr("Высота, ячеек"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.NY, demo_pit.DEFAULT_NY),
+            minValue=60, maxValue=4000))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELL, self.tr("Размер ячейки, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.CELL, demo_pit.DEFAULT_CELL),
+            minValue=0.05, maxValue=100.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.SEED, self.tr("Зерно генератора"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.SEED, demo_pit.DEFAULT_SEED),
+            minValue=0))
+        self.addParameter(QgsProcessingParameterCrs(
+            self.CRS, self.tr("СК выхода (метрическая)"),
+            defaultValue="EPSG:32640"))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.BENCHES, self.tr("Число уступов"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.BENCHES, 3), minValue=1, maxValue=8))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BENCH_H, self.tr("Высота уступа, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.BENCH_H, 10.0),
+            minValue=1.0, maxValue=50.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.NOISE, self.tr("Шум съёмки, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.NOISE, 0.03),
+            minValue=0.0, maxValue=1.0)))
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.DUMP, self.tr("Отвал"), defaultValue=True)))
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.DITCH, self.tr("Сходящаяся канава"), defaultValue=True)))
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Куда положить (охват)"), optional=True))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Демо-карьер (рельеф)")))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.TRUTH, self.tr("Истинные линии (бровки, подошвы)"),
+            QgsProcessing.SourceType.TypeVectorLine))
+
+    def _process(self, parameters, context, feedback):
+        nx = self.parameterAsInt(parameters, self.NX, context)
+        ny = self.parameterAsInt(parameters, self.NY, context)
+        cell = self.parameterAsDouble(parameters, self.CELL, context)
+        seed = self.parameterAsInt(parameters, self.SEED, context)
+        crs = self.parameterAsCrs(parameters, self.CRS, context)
+        benches = self.parameterAsInt(parameters, self.BENCHES, context)
+        bench_h = self.parameterAsDouble(parameters, self.BENCH_H, context)
+        noise = self.parameterAsDouble(parameters, self.NOISE, context)
+        dump = self.parameterAsBoolean(parameters, self.DUMP, context)
+        ditch = self.parameterAsBoolean(parameters, self.DITCH, context)
+        out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT,
+                                               context)
+        if crs.isGeographic():
+            raise QgsProcessingException(self.tr("Нужна метрическая СК."))
+        auth = crs.authid()
+        epsg = int(auth.split(":")[1]) if auth.startswith("EPSG:") else None
+        wkt = None if epsg is not None else crs.toWkt()
+        origin_x, origin_y = 500000.0, 6500000.0
+        # Охват только кладёт демо на место и НЕ меняет его размер. У
+        # 2.10 растяжение до охвата безобидно, там холмы и шум, а здесь
+        # формы физичны: уступ 10 м, откос 7 м. Растянутый до километров
+        # карьер превращается в чёрный блин, на котором детектору нечего
+        # искать. Размер задают «Ширина» и «Высота» в ячейках.
+        ext = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        if ext is not None and not ext.isEmpty() and ext.width() > 0 \
+                and ext.height() > 0:
+            # ложимся серединой в середину охвата
+            origin_x = ext.center().x() - nx * cell / 2.0
+            origin_y = ext.center().y() + ny * cell / 2.0
+            feedback.pushInfo(self.tr(
+                "Демо кладётся в середину заданного охвата: начало %.1f "
+                "%.1f. Размер берётся из параметров, %dx%d ячеек по %.2f м, "
+                "а не из охвата: формы карьера физичны и растягивать их "
+                "нельзя.") % (origin_x, origin_y, nx, ny, cell))
+            ecrs = None
+            try:
+                ecrs = self.parameterAsExtentCrs(parameters, self.EXTENT,
+                                                 context)
+            except Exception:  # nosec - у старых сборок метода нет
+                ecrs = None
+            if ecrs is not None and ecrs.isValid() and crs.isValid() \
+                    and ecrs != crs:
+                feedback.pushInfo(self.tr(
+                    "Внимание: охват задан в другой системе координат, "
+                    "и он пересчитан в СК выхода. Если у проекта система "
+                    "местная или неизвестная, пересчёт даст бессмыслицу - "
+                    "выберите в «СК выхода» систему своего проекта."))
+        else:
+            pext = _project_extent_in(context, crs)
+            if pext is not None:
+                origin_x = pext.center().x() - nx * cell / 2.0
+                origin_y = pext.center().y() + ny * cell / 2.0
+
+        z, truth = demo_pit.generate(
+            nx=nx, ny=ny, cell=cell, seed=seed, benches=benches,
+            bench_h=bench_h, noise=noise, dump=dump, ditch=ditch)
+        demo_relief.write_geotiff(z, out_path, gdal, osr, cell=cell,
+                                  epsg=epsg, wkt=wkt,
+                                  origin_x=origin_x, origin_y=origin_y)
+        feedback.pushInfo(self.tr(
+            "Демо-карьер: %dx%d ячеек, уступов %d, зерно %d.")
+            % (nx, ny, benches, seed))
+        _topo_group_layer(context, out_path, self.tr("Топография"))
+        results = {self.OUTPUT: out_path}
+
+        fields = QgsFields()
+        fields.append(QgsField("kind", QVariant.String))
+        fields.append(QgsField("link", QVariant.String))
+        sink, dest_id = self.parameterAsSink(
+            parameters, self.TRUTH, context, fields,
+            QgsWkbTypes.Type.LineStringZ, crs)
+        for t in truth:
+            feat = QgsFeature(fields)
+            pts = [QgsPoint(origin_x + x, origin_y - y, zv)
+                   for x, y, zv in t["pts"]]
+            feat.setGeometry(QgsGeometry.fromPolyline(pts))
+            feat["kind"] = t["kind"]
+            feat["link"] = t["link"]
+            sink.addFeature(feat)
+        feedback.pushInfo(self.tr(
+            "Истинных линий: %d. Это эталон для 2.19 и вход для "
+            "поверхности между линиями.") % len(truth))
+        _set_output_name(context, dest_id,
+                         self.tr("Истинные линии (бровки, подошвы)"))
+        _topo_group_layer(context, dest_id, self.tr("Топография"),
+                          collapse=False)
+        results[self.TRUTH] = dest_id
+        return results
+
+
 ALGORITHMS = [
     CutFillAlgorithm,
     DeclusteringAlgorithm,
@@ -15187,6 +16261,9 @@ ALGORITHMS = [
     RiverNetworkAlgorithm,
     BasinsAlgorithm,
     PeaksAlgorithm,
+    BreaklineCandidatesAlgorithm,
+    BreaklinePairsAlgorithm,
+    TopoDemoPitAlgorithm,
     SlopeAspectAlgorithm,
     GaugeReportAlgorithm,
     DitchCatchmentAlgorithm,

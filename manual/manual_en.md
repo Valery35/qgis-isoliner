@@ -35,7 +35,84 @@ The main way is from the official QGIS repository. Open Plugins → Manage and I
 
 Raster band choice in all the tools is a drop-down with band names: a multiband bed grid shows roof, bottom and the parameter layer names in the lists.
 
-![The Isoliner provider in the Processing toolbox: five tool groups.](images/toolbox_tree_en.png){height=20cm}
+All the tools of the provider as they stand in the **Processing**
+toolbox. The list is generated from the code when the manual is built,
+so it never drifts from the plugin.
+
+**1. Grid and isolines**
+
+- `1.01` Declustering (weights)
+- `1.02` 2D Kriging (points -> raster)
+- `1.03` Minimum curvature (points -> raster)
+- `1.04` Isolines from raster
+- `1.05` Variogram (experimental)
+- `1.06` Variogram map (anisotropy)
+- `1.07` Variogram cross-validation
+- `1.08` Method cross-validation (LOO)
+- `1.09` Processing profiles
+- `1.10` Create sample wells (demo)
+- `1.11` Create a geophysical-profiles example (demo)
+
+**2. Topography**
+
+- `2.01` Download DEM by extent
+- `2.02` Download base topography by extent
+- `2.03` Topo2Raster (terrain from vectors)
+- `2.04` Terrain preparation
+- `2.05` Flow and accumulation (D8)
+- `2.06` River network
+- `2.07` Basins and watersheds
+- `2.08` Slope and aspect
+- `2.09` Peaks and pits
+- `2.10` Demo relief
+- `2.15` Gauge point report
+- `2.16` Catchment of a line or an outline (ditches, open pits)
+- `2.18` Cut and fill (earthwork volumes)
+- `2.19` Crest and toe candidates
+- `2.20` Crests and toes into work
+- `2.21` Create a demo open pit
+
+**2. Topography: diagnostics and repair**
+
+- `2.11` Split contours for validation
+- `2.12` Contour residuals against the DEM
+- `2.13` Terracing check of a DEM
+- `2.14` Remove steps (clamped smoothing)
+
+**3. Additional analysis tools**
+
+- `3.01` Categorical indicator kriging
+- `3.02` External Drift Kriging
+- `3.03` Exceedance probability map
+- `3.04` Hydraulic gradient and flow direction
+- `3.05` Specific discharge (Darcy law)
+- `3.06` Gaussian simulation (SGS)
+- `3.07` Density from measurements (variable support)
+- `3.08` Create a density example (demo)
+
+**4. Cross-sections**
+
+- `4.01` Cross-section along a line
+- `4.02` Boreholes on sections (drilling model)
+- `4.03` Bed composition on the section
+- `4.04` Intersect surfaces with the section
+- `4.05` Vector intersection with the section
+- `4.06` Intersect a TIN with the section
+- `4.07` Project objects onto the section
+- `4.08` Unproject from the section
+- `4.09` Shaft wall unwrap (beta)
+- `4.10` Create a section example
+- `4.11` Bed reference template
+
+**5. Fractal analysis**
+
+- `5.01` Fractal dimension
+- `5.02` Box-counting of masks
+- `5.03` Dimension of lines and boundaries
+- `5.04` Minkowski dimension (vectors)
+- `5.05` Create a fractal example (demo)
+
+_Tools in total: 55_
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
@@ -896,6 +973,18 @@ Inside, a two-stroke cycle runs at every grid level: membrane smoothing sets the
 
 The default extent is taken from the layers with a two-cell margin. All layers are brought to the CRS of the first given layer, which must be metric. The final **depression filling** is on by default, its logic is described in 2.04.
 
+## Three-dimensional thalwegs
+
+A thalweg without elevations works as a condition: a downstream fall is maintained along it, while the actual height is decided by the interpolator from the surrounding data. When the line carries vertex elevations, they become hard nodes, and a survey along the channel starts setting the bed rather than hinting at the direction.
+
+The elevations are then brought once to a downstream fall. The reason is not tidiness but the way the computation works: a channel survey is noisy, some vertices go uphill, and such a node would fight the fall enforcement on every iteration. Relaxation pins the cell to the elevation, the enforcement pushes it lower, and round it goes. After the correction the enforcement becomes a no-op and there is nothing left to fight.
+
+The correction only goes downwards: the tool never invents an elevation above the measured one. Its largest value is printed to the log, and it shows how noisy the survey was.
+
+Cells where a thalweg elevation disagrees with another node by more than five centimetres are counted separately. Usually this is a channel crossing a contour, and the thalweg wins there. The number of such places is reported as a warning: such a disagreement must not be resolved silently.
+
+A line without elevations behaves as before, and a mixed layer is handled object by object.
+
 ## The boundary of the build area
 
 A polygon limits the surface the same way an outer boundary does in design systems: beyond it no raster is output, there is nodata.
@@ -1395,6 +1484,70 @@ The accuracy at the boundary of the works is set by the cell size: the volume al
 
 The tool does not build side slopes, benches or layered statements, and it does not fit a design surface onto the terrain. That is the work of computer-aided design systems.
 
+# 2.19 Crest and toe candidates
+
+Finds the places where the slope changes fastest and traces them into lines: the crests and toes of benches, pit walls, the edges of fills and cuts.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Input DEM | A ground raster, not a DSM. The cell follows the survey density: 20-25 cm at 20 points per square metre. | - |
+| Minimum drop, m | The noise cut-off: a ridge of the evidence must gain this relief drop within the probe base. | 0.5 |
+| Minimum line length, cells | Removes fragments. | 10 |
+| Drop probe base, cells (Adv.) | The half-width of the window in which the drop across the line is measured. | 8 |
+
+**The evidence of a break is the gradient of the slope, not the slope.** On an even face, however steep, the slope is constant and the evidence is small. The evidence is large where the slope changes, that is on the crest itself and on the toe itself. The sign of the profile curvature splits the lines found: a convex break gives a crest, a concave one a toe, and this goes into the **kind** field as brow and toe.
+
+**A break without a drop is not a break.** A ridge of the evidence is discarded before any thresholds if its neighbourhood holds no relief drop of the given size. Centimetre noise of a dense survey never gains it, the neighbourhood of a real crest always does. This is the main filter, and it is physical rather than statistical: the thresholds of the internal mathematics are fitted automatically and are not exposed.
+
+**The drop is measured within the probe base, not across the whole width of the bench.** This is the first thing people stumble over: on a ten-metre bench with a three-cell base the **drop** field will read three metres rather than ten. The base is 8 cells to each side by default, which on a metre cell is ±8 m and covers a quarry bench. The width of the face is known to you and not to the tool, so set the base by it. The base is printed to the log both in cells and in metres.
+
+Output fields: **kind**, **drop** (m), **length_m**, **slope_deg** (the mean side slope). The layer arrives coloured by the drop, crests warm and toes cool. Classes appear only when the drop really varies: on a pit with equal benches the spread is a few per cent and splitting it into classes would cut noise, so one class per kind remains there.
+
+**The significance threshold stays with the human.** A formal definition of a crest does not exist, recognition rests on the surveyor's experience. What exists is the drop you are prepared to call a bench, and it differs on a quarry, a road embankment and a river bank. The tool therefore deliberately returns more than needed, together with the numbers for the selection, and prints the percentiles of the drop to the log as a ready hint where to cut. Select with a layer filter over the drop field while watching the map: nothing has to be recomputed.
+
+# 2.20 Crests and toes into work
+
+Turns the candidates of 2.19 into working structural lines: takes the elevations off the DEM, assembles crest-toe forms and lays them into two layers.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Candidates (output of 2.19) | A line layer with a kind field. | - |
+| DEM | The same one supplied to 2.19. | - |
+| Kind field | The field holding brow and toe. | kind |
+| Drop cut-off, m | Repeats the filter of 2.19 so that no separate filtered layer is needed. | 0 (take everything) |
+| Descent path limit, m | Beyond this the descent stops and the crest goes to the unpaired. | 50 |
+| Share of agreeing probes (Adv.) | Below this share a form is not assembled. | 0.4 |
+
+**Forms are assembled by descending the slope, not by proximity.** From the probe vertices of a crest a descent follows the flow directions until a toe is met, and the toes vote. This is how a bench works physically: water from the crest runs down the face exactly to its toe. On a curved wall with narrow berms the nearest toe by distance often belongs to the neighbouring bench, and the choice by proximity errs where the descent is right. Keep the path limit close to the width of the face: too large a limit lets a crest run to a foreign toe and form a plausible false pair with it.
+
+**A form is one toe with a set of crests at it.** The tracing cuts a long crest into pieces: a ramp breaks the outline, the evidence is interrupted on gentle stretches. All the pieces honestly descend to the same toe, so the result is grouped by the toe rather than written out as pairs: the toe goes into the output once and its crests share the **link** field. This is the same view as in building a surface between structural lines, where the sides are sets rather than single lines.
+
+**Unpaired lines do not vanish silently.** A third layer gathers them with the reason in an attribute: the descent did not reach a toe (the path limit is too small or the crest is false) or the descent scattered over different toes (the line has glued two benches together). The lowest share of agreeing probes is printed to the log and points at such a gluing.
+
+The **Top** and **Bottom** outputs are LineStringZ with the kind and link fields, the elevations taken off the DEM into the geometry. These are ready inputs for surface building and for an export as 3D lines into AutoCAD and Credo.
+
+# 2.21 Create a demo open pit
+
+Builds a demo pit and, more importantly, the true structural lines for it. The raster-lines pair serves as a reference for 2.19, as an input for surface building and as a teaching example, all without closed data.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Width, Height, cells | The size of the grid. | 400 x 300 |
+| Cell size, m | The grid step. | 1 |
+| Seed | Repeatability: one seed, one and the same pit. | 7 |
+| Output CRS | Metric. With a local project CRS choose the same one. | EPSG:32640 |
+| Number of benches | How many benches the wall holds. | 3 |
+| Bench height, m (Adv.) | The rise of a single bench. | 10 |
+| Survey noise, m (Adv.) | An imitation of the error of a dense survey. | 0.03 |
+| Dump, Converging ditch (Adv.) | Additional shapes. | on |
+| Where to place (extent) | Places the demo, does not change its size. | by the project layers |
+
+The composition of the terrain is chosen so that every shape tests its own side of the detector. The elliptical pit with benches and berms gives correct pairs. The ramp cutting through the benches gives an **honest break**: on its arc the true lines stop, and the candidates must stop there too. The flat-top dump gives a closed pair. The converging perimeter ditch gives three lines meeting at a point, the case where the weight of a surface between lines degenerates while the elevation stays correct.
+
+**The extent places the demo and does not change its size.** The shapes of the pit are physical: a 10 m bench on a 7 m face. A pit stretched to kilometres turns into a blot with nothing for the detector to find, so the size is set by the width and the height alone. And separately about the coordinate system: if the project uses a local or an unknown one, choose the same in the output CRS. Reprojecting an extent out of an unknown system into UTM gives nonsense and the demo lands nowhere.
+
+The second output, the **true lines**, carries the kind (brow, toe, thalweg) and link fields, with the elevations in the Z geometry. Against it the completeness and the precision of the detector are measured as numbers rather than by eye: put the candidates of 2.19 over the true lines and see where they diverge.
+
 # 3.01 Categorical indicator kriging
 
 The **Categorical indicator kriging** tool builds a probability map from a categorical field: mineral type, lithotype, any text class. Unlike ordinary kriging, which interpolates a number, here it estimates how likely each class is at every point of the area. This is what you need where the type matters rather than the magnitude: where to expect replacement, where the seam composition changes, where the boundary between varieties runs.
@@ -1406,6 +1559,7 @@ Parameters:
 | Point layer | Source points. | - |
 | Categorical field (class) | The class field (mineral type, lithotype). Empty and NULL are excluded. | - |
 | Search radius, min/max points, cell size, extent | Search and grid - as in "2D Kriging". | as in "2D Kriging" |
+| Nugget share | The share of the nugget in the fitted variogram, from 0 to 1. Empty means as fitted. | empty |
 | Class probabilities (multiband) | Raster: one band per class, the class name in the band description. | - |
 | Zone map (most likely class) | Raster of the most-likely class code; the code mapping goes to the Log. | - |
 | Confidence (max probability) | Raster of the maximum probability: where the class is firm, where it is contested. | optional |
@@ -1423,6 +1577,18 @@ Coding the classes as numbers 1, 2, 3 and interpolating that code is not allowed
 ![Indicator kriging on synthetics: categorised wells (red - replacement, white - sylvinite) turn into a class-probability map. A 0.5 threshold cuts the domain outline from it.](images/indicator_probability.png){width=74%}
 
 Separate indicators do not sum to exactly one and may go slightly out of range, a known property of the method. So the estimate of each class is clipped to zero-one, and then the class probabilities are normalised so that in every cell they sum to one.
+
+## When a borehole misses its own zone
+
+A common complaint: a borehole of the hazardous class is drawn outside the hazardous zone. This is not a failure of the fit but a property of the nugget, and it is worth understanding before touching the other parameters.
+
+Exactly at the measured point the kriging is exact whatever the nugget: the estimate at a node that lands on the collar equals the indicator itself. But a grid node almost never lands on a collar. With a non-zero nugget the surface has a discontinuity around the point, and a few metres away the estimate already drops to the local mean. On a synthetic example with a nugget of 0.5, five metres from a lone borehole of the hazardous class the probability falls to 0.47, that is below the 0.5 threshold, while with the nugget set to zero it stays at 0.97.
+
+Hence the **Nugget share** parameter. An empty field leaves the automatic fit as it is. Zero makes the surface smooth next to the data, and a borehole keeps its class in its own cell. The total variance is preserved when the share is moved, only the smoothness changes, so the scale of the probabilities does not drift. The fitted shares per class are printed to the Log, so it makes sense to simply look at them first: a large nugget means the classes are mixed at short distances, and that is a meaningful fact about the data rather than an obstacle.
+
+The nugget should be zeroed with open eyes. It is not an invention of the fit: it measures how much neighbouring boreholes disagree on the class. Zero means a decision to treat every measurement as exact and binding. For hazard maps that is often right, because the cost of a miss and the cost of a false alarm are not symmetric, but the map becomes harsher and patchier afterwards.
+
+The second thing the hit depends on is the cell. The estimate is computed at the cell centre, and if boreholes of different classes fall into one cell, no nugget will separate them. Set the cell finer than the spacing between neighbouring boreholes. The third is the polygon boundary: the probability bands are built from the raster with smoothing and rounding, and both move the level line slightly relative to the cells. If a point is outside a band by a hair, check this first by turning both smoothings off.
 
 ## What you get
 
@@ -2016,7 +2182,7 @@ The **Intersect surfaces with the section** tool places surface grids onto the s
 
 This is how water tables, marker surfaces, the salt roof and anomaly surfaces are placed on the section. The inputs are the section definition and a list of grids, the output is lines in the section axes (and optionally 3D lines in real coordinates).
 
-The object-projection, unprojection and shaft-unwrap tools are marked **(beta)**: they work, but their interface and example set are still being refined.
+Projection and unprojection have been proved on real data and no longer carry the **(beta)** mark. The shaft wall unwrap stays marked: it works, but its interface and example set are still being refined.
 
 ## Parameters
 
@@ -2046,6 +2212,13 @@ Unlike **Project objects onto the section** (approximate, corridor-based) this i
 | Section definition | The definition layer from 4.01: the line, vex and frame height. Enough for objects without Z. | - |
 | Layers to intersect | Lines and polygons mixed, in a single run. The src field in the outputs keeps the source layer. | - |
 | Section drawing | A fallback source of frame height for older definitions without zmin/zmax. | optional |
+| Carry the feature attributes onto the section | The fields of the source features go into the outputs, so the marks can be coloured and labelled by your own data. | on |
+| Keep the name of the source layer | The output is named after the source layer when a single one is supplied. | off |
+| Keep the style of the source layer | The appearance is taken from the source layer rather than from the standard style of the module. | off |
+| Terrain line on the drawing | The surface line layer from 4.01. The top of zones and faults follows the terrain rather than the frame. | optional |
+| Bottom line on the drawing | The same layer or a part of it. The bottom of zones and faults follows the sole rather than the frame. | optional |
+| Field with the bottom elevation of bands and verticals | The bottom of each feature from its own attribute. | optional |
+| The bottom value is a depth from the top (Adv.) | Switches the field from an absolute elevation to a depth. | off |
 | Bottom of Z range (Adv.) | The lower frame elevation when neither a definition with height nor a drawing is given. | 0 |
 | Top of Z range (Adv.) | The upper frame elevation in the same case. | 0 |
 | Verticals on the section | Output for lines without Z (a fault, a boundary): a full-height vertical. | created |
@@ -2053,6 +2226,43 @@ Unlike **Project objects onto the section** (approximate, corridor-based) this i
 | Zone bands on the section | Output for polygons (a plan zone): a vertical band over the interval. | created |
 
 Empty outputs are not created: each object type goes only into its own layer.
+
+
+## The name and the style of the source layer
+
+Two checkboxes for the case of a single supplied layer. Both are off by default, so earlier runs reproduce unchanged.
+
+**Keep the name of the source layer.** The output is named after the source: a geology layer gives "Geology on the section" instead of the generic "Zone bands on the section". If a single layer produced several kinds of features at once, the kind is appended to the name, otherwise three layers in the tree would carry the same one.
+
+**Keep the style of the source layer.** The appearance is taken from the layer itself rather than from the standard style of the module. Together with carrying the attributes this removes the main piece of manual work on the section: a categorised geology colouring by a field lands on the bands as it is, with no need to repeat the palette by hand. The style is carried over when the geometry type matches: polygons into bands, lines without an elevation into verticals. A line with a Z elevation gives a point, a line style will not fit it, and the standard one stays there.
+
+If several layers are supplied, both checkboxes stay silent, because the outputs merge all the sources into one layer, and a line explaining why goes to the log.
+
+## Clipping by the terrain and by the bottom line
+
+Zones and faults are drawn over the full height of the frame by default: it is known where the feature crosses the line and unknown how deep it goes. Three optional parameters remove that limitation at the edges.
+
+**The terrain line on the drawing** clips the features from above. Supply the terrain line layer that **4.01 Cross-section along a line** outputs. The top of zones and faults will follow the terrain, and the upper edge of a band will repeat its breaks rather than stay straight.
+
+The clipping follows the line from the drawing rather than the DEM raster, and that is deliberate. The section may have been built over a different surface, and then the raster and the drawing would diverge. Clipping must follow what the person has in front of them. Sections are matched by the **sec_id** field, so in a batch run each drawing is clipped by its own profile.
+
+**The bottom line on the drawing** clips the features from below and works the same way. Supply the sole, the floor of a seam or any lower surface from the same drawing. With no line supplied the bottom stays on the frame.
+
+If the layer holds several surfaces, clipping follows the envelope: the highest one above, the lowest one below. The **Surface lines on the drawing** output therefore fits as it is and can go into both inputs at once. When one particular surface is needed, supply the layer filtered by the **name** field.
+
+Both edges are computed at the same stations, the nodes of both lines being merged into one set. Otherwise the top and the bottom, each computed at its own stations, would cross between the nodes and the band would come out inverted. The bottom is never raised above the top: where the bottom line runs over the terrain, the band collapses and the feature is not output at all. The count of features cut away entirely is printed to the log, and these are usually zones lying above the terrain.
+
+**The bottom elevation field** sets the bottom of bands and verticals per feature, from the attribute of the feature itself. By default the value is read as an absolute elevation. A checkbox in the advanced parameters switches it to a depth from the top of the feature, which is handy when the data holds the thickness of a zone rather than its floor. The bottom is never taken below the frame.
+
+## Feature attributes on the section
+
+The **Carry the feature attributes onto the section** checkbox is on by default. The point is simple: the bands and verticals on the drawing are coloured and labelled by your own fields, without joining back to the source layer by hand.
+
+Several layers are supplied and their schemas differ, so the columns are merged into one common set. A field a layer does not have stays empty. The same name in different layers counts as one column, and the type is taken from the first layer where it occurred.
+
+Names that clash with the service ones (**sec**, **src**, **label**, **d**, **z**, **d1**, **d2**) are renamed with a suffix. This is not cosmetic: the **d** column carries the distance along the section, and a feature attribute with the same name would silently replace the coordinate, which you would only notice on the drawing.
+
+The number of merged columns is printed to the log.
 
 # 4.06 Intersect a TIN with the section
 
@@ -2076,7 +2286,7 @@ An important limit: **a QGIS mesh is 2.5D**, its height is a scalar per vertex, 
 
 Supply at least one of the two inputs - TIN faces or a mesh.
 
-# 4.07 Project objects onto the section (beta)
+# 4.07 Project objects onto the section
 
 The **Project objects onto the section** tool projects points, lines and polygons onto the section line. For each vertex the horizontal coordinate is the distance along the line to its projection, the height is the elevation from the 3D geometry or from a chosen field. Distant objects are cut off by a corridor.
 
@@ -2090,7 +2300,7 @@ The **Project objects onto the section** tool projects points, lines and polygon
 
 This generalises the borehole projection to any objects: anomalies, sampling points, traces, outlines. The result is in the section axes, placed on top of the drawing.
 
-# 4.08 Unproject from the section (beta)
+# 4.08 Unproject from the section
 
 The **Unproject from the section** tool does the reverse: objects drawn on the section drawing are returned to real coordinates. The horizontal coordinate of a vertex is read as the distance along the line (giving the plan), the height as the elevation Z = height / vex. The line and vex come from the same definition the drawing was built with.
 

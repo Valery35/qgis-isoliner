@@ -58,8 +58,8 @@ def test_all_algorithms_init():
     algorithms = importlib.import_module(pkg + ".algorithms")
     algorithms._tr = lambda s: s          # translate-заглушка возвращает строку
     assert algorithms.ALGORITHMS, "список ALGORITHMS пуст"
-    assert len(algorithms.ALGORITHMS) == 52, (
-        "ожидалось 52 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
+    assert len(algorithms.ALGORITHMS) == 55, (
+        "ожидалось 55 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
     for cls in algorithms.ALGORITHMS:
         a = cls()
         a.initAlgorithm()                 # тут и падало бы 'no attribute tr'
@@ -95,6 +95,34 @@ def test_group_name_sorts_after_topography():
     from grid_isolines import algorithms as A
     assert A.GROUP_TOPODIAG > A.GROUP_TOPO, (A.GROUP_TOPO, A.GROUP_TOPODIAG)
     assert A.GROUP_TOPODIAG_ID != A.GROUP_TOPO_ID
+
+
+def test_style_not_overwritten_by_grouping():
+    """Стиль и сворачивание узла не должны спорить за пост-процессор.
+
+    У слоя пост-процессор один: _topo_group_layer со сворачиванием ставит
+    свой и затирает стилевой. Это уже стоило одной ложной диагностики
+    (списали на data-defined цвет в QML), поэтому теперь сторож.
+    """
+    import re
+    src = open(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "algorithms.py"), encoding="utf-8").read()
+    lines = src.split("\n")
+    styled = {}
+    for i, l in enumerate(lines):
+        m = re.search(r"_attach_(?:style|break_style|categories)\(context, (\w+)", l)
+        if m:
+            styled.setdefault(m.group(1), []).append(i)
+    bad = []
+    for i, l in enumerate(lines):
+        m = re.search(r"_topo_group_layer\(context, (\w+)", l)
+        if not m or m.group(1) not in styled:
+            continue
+        if "collapse=False" in "\n".join(lines[i:i + 3]):
+            continue
+        if [n for n in styled[m.group(1)] if abs(n - i) < 30]:
+            bad.append((i + 1, m.group(1)))
+    assert not bad, "группировка затрёт стиль: %s" % bad
 
 
 if __name__ == "__main__":

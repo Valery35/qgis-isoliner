@@ -580,3 +580,147 @@ def union_bbox(bboxes):
         return None
     return (min(b[0] for b in bboxes), min(b[1] for b in bboxes),
             max(b[2] for b in bboxes), max(b[3] for b in bboxes))
+
+
+def merge_field_names(per_layer, reserved=()):
+    """Сводит поля нескольких слоёв в один общий набор.
+
+    Инструмент пересечения принимает сразу несколько слоёв, и схемы у них
+    разные. Чтобы вынести атрибуты на разрез, нужен один набор колонок на
+    все слои: поле, которого у слоя нет, останется пустым.
+
+    Имена, совпадающие со служебными (sec, d, label и прочие), переименовываются
+    с суффиксом: иначе атрибут объекта затрёт координату разреза, и человек
+    этого не заметит. Совпадение имён между слоями считается одним полем, тип
+    берётся от первого слоя - разнотипицу тут разрешить нельзя, а терять
+    данные хуже, чем сложить их в одну колонку.
+
+    per_layer: список списков имён, по одному на слой.
+    reserved:  имена, которые занимать нельзя.
+
+    Возвращает (names, maps), где names это итоговый список колонок, а maps -
+    по списку на слой: maps[i][k] это индекс поля слоя i для колонки k, либо
+    -1, если у слоя такого поля нет.
+    """
+    taken = {str(r).lower() for r in reserved}
+    names = []
+    origin = []            # исходное имя для каждой колонки
+    seen = {}              # исходное имя -> индекс колонки
+    for src in per_layer:
+        for nm in src:
+            key = str(nm)
+            if key in seen:
+                continue
+            out = key
+            n = 1
+            while out.lower() in taken:
+                n += 1
+                out = "%s_%d" % (key, n)
+            taken.add(out.lower())
+            seen[key] = len(names)
+            names.append(out)
+            origin.append(key)
+    maps = []
+    for src in per_layer:
+        idx = {str(nm): k for k, nm in enumerate(src)}
+        maps.append([idx.get(o, -1) for o in origin])
+    return names, maps
+
+
+def profile_from_lines(parts, keep_high=True):
+    """Сводит линии на чертеже в одну возрастающую по X ломаную.
+
+    Линии обрезки приходят слоем, и частей может быть несколько: разрывы по
+    отсутствию данных, отдельные объекты на каждый разрез. Для обрезки нужен
+    один профиль, по которому можно спросить высоту в любой станции.
+
+    Совпадающие X встречаются на вертикальных участках. Для верхней кромки
+    берётся наибольшая высота, для нижней наименьшая: срезать лишнее хуже,
+    чем оставить лишнее видимым. Тем же правилом слой из нескольких
+    поверхностей сводится к огибающей, верхней или нижней.
+    """
+    pts = []
+    for xs, ys in parts:
+        for x, y in zip(xs, ys):
+            if x == x and y == y:
+                pts.append((float(x), float(y)))
+    if not pts:
+        return None
+    pts.sort()
+    ox, oy = [], []
+    for x, y in pts:
+        if ox and abs(x - ox[-1]) <= 1e-9:
+            if (y > oy[-1]) if keep_high else (y < oy[-1]):
+                oy[-1] = y
+            continue
+        ox.append(x)
+        oy.append(y)
+    return np.asarray(ox, dtype=float), np.asarray(oy, dtype=float)
+
+
+def profile_y_at(prof, x):
+    """Высота профиля в станции x. За краями держится крайнее значение."""
+    if prof is None:
+        return None
+    px, py = prof
+    if px.size == 0:
+        return None
+    return float(np.interp(float(x), px, py))
+
+
+def band_nodes(profs, x1, x2):
+    """Станции, в которых считаются кромки полосы.
+
+    Концы отрезка плюс узлы всех поданных ломаных внутри него. Набор общий
+    на верх и низ, иначе кромки, посчитанные каждая по своим станциям,
+    пересекались бы между узлами и кольцо завязалось бы бантиком.
+    """
+    x1, x2 = float(min(x1, x2)), float(max(x1, x2))
+    inner = set()
+    for prof in profs:
+        if prof is None:
+            continue
+        for v in prof[0]:
+            v = float(v)
+            if x1 < v < x2:
+                inner.add(v)
+    return [x1] + sorted(inner) + [x2]
+
+
+def band_ring(bot, top):
+    """Кольцо полосы: низ слева направо, верх обратно, замыкание в начало."""
+    ring = [(float(x), float(y)) for x, y in bot]
+    ring += [(float(x), float(y)) for x, y in reversed(top)]
+    ring.append(ring[0])
+    return ring
+
+
+def clamp_below(bot, top):
+    """Низ не поднимается выше верха.
+
+    Там, где линия низа прошла над рельефом, полоса схлопывается в ноль, а не
+    выворачивается: кольцо с перехлёстом кромок дало бы бантик вместо полосы.
+    Кромки обязаны стоять в одних станциях, их даёт band_nodes.
+    """
+    return [(x, min(y, ty)) for (x, y), (_tx, ty) in zip(bot, top)]
+
+
+def band_is_flat(bot, top, tol=1e-9):
+    """Полоса схлопнулась целиком: везде низ дошёл до верха."""
+    return all(ty - y <= tol for (_x, y), (_tx, ty) in zip(bot, top))
+
+
+def edge_along(prof, xs, ylim, upper=True):
+    """Кромка полосы по ломаной, зажатая уровнем рамки.
+
+    Верхняя кромка идёт по профилю там, где он ниже уровня, нижняя там, где
+    он выше. Без профиля кромка остаётся прямой по уровню, то есть поведение
+    прежнее. Возвращает список точек слева направо.
+    """
+    if prof is None:
+        return [(float(x), float(ylim)) for x in xs]
+    out = []
+    for x in xs:
+        y = profile_y_at(prof, x)
+        out.append((float(x), float(min(ylim, y) if upper else max(ylim, y))))
+    return out
