@@ -292,6 +292,12 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
+- The **"Terrain from a topographic plan"** cheat sheet (RU/EN): the 2.22 → 2.20 → 2.03 chain for areal quarries, cuts, fills and dumps, where the standard describes no contours inside.
+
+- **4.47.0** — the DEM in 2.20 became optional: with elevations on the lines the pairs are assembled without terrain, and the topographic scenario no longer goes in a circle.
+- **4.46.0** — 2.20 reads the kind field tolerantly: classifier codes and names carrying the words for a crest or a toe, with a table of decisions in the log.
+- **4.45.0** — the weight of measured elevations in 2.03: in a shared cell a measurement outweighs a digitized contour vertex.
+- **4.44.0** — 2.22 "Elevations from adjoining contours": mute crests receive a profile from the adjoining node points.
 - **4.43.0** — the surface between structural lines in 2.03: the Top of forms and Bottom of forms inputs, a core on the distance method, a section in the manual.
 - **4.42.0** — a bent-crest fill in the demo to measure the price of the distance method, the detector thresholds gained a physical floor instead of a tie to the maximum.
 - **4.41.0** — the homonym "подошва" untangled in the translation dictionary (bed bottom vs bench toe), the test now fails on conflicting keys.

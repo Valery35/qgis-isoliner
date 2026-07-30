@@ -226,6 +226,88 @@ def test_toe_gathers_several_crest_fragments():
     assert unpaired == []
 
 
+def test_kind_reader_tolerates_real_codes():
+    """Поле вида в сдаточном комплекте: слова и коды классификаторов.
+
+    2.19 пишет brow и toe, а в реальном слое будет «Бровка откоса,
+    насыпи, выемки укреплённая» или код 62350400. Читатель терпит и то, и
+    другое, а неузнанное честно возвращает None: угадывать вслепую хуже,
+    чем сказать «не понял».
+    """
+    assert tb.classify_kind("brow") == "brow"
+    assert tb.classify_kind("toe") == "toe"
+    assert tb.classify_kind("Бровка откоса, насыпи, выемки укреплённая") \
+        == "brow"
+    assert tb.classify_kind("Подошва откоса") == "toe"
+    assert tb.classify_kind("62350400") == "brow"
+    assert tb.classify_kind("22213000") == "brow"
+    assert tb.classify_kind("crest") == "brow"
+    assert tb.classify_kind("TOE") == "toe"
+    # неузнанное и пустое
+    for v in ("трубопровод", "", None, "12345678", "  "):
+        assert tb.classify_kind(v) is None, v
+
+
+def test_toe_wins_over_crest_words():
+    """«Подошва откоса» содержит и подошву, и откос - должна быть подошвой.
+
+    Порядок проверки слов не случаен: сначала подошва, потом бровка.
+    Обратный порядок ловил бы «подошву» на слове из названия объекта.
+    """
+    assert tb.classify_kind("подошва откоса насыпи") == "toe"
+    assert tb.classify_kind("низ уступа") == "toe"
+    assert tb.classify_kind("верх уступа") == "brow"
+
+
+def test_classify_kinds_reports_unknown():
+    """Разбор набора: решения по значению и список неузнанных."""
+    vals = ["brow", "brow", "Подошва откоса", "трубопровод", None]
+    decided, unknown = tb.classify_kinds(vals)
+    assert decided == {"brow": "brow", "Подошва откоса": "toe"}
+    assert unknown == ["трубопровод", None]
+
+
+def test_pair_by_elevation_without_dem():
+    """Пары без ЦМР: подошва - ближайшая линия ниже бровки.
+
+    Спуск по склону отвечал на вопрос «где низ». Когда у линий есть
+    отметки, ответ уже в данных, и рельеф для спаривания не нужен - это
+    разрывает круг топографического сценария, где рельеф как раз и
+    строится.
+    """
+    brows = [[(r, 10) for r in range(5, 25)],
+             [(r, 30) for r in range(5, 25)]]
+    toes = [[(r, 17) for r in range(5, 25)],
+            [(r, 37) for r in range(5, 25)]]
+    groups, unpaired = tb.pair_by_elevation(
+        brows, toes, [120.0, 110.0], [110.0, 100.0], 1.0, max_dist=50.0)
+    assert len(groups) == 2 and not unpaired
+    assert {g["toe"]: g["brows"] for g in groups} == {0: [0], 1: [1]}
+
+
+def test_pair_by_elevation_refuses_higher_toe():
+    """Линия выше бровки подошвой быть не может, даже если она ближе."""
+    brows = [[(r, 10) for r in range(5, 25)]]
+    toes = [[(r, 12) for r in range(5, 25)],    # ближе, но выше
+            [(r, 25) for r in range(5, 25)]]    # дальше, но ниже
+    groups, unpaired = tb.pair_by_elevation(
+        brows, toes, [100.0], [110.0, 90.0], 1.0, max_dist=50.0)
+    assert len(groups) == 1
+    assert groups[0]["toe"] == 1
+    assert [u["kind"] for u in unpaired] == ["toe"]
+
+
+def test_pair_by_elevation_respects_limit():
+    """Дальше предела пара не собирается, бровка уходит в непарные."""
+    brows = [[(r, 10) for r in range(5, 25)]]
+    toes = [[(r, 200) for r in range(5, 25)]]
+    groups, unpaired = tb.pair_by_elevation(
+        brows, toes, [120.0], [100.0], 1.0, max_dist=50.0)
+    assert not groups
+    reasons = sorted(u["kind"] for u in unpaired)
+    assert reasons == ["brow", "toe"]
+
+
 def _run():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

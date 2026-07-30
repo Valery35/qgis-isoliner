@@ -965,6 +965,7 @@ Builds terrain from vector data by multigrid interpolation from a coarse grid to
 | Contour elevation field | Level attribute of the contours. | ELEV |
 | Streamlines (downstream) | River lines, vertices pointing downstream. The 2.06 network and OSM fit as is. | - |
 | Cliffs (smoothing barriers) | Lines along which the drop is not smeared. | - |
+| Weight of measured elevations (adv.) | In a shared cell a measurement outweighs a digitized contour vertex. 1 = as before. | 1 |
 | Top of forms, Bottom of forms | The sides of forms with elevations: crests and toes, ridges and bases, a summit as a point. See the section on the surface between structural lines. | - |
 | Form link field | The same value on every object of one form. | link |
 | Elevation field of form sides (adv.) | When the lines carry no Z. | - |
@@ -1535,13 +1536,19 @@ Turns crest and toe lines into working structural lines: takes the elevations of
 | Parameter | What it sets | Default / advice |
 |---|---|---|
 | Candidates (output of 2.19) | A line layer with a kind field. A layer of crests and toes from a topographic deliverable will do as well. | - |
-| DEM | The same one supplied to 2.19. | - |
+| DEM | The same one supplied to 2.19. | optional |
 | Kind field | The field holding brow and toe. | kind |
 | Drop cut-off, m | Repeats the filter of 2.19 so that no separate filtered layer is needed. | 0 (take everything) |
 | Descent path limit, m | Beyond this the descent stops and the crest goes to the unpaired. | 50 |
 | Share of agreeing probes (Adv.) | Below this share a form is not assembled. | 0.4 |
 
 **Forms are assembled by descending the slope, not by proximity.** From the probe vertices of a crest a descent follows the flow directions until a toe is met, and the toes vote. This is how a bench works physically: water from the crest runs down the face exactly to its toe. On a curved wall with narrow berms the nearest toe by distance often belongs to the neighbouring bench, and the choice by proximity errs where the descent is right. Keep the path limit close to the width of the face: too large a limit lets a crest run to a foreign toe and form a plausible false pair with it.
+
+**The DEM is optional, and that matters more than it seems.** The descent answers a single question: which way is down. When the lines carry elevations of their own (the output of 2.22) the answer is already in the data and no terrain is needed: the toe is the nearest line lying below the crest.
+
+Without this the topographic scenario went in a circle. To build the terrain from forms you need pairs; to assemble pairs by descent you need terrain, which does not exist yet and is the very thing being built. A draft pass of 2.03 over the contours alone had to be made, knowing it was wrong inside the quarry. Now the order is straight: 2.22 gives the elevations, 2.20 without a DEM assembles the pairs, 2.03 builds the surface.
+
+With a DEM the former descent is used, and on a curved wall with narrow berms it is more accurate: there the nearest toe by distance often belongs to the neighbouring bench.
 
 **A form is one toe with a set of crests at it.** The tracing cuts a long crest into pieces: a ramp breaks the outline, the evidence is interrupted on gentle stretches. All the pieces honestly descend to the same toe, so the result is grouped by the toe rather than written out as pairs: the toe goes into the output once and its crests share the **link** field. This is the same view as in building a surface between structural lines, where the sides are sets rather than single lines.
 
@@ -1570,6 +1577,27 @@ The composition of the terrain is chosen so that every shape tests its own side 
 **The extent places the demo and does not change its size.** The shapes of the pit are physical: a 10 m bench on a 7 m face. A pit stretched to kilometres turns into a blot with nothing for the detector to find, so the size is set by the width and the height alone. And separately about the coordinate system: if the project uses a local or an unknown one, choose the same in the output CRS. Reprojecting an extent out of an unknown system into UTM gives nonsense and the demo lands nowhere.
 
 The second output, the **true lines**, carries the kind (brow, toe, thalweg) and link fields, with the elevations in the Z geometry. Against it the completeness and the precision of the detector are measured as numbers rather than by eye: put the candidates of 2.19 over the true lines and see where they diverge.
+
+# 2.22 Elevations from adjoining contours
+
+Gives mute lines a profile from the contours that adjoin them.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Lines without elevations | Crests and toes from a deliverable or from 2.20. | - |
+| Contours | The contour layer of the same deliverable. | - |
+| Contour elevation field | The elevation attribute. Empty - Z of the vertices. | ELEV |
+| Adjoining tolerance, m | How far a contour end may stop short of the line. | 0.5 |
+
+**Where the elevations come from.** A crest in a topographic drawing carries no elevation of its own, and for a long time that looked like a dead end. But the standard requires contours to be brought up to the object line **with node points formed**, and every such point carries the elevation of its contour. From them comes the profile of the whole line: a varying elevation out of the data itself rather than one value per object.
+
+An important correction, worth one redaction of the specification: a contour **does not run along the crest**. Contours are cut by the slope, and the single one that lies along a crest does so only when its level happens to match the crest, that is by chance. What works is the adjoining, not the coincidence.
+
+**What counts as a meeting.** A through intersection of the line with a contour, and a contour end within the tolerance. Between the meetings the elevation is interpolated along the arc of the line, beyond the extreme ones it is held constant: extrapolating the gradient along a crest is unsafe, it often breaks at the turns.
+
+**Honesty of the result.** The method works exactly as far as the deliverable is topologically consistent. If the contours are not brought up to the line, the line stays mute and goes into a separate layer with the reason. The number of support points is written into the `n_samples` attribute and into the log as a median and a minimum: one point means a constant elevation along the whole line, and that is visible at once.
+
+**Place in the pipeline.** The output is LineStringZ, a ready form side for the **Top of forms** and **Bottom of forms** inputs of 2.03. Together with 2.20, which assembles the pairs and fills the link field, this closes the topographic scenario: areal quarries, cuts, fills and dumps, where contours inside are not described by the standard, receive a surface out of crests and toes alone.
 
 # 3.01 Categorical indicator kriging
 

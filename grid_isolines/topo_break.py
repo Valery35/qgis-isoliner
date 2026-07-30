@@ -473,3 +473,121 @@ def pair_breaklines(brows, toes, z, cell, max_dist=200.0, min_share=0.4,
             unpaired.append({"kind": "toe", "idx": j,
                              "reason": "к подошве не спустилась ни одна бровка"})
     return groups, unpaired
+
+
+# --- толерантный читатель поля вида ------------------------------------
+
+# Коды бровок из классификаторов: Рекомендации Росреестра и технические
+# требования к цифровым планам. Отдельного кода подошвы нет ни в одном -
+# она проходит нижней горизонталью или линией основания, поэтому список
+# односторонний, и это не упущение.
+CREST_CODES = ("22170000", "22213000", "22263000", "22413000",
+               "22632000", "22633000", "22650000", "32183300",
+               "62350400", "62350500")
+
+_CREST_WORDS = ("бровк", "brow", "crest", "верх", "top", "гребен", "ridge")
+_TOE_WORDS = ("подош", "toe", "низ", "bottom", "основани", "поднож")
+
+
+def classify_kind(value):
+    """Вид линии из значения поля: 'brow', 'toe' или None.
+
+    В выходе 2.19 стоят brow и toe, а в сдаточном комплекте будет
+    «Бровка откоса, насыпи, выемки укреплённая» или код 62350400.
+    Читатель терпит и то, и другое: сперва точное совпадение, потом
+    известные коды, потом вхождение слова. Неузнанное честно возвращает
+    None - угадывать вслепую хуже, чем сказать «не понял».
+    """
+    if value is None:
+        return None
+    s = str(value).strip().lower()
+    if not s:
+        return None
+    if s in ("brow", "toe"):
+        return s
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if digits:
+        for code in CREST_CODES:
+            if digits.startswith(code) or code.startswith(digits[:8]):
+                if len(digits) >= 8:
+                    return "brow"
+    for w in _TOE_WORDS:          # подошва раньше бровки: «подошва откоса»
+        if w in s:                # содержит и «откос», и слово подошвы
+            return "toe"
+    for w in _CREST_WORDS:
+        if w in s:
+            return "brow"
+    return None
+
+
+def classify_kinds(values):
+    """Разбор набора значений: (решения, неузнанные).
+
+    решения - dict значение -> вид, только для узнанных;
+    неузнанные - список значений в порядке появления.
+    Нужен инструменту, чтобы напечатать в журнал таблицу решений: на
+    первом живом слое видно, как прочитан каждый код, а не «доверьтесь».
+    """
+    decided, unknown, seen = {}, [], set()
+    for v in values:
+        key = None if v is None else str(v).strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        k = classify_kind(v)
+        if k is None:
+            unknown.append(key)
+        else:
+            decided[key] = k
+    return decided, unknown
+
+
+def pair_by_elevation(brows, toes, z_brows, z_toes, cell, max_dist=50.0):
+    """Формы без ЦМР: пара определяется отметками, а не спуском.
+
+    Спуск по склону в pair_breaklines отвечает на один вопрос - какая
+    подошва принадлежит этой бровке, - и нужен он потому, что у линий нет
+    отметок. Когда отметки есть (например, после 2.22), ответ уже в
+    данных: подошва обязана лежать ниже бровки, а из лежащих ниже берётся
+    ближайшая. ЦМР при этом не требуется вовсе, и топографический
+    сценарий перестаёт ходить по кругу «нужен рельеф, чтобы построить
+    рельеф».
+
+    brows, toes - списки линий, каждая список (row, col) либо (x, y) в
+    одних единицах с cell; z_brows, z_toes - средние отметки линий.
+    Возвращает (groups, unpaired) в том же виде, что pair_breaklines.
+    """
+    import numpy as _np
+    max_cells = float(max_dist) / float(cell)
+    by_toe = {}
+    unpaired = []
+    arrs = [_np.asarray(t, dtype=float) for t in toes]
+    for i, br in enumerate(brows):
+        b = _np.asarray(br, dtype=float)
+        best_j, best_d = -1, _np.inf
+        for j, t in enumerate(arrs):
+            if z_toes[j] >= z_brows[i]:
+                continue                      # подошва не может быть выше
+            d = _np.min(_np.hypot(
+                b[:, 0][:, None] - t[:, 0][None, :],
+                b[:, 1][:, None] - t[:, 1][None, :]))
+            if d < best_d:
+                best_d, best_j = d, j
+        if best_j < 0:
+            unpaired.append({"kind": "brow", "idx": i,
+                             "reason": "ниже этой бровки подошв нет"})
+        elif best_d > max_cells:
+            unpaired.append({"kind": "brow", "idx": i,
+                             "reason": "ближайшая подошва дальше предела"})
+        else:
+            by_toe.setdefault(best_j, []).append(i)
+    groups = []
+    for j in sorted(by_toe):
+        groups.append({"toe": j, "brows": by_toe[j],
+                       "link": "form-%d" % (len(groups) + 1),
+                       "share": 1.0})
+    for j in range(len(toes)):
+        if j not in by_toe:
+            unpaired.append({"kind": "toe", "idx": j,
+                             "reason": "к подошве не отнесена ни одна бровка"})
+    return groups, unpaired

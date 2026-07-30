@@ -18,6 +18,48 @@ def _grid_xy(z, x0, y_top, cell):
     return xs, ys
 
 
+class TestPointWeights(unittest.TestCase):
+    """Вес образца при усреднении внутри ячейки.
+
+    Точки высот и вершины уплотнённых изолиний идут в 2.03 одним потоком
+    жёстких узлов. При совпадении в ячейке простое среднее уравнивает
+    измерение и оцифровку в правах, хотя вершина горизонтали врёт в
+    пределах половины сечения. Вес это исправляет, не трогая схему
+    релаксации.
+    """
+
+    def test_weight_decides_shared_cell(self):
+        # обе точки заведомо в одной ячейке: строка 4, колонка 5
+        meas = [10.2, 10.2, 100.0]
+        dig = [10.8, 10.8, 110.0]
+        plain = np.array([meas, dig], dtype=np.float64)
+        pin, val = t2r._pin_from_points(plain, 0.0, 20.0, 2.0, (10, 10))
+        self.assertAlmostEqual(float(val[pin][0]), 105.0, places=9)
+
+        weighted = np.array([meas + [5.0], dig + [1.0]], dtype=np.float64)
+        pin2, val2 = t2r._pin_from_points(weighted, 0.0, 20.0, 2.0, (10, 10))
+        got = float(val2[pin2][0])
+        self.assertAlmostEqual(got, (5 * 100.0 + 110.0) / 6.0, places=9)
+        self.assertLess(got, 102.0)
+
+    def test_three_columns_unchanged(self):
+        rng = np.random.default_rng(5)
+        p3 = np.column_stack([rng.uniform(0, 20, 40), rng.uniform(0, 20, 40),
+                              rng.uniform(100, 110, 40)])
+        p4 = np.column_stack([p3, np.ones(40)])
+        a = t2r._pin_from_points(p3, 0.0, 20.0, 2.0, (10, 10))
+        b = t2r._pin_from_points(p4, 0.0, 20.0, 2.0, (10, 10))
+        self.assertTrue(np.array_equal(a[0], b[0]))
+        self.assertTrue(np.allclose(a[1], b[1]))
+
+    def test_bad_weights_fall_back_to_one(self):
+        pts = np.array([[5.0, 5.0, 100.0, 0.0],
+                        [5.1, 5.1, 102.0, -3.0],
+                        [5.2, 5.2, 104.0, np.nan]], dtype=np.float64)
+        pin, val = t2r._pin_from_points(pts, 0.0, 20.0, 2.0, (10, 10))
+        self.assertAlmostEqual(float(val[pin][0]), 102.0, places=9)
+
+
 class TestGeometryHelpers(unittest.TestCase):
 
     def test_polygon_mask_square(self):

@@ -105,7 +105,7 @@ from . import dem_glo30, osm_overpass, demo_relief
 from .hydro_fill import fill_depressions, DEFAULT_EPSILON
 from . import volumes as _vol
 from . import topo_flow, topo_gauge, topo_surface, topo_t2r, topo_smooth
-from . import topo_break, demo_pit, topo_form
+from . import topo_break, demo_pit, topo_form, topo_snapz
 from . import palette_lfc  # чтение палитры Leapfrog, без QGIS
 from . import plast_reference  # справочник пластов, без QGIS
 
@@ -13744,6 +13744,7 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
     FORM_LINK = "FORM_LINK"
     FORM_Z = "FORM_Z"
     FORM_SHAPE = "FORM_SHAPE"
+    PT_WEIGHT = "PT_WEIGHT"
     EXTENT = "EXTENT"
     BOUNDARY = "BOUNDARY"
     CELL = "CELL"
@@ -13792,6 +13793,14 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             "Правка идёт только вниз, наибольшая её величина печатается в "
             "журнал. Линия без отметок ведёт себя как прежде, разнотипный "
             "слой разбирается по объектам.\n"
+            "\n**Вес измеренных отметок** решает спор в общей ячейке. "
+            "Точки высот и вершины уплотнённых изолиний идут одним потоком "
+            "жёстких узлов, и при совпадении в ячейке простое среднее "
+            "уравнивает их в правах. Измеренная отметка снята прибором, а "
+            "вершина горизонтали нарисована по линии сечения и врёт в "
+            "пределах половины сечения, поэтому вес больше единицы отдаёт "
+            "ячейку измерению. Единица (по умолчанию) сохраняет прежнее "
+            "поведение, старые прогоны воспроизводятся.\n"
             "\n**Граница области построения** ограничивает поверхность "
             "полигоном, как outer boundary в САПР. Маска накладывается "
             "после интерполяции, а не отсечением входа: данные снаружи "
@@ -13846,6 +13855,10 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.FORM_Z, self.tr("Поле отметки сторон форм (если нет Z)"),
             parentLayerParameterName=self.FORM_TOP, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.PT_WEIGHT, self.tr("Вес измеренных отметок"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.PT_WEIGHT, 1.0), minValue=0.01)))
         self.addParameter(_advanced(QgsProcessingParameterEnum(
             self.FORM_SHAPE, self.tr("Функция формы поперёк"),
             options=[self.tr("линейная (проектный откос)"),
@@ -14160,19 +14173,30 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             if not f_points:
                 raise QgsProcessingException(self.tr(
                     "Укажите поле высоты точек."))
-            pts += self._collect_points(src_points, f_points, target_crs,
-                                        context)
+            w_pt = self.parameterAsDouble(parameters, self.PT_WEIGHT,
+                                          context)
+            pts += [(x, y, z, w_pt) for x, y, z
+                    in self._collect_points(src_points, f_points,
+                                            target_crs, context)]
         if src_contours is not None:
             if not f_contours:
                 raise QgsProcessingException(self.tr(
                     "Укажите поле высоты изолиний."))
-            pts += self._collect_contours(src_contours, f_contours,
-                                          target_crs, context, cell)
+            pts += [(x, y, z, 1.0) for x, y, z
+                    in self._collect_contours(src_contours, f_contours,
+                                              target_crs, context, cell)]
         if not pts:
             raise QgsProcessingException(self.tr(
                 "Во входных слоях не нашлось ни одного узла с высотой."))
         pts = np.array(pts, dtype=np.float64)
         feedback.pushInfo(self.tr("Узлов с высотой: %d") % len(pts))
+        if pts.shape[1] > 3:
+            w_uniq = np.unique(pts[:, 3])
+            if w_uniq.size > 1:
+                feedback.pushInfo(self.tr(
+                    "Вес измеренных отметок %.2f против единицы у вершин "
+                    "изолиний: в общей ячейке измерение перевесит "
+                    "оцифровку.") % float(w_uniq.max()))
 
         streams = []
         if src_streams is not None:
@@ -15974,6 +15998,13 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
             "какая бровка с какой подошвой образуют форму - нет, и связь "
             "приходится собирать. Таких комплектов много, а плотных "
             "съёмок мало.\n\n"
+            "**ЦМР необязательна.** Спуск по склону отвечает на один "
+            "вопрос: где низ. Когда у линий есть собственные отметки "
+            "(выход 2.22), ответ уже в данных, и рельеф не нужен - "
+            "подошвой считается ближайшая линия, лежащая ниже бровки. Это "
+            "разрывает круг топографического сценария, где рельеф как раз "
+            "и строится, и подать его в спуск нечего. С ЦМР работает "
+            "прежний спуск, он точнее на кривом борту с узкими бермами.\n\n"
             "Пары собираются спуском по склону, а не по близости. От "
             "каждой пробной вершины бровки идёт спуск по направлениям "
             "стока, пока не встретится подошва, и подошвы голосуют. Так "
@@ -15991,6 +16022,14 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
             "причиной в атрибуте: спуск не дошёл до подошвы (обычно предел "
             "пути мал или бровка ложная) либо спуск разошёлся по разным "
             "подошвам (обычно линия склеила два уступа).\n\n"
+            "**Поле вида читается терпимо.** 2.19 пишет brow и toe, а в "
+            "сдаточном комплекте будет «Бровка откоса, насыпи, выемки "
+            "укреплённая» или код 62350400. Понимаются значения из 2.19, "
+            "коды бровок из классификаторов и названия со словами «бровка» "
+            "или «подошва». Как прочитано каждое значение, печатается в "
+            "журнал таблицей, а неузнанные значения перечисляются отдельно "
+            "и пропускаются: угадывать вслепую хуже, чем сказать «не "
+            "понял».\n\n"
             "Отсечка по перепаду повторяет фильтр 2.19: сюда можно подать "
             "весь слой кандидатов и отобрать значимые прямо здесь, не "
             "заводя отдельный отфильтрованный слой. Выходы: два линейных "
@@ -16003,7 +16042,7 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
             self.INPUT, self.tr("Кандидаты (выход 2.19)"),
             [QgsProcessing.SourceType.TypeVectorLine]))
         self.addParameter(QgsProcessingParameterRasterLayer(
-            self.DEM, self.tr("ЦМР (та же, что в 2.19)")))
+            self.DEM, self.tr("ЦМР (та же, что в 2.19)"), optional=True))
         self.addParameter(QgsProcessingParameterField(
             self.KIND_FIELD, self.tr("Поле вида (brow, toe)"),
             parentLayerParameterName=self.INPUT, defaultValue="kind",
@@ -16044,33 +16083,74 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
         min_drop = self.parameterAsDouble(parameters, self.MIN_DROP, context)
         max_dist = self.parameterAsDouble(parameters, self.MAX_DIST, context)
         min_share = self.parameterAsDouble(parameters, self.MIN_SHARE, context)
-        z, mask, gt, proj, cell = _topo_read_dem(dem, self.tr)
-        ny, nx = z.shape
+        # Два режима. С ЦМР пара собирается спуском по склону. Без ЦМР -
+        # по отметкам самих линий: спуск отвечал на вопрос «где низ», а
+        # когда отметки есть (после 2.22), ответ уже в данных. Это
+        # разрывает круг топографического сценария, где рельеф как раз и
+        # строится и подать его в спуск нечего.
+        by_z = dem is None
+        if by_z:
+            gt = None
+            cell = 1.0
+            z = mask = None
+            ny = nx = 0
+            feedback.pushInfo(self.tr(
+                "ЦМР не задана: пары собираются по отметкам линий. Линии "
+                "обязаны быть трёхмерными (выход 2.22), подошвой считается "
+                "ближайшая линия, лежащая ниже бровки."))
+        else:
+            z, mask, gt, proj, cell = _topo_read_dem(dem, self.tr)
+            ny, nx = z.shape
 
         fnames = [f.name().lower() for f in src.fields()]
         i_kind = fnames.index((kfield or "kind").lower()) \
             if (kfield or "kind").lower() in fnames else -1
         i_drop = fnames.index("drop") if "drop" in fnames else -1
 
-        def to_cells(geom):
-            out = []
+        def _parts(geom):
             try:
-                parts = geom.asMultiPolyline() or []
+                pp = geom.asMultiPolyline() or []
             except TypeError:
-                parts = []
-            if not parts:
+                pp = []
+            if not pp:
                 ln = geom.asPolyline()
-                parts = [ln] if ln else []
-            for ln in parts:
+                pp = [ln] if ln else []
+            return pp
+
+        def to_cells(geom):
+            """Ячейки при работе с ЦМР, координаты карты - без неё."""
+            out = []
+            for ln in _parts(geom):
                 for p in ln:
-                    c = int((p.x() - gt[0]) / gt[1])
-                    r = int((p.y() - gt[3]) / gt[5])
-                    if 0 <= r < ny and 0 <= c < nx:
-                        if not out or out[-1] != (r, c):
-                            out.append((r, c))
+                    if by_z:
+                        item = (p.y(), p.x())
+                    else:
+                        c = int((p.x() - gt[0]) / gt[1])
+                        r = int((p.y() - gt[3]) / gt[5])
+                        if not (0 <= r < ny and 0 <= c < nx):
+                            continue
+                        item = (r, c)
+                    if not out or out[-1] != item:
+                        out.append(item)
             return out
 
+        def mean_z(geom):
+            """Средняя отметка линии по вершинам, None если линия плоская."""
+            zs = []
+            g = geom.constGet()
+            if g is None or not g.is3D():
+                return None
+            for i in range(g.nCoordinates()):
+                try:
+                    zs.append(float(geom.vertexAt(i).z()))
+                except Exception:  # nosec - вершина без Z
+                    pass
+            zs = [v for v in zs if v == v]
+            return sum(zs) / len(zs) if zs else None
+
         brows, toes, skipped = [], [], 0
+        z_brows, z_toes, no_z = [], [], 0
+        raw_values = []
         for ft in src.getFeatures():
             g = ft.geometry()
             if g.isEmpty():
@@ -16083,25 +16163,59 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
                         continue
                 except (TypeError, ValueError):
                     pass
-            kind = str(attrs[i_kind]).lower() if i_kind >= 0 else ""
+            raw = attrs[i_kind] if i_kind >= 0 else None
+            raw_values.append(raw)
+            kind = topo_break.classify_kind(raw)
             cells = to_cells(g)
             if len(cells) < 2:
                 continue
-            if kind.startswith("toe"):
+            zm = mean_z(g) if by_z else None
+            if by_z and zm is None:
+                no_z += 1
+                continue
+            if kind == "toe":
                 toes.append(cells)
-            elif kind.startswith("brow"):
+                z_toes.append(zm)
+            elif kind == "brow":
                 brows.append(cells)
+                z_brows.append(zm)
+        # Таблица решений в журнал: в сдаточном комплекте вместо brow и toe
+        # стоят «Бровка откоса, насыпи, выемки укреплённая» или код
+        # 62350400, и читатель их терпит. Но угадывание нельзя оставлять
+        # молчаливым, поэтому печатается, как прочитано каждое значение.
+        decided, unknown = topo_break.classify_kinds(raw_values)
+        if decided:
+            feedback.pushInfo(self.tr("Поле вида прочитано так:"))
+            for val, k in sorted(decided.items(), key=lambda kv: str(kv[0])):
+                feedback.pushInfo("  %s -> %s" % (
+                    val, self.tr("бровка") if k == "brow"
+                    else self.tr("подошва")))
+        if unknown:
+            feedback.pushInfo(self.tr(
+                "Не опознаны и пропущены значения поля вида: %s.")
+                % ", ".join(str(u) for u in unknown[:8]))
         feedback.pushInfo(self.tr(
             "Подано бровок %d, подошв %d, отсечено по перепаду %d.")
             % (len(brows), len(toes), skipped))
+        if no_z:
+            feedback.pushInfo(self.tr(
+                "Пропущено плоских линий без отметок: %d. Без ЦМР пары "
+                "собираются по отметкам, поэтому линии обязаны нести Z: "
+                "проведите их через 2.22.") % no_z)
         if not brows or not toes:
             raise QgsProcessingException(self.tr(
-                "Нужны линии обоих видов. Проверьте поле вида: ожидаются "
-                "значения brow и toe, как их пишет 2.19."))
+                "Нужны линии обоих видов. В поле вида понимаются значения "
+                "brow и toe из 2.19, коды бровок из классификаторов и "
+                "названия со словами «бровка» или «подошва». Как прочитано "
+                "каждое значение, напечатано в журнале выше."))
 
-        groups, unpaired = topo_break.pair_breaklines(
-            brows, toes, z, cell, max_dist=max_dist, min_share=min_share,
-            nodata_mask=mask)
+        if by_z:
+            groups, unpaired = topo_break.pair_by_elevation(
+                brows, toes, z_brows, z_toes, cell, max_dist=max_dist)
+        else:
+            groups, unpaired = topo_break.pair_breaklines(
+                brows, toes, z, cell, max_dist=max_dist,
+                min_share=min_share, nodata_mask=mask)
 
         fields = QgsFields()
         fields.append(QgsField("kind", QVariant.String))
@@ -16119,12 +16233,23 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
             parameters, self.ORPHANS, context, ofields,
             QgsWkbTypes.Type.LineString, dem.crs())
 
-        def write(sink, cells, flds, values, with_z=True):
-            zs = topo_break.sample_z(z, cells, nodata_mask=mask)
+        def write(sink, cells, flds, values, with_z=True, own_z=None):
+            """Отметки: с ЦМР снимаются с неё, без ЦМР берутся у линии.
+
+            Во втором режиме линия уже трёхмерная (её провели через 2.22),
+            и снимать нечего - отметка приходит средней по линии, той же,
+            по которой собиралась пара.
+            """
             pts = []
-            for (r, c), zv in zip(cells, zs):
-                x, y = _topo_cell_xy(gt, r, c)
-                pts.append(QgsPoint(x, y, zv if zv == zv else 0.0))
+            if by_z:
+                for (y, x) in cells:
+                    pts.append(QgsPoint(x, y, own_z if own_z is not None
+                                        else 0.0))
+            else:
+                zs = topo_break.sample_z(z, cells, nodata_mask=mask)
+                for (r, c), zv in zip(cells, zs):
+                    x, y = _topo_cell_xy(gt, r, c)
+                    pts.append(QgsPoint(x, y, zv if zv == zv else 0.0))
             feat = QgsFeature(flds)
             if with_z:
                 feat.setGeometry(QgsGeometry.fromPolyline(pts))
@@ -16137,9 +16262,11 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
         for g in groups:
             # подошва пишется один раз на группу, бровки все со своим же
             # полем связи: форма это одна подошва и множество бровок при ней
-            write(bot_sink, toes[g["toe"]], fields, ["toe", g["link"]])
+            write(bot_sink, toes[g["toe"]], fields, ["toe", g["link"]],
+                  own_z=z_toes[g["toe"]] if by_z else None)
             for bi in g["brows"]:
-                write(top_sink, brows[bi], fields, ["brow", g["link"]])
+                write(top_sink, brows[bi], fields, ["brow", g["link"]],
+                      own_z=z_brows[bi] if by_z else None)
         for u in unpaired:
             cells = brows[u["idx"]] if u["kind"] == "brow" else toes[u["idx"]]
             write(orp_sink, cells, ofields, [u["kind"], self.tr(u["reason"])],
@@ -16151,7 +16278,7 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
             "линий: %d. Одна подошва собирает несколько бровок, когда "
             "трассировка разрезала длинную бровку на куски.")
             % (len(groups), len(groups), n_brows, len(unpaired)))
-        if groups:
+        if groups and not by_z:
             worst = min(g["share"] for g in groups)
             feedback.pushInfo(self.tr(
                 "Наименьшая доля согласных проб в форме: %.2f. Низкая доля "
@@ -16170,6 +16297,185 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
             _topo_group_layer(context, orp_id, self.tr("Топография"),
                               collapse=False)
             results[self.ORPHANS] = orp_id
+        return results
+
+
+class SnapElevationsAlgorithm(IsolinerAlgorithm):
+    """2.22 Отметки с примыкающих горизонталей."""
+
+    INPUT = "INPUT"
+    CONTOURS = "CONTOURS"
+    CONTOURS_FIELD = "CONTOURS_FIELD"
+    TOL = "TOL"
+    OUTPUT = "OUTPUT"
+    SKIPPED = "SKIPPED"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return SnapElevationsAlgorithm()
+    def name(self): return "snap_elevations"
+    def displayName(self):
+        return self.tr("2.22 Отметки с примыкающих горизонталей")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPO)
+    def groupId(self): return GROUP_TOPO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Даёт немым линиям профиль по горизонталям, которые к ним "
+            "примыкают. У бровки в топографическом чертеже своей отметки "
+            "нет, но горизонтали по нормативу доводятся до линии описания "
+            "объекта с формированием узловых точек. Каждая такая точка "
+            "несёт отметку своей горизонтали, и по ним восстанавливается "
+            "профиль всей линии - переменная отметка из самих данных, а "
+            "не одна на весь объект.\n\n"
+            "Берутся два вида встреч: пересечение с горизонталью насквозь "
+            "и конец горизонтали в допуске от линии (узловая точка "
+            "примыкания). Между точками отметка интерполируется по дуге "
+            "линии, за крайними держится постоянной: экстраполировать "
+            "уклон вдоль бровки опасно, он часто ломается.\n\n"
+            "Зачем: выход подаётся стороной формы в **Верх форм** или "
+            "**Низ форм** инструмента 2.03 Topo2Raster. Вместе с 2.20 это "
+            "закрывает площадные карьеры, выемки, насыпи и отвалы в "
+            "топопланах: горизонтали внутри них по нормативу не "
+            "описываются, и бровки с подошвами - единственный источник "
+            "рельефа там.\n\n"
+            "Метод работает ровно настолько, насколько комплект "
+            "топологически согласован: если горизонтали до линии не "
+            "доведены, линия остаётся немой и уходит в отдельный слой с "
+            "причиной. Число опорных точек пишется в атрибут n_samples и "
+            "в журнал - по нему сразу видно, годится ли комплект.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Линии без отметок (бровки, подошвы)"),
+            [QgsProcessing.SourceType.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.CONTOURS, self.tr("Горизонтали"),
+            [QgsProcessing.SourceType.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterField(
+            self.CONTOURS_FIELD, self.tr("Поле высоты горизонталей"),
+            parentLayerParameterName=self.CONTOURS, defaultValue="ELEV",
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.TOL, self.tr("Допуск примыкания, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.TOL, 0.5), minValue=0.0))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Линии с отметками (LineStringZ)"),
+            QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.SKIPPED, self.tr("Немые линии (без примыканий)"),
+            QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=True))
+        _restore_layer_defaults(self, (self.INPUT, self.CONTOURS))
+
+    def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT, self.CONTOURS))
+        _save_values(self, _mem)
+        src = self.parameterAsSource(parameters, self.INPUT, context)
+        csrc = self.parameterAsSource(parameters, self.CONTOURS, context)
+        cfield = self.parameterAsString(parameters, self.CONTOURS_FIELD,
+                                        context)
+        tol = self.parameterAsDouble(parameters, self.TOL, context)
+
+        def polylines(geom):
+            try:
+                parts = geom.asMultiPolyline() or []
+            except TypeError:
+                parts = []
+            if not parts:
+                ln = geom.asPolyline()
+                parts = [ln] if ln else []
+            return [[(p.x(), p.y()) for p in ln] for ln in parts if ln]
+
+        cf = [f.name().lower() for f in csrc.fields()]
+        ci = cf.index((cfield or "ELEV").lower()) \
+            if (cfield or "ELEV").lower() in cf else -1
+        contours = []
+        for ft in csrc.getFeatures():
+            z = None
+            if ci >= 0:
+                try:
+                    z = float(ft.attributes()[ci])
+                except (TypeError, ValueError):
+                    z = None
+            if z is None:
+                g = ft.geometry()
+                if g.constGet() is not None and g.constGet().is3D():
+                    try:
+                        z = float(g.vertexAt(0).z())
+                    except Exception:  # nosec
+                        z = None
+            if z is None:
+                continue
+            for pts in polylines(ft.geometry()):
+                contours.append({"pts": pts, "z": z})
+        feedback.pushInfo(self.tr("Горизонталей с отметкой: %d.")
+                          % len(contours))
+
+        in_fields = src.fields()
+        out_fields = QgsFields(in_fields)
+        out_fields.append(QgsField("n_samples", QVariant.Int))
+        sink, dest_id = self.parameterAsSink(
+            parameters, self.OUTPUT, context, out_fields,
+            QgsWkbTypes.Type.LineStringZ, src.sourceCrs())
+        sfields = QgsFields(in_fields)
+        sfields.append(QgsField("reason", QVariant.String))
+        skip_sink, skip_id = self.parameterAsSink(
+            parameters, self.SKIPPED, context, sfields,
+            QgsWkbTypes.Type.LineString, src.sourceCrs())
+
+        n_done = n_skip = 0
+        counts = []
+        for ft in src.getFeatures():
+            if feedback.isCanceled():
+                break
+            attrs = ft.attributes()
+            for pts in polylines(ft.geometry()):
+                done, skipped = topo_snapz.snap_elevations(
+                    [{"pts": pts}], contours, tol)
+                if done:
+                    d = done[0]
+                    feat = QgsFeature(out_fields)
+                    feat.setGeometry(QgsGeometry.fromPolyline(
+                        [QgsPoint(x, y, z) for (x, y), z
+                         in zip(pts, d["zs"])]))
+                    feat.setAttributes(list(attrs) + [int(d["n_samples"])])
+                    sink.addFeature(feat)
+                    n_done += 1
+                    counts.append(d["n_samples"])
+                else:
+                    feat = QgsFeature(sfields)
+                    feat.setGeometry(QgsGeometry.fromPolylineXY(
+                        [QgsPointXY(x, y) for x, y in pts]))
+                    feat.setAttributes(list(attrs)
+                                       + [self.tr(skipped[0]["reason"])])
+                    skip_sink.addFeature(feat)
+                    n_skip += 1
+        feedback.pushInfo(self.tr(
+            "Профиль получили %d линий, остались немыми %d.")
+            % (n_done, n_skip))
+        if counts:
+            feedback.pushInfo(self.tr(
+                "Опорных точек на линию: медиана %d, наименьшее %d. Одна "
+                "точка означает постоянную отметку по всей линии.")
+                % (int(np.median(counts)), int(min(counts))))
+        _set_output_name(context, dest_id,
+                         self.tr("Линии с отметками (LineStringZ)"))
+        _attach_break_style(context, dest_id, solid="#a63603", width=0.8)
+        _topo_group_layer(context, dest_id, self.tr("Топография"),
+                          collapse=False)
+        results = {self.OUTPUT: dest_id}
+        if n_skip:
+            _set_output_name(context, skip_id,
+                             self.tr("Немые линии (без примыканий)"))
+            _topo_group_layer(context, skip_id, self.tr("Топография"),
+                              collapse=False)
+            results[self.SKIPPED] = skip_id
         return results
 
 
@@ -16399,6 +16705,7 @@ ALGORITHMS = [
     PeaksAlgorithm,
     BreaklineCandidatesAlgorithm,
     BreaklinePairsAlgorithm,
+    SnapElevationsAlgorithm,
     TopoDemoPitAlgorithm,
     SlopeAspectAlgorithm,
     GaugeReportAlgorithm,
