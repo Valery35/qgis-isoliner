@@ -144,6 +144,41 @@ def test_shapes_do_not_scale_with_grid():
     assert 18.0 < d1 < 22.0
 
 
+def test_corner_bench_has_varying_crest():
+    """Уступ с поворотом: отметка гребня меняется вдоль него.
+
+    Форма добавлена ради двух чисел цены метода расстояний. Оба проявляются
+    только при переменной отметке: на постоянной ни залом на медиальной
+    оси, ни веер у поворота ничего не искажают.
+    """
+    z, truth = demo_pit.generate(seed=7, noise=0.0)
+    cor = [t for t in truth if t["link"] == "corner"]
+    kinds = sorted(t["kind"] for t in cor)
+    assert kinds == ["brow", "toe", "toe"]      # гребень и два откоса
+    crest = [t for t in cor if t["kind"] == "brow"][0]
+    zs = [p[2] for p in crest["pts"]]
+    assert max(zs) - min(zs) > 3.0
+    xs = [p[0] for p in crest["pts"]]
+    ys = [p[1] for p in crest["pts"]]
+    # поворот на прямой угол: одно плечо вдоль x, другое вдоль y
+    assert max(xs) - min(xs) > 20.0 and max(ys) - min(ys) > 20.0
+
+
+def test_corner_does_not_disturb_the_pit():
+    """Насыпь не трогает карьер: её отключение не меняет его глубину.
+
+    На мелких гридах она дотягивалась до бровки верхнего уступа и меняла
+    отметку уже снятой истинной линии.
+    """
+    z1, _t = demo_pit.generate(nx=300, ny=240, seed=7, noise=0.0)
+    z0, _t0 = demo_pit.generate(nx=300, ny=240, seed=7, noise=0.0,
+                                corner=False)
+    base, _b = demo_pit.generate(nx=300, ny=240, seed=7, benches=0,
+                                 noise=0.0, dump=False, ditch=False,
+                                 corner=False)
+    assert abs(float((base - z1).max()) - float((base - z0).max())) < 1e-9
+
+
 def _run():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

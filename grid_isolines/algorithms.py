@@ -105,7 +105,7 @@ from . import dem_glo30, osm_overpass, demo_relief
 from .hydro_fill import fill_depressions, DEFAULT_EPSILON
 from . import volumes as _vol
 from . import topo_flow, topo_gauge, topo_surface, topo_t2r, topo_smooth
-from . import topo_break, demo_pit
+from . import topo_break, demo_pit, topo_form
 from . import palette_lfc  # чтение палитры Leapfrog, без QGIS
 from . import plast_reference  # справочник пластов, без QGIS
 
@@ -641,9 +641,12 @@ class _BreakStylePostProcessor(QgsProcessingLayerPostProcessorInterface):
             dec = 0 if spread >= 100 else (1 if spread >= 5 else
                                            (2 if spread >= 0.5 else 3))
             families = (
-                ("brow", _tr("бровка"),
+                # «подошва» без уточнения уже занята геологией (подошва
+                # пласта в многоканальном гриде), и словарь переводов
+                # различает значения по самой строке, а не по месту
+                ("brow", _tr("бровка уступа"),
                  ["#fdd0a2", "#fdae6b", "#e6550d", "#a63603"]),
-                ("toe", _tr("подошва"),
+                ("toe", _tr("подошва уступа"),
                  ["#c6dbef", "#9ecae1", "#3182bd", "#08519c"]),
             )
             widths = [0.3, 0.5, 0.8, 1.3]
@@ -8715,17 +8718,18 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
         reserved = ("sec", "sec_id", "src", "label", "d", "z", "d1", "d2")
         extra_names, extra_maps, extra_defs, origin = [], {}, [], []
         if keep:
-            per_layer = [[f.name() for f in l.fields()] if l is not None else []
-                         for l in layers]
+            per_layer = [[f.name() for f in lyr.fields()]
+                         if lyr is not None else []
+                         for lyr in layers]
             extra_names, maps = _sc.merge_field_names(per_layer, reserved)
-            for n, l in enumerate(layers):
-                if l is not None:
-                    extra_maps[l.id()] = maps[n]
+            for n, lyr in enumerate(layers):
+                if lyr is not None:
+                    extra_maps[lyr.id()] = maps[n]
             src_types, seen = {}, set()
-            for l in layers:
-                if l is None:
+            for lyr in layers:
+                if lyr is None:
                     continue
-                for f in l.fields():
+                for f in lyr.fields():
                     if f.name() not in seen:
                         seen.add(f.name())
                         origin.append(f.name())
@@ -13735,6 +13739,11 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
     BREAKLINES = "BREAKLINES"
     LAKES = "LAKES"
     LAKES_FIELD = "LAKES_FIELD"
+    FORM_TOP = "FORM_TOP"
+    FORM_BOT = "FORM_BOT"
+    FORM_LINK = "FORM_LINK"
+    FORM_Z = "FORM_Z"
+    FORM_SHAPE = "FORM_SHAPE"
     EXTENT = "EXTENT"
     BOUNDARY = "BOUNDARY"
     CELL = "CELL"
@@ -13823,6 +13832,26 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Охват (пусто: по слоям)"), optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
+            self.FORM_TOP, self.tr("Верх форм (бровки, гребни, вершины)"),
+            [QgsProcessing.SourceType.TypeVectorLine,
+             QgsProcessing.SourceType.TypeVectorPoint], optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.FORM_BOT, self.tr("Низ форм (подошвы, дно, урез)"),
+            [QgsProcessing.SourceType.TypeVectorLine,
+             QgsProcessing.SourceType.TypeVectorPoint], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.FORM_LINK, self.tr("Поле связи формы (одно на пару)"),
+            parentLayerParameterName=self.FORM_TOP, defaultValue="link",
+            optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.FORM_Z, self.tr("Поле отметки сторон форм (если нет Z)"),
+            parentLayerParameterName=self.FORM_TOP, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterEnum(
+            self.FORM_SHAPE, self.tr("Функция формы поперёк"),
+            options=[self.tr("линейная (проектный откос)"),
+                     self.tr("плавная (скругление у кромок)")],
+            defaultValue=0)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
             self.BOUNDARY, self.tr("Граница области построения (полигон)"),
             [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterNumber(
@@ -13883,6 +13912,54 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             for line in multi:
                 if len(line) >= 2:
                     yield feat, np.array([[p.x(), p.y()] for p in line])
+
+    def _collect_form_side(self, source, link_field, z_field, target_crs,
+                           context):
+        """Сторона форм: линии и точки с отметками и полем связи.
+
+        Приоритеты отметки - из постановки: Z вершин, затем поле. Объект
+        без того и другого попадает в список с pts без z: ядро его
+        пропустит и сосчитает, в журнал уйдёт число пропущенных.
+        """
+        tf = self._transformer(source, target_crs, context)
+        fields = [f.name().lower() for f in source.fields()]
+        i_link = fields.index(link_field.lower()) \
+            if link_field and link_field.lower() in fields else -1
+        i_z = fields.index(z_field.lower()) \
+            if z_field and z_field.lower() in fields else -1
+        out = []
+        for feat in source.getFeatures():
+            geom = feat.geometry()
+            if geom.isEmpty():
+                continue
+            try:
+                geom.transform(tf)
+            except QgsCsException:
+                continue
+            attrs = feat.attributes()
+            link = str(attrs[i_link]) if i_link >= 0 else ""
+            zf = None
+            if i_z >= 0:
+                try:
+                    zf = float(attrs[i_z])
+                except (TypeError, ValueError):
+                    zf = None
+            has_z = QgsWkbTypes.hasZ(geom.wkbType())
+            gtype = QgsWkbTypes.geometryType(geom.wkbType())
+            parts = []
+            if gtype == QgsWkbTypes.GeometryType.PointGeometry:
+                for p in geom.parts():
+                    parts.append([(p.x(), p.y(), p.z())] if has_z
+                                 else [(p.x(), p.y())])
+            else:
+                for part in geom.parts():
+                    pts_ = [(v.x(), v.y(), v.z()) if has_z
+                            else (v.x(), v.y()) for v in part.vertices()]
+                    if len(pts_) >= 2:
+                        parts.append(pts_)
+            for pts_ in parts:
+                out.append({"pts": pts_, "z": zf, "link": link})
+        return out
 
     def _iter_lines_z(self, source, target_crs, context):
         """Ломаные и отметки их вершин, если геометрия трёхмерная.
@@ -14135,6 +14212,25 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             lakes = self._collect_lakes(src_lakes, f_lakes, target_crs,
                                         context)
 
+        src_ftop = self.parameterAsSource(parameters, self.FORM_TOP, context)
+        src_fbot = self.parameterAsSource(parameters, self.FORM_BOT, context)
+        f_link = self.parameterAsString(parameters, self.FORM_LINK, context)
+        f_formz = self.parameterAsString(parameters, self.FORM_Z, context)
+        form_shape = self.parameterAsEnum(parameters, self.FORM_SHAPE,
+                                          context)
+        form_feats = (None, None)
+        if (src_ftop is None) != (src_fbot is None):
+            feedback.pushWarning(self.tr(
+                "Подана только одна сторона форм. Формы собираются из "
+                "верха и низа вместе, одинокая сторона пропущена (если "
+                "нужен барьер, подайте её во вход Обрывы)."))
+        elif src_ftop is not None:
+            form_feats = (
+                self._collect_form_side(src_ftop, f_link, f_formz,
+                                        target_crs, context),
+                self._collect_form_side(src_fbot, f_link, f_formz,
+                                        target_crs, context))
+
         extent = self.parameterAsExtent(parameters, self.EXTENT, context,
                                         target_crs)
         if extent.isEmpty():
@@ -14147,6 +14243,37 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
         else:
             ext = (extent.xMinimum(), extent.yMinimum(),
                    extent.xMaximum(), extent.yMaximum())
+
+        if form_feats[0] is not None:
+            res = topo_form.forms_to_constraints(
+                form_feats[0], form_feats[1], ext, cell,
+                shape_kind=(topo_form.SHAPE_SMOOTH if form_shape == 1
+                            else topo_form.SHAPE_LINEAR))
+            for o in res["orphans"]:
+                feedback.pushWarning(self.tr(
+                    "Форма «%s»: %s, сторона осталась вне построения.")
+                    % (o["link"], self.tr(o["reason"])))
+            if res["points"].shape[0]:
+                pts = np.vstack([pts, res["points"]])
+                breaklines = list(breaklines) + list(res["barriers"])
+                for rep in res["report"]:
+                    feedback.pushInfo(self.tr(
+                        "Форма «%s»: ячеек тела %d, медианная ширина %.1f "
+                        "ячеек, расхождение отметок в схождениях %.2f м, "
+                        "пропущено объектов без отметок %d.")
+                        % (rep["link"], rep["n_body"], rep["width_med"],
+                           rep["seam_max"], rep["skipped"]))
+                narrow = [r["link"] for r in res["report"]
+                          if 0 < r["width_med"] < 2.0]
+                if narrow:
+                    feedback.pushWarning(self.tr(
+                        "Формы уже двух ячеек: %s. В растре такой формы "
+                        "нет, уменьшите размер ячейки.")
+                        % ", ".join(narrow))
+            else:
+                feedback.pushWarning(self.tr(
+                    "Из слоёв форм не собралось ни одного тела: проверьте "
+                    "поле связи и отметки сторон."))
 
         feedback.pushInfo(self.tr("Мультисеточная интерполяция..."))
         try:
@@ -15833,11 +15960,20 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
 
     def shortHelpString(self):
         return _help_version(self.tr(
-            "Превращает кандидатов из 2.19 в рабочие структурные линии: "
-            "снимает отметки с ЦМР, собирает пары бровка-подошва и "
+            "Превращает линии бровок и подошв в рабочие структурные линии: "
+            "снимает отметки с ЦМР, собирает формы бровка-подошва и "
             "раскладывает их по двум слоям, Верх и Низ, с общим полем "
             "связи. Выход подаётся дальше как есть, руками править "
             "нечего.\n\n"
+            "**Два сценария, и второй важнее первого.** Первый очевидный: "
+            "линии пришли из 2.19 по плотной съёмке. Второй - линии уже "
+            "есть в топографическом комплекте, потому что бровки там "
+            "описываются обязательно и своими кодами классификатора. "
+            "Детектор в этом случае не нужен вовсе, а нужно ровно то, что "
+            "делает этот инструмент: вид линии в комплекте закодирован, а "
+            "какая бровка с какой подошвой образуют форму - нет, и связь "
+            "приходится собирать. Таких комплектов много, а плотных "
+            "съёмок мало.\n\n"
             "Пары собираются спуском по склону, а не по близости. От "
             "каждой пробной вершины бровки идёт спуск по направлениям "
             "стока, пока не встретится подошва, и подошвы голосуют. Так "

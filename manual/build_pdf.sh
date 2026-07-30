@@ -39,15 +39,12 @@ build() {
     rm -f /tmp/_isoliner_raw.pdf
 }
 
-<<<<<<< HEAD
 # Дерево инструментов вставляется в руководства генератором из кода:
 # скриншот панели при полусотне инструментов нечитаем и устаревает каждый
 # релиз, а сгенерированный список не расходится с плагином никогда.
 python3 gen_tree.py ../grid_isolines/algorithms.py ru > /tmp/_tree_ru.md || true
 python3 gen_tree.py ../grid_isolines/algorithms.py en > /tmp/_tree_en.md || true
 
-=======
->>>>>>> 9619b6af5a646c890a0de1e3400de5d1e4f57c9c
 build manual.md Isoliner.pdf
 build manual_en.md Isoliner_en.pdf
 

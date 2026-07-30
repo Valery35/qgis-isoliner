@@ -51,8 +51,8 @@ def _sources():
 def _code_only(text):
     """Без строк-комментариев: в них конструкции упоминаются нарочно, чтобы
     объяснить запрет."""
-    return "\n".join(l for l in text.splitlines()
-                     if not l.lstrip().startswith("#"))
+    return "\n".join(ln for ln in text.splitlines()
+                     if not ln.lstrip().startswith("#"))
 
 
 def test_no_unsafe_constructs():

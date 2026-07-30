@@ -109,6 +109,58 @@ def main():
     assert not empty, empty
 
     print("[ok] coverage: %d wrapped UI strings, all translated" % len(keys))
+
+    # Повторяющиеся ключи словаря. Литерал молча оставляет последнее
+    # значение, поэтому омоним («подошва» пласта и подошва уступа) тихо
+    # ломает перевод там, где его добавили позже. Ловим разбором исходника:
+    # в готовом словаре дубля уже не видно.
+    seen, clash, same = {}, [], 0
+    for node in ast.walk(ast.parse(open(
+            os.path.join(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))), "i18n.py"),
+            encoding="utf-8").read())):
+        if not isinstance(node, ast.Dict) or len(node.keys) < 50:
+            continue
+        for k, v in zip(node.keys, node.values):
+            if not (isinstance(k, ast.Constant) and isinstance(v, ast.Constant)):
+                continue
+            if k.value in seen:
+                if seen[k.value] != v.value:
+                    clash.append(k.value)
+                else:
+                    same += 1
+                continue
+            seen[k.value] = v.value
+    # Повтор с РАЗНЫМ переводом - настоящий дефект: литерал словаря молча
+    # оставляет последнее значение, и омоним («подошва» пласта и подошва
+    # уступа) тихо ломает перевод там, где его добавили позже. Повтор с
+    # тем же значением безвреден, он только считается.
+    if clash:
+        print("[FAIL] один ключ с разными переводами:", clash[:5])
+        sys.exit(1)
+    print("[ok] no conflicting keys (%d harmless repeats)" % same)
+    # Затенённые тесты: две функции с одним именем в файле - вторая молча
+    # съедает первую, и та не запускается никогда. Один раз уже случилось в
+    # test_fractal, поэтому сторож на весь набор.
+    import collections as _c
+    shadowed = []
+    tdir = os.path.dirname(os.path.abspath(__file__))
+    for fn in sorted(os.listdir(tdir)):
+        if not (fn.startswith("test_") and fn.endswith(".py")):
+            continue
+        try:
+            tree = ast.parse(open(os.path.join(tdir, fn),
+                                  encoding="utf-8").read())
+        except SyntaxError:
+            continue
+        names = [n.name for n in tree.body
+                 if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")]
+        shadowed += ["%s:%s" % (fn, k)
+                     for k, v in _c.Counter(names).items() if v > 1]
+    if shadowed:
+        print("[FAIL] затенённые тесты:", shadowed)
+        sys.exit(1)
+    print("[ok] no shadowed test functions")
     print("[ok] TRANSLATIONS total entries: %d" % len(i18n.TRANSLATIONS))
     print("ALL TESTS PASSED")
 

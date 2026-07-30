@@ -23,7 +23,7 @@ header-includes:
 
 \vspace{2pt}
 
-# Pipeline: from a dense survey to crest-toe pairs
+# Pipeline: from a dense survey to crest-toe forms
 
 **Step 1. Terrain.** A dense survey (UAV, laser): on a sparse one there is no formal evidence of a crest in the data at all. A **ground** raster, not a DSM: vegetation and machinery are removed by classification before Isoliner. Cell from density: 20-25 cm at 20 points per m², 15 cm at 40. Without your own data use **2.21 Create a demo open pit**.
 
@@ -31,7 +31,7 @@ header-includes:
 
 **Step 3. Selection - by eye, not by recomputation.** Look into the log: it holds the percentiles of the drop over all candidates. Set a layer filter `"drop" > 1.0` and move the number while watching the map. There is no need to rerun 2.19, and the threshold you choose is your criterion of a bench.
 
-**Step 4. Forms - 2.20 Crests and toes into work.** Input: the candidates of step 2 (the whole layer, the drop cut-off is available here too) and the same DEM. Keep the descent path limit close to the width of the face. Output: **Top** and **Bottom** with a shared **link** field, elevations taken off the DEM into the Z geometry, plus a layer of unpaired lines with the reason.
+**Step 4. Forms - 2.20 Crests and toes into work.** Crests and toes already drawn (a topographic deliverable, a mine survey)? Steps 1-3 are not needed, start here. Input: the candidates of step 2 (the whole layer, the drop cut-off is available here too) and the same DEM. Keep the descent path limit close to the width of the face. Output: **Top** and **Bottom** with a shared **link** field, elevations taken off the DEM into the Z geometry, plus a layer of unpaired lines with the reason.
 
 **Step 5. Onwards.** The forms go into surface building between lines, into 2.03 as structural constraints, or to an export into AutoCAD and Credo as 3D lines.
 

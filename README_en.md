@@ -292,7 +292,9 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
-<<<<<<< HEAD
+- **4.43.0** — the surface between structural lines in 2.03: the Top of forms and Bottom of forms inputs, a core on the distance method, a section in the manual.
+- **4.42.0** — a bent-crest fill in the demo to measure the price of the distance method, the detector thresholds gained a physical floor instead of a tie to the maximum.
+- **4.41.0** — the homonym "подошва" untangled in the translation dictionary (bed bottom vs bench toe), the test now fails on conflicting keys.
 - **4.40.0** — 2.20 moved from pairs to forms: one toe with a set of crests at it sharing a link field, no duplicates in the Bottom layer.
 - **4.39.0** — the colouring of the 2.19 candidates became meaningful: classes appear only when the drop really varies.
 - **4.38.0** — the extent in 2.21 places the demo and no longer stretches it to the size of the extent.
@@ -300,8 +302,6 @@ Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 - **4.36.0** — the styling of structural lines moved from QML into code, the drop probe base in 2.19 raised to 8 cells.
 - **4.35.0** — 2.20 "Crests and toes into work": elevations off the DEM, pairs by descending the slope, ready inputs for surface building.
 - **4.34.0** — 2.19 "Crest and toe candidates" and 2.21 "Create a demo open pit": the start of the structural-lines branch.
-=======
->>>>>>> 9619b6af5a646c890a0de1e3400de5d1e4f57c9c
 - **4.33.0** — two checkboxes in 4.05: keep the name and keep the style of the source layer. A categorised geology colouring lands on the section as it is.
 - **4.32.0** — 3.01 got a "Nugget share" parameter: zero makes the estimate exact next to the data, and a borehole keeps its class in its own cell. The fitted nugget and range per class are printed to the log.
 - **4.31.0** — 4.05 clips zones and faults from below by the bottom line of the drawing, a pair to the clipping from above. The "beta" mark is off 4.07 and 4.08.

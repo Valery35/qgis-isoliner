@@ -160,7 +160,7 @@ def test_cut_polyline():
 def test_demo_dataset_round_mass():
     ds = D.demo_dataset(0, 0, 1000, 1000, seed=1)
     pm = sum(p[2] for p in ds["points"])
-    lm = sum(l["mass"] for l in ds["lines"])
+    lm = sum(ln["mass"] for ln in ds["lines"])
     gm = sum(pg["mass"] for pg in ds["polygons"])
     assert pm == 500.0 and lm == 200.0 and gm == 300.0
     assert ds["total"] == 1000.0

@@ -374,6 +374,23 @@ Output fields:
 | Contour polygons | ELEV_MIN | number | Lower level of the band. |
 | Contour polygons | ELEV_MAX | number | Upper level of the band. |
 
+## The surface between structural lines
+
+The **Cliffs** input sets a barrier: the drop along a line is not smeared, but the line does not set the drop either, because it carries no elevations. The pair of inputs **Top of forms** and **Bottom of forms** solves the opposite problem: to place exactly the surface that the two sides with known elevations define.
+
+Why this is needed is best put in the industry requirements for digital plans: terrain created automatically has to be corrected by hand, agreeing it with the heights of retaining walls, slopes and fills. The tool replaces that prescribed manual correction with a rule. The second addressee is areal quarries, cuts, fills and dumps: contours inside them are not described at all by the standard, and there is nothing left to build the terrain from except crests and toes.
+
+**A side is a set.** Any number of lines and points with one value of the link field goes into the top or the bottom, and the distance is measured to the union of the set. All the cases follow from this single rule: a slope is a crest and a toe, a pit is a closed crest and a point on the floor, a ditch is two crests and a floor line, a ring dam is two closed lines, a river bank is a crest and part of the water edge. Lines and points may be mixed within one side.
+
+**Elevations** follow the priorities: vertices with Z, then the elevation field, then the object stays a barrier and is not assembled into a form. There is no significance threshold in the tool: give two sides and a surface is built, give one and it works as a barrier. The decision is made by the person who draws the second line.
+
+**How it is computed.** No correspondence of points between the sides is sought. For every cell the exact distances to both sets are computed together with the elevation of the nearest source, the weight is the ratio of the distances and the elevation is linear in the weight. An overlap of the geometry is impossible by construction. The body of the form goes into the multigrid as hard nodes, and its border additionally works as a barrier so that outside data do not drag the surface across the bench. The relaxation scheme is not touched.
+
+**The price of the method.** The nearest point and the corresponding point are different things. While the elevations are constant there is no difference. Once the crest elevation varies along a curved form, the surface departs slightly from the ruled one, and on concave corners a medial axis appears where the nearest source switches abruptly and the surface gains a kink. Both numbers are measured by tests on synthetic data: on a real survey there is nothing to measure them against, no analytic reference exists there.
+
+**What goes into the log.** For every form: the number of body cells, the median width in cells, the elevation mismatch where the sides converge and the number of objects skipped for want of elevations. Separately a warning about forms narrower than two cells: such a form does not exist in a raster at any scale and the cell has to be refined. Lone sides and objects without a link go into the log with a reason.
+
+
 ## Isoline smoothing
 
 The main way to smooth isolines in this tool is **bicubic smoothing**: before contouring, the grid is densified by bicubic interpolation (×2…×4), and the contours are built on the finer grid. On a coarse grid isolines otherwise look like "octagons" (vertices are placed at cell edges) - densification removes this angularity topologically cleanly. It is implemented in pure NumPy, with no external dependencies; nodata boundaries and internal data "windows" are preserved. Densification affects both lines and contour polygons - the band boundaries still coincide with the isolines. The cost is more cells (×4 = 16 times more), so on a very large grid start with ×2.
@@ -948,6 +965,10 @@ Builds terrain from vector data by multigrid interpolation from a coarse grid to
 | Contour elevation field | Level attribute of the contours. | ELEV |
 | Streamlines (downstream) | River lines, vertices pointing downstream. The 2.06 network and OSM fit as is. | - |
 | Cliffs (smoothing barriers) | Lines along which the drop is not smeared. | - |
+| Top of forms, Bottom of forms | The sides of forms with elevations: crests and toes, ridges and bases, a summit as a point. See the section on the surface between structural lines. | - |
+| Form link field | The same value on every object of one form. | link |
+| Elevation field of form sides (adv.) | When the lines carry no Z. | - |
+| Shape function across (adv.) | Linear is a design slope, smooth rounds the edges. | linear |
 | Lakes and water edge | Water-body planes. | - |
 | Water-edge elevation field | Water-edge elevation. Empty = node Z (slope) or shore minimum. | empty |
 | Extent | Output extent. Empty = from input layers. | empty |
@@ -1507,11 +1528,13 @@ Output fields: **kind**, **drop** (m), **length_m**, **slope_deg** (the mean sid
 
 # 2.20 Crests and toes into work
 
-Turns the candidates of 2.19 into working structural lines: takes the elevations off the DEM, assembles crest-toe forms and lays them into two layers.
+Turns crest and toe lines into working structural lines: takes the elevations off the DEM, assembles crest-toe forms and lays them into two layers.
+
+**There are two scenarios, and the second matters more.** The first is obvious: the lines came from 2.19 over a dense survey. In the second the lines are already in a topographic deliverable, where crests are described as a matter of course and carry their own classifier codes. No detector is needed there, and what is needed is exactly what this tool does: the kind of a line is coded, but which crest goes with which toe is not, and the link has to be assembled. There are many such deliverables and few dense surveys.
 
 | Parameter | What it sets | Default / advice |
 |---|---|---|
-| Candidates (output of 2.19) | A line layer with a kind field. | - |
+| Candidates (output of 2.19) | A line layer with a kind field. A layer of crests and toes from a topographic deliverable will do as well. | - |
 | DEM | The same one supplied to 2.19. | - |
 | Kind field | The field holding brow and toe. | kind |
 | Drop cut-off, m | Repeats the filter of 2.19 so that no separate filtered layer is needed. | 0 (take everything) |

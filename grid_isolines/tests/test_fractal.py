@@ -139,9 +139,13 @@ def _river(rough, depth, seed):
     return np.array(pts)
 
 
-def test_minkowski_near_smooth_river():
+def test_minkowski_near_smooth_on_river():
     """Слабошершавая линия обязана давать D чуть выше 1, не ниже:
-    регресс на эталоне выявил бы смещение оценщика на коротких линиях."""
+    регресс на эталоне выявил бы смещение оценщика на коротких линиях.
+
+    Имя разведено с проверкой на _midline ниже: две функции звались
+    одинаково, и эта молча затенялась - не запускалась ни разу.
+    """
     from grid_isolines.fractal import minkowski_dimension
     vals = [minkowski_dimension([_river(0.10, 3, s)])[0] for s in range(12)]
     m = float(np.mean(vals))

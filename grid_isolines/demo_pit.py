@@ -41,9 +41,54 @@ def _ellipse_pts(cx, cy, rx, ry, n=180, a0=0.0, a1=2.0 * np.pi):
     return np.stack([cx + rx * np.cos(a), cy + ry * np.sin(a)], axis=1)
 
 
+def _polyline_nearest(xx, yy, pts):
+    """Расстояние до ломаной и длина дуги до ближайшей точки.
+
+    Перебор по звеньям: их единицы, а ячеек сотни тысяч, поэтому векторно
+    по сетке и циклом по звеньям. Возвращает (d, s), где s - расстояние
+    вдоль ломаной от её начала до ближайшей точки. По s берётся отметка,
+    поэтому переменная высота гребня задаётся одной функцией от длины.
+    """
+    d_best = np.full(xx.shape, np.inf)
+    s_best = np.zeros(xx.shape)
+    s0 = 0.0
+    for i in range(len(pts) - 1):
+        ax, ay = pts[i]
+        bx, by = pts[i + 1]
+        vx, vy = bx - ax, by - ay
+        seg = np.hypot(vx, vy)
+        if seg <= 1e-12:
+            continue
+        t = np.clip(((xx - ax) * vx + (yy - ay) * vy) / (seg * seg), 0.0, 1.0)
+        d = np.hypot(xx - (ax + t * vx), yy - (ay + t * vy))
+        better = d < d_best
+        d_best = np.where(better, d, d_best)
+        s_best = np.where(better, s0 + t * seg, s_best)
+        s0 += seg
+    return d_best, s_best
+
+
+def _offset_polyline(pts, dist):
+    """Ломаная, отодвинутая на dist по нормали, грубо, по узлам.
+
+    Для демо этого хватает: подошва нужна как истинная линия и как место,
+    где кончается откос, а не как точная эквидистанта.
+    """
+    out = []
+    n = len(pts)
+    for i, (x, y) in enumerate(pts):
+        j0, j1 = max(0, i - 1), min(n - 1, i + 1)
+        dx = pts[j1][0] - pts[j0][0]
+        dy = pts[j1][1] - pts[j0][1]
+        ln = np.hypot(dx, dy)
+        if ln > 1e-12:
+            out.append((x - dy / ln * dist, y + dx / ln * dist))
+    return out
+
+
 def generate(nx=DEFAULT_NX, ny=DEFAULT_NY, cell=DEFAULT_CELL,
              seed=DEFAULT_SEED, benches=3, bench_h=10.0, slope_deg=55.0,
-             berm_w=8.0, noise=0.03, dump=True, ditch=True):
+             berm_w=8.0, noise=0.03, dump=True, ditch=True, corner=True):
     """Рельеф демо-карьера и истинные линии.
 
     Возвращает (z, truth), где truth - список
@@ -69,7 +114,6 @@ def generate(nx=DEFAULT_NX, ny=DEFAULT_NY, cell=DEFAULT_CELL,
 
     # профиль карьера от расстояния внутрь: чередование откос-берма, дно
     depth = np.zeros_like(z)
-    z_top = None
     inward = -r_m
     for i in range(int(benches)):
         s0 = i * (ws + berm_w)                        # начало откоса i
@@ -123,7 +167,6 @@ def generate(nx=DEFAULT_NX, ny=DEFAULT_NY, cell=DEFAULT_CELL,
     # поднимать только в пятне отвала: вне его t = 0 и z_dump равен базе,
     # а максимум с базой затёр бы карьер обратно
     zf = np.where(t > 0.0, np.maximum(zf, z + t * h_dump), zf)
-    z_top_dump = None
     for kind, rr in ((("brow", r_top), ("toe", r_top + ws_d))
                      if dump else ()):
         pts = _ellipse_pts(dcx, dcy, rr, rr, n=120)
@@ -167,6 +210,55 @@ def generate(nx=DEFAULT_NX, ny=DEFAULT_NY, cell=DEFAULT_CELL,
             c = int(min(max(x / cell, 0), nx - 1))
             pts.append((float(x), float(y), float(zf[r, c])))
         truth.append({"kind": kind, "link": "ditch", "pts": pts})
+
+    if corner:
+        # Насыпь с поворотом: гребень ломаной с прямым углом, откосы на обе
+        # стороны. Она здесь ради двух чисел цены метода расстояний: у
+        # поворота с внутренней стороны возникает медиальная ось (залом), с
+        # внешней веер от угловой вершины. Отметка гребня меняется вдоль
+        # него намеренно: на постоянной отметке ни то, ни другое ничего не
+        # искажает, потому что искажать нечего. Форма компактная и стоит в
+        # свободном углу грида, чтобы не спорить с карьером.
+        crest = [(0.05 * w, 0.72 * h), (0.16 * w, 0.72 * h),
+                 (0.16 * w, 0.95 * h)]
+        ws_c = bench_h / np.tan(np.radians(slope_deg))
+        dc, s_arc = _polyline_nearest(xx, yy, crest)
+        total_s = 0.0
+        for i in range(len(crest) - 1):
+            total_s += np.hypot(crest[i + 1][0] - crest[i][0],
+                                crest[i + 1][1] - crest[i][1])
+        top = bench_h + 6.0 * (s_arc / max(total_s, 1e-9))
+        # за пределы карьера: на мелких гридах насыпь дотягивалась до бровки
+        # верхнего уступа и меняла её отметку уже после того, как та была
+        # снята в истинные линии
+        zf = zf + top * np.clip(1.0 - dc / ws_c, 0.0, 1.0) * (rho > 1.05)
+
+        def _sample(pts_xy):
+            out = []
+            for x, y in pts_xy:
+                r = int(min(max(y / cell, 0), ny - 1))
+                c = int(min(max(x / cell, 0), nx - 1))
+                out.append((float(x), float(y), float(zf[r, c])))
+            return out
+
+        def _densify(src):
+            out = []
+            for i in range(len(src) - 1):
+                ax, ay = src[i]
+                bxp, byp = src[i + 1]
+                n_step = max(2, int(np.hypot(bxp - ax, byp - ay) / (3.0 * cell)))
+                for k in range(n_step):
+                    f = k / float(n_step)
+                    out.append((ax + f * (bxp - ax), ay + f * (byp - ay)))
+            out.append(src[-1])
+            return out
+
+        truth.append({"kind": "brow", "link": "corner",
+                      "pts": _sample(_densify(crest))})
+        for side in (1.0, -1.0):
+            truth.append({"kind": "toe", "link": "corner",
+                          "pts": _sample(_densify(
+                              _offset_polyline(crest, side * ws_c)))})
 
     zf = zf + rng.normal(0.0, float(noise), zf.shape)
     return zf.astype(np.float64), truth

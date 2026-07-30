@@ -120,7 +120,7 @@ def test_trace_lines_chains_and_ring():
     ring[3:6, 2] = True
     ring[3:6, 6] = True
     lines = tb.trace_lines(ring)
-    total = sum(len(l) for l in lines)
+    total = sum(len(ln) for ln in lines)
     assert total >= 15                 # кольцо обойдено, ячейки не потеряны
 
 
