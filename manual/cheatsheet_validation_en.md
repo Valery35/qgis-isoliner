@@ -8,6 +8,50 @@ Three tools answer three different questions. They are run in one order and prod
 | What happens where there were no contours | 2.11 plus 2.12 |
 | Whether the surface went in steps | 2.13 Terracing check of a DEM |
 
+## What the numbers mean
+
+| Quantity | Normal | What a departure says |
+|---|---|---|
+| Mean residual | near zero | The surface is systematically shifted in elevation |
+| SD of the residual | well under half the interval | Forms are cut off or the data are noisy |
+| Missing by half an interval | a few percent | Contours from such a DEM will not sit where the originals were |
+| Gap between the two figures | prediction worse by half again to twice | Threefold and more means the model memorises the input and fails to restore the shape between contours |
+| Level attraction (2.13) | near 1.0 | 1.5 is worth a look, 2.0 and above is terracing |
+
+There is always a gap between reproduction and prediction, and that is normal. An interpolator is bound to hold what it has seen. The trouble is not that the second figure is worse, but when it is worse several times over.
+
+## Where to look with your eyes
+
+Numbers answer how much, pictures answer where.
+
+**The residual point layer**, coloured by the **resid** field with a diverging ramp. Systematic patches show up at once: where the surface runs low or high over whole areas, it is not noise.
+
+**The vertical curvature raster** from 2.13. If its bands repeat the pattern of the contours, that is terracing, even when the attraction ratio has not yet reached two.
+
+**The phase histogram** in the 2.13 report. A flat one means a healthy surface, a peak in the middle means the elevations cling to the levels.
+
+**A profile across a gully** through the QGIS **Elevation Profile**. The most telling of all: a narrow cut is either reproduced or shaved off, and that needs no statistics.
+
+## Test data out of the box
+
+Tool 2.10 Demo relief with the **Gully and ravine network** tick gives a deterministic relief with incised thalwegs. Tool 1.04 Isolines from a raster then takes contours off it, and the cycle closes: the true surface is known in advance.
+
+Such a cycle is more useful than any argument: build the relief from the extracted contours, compare it with the source raster and see what exactly was lost. Gullies are lost first, which is why the fragment is made of gullies and ravines.
+
+## Frequent questions
+
+**Why not check against all the contours at once.** Because the interpolator has seen them. The figure will look good and mean nothing. That is a check of input reproduction, not of accuracy.
+
+**Why split by elevation rather than by feature.** The neighbouring pieces of the same contour give the answer away. A level has to disappear entirely.
+
+**Why the extreme elevations are never held out.** Beyond the range of the set the interpolator extrapolates. A residual there would measure something other than what the check is for.
+
+**What if the interval is detected wrongly.** Set it by hand in the advanced parameters. Auto-detection takes the smallest difference between adjacent levels and gets confused when the set is assembled from different sources.
+
+---
+
+Isoliner, Informpp LLC, https://www.informpp.ru/
+
 ## A full run on the demo data, ten minutes
 
 The validation data ship with the plugin, nothing needs downloading.

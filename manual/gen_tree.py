@@ -4,7 +4,7 @@
 Читает algorithms.py разбором AST, без запуска QGIS. Порядок групп - как в
 панели Обработки, порядок внутри группы - по номеру инструмента.
 """
-import ast, re, sys
+import ast, os, re, sys
 
 path = sys.argv[1] if len(sys.argv) > 1 else "algorithms.py"
 lang = sys.argv[2] if len(sys.argv) > 2 else "ru"
@@ -36,7 +36,10 @@ for n in ast.walk(tree):
         items.setdefault(grp, []).append(disp)
 
 if lang == "en":
-    sys.path.insert(0, ".")
+    # словарь лежит рядом с разбираемым файлом, а не в текущем каталоге:
+    # сборщик зовёт генератор из каталога руководств, и относительный путь
+    # ронял его молча - список инструментов из-за этого застыл на месяц
+    sys.path.insert(0, os.path.dirname(os.path.abspath(path)))
     import i18n as I
     trans = I.TRANSLATIONS
 

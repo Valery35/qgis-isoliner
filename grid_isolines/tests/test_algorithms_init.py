@@ -12,8 +12,22 @@ import types
 import importlib
 
 
+def _missing(name):
+    """Имя, которого заглушка подменять НЕ должна.
+
+    Константы имён параметров у нас пишутся заглавными (INPUT, DIPFIELD).
+    Если такой атрибут не объявлен в классе, обращение обязано упасть, а
+    не превратиться в заглушку: иначе алгоритм с забытой константой
+    проходит тест и падает уже в QGIS. Ровно так и случилось с DIPFIELD в
+    4.05 - правка объявила параметры, но не объявила имена.
+    """
+    return (name.isupper() and not name.startswith("_")
+            and name not in ("PI", "E"))
+
+
 class _Stub(metaclass=type("_M", (type,), {
-        "__getattr__": lambda cls, name: cls()})):
+        "__getattr__": lambda cls, name: (_ for _ in ()).throw(
+            AttributeError(name)) if _missing(name) else cls()})):
     """Универсальная заглушка: вызывается, подписывается, поддерживает |."""
     def __init__(self, *a, **k):
         pass
@@ -22,6 +36,8 @@ class _Stub(metaclass=type("_M", (type,), {
         return _Stub()
 
     def __getattr__(self, name):
+        if _missing(name):
+            raise AttributeError(name)
         return _Stub()
 
     def __or__(self, other):
@@ -58,8 +74,8 @@ def test_all_algorithms_init():
     algorithms = importlib.import_module(pkg + ".algorithms")
     algorithms._tr = lambda s: s          # translate-заглушка возвращает строку
     assert algorithms.ALGORITHMS, "список ALGORITHMS пуст"
-    assert len(algorithms.ALGORITHMS) == 56, (
-        "ожидалось 56 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
+    assert len(algorithms.ALGORITHMS) == 57, (
+        "ожидалось 57 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
     for cls in algorithms.ALGORITHMS:
         a = cls()
         a.initAlgorithm()                 # тут и падало бы 'no attribute tr'

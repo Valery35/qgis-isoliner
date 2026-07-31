@@ -105,7 +105,7 @@ from . import dem_glo30, osm_overpass, demo_relief
 from .hydro_fill import fill_depressions, DEFAULT_EPSILON
 from . import volumes as _vol
 from . import topo_flow, topo_gauge, topo_surface, topo_t2r, topo_smooth
-from . import topo_break, demo_pit, topo_form, topo_snapz
+from . import topo_break, demo_pit, topo_form, topo_snapz, attitude
 from . import palette_lfc  # чтение палитры Leapfrog, без QGIS
 from . import plast_reference  # справочник пластов, без QGIS
 
@@ -1115,6 +1115,20 @@ def _version_footer():
     v = _plugin_version()
     name = ("Isoliner v" + v) if v else "Isoliner"
     return "<hr><p style='color:#888;font-size:smaller'>" + name + "</p>"
+
+
+def _circ_mean(degs):
+    """Среднее направление в градусах: через вектора, а не арифметикой.
+
+    Азимуты 350 и 10 в среднем дают ноль, а не 180, и обычное среднее тут
+    врёт. Переходы через ноль - классическое место ошибок в расчётах по
+    углам, поэтому суммируются единичные вектора.
+    """
+    if not degs:
+        return 0.0
+    sx = sum(math.sin(math.radians(a)) for a in degs)
+    sy = sum(math.cos(math.radians(a)) for a in degs)
+    return (math.degrees(math.atan2(sx, sy)) + 360.0) % 360.0
 
 
 def _help_version(text):
@@ -6706,6 +6720,183 @@ class PlastReferenceTemplateAlgorithm(IsolinerAlgorithm):
         return {self.OUTPUT: dest_id}
 
 
+class AttitudeFromTraceAlgorithm(IsolinerAlgorithm):
+    """4.12 Элементы залегания по следу выхода."""
+
+    INPUT = "INPUT"
+    WINDOW = "WINDOW"
+    MINPLAN = "MINPLAN"
+    OUTPUT = "OUTPUT"
+    SKIPPED = "SKIPPED"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return AttitudeFromTraceAlgorithm()
+    def name(self): return "attitude_from_trace"
+    def displayName(self):
+        return self.tr("4.12 Элементы залегания по следу выхода")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP3)
+    def groupId(self): return GROUP3_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Считает угол и азимут падения по трёхмерному следу выхода "
+            "границы на поверхность. Если граница пласта или разлома "
+            "оцифрована с отметками, плоскость по ней восстанавливается "
+            "однозначно, а из плоскости выпадают оба элемента залегания. "
+            "Правило трёх точек - минимальный случай, здесь считается по "
+            "всем вершинам сразу.\n\n"
+            "Метод по Альмендингеру: нормаль к плоскости это собственный "
+            "вектор матрицы ориентации при наименьшем собственном "
+            "значении. Подгонка вида z = a*x + b*y + c проще, но "
+            "разваливается на крутых залеганиях, где коэффициенты уходят в "
+            "бесконечность. Через собственные векторы крутизна перестаёт "
+            "быть особым случаем.\n\n"
+            "**Прямой в плане след залегания не определяет.** Через одну "
+            "прямую в пространстве проходит бесконечно много плоскостей, "
+            "они вращаются вокруг неё как страницы вокруг корешка. "
+            "Инструмент это видит по отношению собственных значений и "
+            "отказывает с причиной вместо уверенного числа из шума "
+            "округления. Мера пишется в поле **planar**: ноль - точки на "
+            "прямой, единица - размах в двух направлениях.\n\n"
+            "**Складка ловится невязкой.** Метод предполагает, что след "
+            "лежит на одной плоскости, а длинная граница редко лежит: "
+            "флексура, смещение разломом, перегиб. Средняя невязка точек "
+            "от плоскости пишется в поле **rms**, и большое значение "
+            "означает, что одного залегания на весь след не существует. "
+            "Тогда включайте **окно**: залегание считается по скользящему "
+            "участку, и на выходе будет его изменение вдоль границы, что "
+            "полезнее одного среднего числа.\n\n"
+            "Выход подаётся прямо в 4.05: поля dip и dip_az там и "
+            "ожидаются. Если рельеф задан горизонталями, а след плоский, "
+            "проведите его сперва через 2.22 - отметки снимутся с "
+            "примыкающих горизонталей.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INPUT, self.tr("Следы выхода (линии с отметками)"),
+            [QgsProcessing.SourceType.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.WINDOW,
+            self.tr("Окно, вершин (0 - одно залегание на след)"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.WINDOW, 0), minValue=0))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MINPLAN, self.tr("Наименьшая изогнутость следа (0..1)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.MINPLAN, attitude.MIN_PLANARITY),
+            minValue=0.0, maxValue=1.0)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Следы с элементами залегания"),
+            QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.SKIPPED, self.tr("Следы без залегания (с причиной)"),
+            QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=True))
+        _restore_layer_defaults(self, (self.INPUT,))
+
+    def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem, single=(self.INPUT,))
+        _save_values(self, _mem)
+        src = self.parameterAsSource(parameters, self.INPUT, context)
+        window = self.parameterAsInt(parameters, self.WINDOW, context)
+        minplan = self.parameterAsDouble(parameters, self.MINPLAN, context)
+
+        fields = QgsFields(src.fields())
+        for nm, tp in (("dip", QVariant.Double), ("dip_az", QVariant.Double),
+                       ("planar", QVariant.Double), ("rms", QVariant.Double),
+                       ("n_pts", QVariant.Int)):
+            fields.append(QgsField(nm, tp))
+        sink, dest_id = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.LineStringZ, src.sourceCrs())
+        sfields = QgsFields(src.fields())
+        sfields.append(QgsField("reason", QVariant.String))
+        skip_sink, skip_id = self.parameterAsSink(
+            parameters, self.SKIPPED, context, sfields,
+            QgsWkbTypes.Type.LineString, src.sourceCrs())
+
+        n_ok = n_bad = 0
+        dips, planars = [], []
+        for ft in src.getFeatures():
+            if feedback.isCanceled():
+                break
+            g = ft.geometry()
+            cg = g.constGet()
+            if cg is None or not cg.is3D():
+                fa = QgsFeature(sfields)
+                fa.setGeometry(g)
+                fa.setAttributes(list(ft.attributes())
+                                 + [self.tr("линия без отметок")])
+                skip_sink.addFeature(fa)
+                n_bad += 1
+                continue
+            pts = []
+            for i in range(cg.nCoordinates()):
+                v = g.vertexAt(i)
+                pts.append((v.x(), v.y(), v.z()))
+            pts = np.array(pts, dtype=float)
+            pts = pts[np.isfinite(pts).all(axis=1)]
+            if window > 0:
+                wins = attitude.attitude_windows(pts, window,
+                                                 min_planarity=minplan)
+                good = [r for _i, r in wins if "reason" not in r]
+                if good:
+                    # по окнам берётся средневзвешенное по обусловленности:
+                    # участки, где плоскость определена уверенно, весят больше
+                    wsum = sum(r["planarity"] for r in good) or 1.0
+                    res = {
+                        "dip": sum(r["dip"] * r["planarity"]
+                                   for r in good) / wsum,
+                        "dip_az": _circ_mean([r["dip_az"] for r in good]),
+                        "planarity": max(r["planarity"] for r in good),
+                        "rms": max(r["rms"] for r in good),
+                        "n_pts": int(pts.shape[0])}
+                else:
+                    res = {"reason": "ни одно окно не дало плоскости"}
+            else:
+                res = attitude.attitude_of_trace(pts, min_planarity=minplan)
+            if "reason" in res:
+                fa = QgsFeature(sfields)
+                fa.setGeometry(QgsGeometry.fromPolylineXY(
+                    [QgsPointXY(p[0], p[1]) for p in pts]))
+                fa.setAttributes(list(ft.attributes())
+                                 + [self.tr(res["reason"])])
+                skip_sink.addFeature(fa)
+                n_bad += 1
+                continue
+            fa = QgsFeature(fields)
+            fa.setGeometry(g)
+            fa.setAttributes(list(ft.attributes()) + [
+                round(res["dip"], 3), round(res["dip_az"], 3),
+                round(res["planarity"], 4), round(res["rms"], 4),
+                res["n_pts"]])
+            sink.addFeature(fa)
+            n_ok += 1
+            dips.append(res["dip"])
+            planars.append(res["planarity"])
+
+        feedback.pushInfo(self.tr(
+            "Залегание получили %d следов, отказано %d.") % (n_ok, n_bad))
+        if dips:
+            feedback.pushInfo(self.tr(
+                "Угол падения: наименьший %.1f, наибольший %.1f. "
+                "Наименьшая изогнутость следа %.2f - чем ближе к нулю, тем "
+                "хуже определена плоскость.")
+                % (min(dips), max(dips), min(planars)))
+        _set_output_name(context, dest_id,
+                         self.tr("Следы с элементами залегания"))
+        results = {self.OUTPUT: dest_id}
+        if n_bad:
+            _set_output_name(context, skip_id,
+                             self.tr("Следы без залегания (с причиной)"))
+            results[self.SKIPPED] = skip_id
+        return results
+
+
 class SectionDemoAlgorithm(IsolinerAlgorithm):
     """Демо-данные для разреза: три гладкие стопкой поверхности (две залежи) с
     падением и волнистой переменной мощностью, плюс линия через площадь. Готово
@@ -6714,6 +6905,8 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
     EXTENT, SEED = "EXTENT", "SEED"
     SURF1, SURF2, SURF3 = "SURF1", "SURF2", "SURF3"
     SURF4, SURF5, SURF6 = "SURF4", "SURF5", "SURF6"
+    STRUCT = "STRUCT"
+    TRACES = "TRACES"
     LINE = "LINE"
     COLLAR, INTERVAL = "COLLAR", "INTERVAL"
     REFDEMO = "REFDEMO"
@@ -6738,6 +6931,37 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             "поверхностей сверху вниз (1...6) и линию в «Разрез по линии». "
             "Получите пять пластов на чертеже и 3D-забор. Кригинг для демо не "
             "нужен, поверхности уже растровые.\n"
+            "\n**Структурные элементы с элементами залегания.** Три линии "
+            "пересекают Разрез 1 в разных местах при одном и том же "
+            "истинном угле падения 25 градусов и разном азимуте падения. "
+            "Видимый угол выйдет разным - 25, 18.25 и ноль, - и это лучший "
+            "способ увидеть, что на чертёж выходит не истинный угол.\n"
+            "\nЛинии нарочно поставлены поперёк разреза, а азимут падения "
+            "задан полем: он с направлением самой линии не связан. Первая "
+            "версия демо располагала линию «по простиранию» параллельно "
+            "разрезу, и она его попросту не пересекала - проверять нулевой "
+            "случай было нечем.\n"
+            "\nЭлементы поставлены на **Разрезе 2**, который прямой. На "
+            "ломаном разрезе азимут звена меняется по ходу, и у излома "
+            "эталон с инструментом брали его в разных звеньях: третий "
+            "элемент давал видимый угол 1.33 вместо нуля. Расчёт был верен "
+            "в обоих случаях, но эталон обязан быть однозначным.\n"
+            "\nОжидаемое значение считается по азимуту ЗВЕНА в точке "
+            "пересечения, как это делает и сам инструмент, и записывается "
+            "в поле **app_exp**. Поэтому сверка точная: подайте слой в "
+            "4.05, укажите поля dip и dip_az, и app_dip обязан совпасть с "
+            "app_exp до третьего знака.\n"
+            "\n**Следы выхода для 4.12.** Три трёхмерные линии, лежащие "
+            "на плоскостях с известным залеганием: пологая (20 градусов на "
+            "юго-восток), крутая (72 на северо-запад) и намеренно прямая в "
+            "плане. Первые две изогнуты, и 4.12 обязан вернуть по ним "
+            "ровно те числа, что записаны в поля dip_true и az_true. "
+            "Третья проверяет отказ: через прямую в пространстве проходит "
+            "бесконечно много плоскостей, и залегание по ней не "
+            "определено - инструмент обязан отказать с причиной, а не "
+            "выдать похожее на правду число. Крутая линия проверяет второе: "
+            "подгонка вида z = a*x + b*y + c на ней поплыла бы, а метод "
+            "через собственные векторы считает её наравне с пологой.\n"
             "\n**Скважины с интервалами опробования.** Выдаётся готовая пара "
             "слоёв модели бурения: **устья collar** (точки с отметкой и "
             "глубиной забоя) и **интервалы interval** (таблица hole_id, from, "
@@ -6783,6 +7007,12 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             self.SURF5, self.tr("Поверхность 5 (подошва 2-го промышленного)")))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.SURF6, self.tr("Поверхность 6 (подошва нижней вмещающей)")))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.STRUCT, self.tr("Структурные элементы (углы падения)"),
+            type=QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.TRACES, self.tr("Следы выхода (для 4.12)"),
+            type=QgsProcessing.SourceType.TypeVectorLine))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.LINE, self.tr("Линии разрезов (3 шт.)"),
             type=QgsProcessing.SourceType.TypeVectorLine))
@@ -6988,6 +7218,115 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             sink.addFeature(ft)
         _set_output_name(context, dest, self.tr("Линии разрезов (демо)"))
         results[self.LINE] = dest
+
+        # Структурные элементы с элементами залегания: слой для проверки
+        # углов падения в 4.05. Три линии ПЕРЕСЕКАЮТ Разрез 1 (иначе
+        # проверять нечего) и различаются только азимутом падения: он
+        # задаётся полем и с направлением самой линии не связан. Первая
+        # версия демо расположила линию «по простиранию» параллельно
+        # разрезу - параллельная линия не пересекает его никогда, и
+        # случай нулевого видимого угла проверить было нечем.
+        #
+        # Ожидаемое значение считается по азимуту ЗВЕНА в точке
+        # фактического пересечения, как это делает и сам инструмент: на
+        # ломаном разрезе общий азимут даёт другое число, и сверка была
+        # бы неточной.
+        fst = QgsFields()
+        fst.append(QgsField("name", QVariant.String))
+        fst.append(QgsField("dip", QVariant.Double))
+        fst.append(QgsField("dip_az", QVariant.Double))
+        fst.append(QgsField("app_exp", QVariant.Double))
+        st_sink, st_dest = self.parameterAsSink(
+            parameters, self.STRUCT, context, fst,
+            QgsWkbTypes.Type.LineString, crs)
+        # Эталон строится на ПРЯМОМ Разрезе 2, а не на ломаном Разрезе 1.
+        # На ломаной азимут звена меняется по ходу, и у излома демо с
+        # инструментом брали его в разных звеньях: третий элемент упорно
+        # давал видимый угол 1.33 вместо нуля. Расчёт был верен в обоих
+        # случаях, но эталон обязан быть однозначным по построению, а не
+        # совпадать после уточнений. На прямой линии азимут один на всю
+        # длину, и вопроса не возникает.
+        lg_ref = lg2
+        L_ref = float(lg_ref.length())
+        sverts = [(p.x(), p.y()) for p in lg_ref.asPolyline()]
+        half = 0.16 * min(W, H)
+        dip_true = 25.0
+        for nm, t_at, az_off in (
+                (self.tr("вкрест простирания"), 0.30, 0.0),
+                (self.tr("косо к простиранию"), 0.50, 45.0),
+                (self.tr("по простиранию"), 0.70, 90.0)):
+            d_at = t_at * L_ref
+            pc = lg_ref.interpolate(d_at).asPoint()
+            saz = _sc.azimuth_at_distance(sverts, d_at)
+            # линия перпендикулярна разрезу в этой точке: пересечение есть
+            # при любом азимуте падения
+            a_ = math.radians(saz + 90.0)
+            sx, sy = math.sin(a_), math.cos(a_)
+            geom = QgsGeometry.fromPolylineXY([
+                QgsPointXY(pc.x() - half * sx, pc.y() - half * sy),
+                QgsPointXY(pc.x() + half * sx, pc.y() + half * sy)])
+            # азимут падения отсчитывается от звена в точке ФАКТИЧЕСКОГО
+            # пересечения, а не в той, вокруг которой строилась линия
+            inter = geom.intersection(lg_ref)
+            if not inter.isEmpty():
+                pi = inter.asPoint() if inter.type() == \
+                    QgsWkbTypes.GeometryType.PointGeometry \
+                    else inter.centroid().asPoint()
+                d_hit = float(lg_ref.lineLocatePoint(
+                    QgsGeometry.fromPointXY(pi)))
+                saz = _sc.azimuth_at_distance(sverts, d_hit)
+            dip_az = (saz + az_off) % 360.0
+            _m, app = _sc.apparent_dip(dip_true, dip_az, saz)
+            ft = QgsFeature(fst)
+            ft.setGeometry(geom)
+            ft.setAttributes([nm, dip_true, round(dip_az, 3), round(app, 3)])
+            st_sink.addFeature(ft)
+        _set_output_name(context, st_dest,
+                         self.tr("Структурные элементы (демо)"))
+        results[self.STRUCT] = st_dest
+
+        # Следы выхода для 4.12: трёхмерные линии, лежащие на плоскостях с
+        # известным залеганием. Изгиб в плане обязателен - через прямую в
+        # пространстве проходит бесконечно много плоскостей, и прямой след
+        # залегания не определяет. Поэтому третий след намеренно сделан
+        # прямым: на нём проверяется отказ, а не результат. Истинные
+        # значения пишутся в dip_true и az_true, и 4.12 обязан их вернуть.
+        ftr = QgsFields()
+        ftr.append(QgsField("name", QVariant.String))
+        ftr.append(QgsField("dip_true", QVariant.Double))
+        ftr.append(QgsField("az_true", QVariant.Double))
+        ftr.append(QgsField("note", QVariant.String))
+        tr_sink, tr_dest = self.parameterAsSink(
+            parameters, self.TRACES, context, ftr,
+            QgsWkbTypes.Type.LineStringZ, crs)
+        tx0, ty0 = xmin + 0.18 * W, ymin + 0.30 * H
+        span = 0.42 * min(W, H)
+
+        def _trace(dip_t, az_t, bend, nm, note):
+            """След на плоскости с заданным залеганием, изгиб bend в плане."""
+            a_ = math.radians(az_t)
+            gx = -math.tan(math.radians(dip_t)) * math.sin(a_)
+            gy = -math.tan(math.radians(dip_t)) * math.cos(a_)
+            pl = []
+            for k in range(25):
+                t_ = k / 24.0
+                px = tx0 + span * t_
+                py = ty0 + bend * span * math.sin(math.pi * t_)
+                pz = 260.0 + gx * (px - tx0) + gy * (py - ty0)
+                pl.append(QgsPoint(px, py, pz))
+            ft = QgsFeature(ftr)
+            ft.setGeometry(QgsGeometry.fromPolyline(pl))
+            ft.setAttributes([nm, dip_t, az_t, note])
+            tr_sink.addFeature(ft)
+
+        _trace(20.0, 135.0, 0.22, self.tr("след пологий"),
+               self.tr("изогнут, залегание определяется"))
+        _trace(72.0, 300.0, 0.18, self.tr("след крутой"),
+               self.tr("крутое залегание, для подгонки по z было бы плохо"))
+        _trace(20.0, 135.0, 0.0, self.tr("след прямой"),
+               self.tr("прямой в плане: 4.12 обязан отказать"))
+        _set_output_name(context, tr_dest, self.tr("Следы выхода (демо)"))
+        results[self.TRACES] = tr_dest
 
         # скважины вдоль ломаной: позиция по длине линии плюс малый отступ в
         # коридоре. На каждой берём отметки шести поверхностей (h1...h6).
@@ -8548,6 +8887,12 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
     FLOOR = "FLOOR"
     BOTFIELD = "BOTFIELD"
     BOTDEPTH = "BOTDEPTH"
+    DIPFIELD = "DIPFIELD"
+    DIPAZFIELD = "DIPAZFIELD"
+    DIP = "DIP"
+    DIPAZ = "DIPAZ"
+    TRACELEN = "TRACELEN"
+    THIN = "THIN"
     OUT_LINES, OUT_POINTS, OUT_BANDS = "OUT_LINES", "OUT_POINTS", "OUT_BANDS"
 
     def tr(self, s): return _tr(s)
@@ -8597,6 +8942,42 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             "несколько поверхностей, обрезка идёт по огибающей: сверху по "
             "самой высокой, снизу по самой низкой. Нужна одна конкретная "
             "поверхность, подайте слой, отфильтрованный по полю name.\n"
+            "\n**Угол и азимут падения.** Линия без отметки по умолчанию "
+            "даёт вертикаль: известно где, неизвестно под каким углом. "
+            "Если заданы **угол падения** и **азимут падения** (полями по "
+            "имени или постоянными на слой), вместо вертикали рисуется "
+            "след падения от поверхности вниз.\n"
+            "\nНа чертёж выходит не истинный угол, а **видимый**: "
+            "tg(видимый) = tg(истинный) * cos(азимут падения - азимут "
+            "разреза). Разрез вкрест простирания даёт истинный угол, разрез "
+            "по простиранию - ноль, и объект честно ложится горизонтально. "
+            "Азимут разреза берётся по звену, на котором лежит пересечение, "
+            "поэтому на ломаном профиле наклон в разных местах разный.\n"
+            "\n**Прореживание вершин полос.** Кромка ставит узел в каждой "
+            "станции выборки, и на длинном разрезе их выходят сотни: "
+            "чертёж тяжелеет, а глазом лишние вершины не видны. Допуск "
+            "задаётся в метрах высоты, ноль отключает. Узлы выбрасываются "
+            "парами: верх и низ обязаны стоять в одних станциях, иначе там, "
+            "где кромки почти сходятся, полоса вывернулась бы бантиком.\n"
+            "\nНаклон работает и для линий, и для полигонов. Линия даёт "
+            "след падения от поверхности вниз, полоса зоны становится "
+            "параллелограммом: каждый узел низа съезжает по падению на "
+            "величину своего перепада. Вертикальной полоса остаётся только "
+            "тогда, когда углы не заданы или видимый угол вышел нулевым - "
+            "при разрезе точно по простиранию.\n"
+            "\nАзимут обязателен: из геометрии он не выводится, один и тот "
+            "же объект может падать в любую сторону. Без него объекты "
+            "остаются вертикальными - молчаливое допущение «плоскость "
+            "перпендикулярна разрезу» и есть частая ошибка построения. "
+            "Сторону наклона задавать не надо, её решает знак косинуса.\n"
+            "\n**Длина следа** задаётся по горизонтали в метрах, ноль "
+            "означает до рамки. Короткий след-указатель обычно берут в "
+            "полтора-два сантиметра на листе: при 1:2000 это 30-40 м.\n"
+            "\nВ атрибуты пишутся три числа: **dip** (истинный), "
+            "**dip_az** и **app_dip** (видимый). Мерить угол транспортиром "
+            "по чертежу нельзя - вертикальный масштаб искажает "
+            "нарисованный наклон, как искажает и всё остальное на "
+            "разрезе.\n"
             "\n**Поле нижней отметки** задаёт низ полос и вертикалей "
             "поштучно, чтобы наносить зоны своей глубины, а не на всю "
             "рамку. По умолчанию значение читается как абсолютная отметка. "
@@ -8648,6 +9029,33 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
         self.addParameter(_advanced(QgsProcessingParameterBoolean(
             self.BOTDEPTH, self.tr("Нижняя отметка это глубина от верха"),
             defaultValue=_dv(self, self.BOTDEPTH, False))))
+        # слоёв подаётся несколько, поэтому поля задаются именем, а не
+        # выбором из списка: имя ищется в каждом слое своим
+        self.addParameter(QgsProcessingParameterString(
+            self.DIPFIELD, self.tr("Имя поля угла падения, °"),
+            defaultValue=_dv(self, self.DIPFIELD, ""), optional=True))
+        self.addParameter(QgsProcessingParameterString(
+            self.DIPAZFIELD, self.tr("Имя поля азимута падения, °"),
+            defaultValue=_dv(self, self.DIPAZFIELD, ""), optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.DIP, self.tr("Угол падения, ° (если нет поля)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.DIP, 0.0),
+            minValue=0.0, maxValue=90.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.DIPAZ, self.tr("Азимут падения, ° (если нет поля, -1 нет)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.DIPAZ, -1.0),
+            minValue=-1.0, maxValue=360.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.THIN, self.tr("Прореживание вершин полос, м (0 - нет)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.THIN, 0.0), minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.TRACELEN,
+            self.tr("Длина следа по горизонтали, м (0 - до рамки)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.TRACELEN, 0.0), minValue=0.0)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.ZMIN, self.tr("Низ диапазона Z (если нет чертежа)"),
             QgsProcessingParameterNumber.Type.Double,
@@ -8715,7 +9123,14 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
         # слоя нет, останется пустым. Служебные имена не отдаются, иначе
         # атрибут объекта затрёт координату разреза незаметно для человека.
         keep = self.parameterAsBoolean(parameters, self.KEEPATTR, context)
-        reserved = ("sec", "sec_id", "src", "label", "d", "z", "d1", "d2")
+        # Служебные имена: атрибут объекта с таким именем переименуется с
+        # суффиксом. dip, dip_az и app_dip добавлены сюда вместе с углами
+        # падения - иначе поле dip самого слоя совпадает по имени со
+        # служебной колонкой, QGIS дубликат не создаёт, и значения
+        # съезжают в соседние. На живом прогоне это выглядело так: app_exp
+        # показывал 25 у всех трёх объектов, туда попадало значение dip.
+        reserved = ("sec", "sec_id", "src", "label", "d", "z", "d1", "d2",
+                    "dip", "dip_az", "app_dip")
         extra_names, extra_maps, extra_defs, origin = [], {}, [], []
         if keep:
             per_layer = [[f.name() for f in lyr.fields()]
@@ -8798,6 +9213,42 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                 "Обрезка снизу по линии низа: профилей %d.") % len(floor))
 
         bot_field = self.parameterAsString(parameters, self.BOTFIELD, context)
+        dip_fname = (self.parameterAsString(parameters, self.DIPFIELD,
+                                            context) or "").strip()
+        az_fname = (self.parameterAsString(parameters, self.DIPAZFIELD,
+                                           context) or "").strip()
+        dip_const = self.parameterAsDouble(parameters, self.DIP, context)
+        az_const = self.parameterAsDouble(parameters, self.DIPAZ, context)
+        trace_len = self.parameterAsDouble(parameters, self.TRACELEN, context)
+        thin_tol = self.parameterAsDouble(parameters, self.THIN, context)
+        # Азимут падения из данных не выводится: один и тот же объект может
+        # падать в любую сторону, и геометрия об этом не знает. Без азимута
+        # объекты остаются вертикальными, как раньше, и об этом говорится
+        # в журнале - молчаливое допущение «плоскость перпендикулярна
+        # разрезу» и есть та ошибка, от которой предостерегают геологи.
+        dip_on = bool(dip_fname) or dip_const > 0.0
+
+        def _dip_of(lyr, ft):
+            """Угол и азимут падения объекта: поле важнее постоянного."""
+            names = [f.name().lower() for f in lyr.fields()]
+            dv = dip_const
+            av = az_const
+            if dip_fname and dip_fname.lower() in names:
+                try:
+                    dv = float(ft.attributes()[names.index(dip_fname.lower())])
+                except (TypeError, ValueError):
+                    dv = dip_const
+            if az_fname and az_fname.lower() in names:
+                try:
+                    av = float(ft.attributes()[names.index(az_fname.lower())])
+                except (TypeError, ValueError):
+                    av = az_const
+            if dv is None or dv != dv or dv <= 0.0:
+                return None, None
+            if av is None or av != av or av < 0.0:
+                return None, None
+            return dv, av
+
         bot_is_depth = self.parameterAsBoolean(parameters, self.BOTDEPTH,
                                                context)
 
@@ -8822,6 +9273,16 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             # каждый разрез обрабатывается своей линией, своим масштабом и
             # своим смещением раскладки, результат копится в общие списки
             line, vex = dd["line"], dd["vex"]
+            # вершины линии разреза списком: азимут звена считается по
+            # координатам, а не по геометрии QGIS
+            try:
+                _lp = line.asMultiPolyline() or []
+            except TypeError:
+                _lp = []
+            if not _lp:
+                _one = line.asPolyline()
+                _lp = [_one] if _one else []
+            verts = [(p.x(), p.y()) for part in _lp for p in part]
             ox, oy = dd["ox"], dd["oy"]
             tag = [dd["sec"], dd["sec_id"]]
             ybot, ytop = _frame(dd)
@@ -8895,9 +9356,27 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                                     # за кромкой, нулевой отрезок не пишем
                                     cut_off += 1
                                     continue
+                                # след падения вместо вертикали, если
+                                # заданы угол и азимут: азимут разреза
+                                # берётся по звену у точки пересечения,
+                                # на ломаном профиле он разный
+                                dd = yy = ap = None
+                                dipv, azv = _dip_of(lyr, ft) if dip_on \
+                                    else (None, None)
+                                if dipv is not None:
+                                    saz = _sc.azimuth_at_distance(verts, d)
+                                    m, ap = _sc.apparent_dip(dipv, azv, saz)
+                                    if m == m and abs(m) != float("inf"):
+                                        step = trace_len if trace_len > 0 \
+                                            else float(line.length())
+                                        step = step if m <= 0 else -step
+                                        dd = d + ox + step
+                                        yy = yt + m * vex * step
+                                        yy = max(ybot, min(ytop, yy))
                                 lns.append(tuple(tag) + (
                                     d + ox, yb, yt, sname, lab,
-                                    _extra_of(lyr, ft)))
+                                    _extra_of(lyr, ft), dd, yy,
+                                    dipv, azv, ap))
                             else:
                                 warned_h = True
                         elif pt == QgsWkbTypes.GeometryType.LineGeometry:
@@ -8922,6 +9401,28 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
                                 if _sc.band_is_flat(bot, top):
                                     cut_off += 1
                                     continue
+                                # Наклон полосы: тот же видимый угол, что
+                                # и у линий. Полоса становится
+                                # параллелограммом: каждый узел низа
+                                # съезжает по падению на величину своего
+                                # перепада. Кромки стоят в одних станциях
+                                # (это даёт band_nodes), поэтому узлы
+                                # сопоставляются по порядку.
+                                dipv, azv = _dip_of(lyr, ft) if dip_on \
+                                    else (None, None)
+                                if dipv is not None:
+                                    saz = _sc.azimuth_at_distance(
+                                        verts, 0.5 * (a + b))
+                                    m, _ap = _sc.apparent_dip(dipv, azv, saz)
+                                    if m == m and m != 0.0 \
+                                            and abs(m) != float("inf"):
+                                        bot = [
+                                            (bx - ((ty - by) / vex) / m, by)
+                                            for (bx, by), (_tx, ty)
+                                            in zip(bot, top)]
+                                if thin_tol > 0.0:
+                                    bot, top = _sc.thin_band(
+                                        bot, top, thin_tol * vex)
                                 bds.append(tuple(tag) + (
                                     a + ox, b + ox, bot, top,
                                     sname, lab, _extra_of(lyr, ft)))
@@ -9020,16 +9521,29 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
             flines.append(QgsField("src", QVariant.String))
             flines.append(QgsField("label", QVariant.String))
             flines.append(QgsField("d", QVariant.Double))
+            # три угла в атрибутах: истинный, азимут и видимый на разрезе.
+            # Мерить транспортиром по чертежу нельзя - вертикальный масштаб
+            # искажает нарисованный угол, поэтому числа даются явно
+            flines.append(QgsField("dip", QVariant.Double))
+            flines.append(QgsField("dip_az", QVariant.Double))
+            flines.append(QgsField("app_dip", QVariant.Double))
             for fd in extra_defs:
                 flines.append(QgsField(fd))
             sl, dl = self.parameterAsSink(parameters, self.OUT_LINES, context,
                                           flines, QgsWkbTypes.Type.LineString, empty)
             if sl is not None:
-                for sec, sid, d, yb, yt, sname, lab, ex in lns:
+                for (sec, sid, d, yb, yt, sname, lab, ex,
+                     dd, yy, dipv, azv, ap) in lns:
                     fa = QgsFeature(flines)
-                    fa.setGeometry(QgsGeometry.fromPolylineXY(
-                        [QgsPointXY(d, yb), QgsPointXY(d, yt)]))
-                    fa.setAttributes([sec, sid, sname, lab, d] + ex)
+                    if dd is not None:
+                        # след падения: от поверхности вниз по видимому углу
+                        fa.setGeometry(QgsGeometry.fromPolylineXY(
+                            [QgsPointXY(d, yt), QgsPointXY(dd, yy)]))
+                    else:
+                        fa.setGeometry(QgsGeometry.fromPolylineXY(
+                            [QgsPointXY(d, yb), QgsPointXY(d, yt)]))
+                    fa.setAttributes([sec, sid, sname, lab, d,
+                                      dipv, azv, ap] + ex)
                     sl.addFeature(fa)
                 res[self.OUT_LINES] = dl
                 _set_output_name(context, dl, _out_name(
@@ -12137,6 +12651,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
     SEED = "SEED"
     CRS = "CRS"
     INT16 = "INT16"
+    PRESET = "PRESET"
     RAVINE = "RAVINE"
     EXTENT = "EXTENT"
     OUTPUT = "OUTPUT"
@@ -12191,6 +12706,17 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
+        # Пресет первым: у демо-рельефа десяток параметров, а для первого
+        # запуска нужен один выбор. Тот же приём, что в 2.21, и по той же
+        # причине - учебному примеру полагается запускаться с одного
+        # клика, иначе он отпугивает раньше, чем чему-то научит.
+        self.addParameter(QgsProcessingParameterEnum(
+            self.PRESET, self.tr("Что построить"),
+            options=[self.tr("холмистая местность (по умолчанию)"),
+                     self.tr("овражно-балочная сеть"),
+                     self.tr("площадка работ для объёмов"),
+                     self.tr("по своему (параметры ниже)")],
+            defaultValue=_dv(self, self.PRESET, 0)))
         self.addParameter(QgsProcessingParameterNumber(
             self.NX, self.tr("Ширина, ячеек"),
             QgsProcessingParameterNumber.Type.Integer,
@@ -12302,6 +12828,29 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
         gdal.UseExceptions()
         try:
             ravine = self.parameterAsBoolean(parameters, self.RAVINE, context)
+            preset = self.parameterAsEnum(parameters, self.PRESET, context)
+            # Пресет перекрывает ручные значения, кроме последнего
+            # варианта, и говорит об этом в журнал: подмена параметров
+            # молча хуже, чем их отсутствие.
+            if preset == 0:
+                ravine = False
+                feedback.pushInfo(self.tr(
+                    "Пресет «холмистая местность»: овражной сети нет. "
+                    "Ручные значения ниже не действуют - для них выберите "
+                    "«по своему»."))
+            elif preset == 1:
+                ravine = True
+                feedback.pushInfo(self.tr(
+                    "Пресет «овражно-балочная сеть»: врезы включены, "
+                    "рельеф годится для 2.05 и 2.06. Ручные значения ниже "
+                    "не действуют."))
+            elif preset == 2:
+                ravine = False
+                feedback.pushInfo(self.tr(
+                    "Пресет «площадка работ»: ровный рельеф под объёмы. "
+                    "Включите выходы проектной поверхности и участков "
+                    "работ - они нужны для 2.18. Ручные значения ниже не "
+                    "действуют."))
             z = demo_relief.generate(nx=nx, ny=ny, cell=cell, seed=seed,
                                      ravine=ravine)
         except ValueError as exc:
@@ -16487,6 +17036,7 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
     CELL = "CELL"
     SEED = "SEED"
     CRS = "CRS"
+    PRESET = "PRESET"
     BENCHES = "BENCHES"
     BENCH_H = "BENCH_H"
     NOISE = "NOISE"
@@ -16507,6 +17057,11 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
 
     def shortHelpString(self):
         return _help_version(self.tr(
+            "**Что построить** - выбор из трёх готовых наборов: карьер с "
+            "бермами, простой уступ или отвал. Для первого знакомства "
+            "берите как есть, менять ничего не нужно. Параметры ниже "
+            "действуют только при выборе «по своему», а что поставил "
+            "пресет, печатается в журнал.\n\n"
             "Создаёт демо-карьер: волнистое основание, эллиптический "
             "карьер с уступами и бермами, съезд, прорезающий уступы, "
             "отвал с плоским верхом и сходящаяся нагорная канава. Всё "
@@ -16542,6 +17097,18 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.NY, demo_pit.DEFAULT_NY),
             minValue=60, maxValue=4000))
+        # Пресет ставится первым и заменяет собой семь параметров.
+        # Учебному примеру полагается запускаться с одного клика: тот, кто
+        # открыл демо впервые, ещё не знает ни про число уступов, ни про
+        # шум съёмки, и семь полей на входе отпугивают сильнее, чем
+        # помогают. Ручные значения остаются и действуют при «по своему».
+        self.addParameter(QgsProcessingParameterEnum(
+            self.PRESET, self.tr("Что построить"),
+            options=[self.tr("карьер с бермами (по умолчанию)"),
+                     self.tr("простой уступ"),
+                     self.tr("отвал"),
+                     self.tr("по своему (параметры ниже)")],
+            defaultValue=_dv(self, self.PRESET, 0)))
         self.addParameter(QgsProcessingParameterNumber(
             self.CELL, self.tr("Размер ячейки, м"),
             QgsProcessingParameterNumber.Type.Double,
@@ -16592,6 +17159,25 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
         noise = self.parameterAsDouble(parameters, self.NOISE, context)
         dump = self.parameterAsBoolean(parameters, self.DUMP, context)
         ditch = self.parameterAsBoolean(parameters, self.DITCH, context)
+        preset = self.parameterAsEnum(parameters, self.PRESET, context)
+        # Пресет перекрывает ручные значения, кроме последнего варианта.
+        # В журнал уходит, что именно он поставил: молчаливая подмена
+        # параметров хуже их отсутствия, человек должен видеть, с чем
+        # запустился прогон.
+        presets = {
+            0: (3, 10.0, 0.03, True, True, self.tr("карьер с бермами")),
+            1: (1, 12.0, 0.03, False, False, self.tr("простой уступ")),
+            2: (1, 10.0, 0.03, True, False, self.tr("отвал")),
+        }
+        if preset in presets:
+            benches, bench_h, noise, dump, ditch, pname = presets[preset]
+            feedback.pushInfo(self.tr(
+                "Пресет «%s»: уступов %d по %.0f м, шум %.2f м, отвал %s, "
+                "канава %s. Ручные значения ниже не действуют - для них "
+                "выберите «по своему».")
+                % (pname, benches, bench_h, noise,
+                   self.tr("есть") if dump else self.tr("отсутствует"),
+                   self.tr("есть") if ditch else self.tr("отсутствует")))
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT,
                                                context)
         if crs.isGeographic():
@@ -16687,6 +17273,7 @@ ALGORITHMS = [
     GeophysProfilesDemoAlgorithm,
     CategoricalIndicatorAlgorithm,
     SectionDemoAlgorithm,
+    AttitudeFromTraceAlgorithm,
     PlastReferenceTemplateAlgorithm,
     FlowGradientAlgorithm,
     ExternalDriftKrigingAlgorithm,

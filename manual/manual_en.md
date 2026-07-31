@@ -39,6 +39,7 @@ All the tools of the provider as they stand in the **Processing**
 toolbox. The list is generated from the code when the manual is built,
 so it never drifts from the plugin.
 
+<!-- TREE -->
 **1. Grid and isolines**
 
 - `1.01` Declustering (weights)
@@ -71,6 +72,7 @@ so it never drifts from the plugin.
 - `2.19` Crest and toe candidates
 - `2.20` Crests and toes into work
 - `2.21` Create a demo open pit
+- `2.22` Elevations from adjoining contours
 
 **2. Topography: diagnostics and repair**
 
@@ -103,6 +105,7 @@ so it never drifts from the plugin.
 - `4.09` Shaft wall unwrap (beta)
 - `4.10` Create a section example
 - `4.11` Bed reference template
+- `4.12` Attitude from an outcrop trace
 
 **5. Fractal analysis**
 
@@ -112,7 +115,8 @@ so it never drifts from the plugin.
 - `5.04` Minkowski dimension (vectors)
 - `5.05` Create a fractal example (demo)
 
-_Tools in total: 55_
+_Tools in total: 57_
+<!-- /TREE -->
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
@@ -127,6 +131,96 @@ The plugin reloads cleanly on the fly, no QGIS restart is required. For a quick 
 ## Opening the help
 
 Each tool's dialog has a **Help** button that opens this manual (the PDF bundled with the plugin; on an English interface the English manual opens). The right-hand panel of the dialog additionally shows a short hint for the tool. The manual and the version details are also available without opening a tool: the **Plugins** menu holds an **Isoliner** submenu with **About** (version, links, changelog) and **Manual (PDF)**.
+
+# Quick start
+
+There are close to sixty tools in the plugin, and picking one out of the general list is hard. This section is arranged the other way round: not by tools but by tasks. Find the one that looks like yours and follow the steps - the rest can be left unread.
+
+One rule runs through all of it: **the tools do not guess, they ask and they report**. Nearly every one writes into the log what exactly it decided and why the count of objects came out as it did. It is worth opening the log every time, especially at first: the answer to "why did I get the wrong thing" usually lies there.
+
+## Boreholes on hand, a raster and contours wanted
+
+The commonest task and the oldest: turn points with measurements into a surface. Two tools are enough.
+
+**1.02 2D Kriging** builds a raster from the points. Ordinary kriging estimates the value in a cell as a weighted average of the nearest measurements, and it does not invent the weights - it derives them from how quickly the values drift apart with distance. What has to be given is the value field and the parameters of the model: the **range** (beyond it the measurements tell you nothing), the **sill** (the overall spread) and the **nugget** (the spread that remains at zero distance - the measurement error plus the variability finer than the spacing of the network). Take a cell about a quarter to a fifth of the mean spacing between the boreholes: finer adds no accuracy and takes longer.
+
+Along with the surface the tool produces the **kriging error map**. Always look at it: the surface itself looks equally smooth where the boreholes are dense and where the result rests on a single distant measurement, and it is the error map that shows the difference.
+
+**1.04 Isolines from a raster** turns the surface into contours with labels and, if wanted, into polygons of ranges. The interval is set as a number or as a step. For terrain there is a topographic labels checkbox there too: the labels are turned so that their top faces the high side.
+
+To try it without your own data: **1.10 Create a borehole example (demo)** produces a ready set of points with a realistic spatial structure.
+
+**Further on, when justification is wanted.** The parameters of the model need not be guessed by eye: **1.05 Variogram** derives them from the data themselves and draws a plot that shows whether there is any spatial relation in the data at all. If the experimental points fall anyhow, no method will create one. **1.06 Variogram map** shows the anisotropy - when the similarity reaches further along one direction than across it, and that has to be taken into account. **1.08 Cross-validation (LOO)** removes each borehole in turn, predicts its value from the rest and prints the discrepancy: an honest answer to how far the map can be trusted. **1.09 Processing profiles** stores a successful set of parameters so that it need not be typed again.
+
+## Open country on hand, terrain and a base map wanted
+
+The early and the most travelled path: there are no surveys of your own but a map is needed. Everything is taken from open sources right inside QGIS, with no archives downloaded by hand.
+
+**2.01 Load a DEM by frame** fetches the elevations over the given extent - Copernicus GLO-30 and other open sets. What arrives is a raster in metres, already brought to a metric coordinate system. Thirty metres of cell is a scale of about 1:25000: hills, valleys and watersheds read well, the crest of a quarry or a road embankment does not. That has to be understood at once, otherwise the impossible is expected of the result.
+
+**2.02 Load a base map by frame** takes the vector setting from OpenStreetMap over the same frame: water bodies, rivers, roads, buildings, forest. Water arrives as polygons, composite ones included - a lake with an island stays a lake with a hole rather than turning into a solid patch. This is the layer that later goes into the interpolation as the water edge.
+
+A downloaded DEM nearly always needs **2.04 Prepare the terrain**: open sets carry voids, noise and local pits that do not exist in nature. Filling the depressions here is not cosmetics - without it the flow is not computed at all, the water runs into the first false pit. After that **2.05 Flow and accumulation** gives directions and accumulation, **2.06 River network** turns the accumulation into thalweg lines with orders, and **2.07 Basins and watersheds** cuts the territory into catchments.
+
+**2.09 Peaks and pits** finds the characteristic points of the terrain - the very spot heights that a paper map labels with a number.
+
+**And here comes the main step, the one everything before it was done for.** A downloaded DEM is hydrologically wrong: it holds false pits, rivers run uphill in places, lakes have a slope. Curing that with filters is pointless - filling the depressions treats the symptom, not the cause. The right way is different: assemble the skeleton of the terrain out of the downloaded raster and **recompute the surface from scratch**, taking into account what has been learned about it.
+
+Everything gathered at the previous steps goes into **2.03 Topo2Raster**, each along its own input. Contours from 1.04 as hard nodes. Spot heights from 2.09 as hard nodes too, and with a weight above one if you want the peaks to outweigh contour vertices in a shared cell. Thalwegs from 2.06 as a downstream descent constraint, so that on the new terrain the rivers are guaranteed to run downhill. Water polygons from 2.02 as the water edge, so that the lakes lie flat rather than sloping. What comes out is a **hydrologically correct terrain**, which the downloaded raster by itself does not give.
+
+The contours from **1.04** are needed twice in this chain: first as a way of looking at the country, then as an input to the recomputation. Take the interval by the scale and the character of the country - five metres on a plain, twenty five in the mountains; the tool prints the range of elevations to the log. Too fine an interval is no help here: it carries the noise of the original raster into the new terrain, the very thing the whole exercise was meant to remove.
+
+To check that it became better rather than merely different, the same tools serve as in the next scenario: **2.12 Contour residuals against a DEM** and **2.13 Terracing diagnostics**. And **2.05 Flow** over the new terrain should give rivers without breaks and without false lakes - the most telling check of all.
+
+## A topographic plan with contours on hand, terrain wanted
+
+The task is the reverse of the first one: not to build a surface from sparse points but to recover it from dense lines that somebody has already drawn.
+
+**2.03 Topo2Raster** does this work - a multigrid interpolation in the spirit of ANUDEM. The main difference from kriging is that every type of input has a role of its own. Contours and spot heights give hard nodes: the elevation there is pinned. Thalwegs impose a downstream descent, so that the rivers on the built terrain do not run uphill. Cliffs work as a barrier: the drop along them is not smeared by the smoothing. The water edge lays lakes flat or tilts them along the channel.
+
+Set the cell explicitly, otherwise the default may turn out coarser than what you want to see. This is the first thing people stumble over: on a kilometre-wide area the automatic size gives a thirty-metre cell, and a seven-metre bench simply does not exist in such a grid. The tool warns about it in the log, but it is better to set it at once.
+
+The result must not be checked by eye. **2.11 Split the contours for a check** holds part of the lines back, **2.12 Contour residuals against a DEM** measures how far the built surface departed from the ones held back. This is the same device as cross-validation in kriging and it answers the same question. Separately there is **2.13 Terracing diagnostics** - it looks for the characteristic defect of interpolation over contours, where the surface steps along the original lines, and **2.14** cures it.
+
+## A dense survey on hand, crests and toes wanted
+
+A UAV or laser-scanning survey gives terrain in which the benches are visible but not digitized. Digitizing them by hand is slow, and Isoliner can find them itself.
+
+The mechanics in **2.19 Crest and toe candidates** are these: the evidence of a break is not the slope but the **rate at which it changes**. On an even face, however sheer, the slope is constant and the evidence is small; it is large where the slope changes, that is on the crest itself and on the toe itself. The sign of the curvature splits the lines found into crests and toes automatically.
+
+Two parameters are not obvious and both are worth understanding. The **probe base** is the half-width of the window in which the drop across the line is measured; the drop in the `drop` attribute is computed within it, so on a ten-metre bench with a three-cell base it will read three metres rather than ten. Set the base by the width of the face in cells. The **drop cut-off** is a noise filter, not a criterion of significance: a formal definition of a crest does not exist, and deciding what counts as a bench stays with the human. The tool therefore deliberately returns more than needed, puts the numbers for the selection into the attributes and prints the percentiles to the log - after which you move the layer filter while watching the map, recomputing nothing.
+
+Next, **2.20 Crests and toes into work** takes the elevations off the terrain and assembles the forms. The pairs are determined by descending the slope rather than by proximity: water from a crest runs exactly to its toe, and on a curved wall with narrow berms the nearest toe by distance often belongs to the neighbouring bench. A form is one toe with a set of crests at it, because the tracing cuts a long crest into pieces. Unpaired lines do not vanish, they go into a separate layer with the reason in an attribute: that is worth opening and looking at.
+
+The whole chain can be checked on synthetic data: **2.21 Create a demo open pit** builds a pit with benches, berms, a ramp, a dump and a ditch, and along with it the true structural lines. The completeness of the detector is measured as a number against them, not by eye.
+
+## A quarry on a topographic plan with no contours inside
+
+A case that looks hopeless until you look into it. By the standard, contours inside areal quarries, cuts, fills and dumps **are not described** - only the outer outline is agreed. So the terrain from such a plan has a hole exactly where the working is, and there is nothing to fill it with except crests and toes.
+
+The catch is that the slope lines in the drawing carry no elevations. But the contours that adjoin them do: the standard requires them to be brought up to the object line with node points. **2.22 Elevations from adjoining contours** gathers those points and recovers the profile of the whole line from them - a varying elevation out of the data itself rather than one number per object.
+
+Then **2.20**, but this time **without a DEM**: when the lines carry elevations of their own the descent is not needed, and the toe is the nearest line lying below the crest. That matters, because otherwise it went in a circle - to build the terrain you need pairs, and for pairs by descent you need terrain that does not exist yet.
+
+**2.03** closes it: contours as usual, and the forms go into the **Top of forms** and **Bottom of forms** inputs. The surface between the crest and the toe is built by the distance method, the body goes into the interpolation as hard nodes and the border works as a barrier. There is no significance threshold in the tool on purpose: give two sides and a surface is built, give one and it works as a barrier. The decision is made by the person drawing the second line.
+
+## A geological section wanted
+
+A section in Isoliner is not a picture but a coordinate system. **4.01 Section along a line** turns a line on the map into a drawing plane with distance-elevation axes and produces, besides the drawing itself, a service layer - the **section definition**. All the other tools of the group take it as an input and thanks to it place their objects in the same coordinates. Hence the rule: 4.01 first, everything else after, and the "Section definition" field takes the output of 4.01, not the original line.
+
+The vertical exaggeration is set in three ways and the choice is not obvious. A factor is simple but requires knowing the length of the section: on a kilometre-long profile a factor of 3 gives a flat ribbon. **The ratio of the drawing's dimensions** picks the factor itself so that the width relates to the height as required, and it works on a section of any length - start with that. And remember that the exaggeration distorts **all** the angles: at a factor of 10 an inclination of 5 degrees lands on paper at 41, which is why angles are not measured on a drawing with a protractor.
+
+Then the content is placed onto the section. **4.02** puts the boreholes with their sampling intervals, **4.04** draws surfaces from rasters, **4.05** places vector objects by their exact intersection with the line. The last one has a rule by object type: a flat line gives a vertical (the where is known, the depth is not), a three-dimensional one gives a point at the real height, a polygon gives a vertical band. When the dip and the dip direction are given, the vertical turns into an inclined trace and the band into a parallelogram.
+
+The easiest start is the demo: **4.10 Create an example for the section** produces six surfaces, five beds, three section lines, boreholes, zones and the layers for checking the dips. The whole chain runs through it in five minutes and there is nowhere to go wrong.
+
+## Volumes of work wanted
+
+**2.18 Fills and cuts** compares two surfaces and computes how much was taken out and how much was laid in. Usually that is the terrain before the works and after, or a design surface against the actual one.
+
+It is computed cell by cell: the difference of the elevations is multiplied by the area of the cell, and the positive and the negative parts are summed separately. Hence the obvious but important point: **the accuracy of the volume rests on the accuracy of both surfaces**, and if one of them was built from sparse points, a handsome number in the report means nothing. The kriging error map and the residuals over the held-back contours are exactly about this.
+
+Set the boundary of the computation with a polygon, otherwise the volume will be summed over the whole overlap of the rasters, including areas the works never touched. This is the second thing people stumble over: the difference of two DEMs is almost never zero outside the working, the survey noise wanders there, and over a large area it accumulates into noticeable cubic metres.
 
 # General workflow
 
@@ -2315,6 +2409,20 @@ Names that clash with the service ones (**sec**, **src**, **label**, **d**, **z*
 
 The number of merged columns is printed to the log.
 
+**Dip and dip direction.** A line without an elevation gives a vertical by default: the position is known, the angle is not. When the dip and the dip direction are given - by field name or as constants for the layer - a dip trace is drawn from the surface downwards instead of the vertical, and a zone band becomes a parallelogram.
+
+What reaches the drawing is not the true angle but the **apparent** one:
+
+`tan(apparent) = tan(true) · cos(dip direction − section azimuth)`
+
+A section across the strike gives the true angle, a section along the strike gives zero and the object honestly lies flat. The azimuth of the section is taken from the segment carrying the intersection, so on a bent profile the inclination differs from place to place.
+
+The dip direction is required and does not follow from the geometry: one and the same object may dip either way. Without it the objects stay vertical - the silent assumption that the plane is perpendicular to the section is a common error of construction. The side of the inclination needs no parameter, the sign of the cosine decides it.
+
+The trace length is set horizontally in metres, zero means down to the frame. A short pointer trace is usually taken as one and a half to two centimetres on the sheet: at 1:2000 that is 30-40 m.
+
+Three numbers go into the attributes: **dip** (true), **dip_az** and **app_dip** (apparent). The angle must not be measured with a protractor on the drawing - the vertical exaggeration distorts the drawn inclination, as it distorts everything else on a section.
+
 # 4.06 Intersect a TIN with the section
 
 A raster grid (4.04) is `z = f(x, y)`, one elevation per plan point. It cannot represent an overturned fold at all: above one point such a fold has several elevations of the same surface. This tool cuts the section through a **TIN** - a surface of true 3D triangles that can overhang.
@@ -2455,6 +2563,26 @@ Holding the whole next to its parts in one list has a price worth knowing. The t
 ## The same file outside QGIS
 
 The template lives in the **templates** folder inside the plugin directory in two forms, `plast_reference_vkmks.xlsx` and `plast_reference_vkmks.csv`. The Excel workbook has a second sheet with the filling rules. Edit it any way you find convenient, the section tools accept a project table, a GeoPackage and a CSV alike.
+
+# 4.12 Attitude from an outcrop trace
+
+Computes the dip and the dip direction from a three-dimensional trace of an outcrop.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Outcrop traces | Lines with elevations (Z in the vertices). | - |
+| Window, vertices | 0 - one attitude per trace, otherwise a sliding window. | 0 |
+| Minimum curvature (adv.) | The conditioning threshold below which a refusal follows. | 0.15 |
+
+**Where the attitude comes from.** When the boundary of a bed or a fault is digitized with elevations, the plane through it is defined uniquely and both elements of the attitude follow from it. The three-point rule is the minimal case, here the computation runs over all the vertices at once.
+
+The method follows Allmendinger: the normal to the plane is the eigenvector of the orientation matrix belonging to the smallest eigenvalue. A fit of the form `z = a·x + b·y + c` is simpler but falls apart on steep attitudes, where the coefficients run to infinity. Through the eigenvectors steepness stops being a special case.
+
+**A trace straight in plan does not define an attitude.** Infinitely many planes pass through one straight line in space: they rotate about it like pages about a spine. The tool sees this through the ratio of the eigenvalues and refuses with a reason instead of a confident number out of rounding noise. The measure goes into the **planar** field: zero for points on a line, one for a spread in two directions.
+
+**A fold is caught by the residual.** The method assumes the trace lies on one plane, and a long boundary rarely does: a flexure, a displacement by a fault, an inflection. The mean residual goes into the **rms** field, and a large value means that no single attitude exists for the whole trace. Then turn on the window: the attitude is computed over a sliding stretch and the output carries its change along the boundary.
+
+**Place in the chain.** The output feeds straight into 4.05, which expects exactly the dip and dip_az fields. If the terrain is given by contours and the trace is flat, put it through 2.22 first - the elevations will be taken off the adjoining contours.
 
 # 5.01 Fractal dimension
 

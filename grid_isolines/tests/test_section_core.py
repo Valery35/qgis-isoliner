@@ -723,6 +723,121 @@ def test_band_stays_when_floor_below_relief():
     assert abs(sc.ring_area(sc.band_ring(bot, top))) > 0.0
 
 
+def test_apparent_dip_across_strike():
+    """Разрез вкрест простирания: видимый угол равен истинному."""
+    m, ap = sc.apparent_dip(30.0, 90.0, 90.0)
+    assert abs(ap - 30.0) < 1e-9
+    assert m < 0                       # след идёт вниз по ходу разреза
+
+
+def test_apparent_dip_along_strike_is_flat():
+    """Разрез по простиранию: пласт ложится горизонтально.
+
+    Это не ошибка, а правда о геометрии, и на неё сразу указали геологи:
+    видимый угол зависит от того, под каким углом разрез сечёт простирание.
+    """
+    m, ap = sc.apparent_dip(30.0, 90.0, 0.0)
+    assert abs(ap) < 1e-9
+    assert abs(m) < 1e-9
+
+
+def test_apparent_dip_oblique_is_smaller():
+    """Косой разрез: видимый угол меньше истинного, но не ноль."""
+    _m, ap = sc.apparent_dip(30.0, 90.0, 45.0)
+    assert 0.0 < ap < 30.0
+    assert abs(ap - 22.2077) < 1e-3
+
+
+def test_apparent_dip_sign_flips_with_direction():
+    """Встречное падение меняет сторону наклона следа, не его величину.
+
+    Отдельного параметра стороны не нужно: знак косинуса решает сам.
+    """
+    m1, ap1 = sc.apparent_dip(30.0, 90.0, 90.0)
+    m2, ap2 = sc.apparent_dip(30.0, 270.0, 90.0)
+    assert abs(ap1 - ap2) < 1e-9
+    assert m1 * m2 < 0
+
+
+def test_apparent_dip_edges():
+    """Горизонтальный пласт даёт ноль, вертикальный - бесконечный уклон."""
+    assert sc.apparent_dip(0.0, 123.0, 45.0) == (0.0, 0.0)
+    m, ap = sc.apparent_dip(90.0, 123.0, 45.0)
+    assert ap == 90.0 and m == float("inf")
+
+
+def test_azimuth_at_distance_follows_the_bend():
+    """Азимут берётся по звену у точки, а не по общему направлению.
+
+    На ломаном профиле видимый угол в разных пересечениях разный, и это
+    правильно: считать по общей линии значило бы нарисовать одинаковый
+    наклон там, где он обязан отличаться.
+    """
+    verts = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0)]
+    assert abs(sc.azimuth_at_distance(verts, 50.0) - 90.0) < 1e-9
+    assert abs(sc.azimuth_at_distance(verts, 150.0) - 0.0) < 1e-9
+
+
+def test_merge_renames_service_dip_columns():
+    """Поле dip самого слоя не должно спорить со служебной колонкой dip.
+
+    Углы падения добавили служебные колонки dip, dip_az и app_dip. Если не
+    внести их в список служебных имён, поле слоя с тем же именем совпадёт
+    с колонкой, QGIS дубликат не создаст, и значения съедут в соседние: на
+    живом прогоне app_exp показывал 25 у всех объектов, потому что туда
+    попадало значение dip.
+    """
+    per = [["name", "dip", "dip_az", "app_exp"]]
+    reserved = ("sec", "sec_id", "src", "label", "d", "z", "d1", "d2",
+                "dip", "dip_az", "app_dip")
+    names, maps = sc.merge_field_names(per, reserved)
+    assert "dip" not in names and "dip_az" not in names
+    assert "dip_2" in names and "dip_az_2" in names and "app_exp" in names
+    assert maps[0][names.index("dip_2")] == 1
+    assert maps[0][names.index("app_exp")] == 3
+
+
+def test_thin_band_keeps_nodes_paired():
+    """Прореживание выбрасывает узлы парами: кромки остаются в одних станциях.
+
+    Прорядить верх и низ порознь нельзя: узлы разъедутся, и там, где
+    кромки почти сходятся, кольцо завяжется бантиком. Просьба практика с
+    производства была про вес чертежа, а цена ошибки - вывернутая полоса.
+    """
+    bot = [(float(i), 0.0) for i in range(120)]
+    top = [(float(i), 20.0) for i in range(120)]
+    b2, t2 = sc.thin_band(bot, top, 0.5)
+    assert len(b2) == len(t2) == 2          # прямая полоса сводится к концам
+    assert [p[0] for p in b2] == [p[0] for p in t2]
+
+
+def test_thin_band_respects_the_shape():
+    """Ступенька на кромке переживает прореживание."""
+    bot = [(float(i), 5.0 if i > 60 else 0.0) for i in range(120)]
+    top = [(float(i), 20.0) for i in range(120)]
+    b2, t2 = sc.thin_band(bot, top, 0.5)
+    assert 3 <= len(b2) <= 8
+    assert max(p[1] for p in b2) == 5.0     # ступенька не срезана
+    assert [p[0] for p in b2] == [p[0] for p in t2]
+
+
+def test_thin_band_sees_both_edges():
+    """Узел остаётся, если излом есть хотя бы у одной кромки."""
+    bot = [(float(i), 0.0) for i in range(60)]
+    top = [(float(i), 20.0 + (4.0 if i > 30 else 0.0)) for i in range(60)]
+    b2, t2 = sc.thin_band(bot, top, 0.5)
+    assert len(b2) > 2                      # излом верха удержал станцию
+    assert [p[0] for p in b2] == [p[0] for p in t2]
+
+
+def test_thin_band_off_by_zero():
+    """Ноль отключает прореживание, полоса возвращается как есть."""
+    bot = [(float(i), 0.0) for i in range(10)]
+    top = [(float(i), 5.0) for i in range(10)]
+    b2, t2 = sc.thin_band(bot, top, 0.0)
+    assert b2 == bot and t2 == top
+
+
 def _run():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

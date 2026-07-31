@@ -294,6 +294,8 @@ Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
 - The **"Terrain from a topographic plan"** cheat sheet (RU/EN): the 2.22 → 2.20 → 2.03 chain for areal quarries, cuts, fills and dumps, where the standard describes no contours inside.
 
+- **4.55.0** — a quick start in the manuals (seven scenarios by task rather than by tool), "What to build" presets in the 2.10 and 2.21 demos, thinning of band vertices in 4.05, the tool-tree generator repaired.
+- **4.51.0** — the consolidated release of the dip branch: 4.05 with the apparent angle and inclined bands, 4.12 "Attitude from an outcrop trace", a demo with an analytic reference, the "Geological section" cheat-sheet article.
 - **4.47.0** — the DEM in 2.20 became optional: with elevations on the lines the pairs are assembled without terrain, and the topographic scenario no longer goes in a circle.
 - **4.46.0** — 2.20 reads the kind field tolerantly: classifier codes and names carrying the words for a crest or a toe, with a table of decisions in the log.
 - **4.45.0** — the weight of measured elevations in 2.03: in a shared cell a measurement outweighs a digitized contour vertex.

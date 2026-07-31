@@ -42,8 +42,34 @@ build() {
 # Дерево инструментов вставляется в руководства генератором из кода:
 # скриншот панели при полусотне инструментов нечитаем и устаревает каждый
 # релиз, а сгенерированный список не расходится с плагином никогда.
-python3 gen_tree.py ../grid_isolines/algorithms.py ru > /tmp/_tree_ru.md || true
-python3 gen_tree.py ../grid_isolines/algorithms.py en > /tmp/_tree_en.md || true
+# Путь к коду ищется, а не угадывается: сборщик зовут из разных мест, и
+# относительный путь ронял генератор молча (|| true это прятал), из-за чего
+# список инструментов в руководстве застыл. Ошибка теперь громкая.
+ALG=""
+for c in ../grid_isolines/algorithms.py \
+         ../../plug/grid_isolines/algorithms.py \
+         "$(dirname "$0")/../grid_isolines/algorithms.py"; do
+    [ -f "$c" ] && ALG="$c" && break
+done
+if [ -z "$ALG" ]; then
+    echo "ОШИБКА: не найден algorithms.py, дерево инструментов не обновлено"
+    exit 1
+fi
+python3 - "$ALG" <<'PYTREE'
+import subprocess, sys
+alg = sys.argv[1]
+for f, lang in (("manual.md", "ru"), ("manual_en.md", "en")):
+    tree = subprocess.run(["python3", "gen_tree.py", alg, lang],
+                          capture_output=True, text=True).stdout.strip()
+    if not tree:
+        raise SystemExit("ОШИБКА: генератор дерева вернул пусто (%s)" % lang)
+    s = open(f, encoding="utf-8").read()
+    i = s.index("<!-- TREE -->")
+    j = s.index("<!-- /TREE -->") + len("<!-- /TREE -->")
+    open(f, "w", encoding="utf-8").write(
+        s[:i] + "<!-- TREE -->\n" + tree + "\n<!-- /TREE -->" + s[j:])
+    print("дерево обновлено в", f)
+PYTREE
 
 build manual.md Isoliner.pdf
 build manual_en.md Isoliner_en.pdf

@@ -18,7 +18,6 @@
 """
 
 import datetime
-import os
 import platform
 import traceback
 
