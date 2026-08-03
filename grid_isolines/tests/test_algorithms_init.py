@@ -74,8 +74,8 @@ def test_all_algorithms_init():
     algorithms = importlib.import_module(pkg + ".algorithms")
     algorithms._tr = lambda s: s          # translate-заглушка возвращает строку
     assert algorithms.ALGORITHMS, "список ALGORITHMS пуст"
-    assert len(algorithms.ALGORITHMS) == 57, (
-        "ожидалось 57 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
+    assert len(algorithms.ALGORITHMS) == 59, (
+        "ожидалось 59 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
     for cls in algorithms.ALGORITHMS:
         a = cls()
         a.initAlgorithm()                 # тут и падало бы 'no attribute tr'
@@ -111,6 +111,37 @@ def test_group_name_sorts_after_topography():
     from grid_isolines import algorithms as A
     assert A.GROUP_TOPODIAG > A.GROUP_TOPO, (A.GROUP_TOPO, A.GROUP_TOPODIAG)
     assert A.GROUP_TOPODIAG_ID != A.GROUP_TOPO_ID
+
+
+def test_group_order_is_deterministic():
+    """Слои группы встают по списку, а не в порядке загрузки.
+
+    Порядок загрузки выходных слоёв в Processing не определён, и пачка
+    приезжала в дерево каждый раз иначе. Для 4.01 это не косметика: он
+    берёт порядок поверхностей из дерева слоёв, а значит случайный
+    порядок дал бы случайный разрез.
+    """
+    from grid_isolines import algorithms as A
+
+    order = ["B_top", "B_bottom", "AB_top", "AB_bottom",
+             "KpII_top", "KpII_bottom", "dissolution"]
+    shuffled = ["KpII_bottom", "dissolution", "B_bottom", "AB_top",
+                "B_top", "KpII_top", "AB_bottom"]
+    got = [shuffled[i] for i in A.group_order_indices(shuffled, order)]
+    assert got == order, got
+    again = [got[i] for i in A.group_order_indices(got, order)]
+    assert again == order, again
+
+
+def test_unlisted_layers_go_after_the_listed_ones():
+    """Слой не из списка встаёт следом, а не теряется и не лезет вверх."""
+    from grid_isolines import algorithms as A
+
+    order = ["B_top", "B_bottom"]
+    names = ["чужой", "B_bottom", "B_top", "ещё один"]
+    got = [names[i] for i in A.group_order_indices(names, order)]
+    assert got[:2] == ["B_top", "B_bottom"], got
+    assert sorted(got[2:]) == ["ещё один", "чужой"], got
 
 
 def test_style_not_overwritten_by_grouping():

@@ -161,6 +161,26 @@ def main():
         print("[FAIL] затенённые тесты:", shadowed)
         sys.exit(1)
     print("[ok] no shadowed test functions")
+    # Стоп-слова стиля. «Честный» и «врёт» пролезают в тексты как затычка
+    # там, где надо сказать по существу, и вычищать их вручную каждый раз
+    # бесполезно - проверка дешевле. Правило принято для всех публикуемых
+    # текстов, поэтому смотрим и код со справками, и руководства.
+    import glob as _g
+    import re as _re
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    bad = []
+    for path in _g.glob(os.path.join(root, "*.py")):
+        txt = open(path, encoding="utf-8").read()
+        for m in _re.finditer(r"честн[а-яё]*|врёт|врут|врал[а-яё]*", txt):
+            bad.append("%s: %s" % (os.path.basename(path),
+                                   txt[max(0, m.start() - 30):m.end() + 20]
+                                   .replace("\n", " ").strip()))
+    if bad:
+        print("[FAIL] стоп-слова стиля:", len(bad))
+        for b in bad[:5]:
+            print("   •", b)
+        sys.exit(1)
+    print("[ok] no style stop-words")
     print("[ok] TRANSLATIONS total entries: %d" % len(i18n.TRANSLATIONS))
     print("ALL TESTS PASSED")
 

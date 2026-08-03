@@ -6,7 +6,7 @@ toc-title: "Contents"
 
 # Introduction
 
-Isoliner is a Processing provider for interpolating point data, building isolines and working with terrain. The kriging core is the KB2D algorithm from GSLIB. The tools are split into five groups: **Grid and isolines** - the main processing flow from declustering to isolines, **Topography** - terrain from open data and hydrological analysis, **Additional analysis tools** - specialised computations from indicator kriging to variable-support density, **Cross-sections** - building geological sections, **Fractal analysis** - dimensions of surfaces, masks and lines.
+Isoliner is a Processing provider for interpolating point data, building isolines and working with terrain. The kriging core is the KB2D algorithm from GSLIB. The tools are split into six groups: **Grid and isolines** - the main processing flow from declustering to isolines, **Topography** - terrain from open data and hydrological analysis, **Additional analysis tools** - specialised computations from indicator kriging to variable-support density, **Cross-sections** - building geological sections, **Geological model** - consistency of a bed stack and a teaching example of a section, **Fractal analysis** - dimensions of surfaces, masks and lines.
 
 **2D Kriging (points → raster)** - ordinary or simple kriging over a point layer.
 
@@ -107,20 +107,25 @@ so it never drifts from the plugin.
 - `4.11` Bed reference template
 - `4.12` Attitude from an outcrop trace
 
-**5. Fractal analysis**
+**5. Geological model**
 
-- `5.01` Fractal dimension
-- `5.02` Box-counting of masks
-- `5.03` Dimension of lines and boundaries
-- `5.04` Minkowski dimension (vectors)
-- `5.05` Create a fractal example (demo)
+- `5.01` Consistency of a bed stack
+- `5.02` Create an example section (demo)
 
-_Tools in total: 57_
+**6. Fractal analysis**
+
+- `6.01` Fractal dimension
+- `6.02` Box-counting of masks
+- `6.03` Dimension of lines and boundaries
+- `6.04` Minkowski dimension (vectors)
+- `6.05` Create a fractal example (demo)
+
+_Tools in total: 59_
 <!-- /TREE -->
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
 
-After installation the tools appear in the **Processing** panel: provider **Isoliner**, groups **Grid and isolines**, **Topography**, **Additional analysis tools**, **Cross-sections** and **Fractal analysis**. Requirements: QGIS 3.16+. There are no external dependencies - only NumPy, GDAL and the built-in Processing algorithms shipped with QGIS are used.
+After installation the tools appear in the **Processing** panel: provider **Isoliner**, groups **Grid and isolines**, **Topography**, **Additional analysis tools**, **Cross-sections**, **Geological model** and **Fractal analysis**. Requirements: QGIS 3.16+. There are no external dependencies - only NumPy, GDAL and the built-in Processing algorithms shipped with QGIS are used.
 
 ## Updating
 
@@ -2584,7 +2589,81 @@ The method follows Allmendinger: the normal to the plane is the eigenvector of t
 
 **Place in the chain.** The output feeds straight into 4.05, which expects exactly the dip and dip_az fields. If the terrain is given by contours and the trace is flat, put it through 2.22 first - the elevations will be taken off the adjoining contours.
 
-# 5.01 Fractal dimension
+# Geological model
+
+The group brings together tools that work not with a single surface but with a stack: the roofs and floors of neighbouring bodies are tied to one another, and that tie is either kept or broken. Checking it is the first task. The second is to have at hand material whose answer is known in advance, on which it is visible where the grid representation works and where it stops working.
+
+# 5.01 Consistency of a bed stack
+
+Roofs and floors are usually built separately: every surface is interpolated from its own measurements and knows nothing about the neighbouring ones. While the beds are persistent this gets away with it. In a pinch-out zone, where the thickness goes to zero, two independently built surfaces almost inevitably intersect, and after that the arithmetic over such a stack gives negative thicknesses and volumes, while the section shows inverted bands.
+
+The tool answers whether such places exist and where exactly.
+
+## What is counted
+
+**Pinch-out** - a thickness within the tolerance of zero. This is geology rather than a defect, and it goes into a separate count.
+
+**Negative thickness** - the roof of a bed lies below its floor.
+
+**Overlap of neighbours** - the floor of the upper bed has dropped below the roof of the lower one. This check is separate and does not reduce to the previous one: every bed on its own may be sound while together they overlap.
+
+**The smallest gap** between neighbours is produced as a map, not only as a number. The number says how much, the map says where, and the second matters more: that is where the overlap will appear at the next recomputation of the surfaces.
+
+**The sign of a reversed order** fires when the overlap has taken almost the whole area while the beds themselves are clean. Geology does not look like that: a real overlap is local and sits next to a pinch-out. Almost certainly the beds have been supplied bottom up.
+
+The pinch-out tolerance is set by a parameter and by meaning equals the accuracy of the surfaces. With a zero tolerance the numerical noise in the zone of convergence will spill into errors.
+
+## Where the order of beds comes from
+
+The order of occurrence from top to bottom is taken from the layer tree of the project, and if a bed reference is supplied, from it. The order in which the files were picked in the dialog means nothing: QGIS does not preserve it, and it cannot be relied upon. Where the order came from is printed to the log.
+
+The reference is applied only if it describes the supplied beds. A foreign reference that matches no code is ignored with a message instead of imposing a random order.
+
+## What comes out
+
+A raster of zones with codes: consistent, pinch-out, negative thickness, overlap. A map of the smallest gap to the neighbouring bed. For every bed the log gets the range of thickness and the areas of the zones, for every pair of neighbours the smallest gap and the area of the overlap.
+
+Areas are printed in hectares rather than in cells: a thousand cells on a one-metre grid and on a thirty-metre one differ by a factor of nine hundred.
+
+## What the tool does not settle
+
+A negative thickness comes from two origins, and arithmetic cannot tell them apart: an error of interpolation or an overturned bed on a fold. The tool marks the places and prints the numbers but passes no verdict. It is the drilling data that tells them apart: if the codes along the hole do not follow the stratigraphic order, that is the sign of overturning, and it is computed directly from the drilling model.
+
+Telling an erosional truncation from a pinch-out is likewise impossible without the dissolution surface on the input: at a truncation the thickness breaks off on the mirror, at a pinch-out the roof and the floor converge on each other, but on the map of zones both look the same.
+
+# 5.02 Create an example section (demo)
+
+The tool builds a teaching section of the Verkhnekamskoye type with all the cases for whose sake the rest of the group exists. It is useful because the answer is known in advance: any disagreement with it is an error of the tool rather than of the data.
+
+## What is in the example
+
+**The column** is taken from the bed reference in full, thirty-six bodies from top to bottom: the cover deposits, the variegated and the terrigenous-carbonate sequences, the salt-marl sequence, then the salt with the transition unit, the cover rock salt, the carnallite zone with its interbeds, the sylvinite beds, the underlying salt, the marker clay and the lower salt. Interbeds here are bodies just like beds.
+
+**A recumbent fold** in the middle of the area. At its hinge a vertical borehole crosses one and the same body three times: in the horizontal limb, in the upper arc and in the lower one, while the neighbouring body is penetrated twice. Above a point in plan there are several roofs, and the elevation ceases to be a function of two coordinates. No density of the network will fix that.
+
+**A pinch-out** brings the thickness of one bed to zero by a smoothed step between two boundaries. The boundaries are produced as lines - the very input needed to build a thickness trend.
+
+**A salt dome with a dissolved top** stands aside from the fold. The dome lifts the salt as a whole, the dissolution surface cuts away what has been lifted, and it is not one body that is cut but the whole column down to the level of dissolution. The mirror is the roof not of an appointed body but of the one that survived: aside from the dome the transition unit, over the crest the cover salt.
+
+The salt-marl sequence settled on the dissolved salt and fills everything up to the base of the terrigenous-carbonate one, so over the dome it is thin while aside from it full.
+
+## The grids in the fold zone are wrong on purpose
+
+The surfaces are built from the first penetration from the top, that is exactly as a person would assemble them from borehole measurements without noticing the overturning. In the fold zone they are invalid by construction, and this is deliberate: 5.01 must show overlaps and negative thicknesses on such grids. The outline of the zone is produced as a separate layer so that it is not mistaken for an error of the tool.
+
+## What comes out
+
+The surfaces are written into a folder, one file per contact, and are loaded into a group in the order of the column. Thirty-seven separate rows in the dialog would be unopenable, so the parameters carry a single folder.
+
+Besides the surfaces the tool produces the dissolution mirror, the map of what comes out under the mirror, the thickness of the water-protective sequence from the roof of bed B to the mirror, the collars and intervals of the drilling model with the number of the penetration in the entry field, the pinch-out boundaries as lines, the outline of the fold zone and the bed reference with codes, order, kind of body and colour.
+
+Everything is deterministic: the same parameters give the same section.
+
+## How to use it
+
+Build the example, feed its surfaces into **5.01** and make sure that the overlap is found in the fold zone and the pinch-out where the boundaries are set. Then run a section line across the crest of the dome with **4.01**, supplying the bed reference: the bands break off on the mirror, over the crest the upper body is absent altogether and the next one is truncated. This is the picture an erosional contact gives, and it is convenient for checking how sections behave on real data.
+
+# 6.01 Fractal dimension
 
 The tool computes a fractal-dimension map of a surface by the variogram method, native to the plugin: a log-log variogram over lags of one to N cells is built in a sliding window, its slope gives the Hurst exponent H, and the dimension D = 3 - H. Smooth differentiable areas give D near 2, rugged and noisy ones tend to 3; the values themselves matter less than their steps - they highlight zones of tectonic disturbance, block boundaries and changes of the roof relief character.
 
@@ -2602,7 +2681,7 @@ A small window (5-8 cells) reveals the microstructure and local disturbances, a 
 
 ## Workflow
 
-A bed roof from kriging → **5.01** with a window of 8 → the D grid → **1.04 Isolines from a raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS; the demo surfaces fit as they are.
+A bed roof from kriging → **6.01** with a window of 8 → the D grid → **1.04 Isolines from a raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS; the demo surfaces fit as they are.
 
 ## Parameters
 
@@ -2615,7 +2694,7 @@ A bed roof from kriging → **5.01** with a window of 8 → the D grid → **1.0
 | Write H (Adv.) | Add H as band 2. | off |
 | Fractal dimension | A D grid (and H if checked). | - |
 
-# 5.02 Mask box-counting
+# 6.02 Mask box-counting
 
 Classic box-counting for binary masks: the raster is binarised by a threshold (the object - values above it), the mask is covered by cells of a decreasing size, the slope of log N versus log(1/size) gives one dimension D for the whole mask. A linear object gives D near 1, a blob - near 2, rugged outlines of replacement zones or mined-out areas fall in between. The accuracy on finite masks is about ±0.1, so the method is good for comparing masks with each other rather than as an absolute measure. The result is printed to the log with a table of sizes and counts and returned as the number D - usable further in Processing models.
 
@@ -2631,7 +2710,7 @@ The mineral-type band of a bed grid with a threshold between the class codes, an
 | Threshold | The object/background boundary. | 0.5 |
 | Band (Adv.) | The raster band. | 1 |
 
-# 5.03 Line and boundary dimension
+# 6.03 Line and boundary dimension
 
 The dimension of every line by the divider (Richardson) method: the line is walked with chords of a decreasing span, the slope of log N versus log r gives D. A straight line gives one, a rugged line - more. Polygons are accepted alongside lines - the exterior ring of the boundary is measured, so the ruggedness of zone and basin outlines is computed without a prior conversion. The output is the same features with the D and steps fields, the mean D is printed to the log; short lines get an empty D. The method is checked on references: the Koch curve gives 1.262 against the theoretical 1.2619.
 
@@ -2648,11 +2727,11 @@ The ruggedness of zone outlines in plan, comparing the digitising detail of boun
 | Lines | A line layer (isolines, outlines). | - |
 | Lines with the dimension | The same lines with the D and steps fields. | - |
 
-# 5.04 Minkowski dimension (vectors)
+# 6.04 Minkowski dimension (vectors)
 
 Box-counting directly over vectors, no rasterisation: lines and polygon boundaries are covered by a grid of a decreasing size, the slope of log N versus log(1/size) gives the Minkowski dimension. A straight line and a smooth boundary give D near one, a river network - 1.1-1.5, a heavily rugged coastline - up to 1.3 and above. Every feature gets the D_mink and D_r2 fields (the log-log fit quality: below 0.85 the estimate cannot be trusted), and separately the D of the layer as one set is computed and printed to the log: for a river network that is the dimension of the network as a whole, regularly higher than that of the individual branches.
 
-The method complements the divider of 5.03: the divider measures the sinuosity of one line, Minkowski - the plane filling by a set of features. The dimension is also returned as a number output for Processing models.
+The method complements the divider of 6.03: the divider measures the sinuosity of one line, Minkowski - the plane filling by a set of features. The dimension is also returned as a number output for Processing models.
 
 ![Demo rivers labelled by the per-branch D_mink: nearly smooth branches give values around one, the network as a whole - higher.](images/rivers_dmink.png){width=88%}
 
@@ -2663,9 +2742,9 @@ The method complements the divider of 5.03: the divider measures the sinuosity o
 | Grid offsets per size (Adv.) | Random shifts, the minimal cover is taken - removes the grid alignment. | 3 |
 | Densify factor (Adv.) | The sampling step along segments as a cell fraction; 0 - vertices only. | 0.5 |
 
-# 5.05 Create a fractal example (demo)
+# 6.05 Create a fractal example (demo)
 
-A generator of study features for the whole fractal five: a branching river network with an order field (the tributary order), a basin polygon with a rugged boundary and a separate coastline built by midpoint displacements. Feed the rivers into 5.04 - you get the network dimension; the coast and the basin boundary - into 5.03 and 5.04 and compare the divider with Minkowski; rasterise the basin with the standard tool - and it doubles as an example for 5.02.
+A generator of study features for the whole fractal five: a branching river network with an order field (the tributary order), a basin polygon with a rugged boundary and a separate coastline built by midpoint displacements. Feed the rivers into 6.04 - you get the network dimension; the coast and the basin boundary - into 6.03 and 6.04 and compare the divider with Minkowski; rasterise the basin with the standard tool - and it doubles as an example for 6.02.
 
 | Parameter | What it sets | Default |
 |---|---|---|
@@ -2858,7 +2937,7 @@ Point layer **Subsidence profiles (trough, tours: N)**:
 - **Zone (demo, polygon)** (polygon): **name**.
 - **Overturned TIN (demo)** (3D faces): **name**.
 
-## Fractal data - tool 5.05
+## Fractal data - tool 6.05
 
 - **Rivers (demo)** (lines): field **order** (integer) - tributary order in the network hierarchy.
 - **Basin (demo)** (polygon): field **name**.

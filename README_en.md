@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data, building isolines and working with terrain.
-The tools are split into five Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"** and **"Fractal analysis"** — fifty-two in all:
+The tools are split into six Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"**, **"Geological model"** and **"Fractal analysis"** — fifty-nine in all:
 
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
@@ -30,19 +30,24 @@ The tools are split into five Processing groups — **"Grid and isolines"**, **"
 - **2.01 Download DEM by extent** — Copernicus DEM GLO-30 from an open store, no registration or keys: a seamless mosaic, reprojection into a metric CRS, hydrological correction by a checkbox.
 - **2.02 Download base topography by extent** — OpenStreetMap layers for terrain work: watercourses (ready streamlines), water bodies, peaks with elevations, cliffs and embankments, the coastline.
 - **2.03 Topo2Raster (terrain from vectors)** — terrain from points, contours, streamlines, cliffs and lakes by multigrid interpolation in the spirit of ANUDEM: a membrane frame plus minimum-curvature polishing.
-- **2.04 Fill depressions** — the Planchon-Darboux method with a tunable epsilon: pits only up to the spill level, or a through slope across flats.
+- **2.04 Terrain preparation** — depression filling by the Planchon-Darboux method with a tunable epsilon and smoothing: pits only up to the spill level, or a through slope across flats.
 - **2.05 Flow and accumulation (D8)** — flow directions in ArcGIS codes and accumulation by a vectorized sweep. A 2000×2000 grid in seconds.
 - **2.06 River network** — links from heads and junctions downstream, the Strahler order, the output fits 2.03 as streamlines.
 - **2.07 Basins and watersheds** — from pour points snapped to the accumulation maximum, or automatically from mouths. Polygons and a label raster.
 - **2.08 Slope and aspect** — the Horn 3×3 kernel as in gdaldem, aspect as the downslope azimuth, flat cells flagged.
 - **2.09 Peaks and pits** — local extremes of both signs with two filters: the radius suppresses secondary tops, the relief threshold cuts off bumps and puddles. The elevation is written into the geometry Z: the spot points go to DXF together with the contours and remove the flat caps of a surface at closed contours.
 - **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Outputs gauge points for 2.15, ditch traces for 2.16 and, optionally, a pair of surfaces with work areas for 2.18.
+- **2.11 Split contours for validation** — splits a contour layer into a working and a held-out part for strict evaluation of the build: held-out lines do not go into the interpolation.
+- **2.12 Contour residuals against a DEM** — compares contour elevations with the built surface: reproduction and held-out control, a summary and a map of deviations.
+- **2.13 DEM terracing diagnostics** — vertical curvature as a marker of steps from contour lines: where the surface goes in terraces, it was built from contours with no relief in between.
+- **2.14 Remove steps (clamped smoothing)** — smoothing clamped by a tolerance to the source elevations, with an HTML report before and after: the steps go while the surface does not drift.
 - **2.15 Gauge point report** — watershed morphometry from a closure point: area, elevations, mean basin slope, length, fall and slope of the main stream. Polygons with attributes and an HTML report.
 - **2.16 Catchment. Lines and outlines (ditches, open pits)** — the area intercepted by a hillside ditch, a gutter or an open pit outline. A line is rasterised and taken as the intake, a polygon is treated as an intake in its entirety, the catchment is collected by flow. Burning the trace is a separate checkbox.
 - **2.18 Cut and fill (earthwork volumes)** — volumes between two surfaces, or a surface and an elevation: fill, cut, balance. Grids are aligned bilinearly, the dead band cuts background noise, work areas are counted separately. A difference raster and an HTML statement.
 - **2.19 Crest and toe candidates** - the places where the slope changes fastest, traced into lines with the drop, the length and the kind in the attributes.
 - **2.20 Crests and toes into work** - elevations off the DEM, crest-toe forms by descending the slope, ready Top and Bottom inputs.
 - **2.21 Create a demo open pit** - a pit with benches, a ramp, a dump and a ditch plus the true structural lines as a reference.
+- **2.22 Elevations from adjoining contours** — elevations for structural lines from the contours they adjoin: an input for mute crests and toes without a DEM.
 
 ### "3. Additional analysis tools" group
 
@@ -68,14 +73,20 @@ The tools are split into five Processing groups — **"Grid and isolines"**, **"
 - **4.09 Shaft wall unwrap (beta)** — a cylindrical section around an axis in arc-elevation axes.
 - **4.10 Create a section example** — a stack of surfaces, a line and boreholes with elevation fields, to try the section without kriging.
 - **4.11 Bed reference template** — adds the bundled bed reference to the project (37 rows of the Verkhnekamskoye deposit): code, bedding order, body kind and colour. It is read by 4.01 and 4.02, and the band and column colours come from it.
+- **4.12 Attitude from an outcrop trace** — dip azimuth and dip angle from the trace of a surface on the relief: three trace points give a plane, the attitude goes into the attributes.
 
-### "5. Fractal analysis" group
+### "5. Geological model" group
 
-- **5.01 Fractal dimension** — a D = 3 − H map by the variogram method in a moving window: contrasts highlight faults and block boundaries.
-- **5.02 Box-counting of masks** — one D per binary mask: replacement and workings outlines compared by a number.
-- **5.03 Dimension of lines and boundaries** — D of each line by the divider method: diagnostics of oversmoothed isolines.
-- **5.04 Minkowski dimension (vectors)** — box-counting directly over lines and polygon boundaries, without rasterization.
-- **5.05 Create a fractal example (demo)** — a river network with tributary orders, a catchment with a ragged boundary, a coastline.
+- **5.01 Consistency of a bed stack** — checks roofs and floors built separately: pinch-out, negative thickness, overlap of neighbours, a map of the smallest gap, a sign of a reversed order. The bed order comes from the layer tree or the reference.
+- **5.02 Create an example section (demo)** — a teaching section of the Verkhnekamskoye type: the full column from the bed reference, a recumbent fold with triple penetration, a pinch-out, a salt dome with a dissolution mirror, a subcrop map, the water-protective sequence, a drilling model.
+
+### "6. Fractal analysis" group
+
+- **6.01 Fractal dimension** — a D = 3 − H map by the variogram method in a moving window: contrasts highlight faults and block boundaries.
+- **6.02 Box-counting of masks** — one D per binary mask: replacement and workings outlines compared by a number.
+- **6.03 Dimension of lines and boundaries** — D of each line by the divider method: diagnostics of oversmoothed isolines.
+- **6.04 Minkowski dimension (vectors)** — box-counting directly over lines and polygon boundaries, without rasterization.
+- **6.05 Create a fractal example (demo)** — a river network with tributary orders, a catchment with a ragged boundary, a coastline.
 
 Suitable for bed elevations, thicknesses, rock properties, chemistry and any numeric attribute.
 
@@ -292,6 +303,12 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
+- **4.63.0** — 4.02 gains a new output: label anchors of intervals, a point in the middle of every interval with all its attributes. Composite grade labels attach to points and place normally.
+- **4.62.0** — the demo became a full section of the Verkhnekamskoye type: the whole column from the reference, erosion from the dissolution level, a subcrop map, the water-protective sequence, a folder output.
+- **4.59.0–4.60.0** — a salt dome with a dissolved top in the demo, the cut carried onto the mirror without steps, the group layer order in the tree made deterministic.
+- **4.58.0–4.58.1** — the fold sized to the stack thickness, the pinch-out boundary bent, the demo reference aligned with the layers.
+- **4.56.0–4.57.3** — the new "5. Geological model" group: 5.01 stack consistency, 5.02 the demo stack. Fractal analysis became the sixth group.
+- **Ready Processing models** in `models/`: the "Terrain from a topographic plan" chain (2.22 -> 2.20 -> 2.03) in a single run, with the mute and unpaired line outputs.
 - The **"Terrain from a topographic plan"** cheat sheet (RU/EN): the 2.22 → 2.20 → 2.03 chain for areal quarries, cuts, fills and dumps, where the standard describes no contours inside.
 
 - **4.55.0** — a quick start in the manuals (seven scenarios by task rather than by tool), "What to build" presets in the 2.10 and 2.21 demos, thinning of band vertices in 4.05, the tool-tree generator repaired.

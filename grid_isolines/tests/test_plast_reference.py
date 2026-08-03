@@ -220,6 +220,22 @@ def test_span_codes_empty_when_bad_order():
     assert ref.span_codes("АБ", "нет") == []
 
 
+def test_demo_reference_is_readable():
+    """Справочник, который пишет 5.02, читается разрезами.
+
+    Столбцы те же, что ставит демо-пачка. На прогоне 4.01 отказался от
+    справочника целиком, потому что вида тела в нём не было, и разрез
+    строился без цветов и имён.
+    """
+    rows = [{"code": "B", "order": 1, "body": "пласт", "color": "#9fb59a"},
+            {"code": "AB", "order": 2, "body": "пласт", "color": "#c0504d"},
+            {"code": "KpII", "order": 3, "body": "пласт", "color": "#8fa88b"}]
+    beds = pr.parse_rows(rows)
+    assert [b.code for b in beds] == ["B", "AB", "KpII"]
+    assert all(not b.is_interbed for b in beds)
+    assert beds[0].color is not None
+
+
 def _run():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

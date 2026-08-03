@@ -95,7 +95,7 @@ def generate(nx=DEFAULT_NX, ny=DEFAULT_NY, cell=DEFAULT_CELL,
     dict(kind, link, pts=[(x, y, z)...]). kind: brow, toe, thalweg.
     link - значение поля связи, одно на пару. Координаты pts в метрах от
     верхнего левого угла, x на восток, y на юг (как строки растра).
-    Дуга съезда исключена из линий уступов: там честный разрыв.
+    Дуга съезда исключена из линий уступов: там настоящий разрыв.
     """
     rng = np.random.default_rng(int(seed))
     z, xx, yy = _base(nx, ny, cell, rng)
