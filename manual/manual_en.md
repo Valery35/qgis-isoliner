@@ -6,7 +6,7 @@ toc-title: "Contents"
 
 # Introduction
 
-Isoliner is a Processing provider for interpolating point data, building isolines and working with terrain. The kriging core is the KB2D algorithm from GSLIB. The tools are split into six groups: **Grid and isolines** - the main processing flow from declustering to isolines, **Topography** - terrain from open data and hydrological analysis, **Additional analysis tools** - specialised computations from indicator kriging to variable-support density, **Cross-sections** - building geological sections, **Geological model** - consistency of a bed stack and a teaching example of a section, **Fractal analysis** - dimensions of surfaces, masks and lines.
+Isoliner is a Processing provider for interpolating point data, building isolines and working with terrain. The kriging core is the KB2D algorithm from GSLIB. The tools are split into seven groups: **Grid and isolines** - the main processing flow from declustering to isolines, **Topography** - terrain from open data and hydrological analysis, **Additional analysis tools** - specialised computations from indicator kriging to variable-support density, **Cross-sections** - building geological sections, **Geological model** (beta) - consistency of a bed stack and a teaching example of a section, **River hydrology** - cross-sections, rating curves and flooding, **Fractal analysis** - dimensions of surfaces, masks and lines.
 
 **2D Kriging (points → raster)** - ordinary or simple kriging over a point layer.
 
@@ -107,20 +107,27 @@ so it never drifts from the plugin.
 - `4.11` Bed reference template
 - `4.12` Attitude from an outcrop trace
 
-**5. Geological model**
+**5. Geological model (beta)**
 
 - `5.01` Consistency of a bed stack
 - `5.02` Create an example section (demo)
 
-**6. Fractal analysis**
+**6. River hydrology**
 
-- `6.01` Fractal dimension
-- `6.02` Box-counting of masks
-- `6.03` Dimension of lines and boundaries
-- `6.04` Minkowski dimension (vectors)
-- `6.05` Create a fractal example (demo)
+- `6.01` Cross-sections and rating curves
+- `6.02` Flood extent polygon
+- `6.03` Import section tables
+- `6.04` Create an example river (demo)
 
-_Tools in total: 59_
+**7. Fractal analysis**
+
+- `7.01` Fractal dimension
+- `7.02` Box-counting of masks
+- `7.03` Dimension of lines and boundaries
+- `7.04` Minkowski dimension (vectors)
+- `7.05` Create a fractal example (demo)
+
+_Tools in total: 63_
 <!-- /TREE -->
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
@@ -2663,7 +2670,89 @@ Everything is deterministic: the same parameters give the same section.
 
 Build the example, feed its surfaces into **5.01** and make sure that the overlap is found in the fold zone and the pinch-out where the boundaries are set. Then run a section line across the crest of the dome with **4.01**, supplying the bed reference: the bands break off on the mirror, over the crest the upper body is absent altogether and the next one is truncated. This is the picture an erosional contact gives, and it is convenient for checking how sections behave on real data.
 
-# 6.01 Fractal dimension
+# River hydrology
+
+The group answers the question by which flooding is justified: how high the water rises at a given discharge, and what discharge passes at a given level. The link between discharge and level is built for a cross-section and is called a rating curve.
+
+The task came from practice: hydrologists build such curves in programs with manual entry, where the distance and elevation pairs are typed in as a table for every section, and the coefficients and slopes are written out by hand. Meanwhile all of that is data already present in GIS: the distances sit in the geometry of the section, the elevations in the soundings, the slope between sections is computed from the chainage.
+
+The branch stands on its own and does not overlap with the geological model, the only thing they share is the machinery of profiles.
+
+# 6.01 Cross-sections and rating curves
+
+The main tool of the group. From a section and its elevations it builds a table and a graph of the dependence of discharge on level.
+
+## How it is computed
+
+The profile is taken along the vertices of the section, the elevation from the vertex Z. A surveyed elevation is more accurate than any terrain model, so the source is the geometry of the section itself rather than a DEM sample.
+
+The profile is divided into the left bank, the channel and the right bank. Counting them separately is mandatory: the roughness of the floodplain and of the channel differ several times over, and a single count understates the channel part. On every part the flow area, the top width, the wetted perimeter and the hydraulic radius are computed, then the discharge by the Manning formula. The total discharge is the sum over the parts.
+
+The wetted perimeter is taken along solid boundaries, that is along the bed and the slopes, without the vertical planes of the division. The methodologies differ here, and the simplest of the conventions has been adopted.
+
+## The division
+
+It is set in one of two ways. Either the section arrives as a single line and the boundaries stand in fields as distances along the profile. Or as three lines with a role field and a common name - then the division lives in the geometry, the way hydrologists draw profiles. The second way is preferable: no distances by hand.
+
+## Roughness and slope
+
+They are taken from the fields of the section rather than from the parameters of the tool. The reason is not convenience: there are many sections, each has its own values, and the parameters cannot express that, while with fields the calibration comes down to editing a table. The parameters serve as a default for sections without fields, the accepted values are printed to the log.
+
+The slope can be computed **from the chain of sections**: if the chainage and the bed elevations are set, the slope of each is taken to its neighbour from the difference of elevations and the distance along the river. In existing practice it is written out relative to the previous section by hand, here the same value comes out of the attributes on its own.
+
+Fields with the names of the contract - sec, km, div_l, div_r, n_left, n_channel, n_right, slope - are picked up without the user, and the picked ones are printed to the log. An explicit choice is always senior to what has been found.
+
+## What matters about the method
+
+The Manning formula describes steady uniform flow. The curve is a hydraulic characteristic of the section rather than a computation of a release wave, and the tool promises no more.
+
+The slope enters the discharge under a square root, so an error in it tells directly. On lowland rivers it is small, and the value is always printed to the log so that the accepted one is visible.
+
+## What comes out
+
+A table of the curve by parts and in total with the area, width, perimeter, radius, velocity and discharge at every level. The section profiles as drawing layers. An HTML report with a table for every section.
+
+# 6.02 Flood extent polygon
+
+Cuts the surface by a water level and produces the flood extent and a raster of depth.
+
+The level can be set directly or by a discharge: then it is taken backwards along the curve from 6.01 - the very move drawn as a red arrow on manual constructions. The curve is supplied as a table, the discharge as a number, the accepted level is printed to the log.
+
+The tool is deliberately separate from 6.01: it has a different input and a different consumer, and there is no point in running the whole curve computation for the sake of one polygon.
+
+Small patches are dropped by area: on a flat floodplain single cells below the water line give speckle that has nothing to do with the flood. Connectivity with the channel is not checked, and the log says so: closed depressions away from the river will stay in the extent, and that is visible on the map.
+
+# 6.03 Import section tables
+
+Turns a table of soundings into sections with elevations in the vertices.
+
+Existing programs keep the profile as pairs of a distance from the start of the section and an absolute elevation, and over years of work many such tables accumulate. There is no point in retyping them by hand for the sake of moving into GIS.
+
+If the sections are already digitized on the map, supply them as a layer: the soundings will lie along the real lines, and the distance along the section becomes the distance along the line. A section for which no line was found is built by the scheme with a warning, soundings longer than the line are pressed to its end also with a warning.
+
+Without a line layer the geometry is built as straight sections by an azimuth and the chainage. This is a scheme rather than a survey, and it does not affect the computation of the curve at all: the curve needs the distances along the section and the elevations.
+
+Computation properties are carried along with the profile if the table holds them: the division boundaries, the roughness values and the slope. Without them the geometry would come back but not the computation, and the curve over the restored sections would part from the original one.
+
+# 6.04 Create an example river (demo)
+
+A teaching chain of sections with a known answer: a valley with a channel and two floodplains, elevations in the vertex Z, the fields of division, roughness, slope and chainage filled in.
+
+The channel and the floodplains have different roughness, so the curve shows how the floodplain comes in: up to the banks the discharge grows steeply, above the break the floodplain adds area but adds little discharge.
+
+Besides the sections it produces a table of soundings - the input for 6.03 - and a valley surface as a raster, the input for 6.02: there is nothing for the flooding to cut while the valley exists as lines only. The surface is built from the same sections as the curves, so the flood extent and the rating curve speak of one valley rather than of two similar ones.
+
+A separate output is a reference curve computed by the core directly. A discrepancy with what 6.01 gives on the same sections is an error of the tool rather than of the data: the answer is known in advance.
+
+## How to check the group
+
+Build the example, feed the sections into 6.01 and compare the table of the curve with the reference one - they must coincide. Then feed the table of soundings into 6.03 together with the layer of the demo sections: the restored sections will lie over the originals and give the same curve. Finally feed the valley surface, the rating curve and a discharge into 6.02 - you get the flood extent and the depth.
+
+# What the group does not have yet
+
+Soundings as a separate point layer and sampling of the profile from a DEM for sections without Z. Bathymetry: the restoration of the bed between surveyed sections along the channel is a separate task with its own anisotropy, and until then the curves are computed over surfaces where the bed is present.
+
+# 7.01 Fractal dimension
 
 The tool computes a fractal-dimension map of a surface by the variogram method, native to the plugin: a log-log variogram over lags of one to N cells is built in a sliding window, its slope gives the Hurst exponent H, and the dimension D = 3 - H. Smooth differentiable areas give D near 2, rugged and noisy ones tend to 3; the values themselves matter less than their steps - they highlight zones of tectonic disturbance, block boundaries and changes of the roof relief character.
 
@@ -2681,7 +2770,7 @@ A small window (5-8 cells) reveals the microstructure and local disturbances, a 
 
 ## Workflow
 
-A bed roof from kriging → **6.01** with a window of 8 → the D grid → **1.04 Isolines from a raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS; the demo surfaces fit as they are.
+A bed roof from kriging → **7.01** with a window of 8 → the D grid → **1.04 Isolines from a raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS; the demo surfaces fit as they are.
 
 ## Parameters
 
@@ -2694,7 +2783,7 @@ A bed roof from kriging → **6.01** with a window of 8 → the D grid → **1.0
 | Write H (Adv.) | Add H as band 2. | off |
 | Fractal dimension | A D grid (and H if checked). | - |
 
-# 6.02 Mask box-counting
+# 7.02 Mask box-counting
 
 Classic box-counting for binary masks: the raster is binarised by a threshold (the object - values above it), the mask is covered by cells of a decreasing size, the slope of log N versus log(1/size) gives one dimension D for the whole mask. A linear object gives D near 1, a blob - near 2, rugged outlines of replacement zones or mined-out areas fall in between. The accuracy on finite masks is about ±0.1, so the method is good for comparing masks with each other rather than as an absolute measure. The result is printed to the log with a table of sizes and counts and returned as the number D - usable further in Processing models.
 
@@ -2710,7 +2799,7 @@ The mineral-type band of a bed grid with a threshold between the class codes, an
 | Threshold | The object/background boundary. | 0.5 |
 | Band (Adv.) | The raster band. | 1 |
 
-# 6.03 Line and boundary dimension
+# 7.03 Line and boundary dimension
 
 The dimension of every line by the divider (Richardson) method: the line is walked with chords of a decreasing span, the slope of log N versus log r gives D. A straight line gives one, a rugged line - more. Polygons are accepted alongside lines - the exterior ring of the boundary is measured, so the ruggedness of zone and basin outlines is computed without a prior conversion. The output is the same features with the D and steps fields, the mean D is printed to the log; short lines get an empty D. The method is checked on references: the Koch curve gives 1.262 against the theoretical 1.2619.
 
@@ -2727,11 +2816,11 @@ The ruggedness of zone outlines in plan, comparing the digitising detail of boun
 | Lines | A line layer (isolines, outlines). | - |
 | Lines with the dimension | The same lines with the D and steps fields. | - |
 
-# 6.04 Minkowski dimension (vectors)
+# 7.04 Minkowski dimension (vectors)
 
 Box-counting directly over vectors, no rasterisation: lines and polygon boundaries are covered by a grid of a decreasing size, the slope of log N versus log(1/size) gives the Minkowski dimension. A straight line and a smooth boundary give D near one, a river network - 1.1-1.5, a heavily rugged coastline - up to 1.3 and above. Every feature gets the D_mink and D_r2 fields (the log-log fit quality: below 0.85 the estimate cannot be trusted), and separately the D of the layer as one set is computed and printed to the log: for a river network that is the dimension of the network as a whole, regularly higher than that of the individual branches.
 
-The method complements the divider of 6.03: the divider measures the sinuosity of one line, Minkowski - the plane filling by a set of features. The dimension is also returned as a number output for Processing models.
+The method complements the divider of 7.03: the divider measures the sinuosity of one line, Minkowski - the plane filling by a set of features. The dimension is also returned as a number output for Processing models.
 
 ![Demo rivers labelled by the per-branch D_mink: nearly smooth branches give values around one, the network as a whole - higher.](images/rivers_dmink.png){width=88%}
 
@@ -2742,9 +2831,9 @@ The method complements the divider of 6.03: the divider measures the sinuosity o
 | Grid offsets per size (Adv.) | Random shifts, the minimal cover is taken - removes the grid alignment. | 3 |
 | Densify factor (Adv.) | The sampling step along segments as a cell fraction; 0 - vertices only. | 0.5 |
 
-# 6.05 Create a fractal example (demo)
+# 7.05 Create a fractal example (demo)
 
-A generator of study features for the whole fractal five: a branching river network with an order field (the tributary order), a basin polygon with a rugged boundary and a separate coastline built by midpoint displacements. Feed the rivers into 6.04 - you get the network dimension; the coast and the basin boundary - into 6.03 and 6.04 and compare the divider with Minkowski; rasterise the basin with the standard tool - and it doubles as an example for 6.02.
+A generator of study features for the whole fractal five: a branching river network with an order field (the tributary order), a basin polygon with a rugged boundary and a separate coastline built by midpoint displacements. Feed the rivers into 7.04 - you get the network dimension; the coast and the basin boundary - into 7.03 and 7.04 and compare the divider with Minkowski; rasterise the basin with the standard tool - and it doubles as an example for 7.02.
 
 | Parameter | What it sets | Default |
 |---|---|---|
@@ -2937,7 +3026,7 @@ Point layer **Subsidence profiles (trough, tours: N)**:
 - **Zone (demo, polygon)** (polygon): **name**.
 - **Overturned TIN (demo)** (3D faces): **name**.
 
-## Fractal data - tool 6.05
+## Fractal data - tool 7.05
 
 - **Rivers (demo)** (lines): field **order** (integer) - tributary order in the network hierarchy.
 - **Basin (demo)** (polygon): field **name**.

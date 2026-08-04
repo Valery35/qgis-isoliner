@@ -41,6 +41,8 @@ from .i18n import tr as _tr  # двуязычие RU/EN (нужен до module-
 from . import section_core as _sc  # чистое ядро разреза, без QGIS
 from . import drillhole_core as _dh  # чистое ядро данных бурения, без QGIS
 from . import validate_core as _vc  # чистое ядро валидации, без QGIS
+from . import hydro_section  # чистое ядро гидравлики створа, без QGIS
+from . import demo_river  # демо-река: створы с известным ответом
 from .topo_smooth import smooth_clamped as _smooth_clamped
 from qgis.core import (
     QgsProcessing,
@@ -128,9 +130,11 @@ GROUP2 = _tr("3. Дополнительные инструменты анали�
 GROUP2_ID = "extra_tools"
 GROUP3 = _tr("4. Разрез")
 GROUP3_ID = "section"
-GROUP_GEO = _tr("5. Геологическая модель")
+GROUP_GEO = _tr("5. Геологическая модель (бета)")
 GROUP_GEO_ID = "geomodel"
-GROUP5 = _tr("6. Фрактальный анализ")
+GROUP_HYDRO = _tr("6. Гидрология рек")
+GROUP_HYDRO_ID = "hydro_rivers"
+GROUP5 = _tr("7. Фрактальный анализ")
 GROUP5_ID = "fractal_analysis"
 
 MODEL_LABELS = [_tr("Сферическая"), _tr("Экспоненциальная"), _tr("Гауссова"), _tr("Степенная")]
@@ -12144,6 +12148,1156 @@ class StackCheckAlgorithm(IsolinerAlgorithm):
         return res
 
 
+def _field_by_names(src, *names):
+    """Поле слоя по именам из контракта, без учёта регистра.
+
+    Контракт задаёт имена, значит инструмент обязан находить их сам:
+    заполнять руками пять выпадающих списков при известных именах - та
+    самая работа, от которой ветка и должна избавлять. Явный выбор
+    пользователя всегда старше найденного.
+    """
+    have = {f.name().strip().lower(): f.name() for f in src.fields()}
+    for nm in names:
+        got = have.get(nm.strip().lower())
+        if got:
+            return got
+    return None
+
+
+class RatingCurveAlgorithm(IsolinerAlgorithm):
+    """6.01 Створы и кривые расходов."""
+
+    SECTIONS = "SECTIONS"
+    NAMEFLD, ROLEFLD, KMFLD = "NAMEFLD", "ROLEFLD", "KMFLD"
+    DIV_L, DIV_R = "DIV_L", "DIV_R"
+    N_L, N_C, N_R, SLOPEFLD = "N_L", "N_C", "N_R", "SLOPEFLD"
+    N_DEF, SLOPE_DEF, STEP, TOP = "N_DEF", "SLOPE_DEF", "STEP", "TOP"
+    CHAIN = "CHAIN"
+    OUTPUT, OUTPUT_PROFILE, REPORT = "OUTPUT", "OUTPUT_PROFILE", "REPORT"
+    PROB = "PROB"
+    OUTPUT_LEVELS = "OUTPUT_LEVELS"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return RatingCurveAlgorithm()
+    def name(self): return "rating_curve"
+    def displayName(self):
+        return self.tr("6.01 Створы и кривые расходов")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_HYDRO)
+    def groupId(self): return GROUP_HYDRO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Строит по створу зависимость расхода от отметки - то, чем "
+            "обосновывают затопление. Связь работает в обе стороны: по "
+            "расходу видно, до какой отметки поднимается вода, по отметке "
+            "в створе считается расход.\n\n"
+            "**Профиль** берётся по вершинам створа, отметка из Z вершины. "
+            "Промеренная отметка точнее любой модели рельефа, поэтому "
+            "источником служит сама геометрия створа, а не срез ЦМР. "
+            "Створы с промерами приходят из **6.03** и из демо **6.04**, а\n"
+            "срез с ЦМР и слой промеров отдельными точками появятся "
+            "следующим шагом.\n\n"
+            "**Членение** на левый берег, русло и правый берег задаётся "
+            "одним из двух способов. Либо створ приходит одной линией, а "
+            "границы стоят в полях расстояниями по профилю. Либо тремя "
+            "линиями с полем роли и общим именем - тогда членение живёт в "
+            "геометрии, как гидрологи и рисуют профили. Считать раздельно "
+            "обязательно: шероховатость поймы и русла различается в разы, "
+            "и единый счёт занижает русловую составляющую.\n\n"
+            "Поля с именами из контракта - sec, km, div_l, div_r, n_left, "
+            "n_channel, n_right, slope - подхватываются сами, и подхваченные\n"
+            "печатаются в журнал. Явный выбор всегда старше найденного.\n\n"
+            "**Шероховатость и уклон** берутся из полей створа, а не из "
+            "параметров: створов много и у каждого свои значения, а "
+            "калибровка тогда сводится к правке таблицы. Параметры служат "
+            "умолчанием для створов без полей, принятые значения идут в "
+            "журнал. Уклон умеет считаться **по цепочке створов** от "
+            "километража и отметок дна, как его и прописывают вручную.\n\n"
+            "**Расход** считается по Маннингу отдельно на каждом участке и "
+            "складывается. Смоченный периметр берётся по твёрдым границам, "
+            "без вертикалей членения.\n\n"
+            "Расходы обеспеченности - 1%%, 5%%, 10%% - подаются таблицей пар "
+            "обеспеченность-расход: считать их из рядов наблюдений не наше\n"
+            "дело, это гидрологическая статистика. По кривой каждому расходу\n"
+            "находится отметка, и уровни выходят линиями на чертёж, как их и\n"
+            "наносят на гидростворе, плюс строками в отчёт.\n\n"
+            "Формула описывает установившееся равномерное движение: кривая "
+            "это гидравлическая характеристика створа, а не расчёт волны "
+            "попуска. Уклон входит в расход корнем, поэтому ошибка в нём "
+            "сказывается прямо, и значение всегда печатается в журнал.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.SECTIONS, self.tr("Створы (линии)"),
+            [QgsProcessing.SourceType.TypeVectorLine]))
+        for pid, label in ((self.NAMEFLD, "Поле имени створа"),
+                           (self.ROLEFLD, "Поле роли (левый, русло, правый)"),
+                           (self.KMFLD, "Поле километража"),
+                           (self.DIV_L, "Поле границы: левый берег"),
+                           (self.DIV_R, "Поле границы: правый берег"),
+                           (self.N_L, "Поле шероховатости: левый берег"),
+                           (self.N_C, "Поле шероховатости: русло"),
+                           (self.N_R, "Поле шероховатости: правый берег"),
+                           (self.SLOPEFLD, "Поле уклона")):
+            self.addParameter(_advanced(QgsProcessingParameterField(
+                pid, self.tr(label), parentLayerParameterName=self.SECTIONS,
+                optional=True)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.N_DEF, self.tr("Шероховатость по умолчанию"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.N_DEF, 0.035), minValue=0.001))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.SLOPE_DEF, self.tr("Уклон по умолчанию"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.SLOPE_DEF, 0.0005), minValue=0.0))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.CHAIN, self.tr("Уклон по цепочке створов"),
+            defaultValue=_dv(self, self.CHAIN, False)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.STEP, self.tr("Шаг по отметке, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.STEP, 0.25), minValue=0.001))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.TOP, self.tr("Верхняя отметка (пусто - верх профиля)"),
+            QgsProcessingParameterNumber.Type.Double, optional=True)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Кривая расходов (таблица)"),
+            type=QgsProcessing.SourceType.TypeVector))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_PROFILE, self.tr("Профили створов (чертёж)"),
+            type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.PROB, self.tr("Расходы обеспеченности (таблица)"),
+            [QgsProcessing.SourceType.TypeVector], optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_LEVELS, self.tr("Уровни обеспеченности (чертёж)"),
+            type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=True))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            self.REPORT, self.tr("Отчёт HTML"), "HTML (*.html)",
+            optional=True, createByDefault=True))
+
+    @staticmethod
+    def _role_of(text):
+        """Роль участка по значению поля: терпимо к языку и регистру."""
+        t = (text or "").strip().lower()
+        if t.startswith(("лев", "left", "l")):
+            return "левый берег"
+        if t.startswith(("прав", "right", "r")):
+            return "правый берег"
+        return "русло"
+
+    @staticmethod
+    def _elev_along(geom):
+        """Профиль створа: расстояния вдоль линии и отметки из Z вершин.
+
+        Возвращает (d, z) или (None, None), если Z в геометрии нет.
+        Отметка берётся из самой геометрии сознательно: створы промеряют
+        вручную, и промеренная отметка точнее модели рельефа.
+        """
+        pts = [(v.x(), v.y(), v.z()) for v in geom.vertices()]
+        if len(pts) < 2:
+            return None, None
+        zs = [p[2] for p in pts]
+        if not all(z is not None and math.isfinite(z) for z in zs):
+            return None, None
+        if not any(abs(z) > 1e-9 for z in zs):
+            return None, None
+        d = [0.0]
+        for i in range(1, len(pts)):
+            d.append(d[-1] + math.hypot(pts[i][0] - pts[i - 1][0],
+                                        pts[i][1] - pts[i - 1][1]))
+        return np.asarray(d, float), np.asarray(zs, float)
+
+    def _process(self, parameters, context, feedback):
+        src = self.parameterAsSource(parameters, self.SECTIONS, context)
+        if src is None:
+            raise QgsProcessingException(self.tr("Не задан слой створов."))
+        auto = []
+
+        def _fld(pid, *names):
+            got = self.parameterAsString(parameters, pid, context)
+            if got:
+                return got
+            got = _field_by_names(src, *names)
+            if got:
+                auto.append(got)
+            return got
+
+        f_name = _fld(self.NAMEFLD, "sec", "name", "створ")
+        f_role = _fld(self.ROLEFLD, "role", "part", "роль")
+        f_km = _fld(self.KMFLD, "km", "chainage", "километраж")
+        f_dl = _fld(self.DIV_L, "div_l", "div_left")
+        f_dr = _fld(self.DIV_R, "div_r", "div_right")
+        f_nl = _fld(self.N_L, "n_left", "n_l")
+        f_nc = _fld(self.N_C, "n_channel", "n_c", "n")
+        f_nr = _fld(self.N_R, "n_right", "n_r")
+        f_sl = _fld(self.SLOPEFLD, "slope", "i", "уклон")
+        if auto:
+            feedback.pushInfo(self.tr(
+                "Поля подхвачены по именам контракта: %s.") % ", ".join(auto))
+        n_def = self.parameterAsDouble(parameters, self.N_DEF, context)
+        s_def = self.parameterAsDouble(parameters, self.SLOPE_DEF, context)
+        step = self.parameterAsDouble(parameters, self.STEP, context)
+        chain = self.parameterAsBool(parameters, self.CHAIN, context)
+        top = None
+        if parameters.get(self.TOP) is not None:
+            top = self.parameterAsDouble(parameters, self.TOP, context)
+
+        # створы собираются по имени: одна линия либо три с ролями
+        groups = {}
+        for ft in src.getFeatures():
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            nm = str(ft[f_name]) if f_name else str(ft.id())
+            groups.setdefault(nm, []).append(ft)
+
+        fields = QgsFields()
+        for nm, tp in (("sec", QVariant.String), ("km", QVariant.Double),
+                       ("level", QVariant.Double), ("part", QVariant.String),
+                       ("area", QVariant.Double), ("width", QVariant.Double),
+                       ("perim", QVariant.Double), ("radius", QVariant.Double),
+                       ("n", QVariant.Double), ("slope", QVariant.Double),
+                       ("v", QVariant.Double), ("q", QVariant.Double)):
+            fields.append(QgsField(nm, tp))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.NoGeometry, src.sourceCrs())
+
+        pf = QgsFields()
+        for nm, tp in (("sec", QVariant.String), ("part", QVariant.String),
+                       ("n", QVariant.Double)):
+            pf.append(QgsField(nm, tp))
+        psink, pdest = self.parameterAsSink(
+            parameters, self.OUTPUT_PROFILE, context, pf,
+            QgsWkbTypes.Type.LineString, _section_draw_crs())
+
+        # уклон по цепочке считается заранее: ему нужны все створы разом
+        chain_slope = {}
+        if chain and f_km:
+            kms, zref, names = [], [], []
+            for nm, fts in groups.items():
+                gg = fts[0].geometry()
+                d, z = self._elev_along(gg)
+                if d is None:
+                    continue
+                kms.append(float(fts[0][f_km]))
+                zref.append(float(np.min(z)))
+                names.append(nm)
+            if len(kms) >= 2:
+                sl = hydro_section.chain_slopes(kms, zref)
+                chain_slope = dict(zip(names, [float(v) for v in sl]))
+                feedback.pushInfo(self.tr(
+                    "Уклон посчитан по цепочке из %d створов, размах "
+                    "%.5g - %.5g.") % (len(kms), float(np.min(sl)),
+                                       float(np.max(sl))))
+
+        # Расходы обеспеченности: гидрологическая статистика по рядам
+        # наблюдений, и считать её не наше дело - она подаётся таблицей
+        # пар обеспеченность-расход. По кривой каждому расходу находится
+        # отметка, и уровни выходят линиями на чертёж, как их и наносят
+        # на гидростворе: УВВ1%, УВВ2%, УВВ10% над профилем.
+        prob_rows = []
+        prob_src = self.parameterAsSource(parameters, self.PROB, context)
+        if prob_src is not None:
+            f_p = _field_by_names(prob_src, "prob", "p", "обеспеченность")
+            f_q = _field_by_names(prob_src, "q", "discharge", "расход")
+            if f_q is None:
+                feedback.pushWarning(self.tr(
+                    "В таблице обеспеченностей не найдено поле расхода "
+                    "(q): уровни не считаются."))
+            else:
+                for ft in prob_src.getFeatures():
+                    try:
+                        qv = float(ft[f_q])
+                    except (TypeError, ValueError):
+                        continue
+                    try:
+                        pv = float(ft[f_p]) if f_p else None
+                    except (TypeError, ValueError):
+                        pv = None
+                    prob_rows.append((pv, qv))
+                prob_rows.sort(key=lambda r: (-(r[0] or 0.0), r[1]))
+
+        lsink2 = ldest2 = None
+        if prob_rows:
+            lf = QgsFields()
+            for nm2, tp in (("sec", QVariant.String),
+                            ("prob", QVariant.Double),
+                            ("q", QVariant.Double),
+                            ("level", QVariant.Double),
+                            ("label", QVariant.String)):
+                lf.append(QgsField(nm2, tp))
+            lsink2, ldest2 = self.parameterAsSink(
+                parameters, self.OUTPUT_LEVELS, context, lf,
+                QgsWkbTypes.Type.LineString, _section_draw_crs())
+
+        reports = []
+        n_sec = 0
+        for nm in sorted(groups):
+            fts = groups[nm]
+            frags = []
+            srcname = None
+            if f_role and len(fts) > 1:
+                for ft in fts:
+                    role = self._role_of(ft[f_role])
+                    d, z = self._elev_along(ft.geometry())
+                    srcname = "Z геометрии"
+                    if d is None:
+                        continue
+                    nn = ft[f_nc] if f_nc else None
+                    frags.append(hydro_section.Fragment(
+                        role, d, z, float(nn) if nn not in (None, "") else n_def))
+                frags.sort(key=lambda f: {"левый берег": 0, "русло": 1,
+                                          "правый берег": 2}[f.name])
+            else:
+                ft = fts[0]
+                d, z = self._elev_along(ft.geometry())
+                srcname = "Z геометрии"
+                if d is None:
+                    feedback.pushWarning(self.tr(
+                        "Створ «%s» пропущен: в геометрии нет отметок Z.")
+                        % nm)
+                    continue
+                dl = ft[f_dl] if f_dl else None
+                dr = ft[f_dr] if f_dr else None
+                def _num(v, dflt):
+                    try:
+                        return float(v)
+                    except (TypeError, ValueError):
+                        return dflt
+                if dl not in (None, "") and dr not in (None, ""):
+                    frags = hydro_section.split_by_divides(
+                        d, z, _num(dl, 0.0), _num(dr, 0.0),
+                        _num(ft[f_nl] if f_nl else None, n_def),
+                        _num(ft[f_nc] if f_nc else None, n_def),
+                        _num(ft[f_nr] if f_nr else None, n_def))
+                else:
+                    frags = [hydro_section.Fragment(
+                        "русло", d, z,
+                        _num(ft[f_nc] if f_nc else None, n_def))]
+            if not frags:
+                continue
+            ft0 = fts[0]
+            slope = chain_slope.get(nm)
+            if slope is None:
+                try:
+                    slope = float(ft0[f_sl]) if f_sl else s_def
+                except (TypeError, ValueError):
+                    slope = s_def
+            km = None
+            if f_km:
+                try:
+                    km = float(ft0[f_km])
+                except (TypeError, ValueError):
+                    km = None
+            cv = hydro_section.rating_curve(frags, slope, step=step, top=top)
+            names = [f.name for f in frags]
+            for k in range(cv["level"].size):
+                lv = float(cv["level"][k])
+                for f in frags:
+                    a = float(cv["area_" + f.name][k])
+                    p = float(cv["perimeter_" + f.name][k])
+                    q = float(cv["q_" + f.name][k])
+                    fa = QgsFeature(fields)
+                    fa.setAttributes([
+                        nm, km, round(lv, 3), f.name, round(a, 3),
+                        round(float(cv["width_" + f.name][k]), 3),
+                        round(p, 3), round(float(cv["radius_" + f.name][k]), 4),
+                        f.n, slope, round(q / a, 3) if a > 1e-6 else 0.0,
+                        round(q, 3)])
+                    sink.addFeature(fa)
+                at = float(cv["area_total"][k])
+                qt = float(cv["q_total"][k])
+                fa = QgsFeature(fields)
+                fa.setAttributes([nm, km, round(lv, 3), self.tr("итого"),
+                                  round(at, 3), None, None, None, None,
+                                  slope, round(qt / at, 3) if at > 1e-6 else 0.0,
+                                  round(qt, 3)])
+                sink.addFeature(fa)
+            if psink is not None:
+                for f in frags:
+                    pts = [QgsPointXY(float(x), float(zz))
+                           for x, zz in zip(f.d, f.z)]
+                    fp = QgsFeature(pf)
+                    fp.setGeometry(QgsGeometry.fromPolylineXY(pts))
+                    fp.setAttributes([nm, f.name, f.n])
+                    psink.addFeature(fp)
+            levels_found = []
+            if prob_rows and lsink2 is not None:
+                for pv, qv in prob_rows:
+                    lv = hydro_section.level_for_q(cv, qv)
+                    if lv is None:
+                        feedback.pushWarning(self.tr(
+                            "Створ «%s»: расход %.4g выше кривой, уровень "
+                            "не найден.") % (nm, qv))
+                        continue
+                    label = ("УВВ%g%%" % pv) if pv is not None else \
+                        ("Q=%g" % qv)
+                    d0, d1 = float(d[0]), float(d[-1])
+                    fl = QgsFeature(lf)
+                    fl.setGeometry(QgsGeometry.fromPolylineXY(
+                        [QgsPointXY(d0, float(lv)),
+                         QgsPointXY(d1, float(lv))]))
+                    fl.setAttributes([nm, pv, qv, round(float(lv), 3),
+                                      label])
+                    lsink2.addFeature(fl)
+                    levels_found.append((label, qv, float(lv)))
+            reports.append((nm, km, slope, srcname, names, cv,
+                            levels_found))
+            n_sec += 1
+            feedback.pushInfo(self.tr(
+                "Створ «%s»: участков %d, отметки из источника «%s», уклон "
+                "%.5g, расход до %.4g м³/с.")
+                % (nm, len(frags), srcname or "-", slope,
+                   float(np.max(cv["q_total"]))))
+
+        if n_sec == 0:
+            raise QgsProcessingException(self.tr(
+                "Ни один створ не построен: проверьте отметки и геометрию."))
+
+        res = {self.OUTPUT: dest}
+        _set_output_name(context, dest, self.tr("Кривая расходов"))
+        if psink is not None:
+            _set_output_name(context, pdest, self.tr("Профили створов"))
+            res[self.OUTPUT_PROFILE] = pdest
+        if lsink2 is not None:
+            _set_output_name(context, ldest2,
+                             self.tr("Уровни обеспеченности"))
+            res[self.OUTPUT_LEVELS] = ldest2
+        rep = self.parameterAsFileOutput(parameters, self.REPORT, context)
+        if rep:
+            self._write_html(rep, reports)
+            res[self.REPORT] = rep
+        feedback.pushInfo(self.tr("Построено створов: %d.") % n_sec)
+        return res
+
+    def _write_html(self, path, reports):
+        title = _tr("Кривые расходов по створам")
+        out = ["<html><head><meta charset='utf-8'><title>%s</title>"
+               "<style>body{font-family:sans-serif;margin:20px;color:#222}"
+               "table{border-collapse:collapse;margin:8px 0}"
+               "td,th{border:1px solid #ccc;padding:3px 8px;text-align:right}"
+               "td:first-child,th:first-child{text-align:left}"
+               "h2{margin:14px 0 6px}.k{color:#666}</style></head><body>"
+               "<h1>%s</h1>" % (title, title)]
+        for nm, km, slope, srcname, names, cv, levels_found in reports:
+            out.append("<h2>%s</h2>" % (_tr("Створ %s") % nm))
+            out.append("<p class='k'>%s</p>" % (_tr(
+                "Километраж %s, уклон %.5g, отметки из источника «%s».")
+                % ("-" if km is None else "%.3f" % km, slope, srcname or "-")))
+            if levels_found:
+                cells = "".join(
+                    "<tr><td>%s</td><td>%.4g</td><td>%.2f</td></tr>"
+                    % (lb, qv, lv) for lb, qv, lv in levels_found)
+                out.append("<p><b>%s</b></p><table><tr><th>%s</th>"
+                           "<th>%s</th><th>%s</th></tr>%s</table>"
+                           % (_tr("Уровни обеспеченности"),
+                              _tr("Уровень"), _tr("Q м³/с"),
+                              _tr("Отметка, м"), cells))
+            head = [_tr("Отметка, м")]
+            for n in names:
+                head.append("%s, %s" % (n, _tr("Q м³/с")))
+            head.append(_tr("Итого Q, м³/с"))
+            head.append(_tr("Площадь, м²"))
+            out.append("<table><tr>%s</tr>" % "".join(
+                "<th>%s</th>" % h for h in head))
+            for k in range(cv["level"].size):
+                cells = ["%.2f" % cv["level"][k]]
+                for n in names:
+                    cells.append("%.3g" % cv["q_" + n][k])
+                cells.append("%.3g" % cv["q_total"][k])
+                cells.append("%.4g" % cv["area_total"][k])
+                out.append("<tr>%s</tr>" % "".join(
+                    "<td>%s</td>" % c for c in cells))
+            out.append("</table>")
+        out.append("<p class='k'>%s</p>" % _tr(
+            "Метод: живое сечение по профилю, расход по Маннингу отдельно "
+            "на каждом участке, смоченный периметр по твёрдым границам. "
+            "Формула описывает установившееся равномерное движение."))
+        out.append("</body></html>")
+        with io.open(path, "w", encoding="utf-8") as f:
+            f.write("".join(out))
+
+
+class DemoRiverAlgorithm(IsolinerAlgorithm):
+    """6.04 Создать пример реки (демо)."""
+
+    CRS, EXTENT, COUNT, KM_STEP = "CRS", "EXTENT", "COUNT", "KM_STEP"
+    CELL = "CELL"
+    OUTPUT, OUTPUT_REF = "OUTPUT", "OUTPUT_REF"
+    OUTPUT_DEM, OUTPUT_TABLE = "OUTPUT_DEM", "OUTPUT_TABLE"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return DemoRiverAlgorithm()
+    def name(self): return "demo_river"
+    def displayName(self):
+        return self.tr("6.04 Создать пример реки (демо)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_HYDRO)
+    def groupId(self): return GROUP_HYDRO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Строит учебную цепочку створов с известным ответом: долина с "
+            "руслом и двумя поймами, отметки в Z вершин, поля членения, "
+            "шероховатости, уклона и километража заполнены.\n\n"
+            "Русло и поймы имеют разную шероховатость, поэтому на кривой "
+            "видно, как включается пойма: до бровок расход растёт круто, "
+            "выше перелома пологая пойменная часть добавляет площадь, но "
+            "мало добавляет расхода.\n\n"
+            "Кроме створов выдаются **таблица промеров** парами расстояние-отметка,\n"
+            "то есть вход для **6.03**, и **поверхность долины** растром, то\n"
+            "есть вход для **6.02**: резать затоплению нечего, пока долина\n"
+            "существует только линиями. Поверхность строится из тех же створов,\n"
+            "что и кривые, поэтому полигон затопления и кривая расходов говорят\n"
+            "об одной долине, а не о двух похожих.\n\n"
+            "Вторым выходом идёт эталонная кривая, посчитанная ядром "
+            "напрямую. Расхождение с тем, что даст **6.01** на этих же "
+            "створах, есть ошибка инструмента, а не данных: ответ известен "
+            "заранее. Всё детерминировано.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterCrs(
+            self.CRS, self.tr("СК выхода (метрическая)"),
+            defaultValue=_dv(self, self.CRS, "EPSG:32640")))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.COUNT, self.tr("Число створов"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.COUNT, 4), minValue=2, maxValue=50))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.KM_STEP, self.tr("Шаг по километражу, км"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.KM_STEP, 1.0), minValue=0.01)))
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Куда положить (охват)"), optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Створы (демо)"),
+            type=QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_REF, self.tr("Эталонная кривая (демо)"),
+            type=QgsProcessing.SourceType.TypeVector))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_TABLE, self.tr("Таблица промеров (демо)"),
+            type=QgsProcessing.SourceType.TypeVector))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_DEM, self.tr("Поверхность долины (демо)")))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.CELL, self.tr("Размер ячейки поверхности, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.CELL, 5.0), minValue=0.5)))
+
+    def _process(self, parameters, context, feedback):
+        crs = self.parameterAsCrs(parameters, self.CRS, context)
+        if crs.isGeographic():
+            raise QgsProcessingException(self.tr(
+                "Нужна метрическая система координат."))
+        n = self.parameterAsInt(parameters, self.COUNT, context)
+        kstep = self.parameterAsDouble(parameters, self.KM_STEP, context)
+        ox, oy = 500000.0, 6500000.0
+        ext = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        if ext is not None and not ext.isEmpty():
+            ox, oy = ext.center().x(), ext.center().y()
+        else:
+            pext = _project_extent_in(context, crs)
+            if pext is not None:
+                ox, oy = pext.center().x(), pext.center().y()
+
+        secs = demo_river.demo_sections(n=n, km_step=kstep)
+        fields = QgsFields()
+        for nm, tp in (("sec", QVariant.String), ("km", QVariant.Double),
+                       ("div_l", QVariant.Double), ("div_r", QVariant.Double),
+                       ("n_left", QVariant.Double),
+                       ("n_channel", QVariant.Double),
+                       ("n_right", QVariant.Double),
+                       ("slope", QVariant.Double), ("z_bed", QVariant.Double)):
+            fields.append(QgsField(nm, tp))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.LineStringZ, crs)
+
+        width = float(secs[0]["d"][-1])
+        for j, s in enumerate(secs):
+            y = oy - j * kstep * 1000.0
+            pts = [QgsPoint(ox - width / 2.0 + float(x), y, float(z))
+                   for x, z in zip(s["d"], s["z"])]
+            ft = QgsFeature(fields)
+            ft.setGeometry(QgsGeometry(QgsLineString(pts)))
+            # Границы членения стоят ровно на бровках русла. Раньше правая
+            # считалась с добавкой глубины и уезжала на пять метров в пойму:
+            # русло набирало наклонный периметр без площади, гидравлический
+            # радиус падал, и расход на первой пойменной отметке уменьшался
+            # при поднявшейся воде.
+            ft.setAttributes(["%s %d" % (self.tr("Створ"), j + 1),
+                              s["km"], demo_river.FP_WIDTH,
+                              demo_river.FP_WIDTH + demo_river.CH_WIDTH,
+                              demo_river.N_FLOOD, demo_river.N_CHANNEL,
+                              demo_river.N_FLOOD, demo_river.SLOPE,
+                              s["z_bed"]])
+            sink.addFeature(ft)
+
+        rf = QgsFields()
+        for nm, tp in (("level", QVariant.Double), ("area", QVariant.Double),
+                       ("q", QVariant.Double)):
+            rf.append(QgsField(nm, tp))
+        rsink, rdest = self.parameterAsSink(
+            parameters, self.OUTPUT_REF, context, rf,
+            QgsWkbTypes.Type.NoGeometry, crs)
+        frags = demo_river.demo_fragments()
+        cv = hydro_section.rating_curve(frags, demo_river.SLOPE, step=0.1)
+        for k in range(cv["level"].size):
+            ft = QgsFeature(rf)
+            ft.setAttributes([round(float(cv["level"][k]), 3),
+                              round(float(cv["area_total"][k]), 3),
+                              round(float(cv["q_total"][k]), 3)])
+            rsink.addFeature(ft)
+
+        # таблица промеров: тот вид, в котором профиль держат
+        # существующие программы, и вход для 6.03
+        tf = QgsFields()
+        for nm, tp in (("sec", QVariant.String), ("dist", QVariant.Double),
+                       ("elev", QVariant.Double), ("km", QVariant.Double),
+                       ("div_l", QVariant.Double), ("div_r", QVariant.Double),
+                       ("n_left", QVariant.Double),
+                       ("n_channel", QVariant.Double),
+                       ("n_right", QVariant.Double),
+                       ("slope", QVariant.Double)):
+            tf.append(QgsField(nm, tp))
+        tsink, tdest = self.parameterAsSink(
+            parameters, self.OUTPUT_TABLE, context, tf,
+            QgsWkbTypes.Type.NoGeometry, crs)
+        for row in demo_river.survey_table(secs):
+            ft = QgsFeature(tf)
+            ft.setAttributes([row["sec"], round(row["dist"], 3),
+                              round(row["elev"], 3), row["km"],
+                              row["div_l"], row["div_r"], row["n_left"],
+                              row["n_channel"], row["n_right"],
+                              row["slope"]])
+            tsink.addFeature(ft)
+
+        # поверхность долины: резать затоплению нечего, пока долина
+        # существует только линиями, а строится она из тех же створов,
+        # что и кривые, поэтому полигон и кривая говорят об одной долине
+        cell = self.parameterAsDouble(parameters, self.CELL, context)
+        arr, (lx, cx, ly, cy) = demo_river.valley_surface(secs, cell=cell)
+        gdal.UseExceptions()
+        path = self.parameterAsOutputLayer(
+            parameters, self.OUTPUT_DEM, context)
+        ny_, nx_ = arr.shape
+        dsr = gdal.GetDriverByName("GTiff").Create(
+            path, nx_, ny_, 1, gdal.GDT_Float32, ["COMPRESS=DEFLATE"])
+        dsr.SetGeoTransform((ox - width / 2.0 + lx, cx, 0.0,
+                             oy - ly, 0.0, -cy))
+        dsr.SetProjection(crs.toWkt())
+        b = dsr.GetRasterBand(1)
+        b.WriteArray(np.flipud(arr).astype("float32"))
+        b.SetNoDataValue(-9999.0)
+        dsr = None
+        _set_output_name(context, path, self.tr("Поверхность долины (демо)"))
+        _set_output_name(context, tdest, self.tr("Таблица промеров (демо)"))
+
+        feedback.pushInfo(self.tr(
+            "Створов %d, ширина долины %.0f м, русло %.0f м при глубине "
+            "%.1f м, шероховатость русла %.3f и поймы %.3f, уклон %.5g. "
+            "Эталонная кривая: расход до %.4g м³/с.")
+            % (len(secs), width, demo_river.CH_WIDTH, demo_river.CH_DEPTH,
+               demo_river.N_CHANNEL, demo_river.N_FLOOD, demo_river.SLOPE,
+               float(np.max(cv["q_total"]))))
+        _set_output_name(context, dest, self.tr("Створы (демо)"))
+        _set_output_name(context, rdest, self.tr("Эталонная кривая (демо)"))
+        return {self.OUTPUT: dest, self.OUTPUT_REF: rdest,
+                self.OUTPUT_TABLE: tdest, self.OUTPUT_DEM: path}
+
+
+class FloodExtentAlgorithm(IsolinerAlgorithm):
+    """6.02 Полигон затопления."""
+
+    DEM, LEVEL = "DEM", "LEVEL"
+    CURVE, Q, SECFLD = "CURVE", "Q", "SECFLD"
+    MIN_AREA = "MIN_AREA"
+    OUTPUT, OUTPUT_DEPTH = "OUTPUT", "OUTPUT_DEPTH"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return FloodExtentAlgorithm()
+    def name(self): return "flood_extent"
+    def displayName(self): return self.tr("6.02 Полигон затопления")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_HYDRO)
+    def groupId(self): return GROUP_HYDRO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Отрезает поверхность отметкой воды и выдаёт контур затопления "
+            "и глубину.\n\n"
+            "Отметку можно задать прямо, а можно **расходом**: тогда она "
+            "берётся обратным ходом по кривой от **6.01** - тем самым, что "
+            "на ручных построениях рисуют красной стрелкой. Кривая "
+            "подаётся таблицей, расход числом, принятая отметка печатается "
+            "в журнал.\n\n"
+            "Инструмент отделён от 6.01 сознательно: у него другой вход и "
+            "другой потребитель, и гонять весь расчёт кривой ради одного "
+            "полигона незачем.\n\n"
+            "Мелкие пятна отсекаются по площади: на равнинной пойме "
+            "одиночные ячейки ниже уреза дают крап, который к разливу "
+            "отношения не имеет. Связности с руслом инструмент не "
+            "проверяет - замкнутые понижения в стороне от реки останутся, "
+            "и это видно на карте.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.DEM, self.tr("Поверхность")))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.LEVEL, self.tr("Отметка воды, м"),
+            QgsProcessingParameterNumber.Type.Double, optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.CURVE, self.tr("Кривая расходов (из 6.01)"),
+            [QgsProcessing.SourceType.TypeVector], optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.Q, self.tr("Расход, м³/с (если отметка не задана)"),
+            QgsProcessingParameterNumber.Type.Double, optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterString(
+            self.SECFLD, self.tr("Имя створа в кривой (пусто - первый)"),
+            optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MIN_AREA, self.tr("Наименьшая площадь пятна, м²"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.MIN_AREA, 100.0), minValue=0.0)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Контур затопления"),
+            type=QgsProcessing.SourceType.TypeVectorPolygon))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_DEPTH, self.tr("Глубина затопления"),
+            optional=True, createByDefault=True))
+
+    def _level_from_curve(self, src, q, sec, feedback):
+        """Отметка по расходу: обратный ход по таблице кривой."""
+        rows = []
+        for ft in src.getFeatures():
+            try:
+                part = str(ft["part"])
+            except KeyError:
+                part = ""
+            if part and part not in (_tr("итого"), "итого", "total"):
+                continue
+            try:
+                nm = str(ft["sec"])
+            except KeyError:
+                nm = ""
+            if sec and nm != sec:
+                continue
+            try:
+                rows.append((float(ft["level"]), float(ft["q"]), nm))
+            except (TypeError, ValueError, KeyError):
+                continue
+        if not rows:
+            raise QgsProcessingException(self.tr(
+                "В таблице кривой нет строк «итого» с полями level и q."))
+        if not sec:
+            first = rows[0][2]
+            rows = [r for r in rows if r[2] == first]
+            if first:
+                feedback.pushInfo(self.tr("Кривая взята по створу «%s».")
+                                  % first)
+        rows.sort()
+        levels = [r[0] for r in rows]
+        qs = [r[1] for r in rows]
+        if q <= qs[0]:
+            return levels[0]
+        for i in range(1, len(rows)):
+            if qs[i - 1] <= q <= qs[i]:
+                dq = qs[i] - qs[i - 1]
+                t = 0.0 if dq <= 0 else (q - qs[i - 1]) / dq
+                return levels[i - 1] + t * (levels[i] - levels[i - 1])
+        raise QgsProcessingException(self.tr(
+            "Расход %.4g больше наибольшего на кривой (%.4g): отметку "
+            "пришлось бы экстраполировать.") % (q, qs[-1]))
+
+    def _process(self, parameters, context, feedback):
+        dem = self.parameterAsRasterLayer(parameters, self.DEM, context)
+        if dem is None:
+            raise QgsProcessingException(self.tr("Не задана поверхность."))
+        level = None
+        if parameters.get(self.LEVEL) is not None:
+            level = self.parameterAsDouble(parameters, self.LEVEL, context)
+        if level is None:
+            curve = self.parameterAsSource(parameters, self.CURVE, context)
+            q = None
+            if parameters.get(self.Q) is not None:
+                q = self.parameterAsDouble(parameters, self.Q, context)
+            if curve is None or q is None:
+                raise QgsProcessingException(self.tr(
+                    "Задайте отметку воды либо кривую расходов и расход."))
+            sec = self.parameterAsString(parameters, self.SECFLD, context)
+            level = self._level_from_curve(curve, q, sec, feedback)
+            feedback.pushInfo(self.tr(
+                "Отметка получена обратным ходом по кривой: расход %.4g "
+                "м³/с даёт %.3f м.") % (q, level))
+        else:
+            feedback.pushInfo(self.tr("Отметка воды задана: %.3f м.") % level)
+
+        gdal.UseExceptions()
+        ds = gdal.Open(dem.source())
+        if ds is None:
+            raise QgsProcessingException(self.tr(
+                "Не удалось прочитать поверхность."))
+        band = ds.GetRasterBand(1)
+        arr = band.ReadAsArray().astype("float64")
+        nod = band.GetNoDataValue()
+        if nod is not None:
+            arr = np.where(arr == nod, np.nan, arr)
+        gt = ds.GetGeoTransform()
+        wkt = ds.GetProjection()
+        cell = abs(gt[1]) * abs(gt[5])
+        depth = np.where(np.isfinite(arr), level - arr, np.nan)
+        wet = np.isfinite(depth) & (depth > 0.0)
+        if not wet.any():
+            raise QgsProcessingException(self.tr(
+                "На отметке %.3f м вода не выходит на поверхность.") % level)
+        depth = np.where(wet, depth, np.nan)
+
+        path = self.parameterAsOutputLayer(
+            parameters, self.OUTPUT_DEPTH, context)
+        res = {}
+        if path:
+            out = gdal.GetDriverByName("GTiff").Create(
+                path, arr.shape[1], arr.shape[0], 1, gdal.GDT_Float32,
+                ["COMPRESS=DEFLATE"])
+            out.SetGeoTransform(gt)
+            out.SetProjection(wkt)
+            b = out.GetRasterBand(1)
+            b.WriteArray(np.where(np.isfinite(depth), depth, -9999.0))
+            b.SetNoDataValue(-9999.0)
+            out = None
+            _set_output_name(context, path, self.tr("Глубина затопления"))
+            res[self.OUTPUT_DEPTH] = path
+
+        fields = QgsFields()
+        fields.append(QgsField("level", QVariant.Double))
+        fields.append(QgsField("area_m2", QVariant.Double))
+        fields.append(QgsField("dmax", QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.MultiPolygon, dem.crs())
+
+        from osgeo import ogr
+
+        mask = wet.astype("uint8")
+        mem = gdal.GetDriverByName("MEM").Create(
+            "", mask.shape[1], mask.shape[0], 1, gdal.GDT_Byte)
+        mem.SetGeoTransform(gt)
+        mem.SetProjection(wkt)
+        mem.GetRasterBand(1).WriteArray(mask)
+        drv = ogr.GetDriverByName("Memory")
+        vds = drv.CreateDataSource("out")
+        lyr = vds.CreateLayer("f", geom_type=ogr.wkbPolygon)
+        lyr.CreateField(ogr.FieldDefn("v", ogr.OFTInteger))
+        gdal.Polygonize(mem.GetRasterBand(1), mem.GetRasterBand(1),
+                        lyr, 0, [], callback=None)
+        min_area = self.parameterAsDouble(parameters, self.MIN_AREA, context)
+        n_poly = n_skip = 0
+        total = 0.0
+        for feat in lyr:
+            if feat.GetField("v") != 1:
+                continue
+            g = QgsGeometry.fromWkt(feat.GetGeometryRef().ExportToWkt())
+            a = g.area()
+            if a < min_area:
+                n_skip += 1
+                continue
+            ft = QgsFeature(fields)
+            ft.setGeometry(g)
+            ft.setAttributes([round(level, 3), round(a, 2), None])
+            sink.addFeature(ft)
+            total += a
+            n_poly += 1
+        vds = None
+        mem = None
+        ds = None
+        if n_poly == 0:
+            raise QgsProcessingException(self.tr(
+                "Все пятна затопления мельче заданной площади."))
+        feedback.pushInfo(self.tr(
+            "Затоплено %.2f га, пятен %d, отброшено мелких %d. Наибольшая "
+            "глубина %.2f м. Связность с руслом не проверялась: замкнутые "
+            "понижения в стороне от реки остаются в контуре.")
+            % (total / 10000.0, n_poly, n_skip, float(np.nanmax(depth))))
+        _set_output_name(context, dest, self.tr("Контур затопления"))
+        res[self.OUTPUT] = dest
+        return res
+
+
+class ImportSectionTableAlgorithm(IsolinerAlgorithm):
+    """6.03 Импорт таблиц створов."""
+
+    TABLE = "TABLE"
+    LINES, LINEFLD = "LINES", "LINEFLD"
+    SECFLD, DISTFLD, ELEVFLD = "SECFLD", "DISTFLD", "ELEVFLD"
+    KMFLD, AZIMUTH, CRS, EXTENT = "KMFLD", "AZIMUTH", "CRS", "EXTENT"
+    SPACING = "SPACING"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return ImportSectionTableAlgorithm()
+    def name(self): return "import_section_table"
+    def displayName(self): return self.tr("6.03 Импорт таблиц створов")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_HYDRO)
+    def groupId(self): return GROUP_HYDRO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Превращает таблицу промеров в створы с отметками в вершинах.\n\n"
+            "Существующие программы держат профиль парами расстояние от "
+            "начала створа и абсолютная отметка, и за годы работы таких "
+            "таблиц накапливается много. Перебивать их руками ради перехода "
+            "в ГИС незачем: инструмент читает их напрямую и строит линии с "
+            "Z, готовые для **6.01**.\n\n"
+            "Если створы уже оцифрованы на карте, подайте их слоем: промеры "
+            "лягут вдоль настоящих линий, и расстояние по створу станет "
+            "расстоянием вдоль линии. Тогда никакой схемы не нужно "
+            "вовсе.\n\n"
+            "Без слоя линий геометрия строится прямыми створами: направление задаётся "
+            "азимутом, положение по километражу, шаг между створами "
+            "параметром. Это схема, а не съёмка - её место на месте "
+            "поправит любой сдвиг линий, а расчёт кривой от плановой "
+            "привязки не зависит вовсе, ему нужны расстояния вдоль створа "
+            "и отметки.\n\n"
+            "Расчётные свойства переносятся вместе с профилем, если они в "
+            "таблице есть: границы членения div_l и div_r, шероховатости\n"
+            "n_left, n_channel, n_right и уклон slope. Без них вернулась бы\n"
+            "геометрия, но не расчёт, и кривая по восстановленным створам\n"
+            "разошлась бы с исходной.\n\n"
+            "Поля с именами из контракта - sec, dist, elev, km - "
+            "подхватываются сами.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.TABLE, self.tr("Таблица промеров"),
+            [QgsProcessing.SourceType.TypeVector]))
+        for pid, label in ((self.SECFLD, "Поле имени створа"),
+                           (self.DISTFLD, "Поле расстояния по створу"),
+                           (self.ELEVFLD, "Поле отметки"),
+                           (self.KMFLD, "Поле километража")):
+            self.addParameter(_advanced(QgsProcessingParameterField(
+                pid, self.tr(label), parentLayerParameterName=self.TABLE,
+                optional=True)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.LINES, self.tr("Линии створов на карте (если есть)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.LINEFLD, self.tr("Поле имени створа в слое линий"),
+            parentLayerParameterName=self.LINES, optional=True)))
+        self.addParameter(QgsProcessingParameterCrs(
+            self.CRS, self.tr("СК выхода (метрическая), если линий нет"),
+            defaultValue=_dv(self, self.CRS, "EPSG:32640")))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.AZIMUTH, self.tr("Азимут створа, градусы"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.AZIMUTH, 90.0))))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SPACING, self.tr("Шаг между створами, м (без километража)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.SPACING, 500.0), minValue=1.0)))
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Куда положить (охват)"), optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Створы из таблицы"),
+            type=QgsProcessing.SourceType.TypeVectorLine))
+
+    def _process(self, parameters, context, feedback):
+        src = self.parameterAsSource(parameters, self.TABLE, context)
+        if src is None:
+            raise QgsProcessingException(self.tr("Не задана таблица."))
+        auto = []
+
+        def _fld(pid, *names):
+            got = self.parameterAsString(parameters, pid, context)
+            if got:
+                return got
+            got = _field_by_names(src, *names)
+            if got:
+                auto.append(got)
+            return got
+
+        f_sec = _fld(self.SECFLD, "sec", "section", "створ", "name")
+        f_d = _fld(self.DISTFLD, "dist", "d", "расстояние", "x")
+        f_z = _fld(self.ELEVFLD, "elev", "z", "отметка", "h")
+        f_km = _fld(self.KMFLD, "km", "chainage", "километраж")
+        if auto:
+            feedback.pushInfo(self.tr(
+                "Поля подхвачены по именам контракта: %s.") % ", ".join(auto))
+        if not f_d or not f_z:
+            raise QgsProcessingException(self.tr(
+                "Нужны поля расстояния и отметки: задайте их явно."))
+
+        # Расчётные свойства переносятся вместе с профилем, если они в
+        # таблице есть: существующие программы держат их рядом с парами,
+        # а без них кривая по восстановленным створам разошлась бы с
+        # исходной - геометрия вернулась бы, а членение и шероховатость
+        # нет.
+        extra_names = ("div_l", "div_r", "n_left", "n_channel", "n_right",
+                       "slope")
+        extra = [nm for nm in extra_names if _field_by_names(src, nm)]
+        extra_src = {nm: _field_by_names(src, nm) for nm in extra}
+        if extra:
+            feedback.pushInfo(self.tr(
+                "Из таблицы переносятся расчётные свойства: %s.")
+                % ", ".join(extra))
+
+        rows = {}
+        kms = {}
+        props = {}
+        for ft in src.getFeatures():
+            nm = str(ft[f_sec]) if f_sec else "1"
+            try:
+                d = float(ft[f_d])
+                z = float(ft[f_z])
+            except (TypeError, ValueError):
+                continue
+            rows.setdefault(nm, []).append((d, z))
+            if f_km and nm not in kms:
+                try:
+                    kms[nm] = float(ft[f_km])
+                except (TypeError, ValueError):
+                    pass
+            if nm not in props:
+                vals = {}
+                for key in extra:
+                    try:
+                        vals[key] = float(ft[extra_src[key]])
+                    except (TypeError, ValueError, KeyError):
+                        vals[key] = None
+                props[nm] = vals
+        if not rows:
+            raise QgsProcessingException(self.tr(
+                "В таблице нет ни одной пары расстояние-отметка."))
+
+        # Линии створов на карте старше схемы: если створ оцифрован,
+        # расстояние по створу и есть расстояние вдоль этой линии, и
+        # придумывать положение незачем.
+        lines = self.parameterAsSource(parameters, self.LINES, context)
+        geoms = {}
+        if lines is not None:
+            f_ln = self.parameterAsString(parameters, self.LINEFLD, context) \
+                or _field_by_names(lines, "sec", "section", "створ", "name")
+            for ft in lines.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                nm = str(ft[f_ln]) if f_ln else str(ft.id())
+                geoms[nm] = QgsGeometry(g)
+            feedback.pushInfo(self.tr(
+                "Линий створов подано %d: промеры раскладываются вдоль них, "
+                "схема не используется.") % len(geoms))
+
+        crs = self.parameterAsCrs(parameters, self.CRS, context)
+        if lines is not None:
+            crs = lines.sourceCrs()
+        elif crs.isGeographic():
+            raise QgsProcessingException(self.tr(
+                "Нужна метрическая система координат."))
+        az = math.radians(self.parameterAsDouble(
+            parameters, self.AZIMUTH, context))
+        spacing = self.parameterAsDouble(parameters, self.SPACING, context)
+        ox, oy = 500000.0, 6500000.0
+        ext = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        if ext is not None and not ext.isEmpty():
+            ox, oy = ext.center().x(), ext.center().y()
+        else:
+            pext = _project_extent_in(context, crs)
+            if pext is not None:
+                ox, oy = pext.center().x(), pext.center().y()
+
+        fields = QgsFields()
+        fields.append(QgsField("sec", QVariant.String))
+        fields.append(QgsField("km", QVariant.Double))
+        fields.append(QgsField("npt", QVariant.Int))
+        for nm in extra:
+            fields.append(QgsField(nm, QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.LineStringZ, crs)
+
+        ex, ey = math.sin(az), math.cos(az)      # вдоль створа
+        nx_, ny_ = math.cos(az), -math.sin(az)   # вдоль реки
+        # Положение отсчитывается от первого створа, а не от нуля
+        # километража: километраж на реке идёт от устья и легко
+        # начинается с десятков, а цепочка из-за этого уезжала на
+        # десятки километров от площади. Куда встанет цепочка, решает
+        # охват, а километраж задаёт только расстояния между створами.
+        km0 = None
+        if kms:
+            km0 = min(kms.values())
+        n_out = n_skip = n_schema = n_far = 0
+        for j, nm in enumerate(sorted(rows)):
+            pairs = sorted(rows[nm])
+            if len(pairs) < 2:
+                n_skip += 1
+                continue
+            km = kms.get(nm)
+            off = ((km - km0) * 1000.0) if km is not None and km0 is not None \
+                else (j * spacing)
+            width = pairs[-1][0] - pairs[0][0]
+            g = geoms.get(nm)
+            if g is not None:
+                ln = g.length()
+                pts = []
+                for d, z in pairs:
+                    dd = d - pairs[0][0]
+                    if dd > ln + 1e-6:
+                        n_far += 1
+                    pt = g.interpolate(min(max(dd, 0.0), ln)).asPoint()
+                    pts.append(QgsPoint(pt.x(), pt.y(), z))
+            else:
+                n_schema += 1
+                bx = ox + nx_ * off - ex * width / 2.0
+                by = oy + ny_ * off - ey * width / 2.0
+                pts = [QgsPoint(bx + ex * (d - pairs[0][0]),
+                                by + ey * (d - pairs[0][0]), z)
+                       for d, z in pairs]
+            ft = QgsFeature(fields)
+            ft.setGeometry(QgsGeometry(QgsLineString(pts)))
+            ft.setAttributes([nm, km, len(pairs)]
+                             + [props.get(nm, {}).get(x) for x in extra])
+            sink.addFeature(ft)
+            n_out += 1
+        if n_out == 0:
+            raise QgsProcessingException(self.tr(
+                "Ни одного створа: в каждом меньше двух промеров."))
+        if n_far:
+            feedback.pushWarning(self.tr(
+                "У %d промеров расстояние по створу больше длины линии "
+                "на карте: они прижаты к её концу. Скорее всего линия "
+                "короче промеренного профиля.") % n_far)
+        if n_schema and geoms:
+            feedback.pushWarning(self.tr(
+                "Для %d створов линии на карте не нашлось, они "
+                "построены схемой: проверьте имена.") % n_schema)
+        if km0 is not None and n_schema:
+            feedback.pushInfo(self.tr(
+                "Километраж первого створа %.3f принят за начало цепочки: "
+                "положение считается от него, а не от нуля километража.")
+                % km0)
+        feedback.pushInfo(self.tr(
+            "Створов построено %d, пропущено %d (меньше двух промеров). "
+            "Плановая привязка схематична: на расчёт кривой она не влияет, "
+            "ему нужны расстояния вдоль створа и отметки.")
+            % (n_out, n_skip))
+        _set_output_name(context, dest, self.tr("Створы из таблицы"))
+        return {self.OUTPUT: dest}
+
+
 class FractalDimensionAlgorithm(IsolinerAlgorithm):
     """Карта фрактальной размерности поверхности вариограммным методом:
     локальный наклон лог-лог вариограммы в скользящем окне даёт H,
@@ -12157,7 +13311,7 @@ class FractalDimensionAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return FractalDimensionAlgorithm()
     def name(self): return "fractal_dimension"
-    def displayName(self): return self.tr("6.01 Фрактальная размерность")
+    def displayName(self): return self.tr("7.01 Фрактальная размерность")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP5)
     def groupId(self): return GROUP5_ID
@@ -12261,7 +13415,7 @@ class BoxCountingAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return BoxCountingAlgorithm()
     def name(self): return "box_counting"
-    def displayName(self): return self.tr("6.02 Box-counting маски")
+    def displayName(self): return self.tr("7.02 Box-counting маски")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP5)
     def groupId(self): return GROUP5_ID
@@ -12336,7 +13490,7 @@ class LineDimensionAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return LineDimensionAlgorithm()
     def name(self): return "line_dimension"
     def displayName(self):
-        return self.tr("6.03 Размерность линий и границ")
+        return self.tr("7.03 Размерность линий и границ")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP5)
     def groupId(self): return GROUP5_ID
@@ -12445,7 +13599,7 @@ class MinkowskiDimensionAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return MinkowskiDimensionAlgorithm()
     def name(self): return "minkowski_dimension"
     def displayName(self):
-        return self.tr("6.04 Размерность Минковского (векторы)")
+        return self.tr("7.04 Размерность Минковского (векторы)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP5)
     def groupId(self): return GROUP5_ID
@@ -12597,7 +13751,7 @@ class FractalDemoAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return FractalDemoAlgorithm()
     def name(self): return "fractal_demo"
     def displayName(self):
-        return self.tr("6.05 Создать пример для фракталов (демо)")
+        return self.tr("7.05 Создать пример для фракталов (демо)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP5)
     def groupId(self): return GROUP5_ID
@@ -17979,6 +19133,10 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
 
 
 ALGORITHMS = [
+    RatingCurveAlgorithm,
+    FloodExtentAlgorithm,
+    ImportSectionTableAlgorithm,
+    DemoRiverAlgorithm,
     CutFillAlgorithm,
     DeclusteringAlgorithm,
     Kriging2DAlgorithm,

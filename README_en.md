@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data, building isolines and working with terrain.
-The tools are split into six Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"**, **"Geological model"** and **"Fractal analysis"** — fifty-nine in all:
+The tools are split into seven Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"**, **"Geological model"** (beta), **"River hydrology"** and **"Fractal analysis"** — sixty-three in all:
 
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
@@ -75,18 +75,25 @@ The tools are split into six Processing groups — **"Grid and isolines"**, **"T
 - **4.11 Bed reference template** — adds the bundled bed reference to the project (37 rows of the Verkhnekamskoye deposit): code, bedding order, body kind and colour. It is read by 4.01 and 4.02, and the band and column colours come from it.
 - **4.12 Attitude from an outcrop trace** — dip azimuth and dip angle from the trace of a surface on the relief: three trace points give a plane, the attitude goes into the attributes.
 
-### "5. Geological model" group
+### "5. Geological model" group (beta)
 
 - **5.01 Consistency of a bed stack** — checks roofs and floors built separately: pinch-out, negative thickness, overlap of neighbours, a map of the smallest gap, a sign of a reversed order. The bed order comes from the layer tree or the reference.
 - **5.02 Create an example section (demo)** — a teaching section of the Verkhnekamskoye type: the full column from the bed reference, a recumbent fold with triple penetration, a pinch-out, a salt dome with a dissolution mirror, a subcrop map, the water-protective sequence, a drilling model.
 
-### "6. Fractal analysis" group
+### "6. River hydrology" group
 
-- **6.01 Fractal dimension** — a D = 3 − H map by the variogram method in a moving window: contrasts highlight faults and block boundaries.
-- **6.02 Box-counting of masks** — one D per binary mask: replacement and workings outlines compared by a number.
-- **6.03 Dimension of lines and boundaries** — D of each line by the divider method: diagnostics of oversmoothed isolines.
-- **6.04 Minkowski dimension (vectors)** — box-counting directly over lines and polygon boundaries, without rasterization.
-- **6.05 Create a fractal example (demo)** — a river network with tributary orders, a catchment with a ragged boundary, a coastline.
+- **7.01 Cross-sections and rating curves** — the dependence of discharge on level for a section: the profile along the vertices, the division into the left bank, the channel and the right bank, the discharge by Manning separately on every part. Roughness and slope from the fields of the section, the slope can be computed from the chain of sections. A table, the profiles and an HTML report.
+- **7.02 Flood extent polygon** — cutting the surface by a water level with an extent and a raster of depth. The level can be set by a discharge: it is taken backwards along the curve.
+- **7.03 Import section tables** — distance and elevation pairs from existing programs become lines with Z. If the sections are digitized on the map, the soundings lie along the real lines. Computation properties are carried along with the profile.
+- **7.04 Create an example river (demo)** — a chain of sections with a known answer, a table of soundings, a valley surface and a reference curve.
+
+### "7. Fractal analysis" group
+
+- **7.01 Fractal dimension** — a D = 3 − H map by the variogram method in a moving window: contrasts highlight faults and block boundaries.
+- **7.02 Box-counting of masks** — one D per binary mask: replacement and workings outlines compared by a number.
+- **7.03 Dimension of lines and boundaries** — D of each line by the divider method: diagnostics of oversmoothed isolines.
+- **7.04 Minkowski dimension (vectors)** — box-counting directly over lines and polygon boundaries, without rasterization.
+- **7.05 Create a fractal example (demo)** — a river network with tributary orders, a catchment with a ragged boundary, a coastline.
 
 Suitable for bed elevations, thicknesses, rock properties, chemistry and any numeric attribute.
 
@@ -303,6 +310,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
+- **4.69.1** — the new "6. River hydrology" group: cross-sections and rating curves by Manning with a separate count over the channel and the floodplains, a flood extent polygon with the backward move along the curve, an import of sounding tables laid along digitized lines, a demo river with a known answer. Fractal analysis moved to the seventh group, the geological model is marked beta.
 - **4.63.0** — 4.02 gains a new output: label anchors of intervals, a point in the middle of every interval with all its attributes. Composite grade labels attach to points and place normally.
 - **4.62.0** — the demo became a full section of the Verkhnekamskoye type: the whole column from the reference, erosion from the dissolution level, a subcrop map, the water-protective sequence, a folder output.
 - **4.59.0–4.60.0** — a salt dome with a dissolved top in the demo, the cut carried onto the mirror without steps, the group layer order in the tree made deterministic.

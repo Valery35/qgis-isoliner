@@ -74,8 +74,8 @@ def test_all_algorithms_init():
     algorithms = importlib.import_module(pkg + ".algorithms")
     algorithms._tr = lambda s: s          # translate-заглушка возвращает строку
     assert algorithms.ALGORITHMS, "список ALGORITHMS пуст"
-    assert len(algorithms.ALGORITHMS) == 59, (
-        "ожидалось 59 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
+    assert len(algorithms.ALGORITHMS) == 63, (
+        "ожидалось 63 алгоритма, а их %d" % len(algorithms.ALGORITHMS))
     for cls in algorithms.ALGORITHMS:
         a = cls()
         a.initAlgorithm()                 # тут и падало бы 'no attribute tr'
@@ -170,6 +170,108 @@ def test_style_not_overwritten_by_grouping():
         if [n for n in styled[m.group(1)] if abs(n - i) < 30]:
             bad.append((i + 1, m.group(1)))
     assert not bad, "группировка затрёт стиль: %s" % bad
+
+
+def test_process_uses_only_known_params():
+    """Всё, к чему обращается _process, объявлено и заведено выше.
+
+    Правка, легшая наполовину, оставила в 6.03 чтение слоя линий без
+    самого параметра: тесты этого не видели, потому что headless не
+    доходит до формы, а живой прогон падал бы на первом же запуске.
+    Сторож смотрит на код: имя, встреченное в _process, обязано
+    встречаться и вне его.
+    """
+    import inspect
+    import re
+
+    from grid_isolines import algorithms as A
+
+    bad = []
+    for cls in A.ALGORITHMS:
+        src = inspect.getsource(cls)
+        k = src.find("def _process")
+        if k < 0:
+            continue
+        head, body = src[:k], src[k:]
+        for name in sorted(set(re.findall(r"self\.([A-Z][A-Z0-9_]{2,})",
+                                          body))):
+            if name not in head:
+                bad.append("%s.%s" % (cls.__name__, name))
+    assert not bad, "используется, но нигде не заведено: %s" % bad
+
+
+def test_process_bodies_have_no_late_definitions():
+    """Имя не читается раньше самого раннего присваивания.
+
+    Именно так упал 6.03: список переносимых свойств вычислялся ниже
+    цикла, который его читал. Компиляция такое пропускает, headless-тесты
+    формы не касаются, и ловится оно только живым прогоном.
+
+    Аргументы, вложенные функции и генераторы из проверки исключены:
+    замыкание законно читает то, что определено ниже, потому что
+    вызывается позже, а у генератора своя область имён.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from grid_isolines import algorithms as A
+
+    bad = []
+    for cls in A.ALGORITHMS:
+        src = inspect.getsource(cls)
+        k = src.find("def _process")
+        if k < 0:
+            continue
+        try:
+            fn = ast.parse(textwrap.dedent(src[k:])).body[0]
+        except SyntaxError:
+            continue
+        args = {a.arg for a in fn.args.args}
+        inner = set()
+        for node in ast.walk(fn):
+            if node is not fn and isinstance(
+                    node, (ast.FunctionDef, ast.Lambda, ast.ListComp,
+                           ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                for sub in ast.walk(node):
+                    inner.add(id(sub))
+        assigned = {}
+        for node in ast.walk(fn):
+            if id(node) in inner:
+                continue
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                cur = assigned.get(node.id)
+                if cur is None or node.lineno < cur:
+                    assigned[node.id] = node.lineno
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Name) or id(node) in inner:
+                continue
+            if not isinstance(node.ctx, ast.Load) or node.id in args:
+                continue
+            ln = assigned.get(node.id)
+            if ln is not None and node.lineno < ln:
+                bad.append("%s: %s" % (cls.__name__, node.id))
+    assert not bad, "имя читается раньше присваивания: %s" % sorted(set(bad))
+
+
+def test_metadata_reads_with_strict_parser():
+    """metadata.txt читается тем же парсером, что и каталог плагинов.
+
+    Каталог разбирает метаданные питоновским configparser с включённой
+    интерполяцией, для которой одиночный процент - служебный символ.
+    Строка журнала с процентом площади дважды отбивала архив уже на
+    странице загрузки, поэтому проверка стоит здесь, а не в голове.
+    """
+    import configparser
+    import os
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(root, "metadata.txt")
+    cp = configparser.ConfigParser(
+        interpolation=configparser.BasicInterpolation())
+    cp.read(path, encoding="utf-8")
+    assert cp.get("general", "version")
+    assert cp.get("general", "changelog")
 
 
 if __name__ == "__main__":

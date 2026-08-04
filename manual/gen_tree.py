@@ -12,7 +12,10 @@ src = open(path, encoding="utf-8").read()
 tree = ast.parse(src)
 
 gnames = dict(re.findall(r'(GROUP\w*) = _tr\("([^"]+)"\)', src))
-order = ["GROUP", "GROUP_TOPO", "GROUP_TOPODIAG", "GROUP2", "GROUP3", "GROUP5"]
+# Порядок групп в дереве. Новую группу надо вписывать сюда: без этого
+# её инструменты в список не попадут вовсе, а ошибки не будет.
+order = ["GROUP", "GROUP_TOPO", "GROUP_TOPODIAG", "GROUP2", "GROUP3",
+         "GROUP_GEO", "GROUP_HYDRO", "GROUP5"]
 
 def first_str(fn):
     for c in ast.walk(fn):

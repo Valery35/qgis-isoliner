@@ -92,6 +92,26 @@ Minimum: **Section line**, **Surfaces top to bottom**, **Vertical scale**.
 
 ---
 
+## Scenario 4. I need a rating curve for a cross-section
+
+Three minutes.
+
+**Step 1.** **6.04 Create an example river (demo)**
+Minimum: nothing to set, everything by default.
+*You get:* sections with the fields filled in, a table of soundings, a valley surface and a reference curve.
+
+**Step 2.** **6.01 Cross-sections and rating curves**
+Minimum: **Cross-sections**, the rest is picked up by the field names.
+*You get:* a table of the dependence of discharge on level by parts and in total, the section profiles and an HTML report with a table for every section.
+
+**Step 3.** **6.02 Flood extent polygon**
+Minimum: the valley **Surface** from step 1, the **Rating curve** from step 2 and a **Discharge**, say 60.
+*You get:* the flood extent and a raster of depth. The level is taken backwards along the curve and printed to the log.
+
+If you have your own tables of soundings as distance and elevation pairs, start with **6.03 Import section tables**: it turns them into sections ready for step 2. Section lines digitized on the map go there as well - the soundings will lie along them.
+
+---
+
 ## Where to go next
 
 The manual describes every tool in detail, with parameters and caveats. This page holds neither options nor theory on purpose: its job is to walk you through the module once, not to replace the documentation.
