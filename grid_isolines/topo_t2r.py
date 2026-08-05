@@ -357,6 +357,27 @@ def _upsample(z, shape):
 
 # --- основной вход ------------------------------------------------------
 
+def mask_edge(m):
+    """Контур маски: ячейки внутри, у которых есть сосед снаружи.
+
+    Нужен урезу в режиме изолинии: закрепляется только линия уреза, а
+    поверхность внутри остаётся свободной и определяется точками дна и
+    тальвегом. Плоскость прибивает всю площадь, изолиния - только берег.
+    """
+    e = np.zeros_like(m, dtype=bool)
+    if not m.any():
+        return e
+    e[:-1, :] |= m[:-1, :] & ~m[1:, :]
+    e[1:, :] |= m[1:, :] & ~m[:-1, :]
+    e[:, :-1] |= m[:, :-1] & ~m[:, 1:]
+    e[:, 1:] |= m[:, 1:] & ~m[:, :-1]
+    e[0, :] |= m[0, :]
+    e[-1, :] |= m[-1, :]
+    e[:, 0] |= m[:, 0]
+    e[:, -1] |= m[:, -1]
+    return e
+
+
 def topo2raster(points, streams, breaklines, lakes, extent, cell,
                 iterations=DEFAULT_ITERATIONS, min_drop=DEFAULT_MIN_DROP,
                 feedback=None):
@@ -369,7 +390,7 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
         не должна тонуть в ней. Без него все веса единичные.
     streams: список ломаных (K, 2), вершины вниз по течению
     breaklines: список ломаных (K, 2)
-    lakes: список озёр. Каждое - (кольца, z, ring_z), где кольца это
+    lakes: список озёр. Каждое - (кольца, z, ring_z[, as_plane]), где кольца это
         список (K, 2). Приоритет высоты: (1) ring_z задан (список Z по
         вершинам каждого кольца) - переменный урез интерполируется
         вдоль границы, река получает наклон; (2) z задан числом -
@@ -415,7 +436,10 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
 
         lake_masks = []
         for lake in (lakes or ()):
-            if len(lake) == 3:
+            as_plane = True
+            if len(lake) == 4:
+                rings, lz, ring_z, as_plane = lake
+            elif len(lake) == 3:
                 rings, lz, ring_z = lake
             else:
                 rings, lz = lake
@@ -426,7 +450,10 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
                 if ring_z is not None:
                     surf = _interp_ring_surface(
                         rings, ring_z, m, x0, y_top, lcell, lshape)
-                lake_masks.append((m, lz, surf))
+                # в режиме изолинии закрепляется только контур: внутри
+                # поверхность свободна и подчиняется точкам дна
+                lake_masks.append((m if as_plane else mask_edge(m),
+                                   lz, surf))
 
         if z is None:
             z = _initial_fill(np.where(pin, pval, 0.0), pin)

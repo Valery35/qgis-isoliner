@@ -6973,7 +6973,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             "\n**Скважины с интервалами опробования.** Выдаётся готовая пара "
             "слоёв модели бурения: **устья collar** (точки с отметкой и "
             "глубиной забоя) и **интервалы interval** (таблица hole_id, from, "
-            "to, code, глубины по стволу от устья). Контракт тот же, по "
+            "to, code, глубины по стволу от устья). Требования те же, по "
             "которому выгружает Геоконструктор, поэтому инструмент **4.02 "
             "Скважины на разрезе** пробуется без своих данных: 4.10, потом "
             "4.01 по любой линии, потом 4.02 с этой парой. Скважины стоят "
@@ -7352,7 +7352,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         wf.append(QgsField("name", QVariant.String))
         for j in range(6):
             wf.append(QgsField("h%d" % (j + 1), QVariant.Double))
-        # скважины в контрактной модели collar/interval (см. AGENTS.md):
+        # скважины в модели collar/interval (см. AGENTS.md):
         # вдоль всех трёх линий, чтобы было чем кормить пакетную выноску.
         # Устье выше кровли на мощность наносов, вниз колонка из наносов и
         # пяти пластов, забой чуть глубже последней подошвы. Каждая четвёртая
@@ -7360,7 +7360,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         # жизни. hole_id составной: два условных рудничных поля (запад Д1,
         # восток Д2) со своей нумерацией, и номера между полями повторяются -
         # затем и составной ключ. У промышленных пластов интервал везёт
-        # содержание в колонке kcl (прочие колонки контракт пропускает как
+        # содержание в колонке kcl (прочие колонки читатель пропускает как
         # есть). Геометрия устья PointZ той же отметкой - слой готов для 3D
         # без пересчёта, глубины оттуда идут в Z напрямую.
         cf = QgsFields()
@@ -10161,7 +10161,7 @@ def _line_vertices(g):
 
 class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
     """Выноска скважин на разрез по модели бурения collar/interval. Читает
-    устья и таблицу интервалов терпимым читателем (см. AGENTS.md, контракт
+    устья и таблицу интервалов терпимым читателем (см. AGENTS.md, формат обмена
     модели данных бурения), проецирует устья на линии разрезов, переводит
     глубины в отметки вычитанием из z и кладёт колонки на чертёж. Пакетно:
     один прогон обслуживает все разрезы определения, раскладка через ox/oy."""
@@ -10194,7 +10194,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             "interval (hole_id, from, to, code, глубины по стволу от устья). "
             "Такую пару выдают «Создать пример для разреза» и выгрузка из "
             "Геоконструктора. Поля обеих таблиц находятся сами по "
-            "контрактным именам, выбор полей спрятан в дополнительные "
+            "ожидаемым именам, выбор полей спрятан в дополнительные "
             "параметры.\n\nЛинии, вертикальный масштаб и раскладка "
             "берутся из определения разреза, которое выдаёт «Разрез по линии»: "
             "один прогон кладёт колонки сразу на все чертежи, каждая скважина "
@@ -10343,7 +10343,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         if csrc is None or isrc is None:
             raise QgsProcessingException(self.tr(
                 "Нужны устья collar и таблица интервалов interval."))
-        # поля находим сами по контрактным именам и синонимам, выбор в
+        # поля находим сами по ожидаемым именам и синонимам, выбор в
         # дополнительных параметрах только переопределяет автопоиск
         cnames = [f.name() for f in csrc.fields()]
         inames = [f.name() for f in isrc.fields()]
@@ -12149,9 +12149,9 @@ class StackCheckAlgorithm(IsolinerAlgorithm):
 
 
 def _field_by_names(src, *names):
-    """Поле слоя по именам из контракта, без учёта регистра.
+    """Поле слоя по ожидаемым именам, без учёта регистра.
 
-    Контракт задаёт имена, значит инструмент обязан находить их сам:
+    Соглашение об именах задано, значит инструмент обязан находить их сам:
     заполнять руками пять выпадающих списков при известных именах - та
     самая работа, от которой ветка и должна избавлять. Явный выбор
     пользователя всегда старше найденного.
@@ -12223,7 +12223,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             "заросшей поймы. Формула метрическая, расход выходит в м³/с, и для\n"
             "футов она потребовала бы своего множителя. В подвале рядом идёт\n"
             "обратная величина 1/n, как её и печатают на гидростворе.\n\n"
-            "Поля с именами из контракта - sec, km, div_l, div_r, n_left, "
+            "Поля с ожидаемыми именами - sec, km, div_l, div_r, n_left, "
             "n_channel, n_right, slope - подхватываются сами, и подхваченные\n"
             "печатаются в журнал. Явный выбор всегда старше найденного.\n\n"
             "**Шероховатость и уклон** берутся из полей створа, а не из "
@@ -12380,7 +12380,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
         f_sl = _fld(self.SLOPEFLD, "slope", "i", "уклон")
         if auto:
             feedback.pushInfo(self.tr(
-                "Поля подхвачены по именам контракта: %s.") % ", ".join(auto))
+                "Поля подхвачены по ожидаемым именам: %s.") % ", ".join(auto))
         n_def = self.parameterAsDouble(parameters, self.N_DEF, context)
         s_def = self.parameterAsDouble(parameters, self.SLOPE_DEF, context)
         step = self.parameterAsDouble(parameters, self.STEP, context)
@@ -13463,7 +13463,7 @@ class ImportSectionTableAlgorithm(IsolinerAlgorithm):
             "n_left, n_channel, n_right и уклон slope. Без них вернулась бы\n"
             "геометрия, но не расчёт, и кривая по восстановленным створам\n"
             "разошлась бы с исходной.\n\n"
-            "Поля с именами из контракта - sec, dist, elev, km - "
+            "Поля с ожидаемыми именами - sec, dist, elev, km - "
             "подхватываются сами.")
             + _credit())
 
@@ -13523,7 +13523,7 @@ class ImportSectionTableAlgorithm(IsolinerAlgorithm):
         f_km = _fld(self.KMFLD, "km", "chainage", "километраж")
         if auto:
             feedback.pushInfo(self.tr(
-                "Поля подхвачены по именам контракта: %s.") % ", ".join(auto))
+                "Поля подхвачены по ожидаемым именам: %s.") % ", ".join(auto))
         if not f_d or not f_z:
             raise QgsProcessingException(self.tr(
                 "Нужны поля расстояния и отметки: задайте их явно."))
@@ -16549,6 +16549,7 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
     BREAKLINES = "BREAKLINES"
     LAKES = "LAKES"
     LAKES_FIELD = "LAKES_FIELD"
+    LAKES_PLANE = "LAKES_PLANE"
     FORM_TOP = "FORM_TOP"
     FORM_BOT = "FORM_BOT"
     FORM_LINK = "FORM_LINK"
@@ -16582,7 +16583,18 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             "принудительное падение вниз по течению (вершины линий "
             "должны идти вниз по течению, водотоки OSM и выход "
             "инструмента 2.06 подходят как есть), обрывы - барьер "
-            "сглаживания, поверхности по сторонам независимы, урез "
+            "**Урез** работает в двух режимах. Плоскость заливает всю площадь внутри\n"
+            "ровной отметкой - это зеркало озера или пруда. Изолиния закрепляет\n"
+            "только линию берега, а поверхность внутри остаётся за точками и\n"
+            "структурными линиями: так строится русло с дном по промерам и\n"
+            "тальвегу. Переключается галочкой **Урез как плоскость**.\n\n"
+            "Урез-изолиния и **Заполнить понижения в итоге** работают "
+            "навстречу друг другу: первое строит русло, второе его "
+            "заравнивает, потому что для заполнения русло это обычная "
+            "яма. Заполнение нужно рельефу суши, чтобы вода стекала, и "
+            "вредно ЦМР с дном. При таком сочетании инструмент "
+            "предупреждает в журнале.\n\n"
+                        "сглаживания, поверхности по сторонам независимы, урез "
             "воды - по трём приоритетам на каждый объект: у полигона с "
             "трёхмерными вершинами урез интерполируется по их высотам "
             "и наклоняется вдоль русла, у полигона с отметкой в поле "
@@ -16648,6 +16660,9 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             self.tr("Поле отметки уреза (пусто: Z узлов или берег)"),
             parentLayerParameterName=self.LAKES, optional=True,
             type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.LAKES_PLANE, self.tr("Урез как плоскость"),
+            defaultValue=_dv(self, self.LAKES_PLANE, True)))
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Охват (пусто: по слоям)"), optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
@@ -17042,9 +17057,30 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             breaklines = [xy for _f, xy in self._iter_lines(
                 src_breaks, target_crs, context)]
         lakes = []
+        as_plane = True
         if src_lakes is not None:
+            as_plane = self.parameterAsBool(
+                parameters, self.LAKES_PLANE, context)
             lakes = self._collect_lakes(src_lakes, f_lakes, target_crs,
                                         context)
+            # в режиме изолинии закрепляется только линия уреза, а
+            # поверхность внутри остаётся за точками дна и тальвегом
+            lakes = [(r, z_, rz, as_plane) for r, z_, rz in lakes]
+            if lakes and not as_plane:
+                feedback.pushInfo(self.tr(
+                    "Урез работает изолинией: закреплена только линия "
+                    "берега, поверхность внутри определяется точками и "
+                    "структурными линиями."))
+                # Две галочки работают навстречу друг другу: урез
+                # изолинией даёт русло, заполнение понижений его
+                # заравнивает, потому что для него русло это яма.
+                if self.parameterAsBoolean(parameters, self.FILL, context):
+                    feedback.pushWarning(self.tr(
+                        "Включено «Заполнить понижения в итоге», а урез "
+                        "работает изолинией: русло и дно будут заровнены "
+                        "на последнем шаге, потому что для заполнения это "
+                        "обычное понижение. Снимите галочку, если строите "
+                        "ЦМР с дном."))
 
         src_ftop = self.parameterAsSource(parameters, self.FORM_TOP, context)
         src_fbot = self.parameterAsSource(parameters, self.FORM_BOT, context)
@@ -17121,6 +17157,10 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             return {}
 
         if do_fill:
+            if lakes and not as_plane:
+                feedback.pushWarning(self.tr(
+                    "Понижения заполняются поверх русла, построенного "
+                    "урезом-изолинией: дно сейчас исчезнет."))
             feedback.pushInfo(self.tr("Заполнение понижений..."))
             z, n_raised, max_raise = fill_depressions(
                 z, epsilon=max(epsilon, 1e-6), feedback=feedback)

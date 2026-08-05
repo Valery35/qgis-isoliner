@@ -280,5 +280,47 @@ class TestVariableShoreline(unittest.TestCase):
         self.assertAlmostEqual(val, 105.0, delta=0.5)
 
 
+
+class LakeModeTests(unittest.TestCase):
+    """Урез в двух режимах: плоскость и изолиния."""
+
+    def test_lake_as_isoline_lets_the_bed_show(self):
+        """Урез изолинией закрепляет берег, но не заливает площадь.
+
+        Плоскость нужна зеркалу озера, изолиния - реке: внутри контура
+        должно прорисовываться дно по точкам промеров и тальвегу. Раньше
+        урез всегда прибивал всю площадь, и построить ЦМР с дном было
+        нельзя.
+        """
+        pts = [(5.0, 5.0, 100.0), (55.0, 5.0, 100.0), (5.0, 55.0, 100.0),
+               (55.0, 55.0, 100.0), (30.0, 30.0, 90.0)]
+        ring = [np.array([[20., 20.], [40., 20.], [40., 40.], [20., 40.],
+                          [20., 20.]])]
+        ext = (0.0, 0.0, 60.0, 60.0)
+
+        flat = t2r.topo2raster(pts, [], [], [(ring, 95.0, None, True)],
+                               ext, 2.0, iterations=60)
+        flat = flat[0] if isinstance(flat, tuple) else flat
+        iso = t2r.topo2raster(pts, [], [], [(ring, 95.0, None, False)],
+                              ext, 2.0, iterations=60)
+        iso = iso[0] if isinstance(iso, tuple) else iso
+
+        ny, nx = flat.shape
+        inner = (slice(ny // 3, 2 * ny // 3), slice(nx // 3, 2 * nx // 3))
+        self.assertLess(abs(float(flat[inner].max() - flat[inner].min())),
+                        1e-6)
+        self.assertLess(float(iso[inner].min()),
+                        float(flat[inner].min()) - 1.0)
+
+    def test_mask_edge_keeps_only_the_boundary(self):
+        """Контур маски это её ячейки, у которых есть сосед снаружи."""
+        m = np.zeros((7, 7), dtype=bool)
+        m[2:5, 2:5] = True
+        e = t2r.mask_edge(m)
+        self.assertEqual(int(e.sum()), 8)
+        self.assertFalse(bool(e[3, 3]))
+        self.assertEqual(int((e & ~m).sum()), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
