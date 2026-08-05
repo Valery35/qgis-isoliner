@@ -276,7 +276,7 @@ def test_report_svg_is_valid_xml():
     j = src.index("    def _write_html", i)
     code = "import numpy as np\n" + "\n".join(
         l[4:] if l.startswith("    ") else l for l in src[i:j].split("\n"))
-    ns = {}
+    ns = {"_hs_wet_spans": hs.wet_spans}
     exec(code.replace("@staticmethod\n", ""), ns)
 
     frags = dr.demo_fragments()
@@ -310,6 +310,33 @@ def test_report_body_embeds_pictures():
     assert "self._svg_profile(frags" in blk, "профиль не рисуется"
     assert "self._svg_curve(cv" in blk, "кривая не рисуется"
     assert "class='pics'" in blk, "блок картинок не собирается"
+
+
+def test_wet_spans_cut_levels_at_water_edge():
+    """Уровень существует только между точками уреза.
+
+    На чертеже линия уровня не тянется через всю ширину створа: на борта
+    вода не заходит. Отмель посреди русла разрывает зеркало, и каждая
+    часть живёт своим отрезком.
+
+    Вертикальные звенья профиля проверяются отдельно: у стенки русла
+    переход через урез происходит в той же координате, и пропуск такого
+    звена терял весь участок.
+    """
+    d, z = dr.demo_profile()
+    assert hs.wet_spans(d, z, 97.0) == []
+    ch = hs.wet_spans(d, z, 98.0)
+    assert len(ch) == 1
+    assert abs(ch[0][0] - dr.FP_WIDTH) < 1e-9
+    assert abs(ch[0][1] - (dr.FP_WIDTH + dr.CH_WIDTH)) < 1e-9
+    wide = hs.wet_spans(d, z, 101.4)
+    assert len(wide) == 1 and wide[0][1] - wide[0][0] > dr.CH_WIDTH
+
+    d2 = np.array([0.0, 10.0, 20.0, 30.0, 40.0, 50.0])
+    z2 = np.array([5.0, 0.0, 0.0, 3.0, 0.0, 5.0])
+    two = hs.wet_spans(d2, z2, 2.0)
+    assert len(two) == 2, two
+    assert two[0][1] < two[1][0]
 
 
 def _run():

@@ -87,6 +87,8 @@ The tools are split into seven Processing groups — **"Grid and isolines"**, **
 - **6.03 Import section tables** — distance and elevation pairs from existing programs become lines with Z. If the sections are digitized on the map, the soundings lie along the real lines. Computation properties are carried along with the profile.
 - **6.04 Create an example river (demo)** — a chain of sections with a known answer, a table of soundings, a valley surface, a reference curve, teaching probability discharges and observed levels.
 
+**Fields of the hydrology group.** Sections: `sec` the name, `km` the chainage in km, `div_l` and `div_r` the part boundaries as distances along the profile in m, `n_left`, `n_channel`, `n_right` the Manning roughness by part (dimensionless), `slope` the slope in m/m, `role` the role of the line when supplied as three lines. Probability discharges: `prob` in percent, `q` in m3/s. Observed levels: `level` in m, `label` as text. The full list of fields of every input and output with units is in the [manual](manual/manual_en.md).
+
 ### "7. Fractal analysis" group
 
 - **7.01 Fractal dimension** — a D = 3 − H map by the variogram method in a moving window: contrasts highlight faults and block boundaries.

@@ -2700,6 +2700,39 @@ They are taken from the fields of the section rather than from the parameters of
 
 The slope can be computed **from the chain of sections**: if the chainage and the bed elevations are set, the slope of each is taken to its neighbour from the difference of elevations and the distance along the river. In existing practice it is written out relative to the previous section by hand, here the same value comes out of the attributes on its own.
 
+### Fields and units
+
+Sections on input:
+
+| field | what | units |
+|---|---|---|
+| `sec` | section name, the lines are grouped by it | text |
+| `km` | chainage from the mouth | km |
+| `role` | role of the line when supplied as three lines | text: left, channel, right |
+| `div_l`, `div_r` | part boundaries, distances along the profile from the start of the line | m |
+| `n_left`, `n_channel`, `n_right` | Manning roughness by part | dimensionless |
+| `slope` | slope of the water surface | m/m |
+
+The table of soundings on input of **6.03**: `sec`, `dist` - the distance along the section in metres, `elev` - the absolute elevation in metres, `km`, and the same computation fields if they are present.
+
+The table of probability discharges: `prob` in percent, `q` in cubic metres per second. The table of observed levels: `level` in metres, `label` as text.
+
+The curve on output: `level` m, `area` m2, `width` m, `perim` m, `radius` m, `v` m/s, `q` m3/s, `n` dimensionless, `slope` m/m.
+
+The drawing footer: the same plus `depth_avg` the mean depth in metres, `slope_ppm` the slope in per mille, `n_inv` the inverse of the roughness, `q_pct` the share of the total discharge in percent, `part_no` the number of the part.
+
+Ground elevations: `dist` the distance along the section in metres, `elev` the elevation in metres, `step` the distance to the previous point in metres.
+
+Levels: `level` m, `q` m3/s, `prob` percent, `label` the caption, `kind` the kind of level - `prob` computed, `obs` observed.
+
+### In what units
+
+The slope is dimensionless: the ratio of the fall to the length, metre per metre. In the fields and the parameters it is set exactly so, 0.0004 rather than in per mille. In the drawing footer the same slope is output as a separate field in per mille, because that is how report tables are written: 15.30 per mille in the footer is 0.0153 in the field of the section.
+
+The roughness is set as the Manning coefficient: 0.030 for a clean channel, 0.070 for an overgrown floodplain. Strictly speaking the coefficient is not dimensionless, the dimension hides inside the formula, and that is why the formula is metric: the discharge comes out in cubic metres per second at an area in square metres and a radius in metres. For feet the formula would require its own factor.
+
+In the footer the inverse of the coefficient goes next to it, because that is what is printed on a gauging section: 10.00 in the footer corresponds to 0.100 in the field of the section.
+
 Fields with the names of the contract - sec, km, div_l, div_r, n_left, n_channel, n_right, slope - are picked up without the user, and the picked ones are printed to the log. An explicit choice is always senior to what has been found.
 
 ## Levels

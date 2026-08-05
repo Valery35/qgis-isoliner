@@ -10243,16 +10243,16 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             types=[QgsProcessing.SourceType.TypeVectorPoint],
             defaultValue=_dv_layer(self, self.COLLAR), optional=False))
         self.addParameter(_advanced(QgsProcessingParameterField(
-            self.CID, self.tr("Поле идентификатора скважины (collar)"),
+            self.CID, self.tr("Поле идентификатора скважины, устья (обычно hole_id)"),
             parentLayerParameterName=self.COLLAR, defaultValue="hole_id",
             optional=True)))
         self.addParameter(_advanced(QgsProcessingParameterField(
-            self.CZ, self.tr("Поле отметки устья z"),
+            self.CZ, self.tr("Поле отметки устья (обычно z)"),
             parentLayerParameterName=self.COLLAR,
             type=QgsProcessingParameterField.DataType.Numeric,
             defaultValue="z", optional=True)))
         self.addParameter(_advanced(QgsProcessingParameterField(
-            self.CEOH, self.tr("Поле глубины забоя eoh"),
+            self.CEOH, self.tr("Поле глубины забоя (обычно eoh)"),
             parentLayerParameterName=self.COLLAR,
             type=QgsProcessingParameterField.DataType.Numeric,
             defaultValue="eoh", optional=True)))
@@ -10265,21 +10265,21 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             types=[QgsProcessing.SourceType.TypeVector],
             defaultValue=_dv_layer(self, self.INTERVAL), optional=False))
         self.addParameter(_advanced(QgsProcessingParameterField(
-            self.IID, self.tr("Поле идентификатора скважины (interval)"),
+            self.IID, self.tr("Поле идентификатора скважины, интервалы (обычно hole_id)"),
             parentLayerParameterName=self.INTERVAL, defaultValue="hole_id",
             optional=True)))
         self.addParameter(_advanced(QgsProcessingParameterField(
-            self.IFROM, self.tr("Поле начала интервала from"),
+            self.IFROM, self.tr("Поле начала интервала (обычно from)"),
             parentLayerParameterName=self.INTERVAL,
             type=QgsProcessingParameterField.DataType.Numeric,
             defaultValue="from", optional=True)))
         self.addParameter(_advanced(QgsProcessingParameterField(
-            self.ITO, self.tr("Поле конца интервала to"),
+            self.ITO, self.tr("Поле конца интервала (обычно to)"),
             parentLayerParameterName=self.INTERVAL,
             type=QgsProcessingParameterField.DataType.Numeric,
             defaultValue="to", optional=True)))
         self.addParameter(_advanced(QgsProcessingParameterField(
-            self.ICODE, self.tr("Поле кода code (чем красим)"),
+            self.ICODE, self.tr("Поле кода пласта, чем красим (обычно code)"),
             parentLayerParameterName=self.INTERVAL,
             defaultValue="code", optional=True)))
         self.addParameter(QgsProcessingParameterNumber(
@@ -12164,6 +12164,9 @@ def _field_by_names(src, *names):
     return None
 
 
+_hs_wet_spans = hydro_section.wet_spans
+
+
 class RatingCurveAlgorithm(IsolinerAlgorithm):
     """6.01 Створы и кривые расходов."""
 
@@ -12201,13 +12204,25 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             "Створы с промерами приходят из **6.03** и из демо **6.04**, а\n"
             "срез с ЦМР и слой промеров отдельными точками появятся "
             "следующим шагом.\n\n"
-            "**Членение** на левый берег, русло и правый берег задаётся "
+            "**Участки** на левый берег, русло и правый берег задаётся "
             "одним из двух способов. Либо створ приходит одной линией, а "
             "границы стоят в полях расстояниями по профилю. Либо тремя "
-            "линиями с полем роли и общим именем - тогда членение живёт в "
+            "линиями с полем роли и общим именем - тогда разбивка на участки живёт в "
             "геометрии, как гидрологи и рисуют профили. Считать раздельно "
             "обязательно: шероховатость поймы и русла различается в разы, "
             "и единый счёт занижает русловую составляющую.\n\n"
+            "**Поля створа**: sec имя, km километраж в км, div_l и div_r границы "
+            "участков расстояниями по профилю в м, n_left, n_channel, n_right\n"
+            "шероховатость по участкам, slope уклон в м/м, role роль линии при\n"
+            "подаче тремя линиями. Полный перечень полей всех входов и выходов с\n"
+            "единицами есть в руководстве.\n\n"
+            "Единицы: **уклон** безразмерен, метр на метр, то есть 0.0004, а не "
+            "промилле. В подвале чертежа он же выводится в промилле отдельным\n"
+            "полем, потому что в отчётных таблицах пишут так. **Шероховатость**\n"
+            "задаётся коэффициентом Маннинга: 0.030 для чистого русла, 0.070 для\n"
+            "заросшей поймы. Формула метрическая, расход выходит в м³/с, и для\n"
+            "футов она потребовала бы своего множителя. В подвале рядом идёт\n"
+            "обратная величина 1/n, как её и печатают на гидростворе.\n\n"
             "Поля с именами из контракта - sec, km, div_l, div_r, n_left, "
             "n_channel, n_right, slope - подхватываются сами, и подхваченные\n"
             "печатаются в журнал. Явный выбор всегда старше найденного.\n\n"
@@ -12225,8 +12240,8 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             "лист компоновкой: инструмент отдаёт данные, оформление живёт в макете.\n\n"
             "**Расход** считается по Маннингу отдельно на каждом участке и "
             "складывается. Смоченный периметр берётся по твёрдым границам, "
-            "без вертикалей членения.\n\n"
-            "Наблюдённые уровни подаются своей таблицей: отметка и подпись. Это\n"
+            "без вертикальных границ участков.\n\n"
+            "Наблюдаемые уровни подаются своей таблицей: отметка и подпись. Это\n"
             "замер, а не расчёт, на кривую он не опирается и наносится рядом с расчётными,\n"
             "вида УВ 472.90 X/2021. В слое уровней такие строки помечены kind=obs.\n\n"
             "Расходы обеспеченности - 1%%, 5%%, 10%% - подаются таблицей пар "
@@ -12245,15 +12260,15 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.SECTIONS, self.tr("Створы (линии)"),
             [QgsProcessing.SourceType.TypeVectorLine]))
-        for pid, label in ((self.NAMEFLD, "Поле имени створа"),
-                           (self.ROLEFLD, "Поле роли (левый, русло, правый)"),
-                           (self.KMFLD, "Поле километража"),
-                           (self.DIV_L, "Поле границы: левый берег"),
-                           (self.DIV_R, "Поле границы: правый берег"),
-                           (self.N_L, "Поле шероховатости: левый берег"),
-                           (self.N_C, "Поле шероховатости: русло"),
-                           (self.N_R, "Поле шероховатости: правый берег"),
-                           (self.SLOPEFLD, "Поле уклона")):
+        for pid, label in ((self.NAMEFLD, "Поле имени створа (обычно sec)"),
+                           (self.ROLEFLD, "Поле роли: левый, русло, правый (обычно role)"),
+                           (self.KMFLD, "Поле километража (обычно km)"),
+                           (self.DIV_L, "Поле границы участка: левый берег (обычно div_l)"),
+                           (self.DIV_R, "Поле границы участка: правый берег (обычно div_r)"),
+                           (self.N_L, "Поле шероховатости: левый берег (обычно n_left)"),
+                           (self.N_C, "Поле шероховатости: русло (обычно n_channel)"),
+                           (self.N_R, "Поле шероховатости: правый берег (обычно n_right)"),
+                           (self.SLOPEFLD, "Поле уклона (обычно slope)")):
             self.addParameter(_advanced(QgsProcessingParameterField(
                 pid, self.tr(label), parentLayerParameterName=self.SECTIONS,
                 optional=True)))
@@ -12283,10 +12298,10 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
             createByDefault=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            self.PROB, self.tr("Расходы обеспеченности (таблица)"),
+            self.PROB, self.tr("Расходы обеспеченности: поля prob и q (таблица)"),
             [QgsProcessing.SourceType.TypeVector], optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            self.OBS, self.tr("Наблюдённые уровни (таблица)"),
+            self.OBS, self.tr("Наблюдаемые уровни: поля level и label (таблица)"),
             [QgsProcessing.SourceType.TypeVector], optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT_LEVELS, self.tr("Уровни обеспеченности (чертёж)"),
@@ -12450,7 +12465,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                     prob_rows.append((pv, qv))
                 prob_rows.sort(key=lambda r: (-(r[0] or 0.0), r[1]))
 
-        # Наблюдённый уровень это замер, а не расчёт: он приходит отметкой
+        # Наблюдаемый уровень это замер, а не расчёт: он приходит отметкой
         # с подписью и на кривую не опирается вовсе. На чертеже гидроствора
         # его наносят рядом с расчётными, вида УВ 472.90 X/2021.
         obs_rows = []
@@ -12461,7 +12476,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                                    "дата")
             if f_lv is None:
                 feedback.pushWarning(self.tr(
-                    "В таблице наблюдённых уровней не найдено поле отметки "
+                    "В таблице наблюдаемых уровней не найдено поле отметки "
                     "(level): они не наносятся."))
             else:
                 for ft in obs_src.getFeatures():
@@ -12642,25 +12657,28 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                         continue
                     label = ("УВВ%g%%" % pv) if pv is not None else \
                         ("Q=%g" % qv)
-                    d0, d1 = float(d[0]), float(d[-1])
-                    fl = QgsFeature(lf)
-                    fl.setGeometry(QgsGeometry.fromPolylineXY(
-                        [QgsPointXY(d0, float(lv)),
-                         QgsPointXY(d1, float(lv))]))
-                    fl.setAttributes([nm, pv, qv, round(float(lv), 3),
-                                      label, "prob"])
-                    lsink2.addFeature(fl)
+                    # линия уровня живёт только между точками уреза: на
+                    # борта и на сухие острова вода не заходит
+                    for a, bx in hydro_section.wet_spans(d, z, lv):
+                        fl = QgsFeature(lf)
+                        fl.setGeometry(QgsGeometry.fromPolylineXY(
+                            [QgsPointXY(float(a), float(lv)),
+                             QgsPointXY(float(bx), float(lv))]))
+                        fl.setAttributes([nm, pv, qv, round(float(lv), 3),
+                                          label, "prob"])
+                        lsink2.addFeature(fl)
                     levels_found.append((label, qv, float(lv)))
             if obs_rows and lsink2 is not None:
                 for lv, lb in obs_rows:
                     label = ("УВ %.2f %s" % (lv, lb)).strip()
-                    fl = QgsFeature(lf)
-                    fl.setGeometry(QgsGeometry.fromPolylineXY(
-                        [QgsPointXY(float(d[0]), lv),
-                         QgsPointXY(float(d[-1]), lv)]))
-                    fl.setAttributes([nm, None, None, round(lv, 3), label,
-                                      "obs"])
-                    lsink2.addFeature(fl)
+                    for a, bx in hydro_section.wet_spans(d, z, lv):
+                        fl = QgsFeature(lf)
+                        fl.setGeometry(QgsGeometry.fromPolylineXY(
+                            [QgsPointXY(float(a), lv),
+                             QgsPointXY(float(bx), lv)]))
+                        fl.setAttributes([nm, None, None, round(lv, 3),
+                                          label, "obs"])
+                        lsink2.addFeature(fl)
 
             # подвал на заданной отметке: если она не задана числом, берётся
             # первая по обеспеченности - именно её и наносят на чертёж
@@ -12789,7 +12807,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             out.append("<text x='%.1f' y='%.1f' font-size='10' "
                        "text-anchor='middle' fill='#555'>%.4g</text>"
                        % (x, height - pad_b + 14, qv))
-        # уровни обеспеченности и наблюдённые
+        # уровни обеспеченности и наблюдаемые
         for lb, qv, lv in levels_found:
             if not (hlo <= lv <= hhi):
                 continue
@@ -12857,15 +12875,18 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                 continue
             y = py(lv)
             colour = "#38a" if lb.startswith("УВ ") else "#c33"
-            out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
-                       "stroke='%s'/>" % (pad_l, y, width - pad_r, y, colour))
+            spans = _hs_wet_spans(dd, zz, lv)
+            for a, bx in spans:
+                out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
+                           "stroke='%s'/>" % (px(a), y, px(bx), y, colour))
+            xlab = px(spans[0][0]) + 4 if spans else pad_l + 4
             out.append("<text x='%.1f' y='%.1f' font-size='10' fill='%s'>"
-                       "%s %.2f</text>" % (pad_l + 4, y - 3, colour, lb, lv))
+                       "%s %.2f</text>" % (xlab, y - 3, colour, lb, lv))
         pts = " ".join("%.1f,%.1f" % (px(dd[i]), py(zz[i]))
                        for i in range(dd.size))
         out.append("<polyline points='%s' fill='none' stroke='#a44' "
                    "stroke-width='1.6'/>" % pts)
-        # границы членения по стыкам фрагментов
+        # границы участков по стыкам фрагментов
         edge = 0.0
         for f in frags[:-1]:
             edge = float(_np.max(f.d))
@@ -12966,7 +12987,7 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
     def shortHelpString(self):
         return _help_version(self.tr(
             "Строит учебную цепочку створов с известным ответом: долина с "
-            "руслом и двумя поймами, отметки в Z вершин, поля членения, "
+            "руслом и двумя поймами, отметки в Z вершин, поля участков, "
             "шероховатости, уклона и километража заполнены.\n\n"
             "Русло и поймы имеют разную шероховатость, поэтому на кривой "
             "видно, как включается пойма: до бровок расход растёт круто, "
@@ -12978,7 +12999,7 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
             "существует только линиями. Поверхность строится из тех же створов,\n"
             "что и кривые, поэтому полигон затопления и кривая расходов говорят\n"
             "об одной долине, а не о двух похожих.\n\n"
-            "Ещё одной таблицей идут учебные **наблюдённые уровни** с подписями\n"
+            "Ещё одной таблицей идут учебные **наблюдаемые уровни** с подписями\n"
             "дат, чтобы было на чём показать замеры рядом с расчётными.\n\n"
             "Отдельной таблицей идут учебные **расходы обеспеченности**: настоящие\n"
             "выходят из статистики рядов наблюдений и плагином не считаются, а\n"
@@ -13018,7 +13039,7 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
             self.OUTPUT_PROB, self.tr("Расходы обеспеченности (демо)"),
             type=QgsProcessing.SourceType.TypeVector))
         self.addParameter(QgsProcessingParameterFeatureSink(
-            self.OUTPUT_OBS, self.tr("Наблюдённые уровни (демо)"),
+            self.OUTPUT_OBS, self.tr("Наблюдаемые уровни (демо)"),
             type=QgsProcessing.SourceType.TypeVector))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT_DEM, self.tr("Поверхность долины (демо)")))
@@ -13063,7 +13084,7 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
                    for x, z in zip(s["d"], s["z"])]
             ft = QgsFeature(fields)
             ft.setGeometry(QgsGeometry(QgsLineString(pts)))
-            # Границы членения стоят ровно на бровках русла. Раньше правая
+            # Границы участков стоят ровно на бровках русла. Раньше правая
             # считалась с добавкой глубины и уезжала на пять метров в пойму:
             # русло набирало наклонный периметр без площади, гидравлический
             # радиус падал, и расход на первой пойменной отметке уменьшался
@@ -13166,7 +13187,7 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
             ft = QgsFeature(of)
             ft.setAttributes([row["level"], row["label"]])
             osink.addFeature(ft)
-        _set_output_name(context, odest, self.tr("Наблюдённые уровни (демо)"))
+        _set_output_name(context, odest, self.tr("Наблюдаемые уровни (демо)"))
 
         feedback.pushInfo(self.tr(
             "Створов %d, ширина долины %.0f м, русло %.0f м при глубине "
@@ -13438,7 +13459,7 @@ class ImportSectionTableAlgorithm(IsolinerAlgorithm):
             "привязки не зависит вовсе, ему нужны расстояния вдоль створа "
             "и отметки.\n\n"
             "Расчётные свойства переносятся вместе с профилем, если они в "
-            "таблице есть: границы членения div_l и div_r, шероховатости\n"
+            "таблице есть: границы участков div_l и div_r, шероховатости\n"
             "n_left, n_channel, n_right и уклон slope. Без них вернулась бы\n"
             "геометрия, но не расчёт, и кривая по восстановленным створам\n"
             "разошлась бы с исходной.\n\n"
@@ -13451,10 +13472,10 @@ class ImportSectionTableAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.TABLE, self.tr("Таблица промеров"),
             [QgsProcessing.SourceType.TypeVector]))
-        for pid, label in ((self.SECFLD, "Поле имени створа"),
-                           (self.DISTFLD, "Поле расстояния по створу"),
-                           (self.ELEVFLD, "Поле отметки"),
-                           (self.KMFLD, "Поле километража")):
+        for pid, label in ((self.SECFLD, "Поле имени створа (обычно sec)"),
+                           (self.DISTFLD, "Поле расстояния по створу (обычно dist)"),
+                           (self.ELEVFLD, "Поле отметки (обычно elev)"),
+                           (self.KMFLD, "Поле километража (обычно km)")):
             self.addParameter(_advanced(QgsProcessingParameterField(
                 pid, self.tr(label), parentLayerParameterName=self.TABLE,
                 optional=True)))
@@ -13462,7 +13483,7 @@ class ImportSectionTableAlgorithm(IsolinerAlgorithm):
             self.LINES, self.tr("Линии створов на карте (если есть)"),
             [QgsProcessing.SourceType.TypeVectorLine], optional=True))
         self.addParameter(_advanced(QgsProcessingParameterField(
-            self.LINEFLD, self.tr("Поле имени створа в слое линий"),
+            self.LINEFLD, self.tr("Поле имени створа в слое линий (обычно sec)"),
             parentLayerParameterName=self.LINES, optional=True)))
         self.addParameter(QgsProcessingParameterCrs(
             self.CRS, self.tr("СК выхода (метрическая), если линий нет"),
@@ -13510,7 +13531,7 @@ class ImportSectionTableAlgorithm(IsolinerAlgorithm):
         # Расчётные свойства переносятся вместе с профилем, если они в
         # таблице есть: существующие программы держат их рядом с парами,
         # а без них кривая по восстановленным створам разошлась бы с
-        # исходной - геометрия вернулась бы, а членение и шероховатость
+        # исходной - геометрия вернулась бы, а разбивка на участки и шероховатость
         # нет.
         extra_names = ("div_l", "div_r", "n_left", "n_channel", "n_right",
                        "slope")
