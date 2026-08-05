@@ -206,6 +206,40 @@ def test_survey_table_carries_computation_props():
     assert rows[0]["div_r"] == dr.FP_WIDTH + dr.CH_WIDTH
 
 
+def test_probability_table_stays_inside_curve():
+    """Учебные расходы обеспеченности лежат внутри кривой.
+
+    Иначе обратный ход по кривой упрётся в её верх, уровень не найдётся и
+    подвал чертежа окажется пустым - демо перестанет показывать то, ради
+    чего сделано.
+    """
+    cv = hs.rating_curve(dr.demo_fragments(), dr.SLOPE, step=0.1)
+    rows = dr.probability_table(cv)
+    assert len(rows) == 3
+    qmax = float(np.max(cv["q_total"]))
+    for r in rows:
+        assert 0.0 < r["q"] < qmax, r
+        assert hs.level_for_q(cv, r["q"]) is not None, r
+    assert [r["prob"] for r in rows] == [1.0, 5.0, 10.0]
+    assert rows[0]["q"] > rows[1]["q"] > rows[2]["q"]
+
+
+def test_observed_levels_fall_inside_profile():
+    """Учебные наблюдённые уровни лежат в пределах профиля.
+
+    Замер наносится на чертёж линией, и если отметка окажется выше бортов
+    или ниже дна, линия уйдёт за поле и демо перестанет показывать то,
+    ради чего сделано.
+    """
+    secs = dr.demo_sections(n=2)
+    z = np.asarray(secs[0]["z"], float)
+    rows = dr.observed_levels(secs)
+    assert rows
+    for r in rows:
+        assert float(np.min(z)) < r["level"] < float(np.max(z)), r
+        assert r["label"]
+
+
 def test_valley_surface_matches_sections():
     """Поверхность долины совпадает со створами в их плоскостях.
 
@@ -223,6 +257,59 @@ def test_valley_surface_matches_sections():
         want = np.interp(xs, np.asarray(s["d"], float),
                          np.asarray(s["z"], float))
         assert float(np.max(np.abs(arr[i] - want))) < 1e-6, j
+
+
+def test_report_svg_is_valid_xml():
+    """Картинки отчёта разбираются как XML и содержат саму кривую.
+
+    Отчёт открывают в браузере, и битый SVG там просто не нарисуется, без
+    единого сообщения об ошибке. Проверка вырезает рисование из кода
+    инструмента и прогоняет его на демо.
+    """
+    import os
+    import re
+    import xml.etree.ElementTree as ET
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = open(os.path.join(root, "algorithms.py"), encoding="utf-8").read()
+    i = src.index("    @staticmethod\n    def _svg_curve")
+    j = src.index("    def _write_html", i)
+    code = "import numpy as np\n" + "\n".join(
+        l[4:] if l.startswith("    ") else l for l in src[i:j].split("\n"))
+    ns = {}
+    exec(code.replace("@staticmethod\n", ""), ns)
+
+    frags = dr.demo_fragments()
+    cv = hs.rating_curve(frags, dr.SLOPE, step=0.1)
+    q1 = dr.probability_table(cv)[0]["q"]
+    levels = [("УВВ1%", q1, hs.level_for_q(cv, q1))]
+    for name, svg in (("curve", ns["_svg_curve"](cv, levels)),
+                      ("profile", ns["_svg_profile"](frags, levels))):
+        assert svg.startswith("<svg"), name
+        ET.fromstring(svg)
+        assert "<polyline" in svg, name
+
+
+def test_report_body_embeds_pictures():
+    """Отчёт 6.01 действительно вставляет картинки, а не только умеет их.
+
+    Рисование уже было написано, а вызовы в теле отчёта не легли, и отчёт
+    вышел без единой картинки. Проверка смотрит на код: блок pics
+    собирается, фрагменты доезжают до отчёта, распаковка их принимает.
+    """
+    import os
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = open(os.path.join(root, "algorithms.py"), encoding="utf-8").read()
+    i = src.index("class RatingCurveAlgorithm")
+    j = src.index("\n\nclass ", i + 10)
+    blk = src[i:j]
+    assert "levels_found, frags))" in blk, "фрагменты не кладутся в отчёт"
+    assert "levels_found, frags" in blk.split("def _write_html")[1], \
+        "отчёт не принимает фрагменты"
+    assert "self._svg_profile(frags" in blk, "профиль не рисуется"
+    assert "self._svg_curve(cv" in blk, "кривая не рисуется"
+    assert "class='pics'" in blk, "блок картинок не собирается"
 
 
 def _run():

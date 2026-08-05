@@ -12175,7 +12175,10 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
     CHAIN = "CHAIN"
     OUTPUT, OUTPUT_PROFILE, REPORT = "OUTPUT", "OUTPUT_PROFILE", "REPORT"
     PROB = "PROB"
+    OBS = "OBS"
     OUTPUT_LEVELS = "OUTPUT_LEVELS"
+    FOOTER_LEVEL = "FOOTER_LEVEL"
+    OUTPUT_FOOTER, OUTPUT_GROUND = "OUTPUT_FOOTER", "OUTPUT_GROUND"
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return RatingCurveAlgorithm()
@@ -12214,9 +12217,18 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             "умолчанием для створов без полей, принятые значения идут в "
             "журнал. Уклон умеет считаться **по цепочке створов** от "
             "километража и отметок дна, как его и прописывают вручную.\n\n"
+            "Для чертежа гидроствора отдельно выдаётся **подвал** - строка на участок\n"
+            "с шириной, средней глубиной, площадью, уклоном, шероховатостью,\n"
+            "скоростью, расходом и долей от суммарного на заданной отметке. Без\n"
+            "отметки берётся первая по обеспеченности. Рядом идут **отметки земли\n"
+            "и расстояния** точками - нижние строки того же чертежа. Собирается\n"
+            "лист компоновкой: инструмент отдаёт данные, оформление живёт в макете.\n\n"
             "**Расход** считается по Маннингу отдельно на каждом участке и "
             "складывается. Смоченный периметр берётся по твёрдым границам, "
             "без вертикалей членения.\n\n"
+            "Наблюдённые уровни подаются своей таблицей: отметка и подпись. Это\n"
+            "замер, а не расчёт, на кривую он не опирается и наносится рядом с расчётными,\n"
+            "вида УВ 472.90 X/2021. В слое уровней такие строки помечены kind=obs.\n\n"
             "Расходы обеспеченности - 1%%, 5%%, 10%% - подаются таблицей пар "
             "обеспеченность-расход: считать их из рядов наблюдений не наше\n"
             "дело, это гидрологическая статистика. По кривой каждому расходу\n"
@@ -12273,9 +12285,23 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.PROB, self.tr("Расходы обеспеченности (таблица)"),
             [QgsProcessing.SourceType.TypeVector], optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.OBS, self.tr("Наблюдённые уровни (таблица)"),
+            [QgsProcessing.SourceType.TypeVector], optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT_LEVELS, self.tr("Уровни обеспеченности (чертёж)"),
             type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.FOOTER_LEVEL, self.tr("Отметка для подвала чертежа"),
+            QgsProcessingParameterNumber.Type.Double, optional=True)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_FOOTER, self.tr("Подвал чертежа (таблица)"),
+            type=QgsProcessing.SourceType.TypeVector, optional=True,
+            createByDefault=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_GROUND, self.tr("Отметки земли и расстояния (чертёж)"),
+            type=QgsProcessing.SourceType.TypeVectorPoint, optional=True,
             createByDefault=True))
         self.addParameter(QgsProcessingParameterFileDestination(
             self.REPORT, self.tr("Отчёт HTML"), "HTML (*.html)",
@@ -12424,18 +12450,76 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                     prob_rows.append((pv, qv))
                 prob_rows.sort(key=lambda r: (-(r[0] or 0.0), r[1]))
 
+        # Наблюдённый уровень это замер, а не расчёт: он приходит отметкой
+        # с подписью и на кривую не опирается вовсе. На чертеже гидроствора
+        # его наносят рядом с расчётными, вида УВ 472.90 X/2021.
+        obs_rows = []
+        obs_src = self.parameterAsSource(parameters, self.OBS, context)
+        if obs_src is not None:
+            f_lv = _field_by_names(obs_src, "level", "z", "отметка", "h")
+            f_lb = _field_by_names(obs_src, "label", "date", "подпись",
+                                   "дата")
+            if f_lv is None:
+                feedback.pushWarning(self.tr(
+                    "В таблице наблюдённых уровней не найдено поле отметки "
+                    "(level): они не наносятся."))
+            else:
+                for ft in obs_src.getFeatures():
+                    try:
+                        lv = float(ft[f_lv])
+                    except (TypeError, ValueError):
+                        continue
+                    lb = str(ft[f_lb]) if f_lb else ""
+                    obs_rows.append((lv, lb))
+
         lsink2 = ldest2 = None
-        if prob_rows:
+        if prob_rows or obs_rows:
             lf = QgsFields()
             for nm2, tp in (("sec", QVariant.String),
                             ("prob", QVariant.Double),
                             ("q", QVariant.Double),
                             ("level", QVariant.Double),
-                            ("label", QVariant.String)):
+                            ("label", QVariant.String),
+                            ("kind", QVariant.String)):
                 lf.append(QgsField(nm2, tp))
             lsink2, ldest2 = self.parameterAsSink(
                 parameters, self.OUTPUT_LEVELS, context, lf,
                 QgsWkbTypes.Type.LineString, _section_draw_crs())
+
+        # Подвал чертежа гидроствора: строка на участок с характеристиками
+        # на заданной отметке. Это то, что гидролог сдаёт в отчёте, и
+        # собирается он компоновкой - инструмент отдаёт данные.
+        foot_level = None
+        if parameters.get(self.FOOTER_LEVEL) is not None:
+            foot_level = self.parameterAsDouble(
+                parameters, self.FOOTER_LEVEL, context)
+        elif prob_rows:
+            foot_level = "prob"
+
+        ff = QgsFields()
+        for nm2, tp in (("sec", QVariant.String), ("level", QVariant.Double),
+                        ("part_no", QVariant.Int), ("part", QVariant.String),
+                        ("width", QVariant.Double),
+                        ("depth_avg", QVariant.Double),
+                        ("area", QVariant.Double), ("perim", QVariant.Double),
+                        ("radius", QVariant.Double),
+                        ("slope_ppm", QVariant.Double),
+                        ("n", QVariant.Double), ("n_inv", QVariant.Double),
+                        ("v", QVariant.Double), ("q", QVariant.Double),
+                        ("q_pct", QVariant.Double)):
+            ff.append(QgsField(nm2, tp))
+        fsink, fdest = self.parameterAsSink(
+            parameters, self.OUTPUT_FOOTER, context, ff,
+            QgsWkbTypes.Type.NoGeometry, src.sourceCrs())
+
+        gf = QgsFields()
+        for nm2, tp in (("sec", QVariant.String), ("idx", QVariant.Int),
+                        ("dist", QVariant.Double), ("elev", QVariant.Double),
+                        ("step", QVariant.Double)):
+            gf.append(QgsField(nm2, tp))
+        gsink, gdest = self.parameterAsSink(
+            parameters, self.OUTPUT_GROUND, context, gf,
+            QgsWkbTypes.Type.Point, _section_draw_crs())
 
         reports = []
         n_sec = 0
@@ -12496,6 +12580,25 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                     km = float(ft0[f_km])
                 except (TypeError, ValueError):
                     km = None
+            # Диагностика профиля: плоский профиль даёт нулевую площадь на
+            # всех отметках и кривую из нулей, и без этих чисел причина
+            # неотличима от ошибки расчёта.
+            zlo = min(float(np.min(f.z)) for f in frags)
+            zhi = max(float(np.max(f.z)) for f in frags)
+            wid = max(float(np.max(f.d)) for f in frags) - \
+                min(float(np.min(f.d)) for f in frags)
+            a_top = sum(hydro_section.wetted_geometry(f.d, f.z, zhi)[0]
+                        for f in frags)
+            feedback.pushInfo(self.tr(
+                "Створ «%s»: отметки %.2f..%.2f, ширина %.1f м, вершин %d, "
+                "площадь на верхней отметке %.1f м², шероховатости %s.")
+                % (nm, zlo, zhi, wid, sum(len(f.d) for f in frags), a_top,
+                   ", ".join("%.3f" % f.n for f in frags)))
+            if zhi - zlo < 1e-6:
+                feedback.pushWarning(self.tr(
+                    "Створ «%s»: профиль плоский, кривая выйдет нулевой. "
+                    "Проверьте, что в геометрии есть отметки Z.") % nm)
+
             cv = hydro_section.rating_curve(frags, slope, step=step, top=top)
             names = [f.name for f in frags]
             for k in range(cv["level"].size):
@@ -12545,11 +12648,67 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                         [QgsPointXY(d0, float(lv)),
                          QgsPointXY(d1, float(lv))]))
                     fl.setAttributes([nm, pv, qv, round(float(lv), 3),
-                                      label])
+                                      label, "prob"])
                     lsink2.addFeature(fl)
                     levels_found.append((label, qv, float(lv)))
+            if obs_rows and lsink2 is not None:
+                for lv, lb in obs_rows:
+                    label = ("УВ %.2f %s" % (lv, lb)).strip()
+                    fl = QgsFeature(lf)
+                    fl.setGeometry(QgsGeometry.fromPolylineXY(
+                        [QgsPointXY(float(d[0]), lv),
+                         QgsPointXY(float(d[-1]), lv)]))
+                    fl.setAttributes([nm, None, None, round(lv, 3), label,
+                                      "obs"])
+                    lsink2.addFeature(fl)
+
+            # подвал на заданной отметке: если она не задана числом, берётся
+            # первая по обеспеченности - именно её и наносят на чертёж
+            lv_foot = None
+            if isinstance(foot_level, float):
+                lv_foot = foot_level
+            elif foot_level == "prob" and levels_found:
+                lv_foot = levels_found[0][2]
+            if lv_foot is not None and fsink is not None:
+                q_tot = 0.0
+                rows_foot = []
+                for k, f in enumerate(frags):
+                    a, t, per = hydro_section.wetted_geometry(f.d, f.z,
+                                                             lv_foot)
+                    q = hydro_section.manning_q(a, per, f.n, slope)
+                    r = a / per if per > 0 else 0.0
+                    rows_foot.append((k + 1, f, a, t, per, r, q))
+                    q_tot += q
+                for k, f, a, t, per, r, q in rows_foot:
+                    fa = QgsFeature(ff)
+                    fa.setAttributes([
+                        nm, round(lv_foot, 3), k, f.name,
+                        round(t, 2), round(a / t, 2) if t > 1e-6 else 0.0,
+                        round(a, 2), round(per, 2), round(r, 3),
+                        round(slope * 1000.0, 2), f.n,
+                        round(1.0 / f.n, 2) if f.n > 0 else None,
+                        round(q / a, 2) if a > 1e-6 else 0.0, round(q, 2),
+                        round(100.0 * q / q_tot, 2) if q_tot > 0 else 0.0])
+                    fsink.addFeature(fa)
+
+            # отметки земли и расстояния для нижних строк чертежа
+            if gsink is not None:
+                for k in range(len(d)):
+                    fg = QgsFeature(gf)
+                    fg.setGeometry(QgsGeometry.fromPointXY(
+                        QgsPointXY(float(d[k]), float(z[k]))))
+                    # имя ground_step, а не step: короткое имя затирало
+                    # параметр шага по отметке, и кривые всех створов после
+                    # первого строились с шагом в десятки метров - одна
+                    # отметка на дне и нулевой расход
+                    ground_step = float(d[k] - d[k - 1]) if k else 0.0
+                    fg.setAttributes([nm, k + 1, round(float(d[k]), 2),
+                                      round(float(z[k]), 2),
+                                      round(ground_step, 2)])
+                    gsink.addFeature(fg)
+
             reports.append((nm, km, slope, srcname, names, cv,
-                            levels_found))
+                            levels_found, frags))
             n_sec += 1
             feedback.pushInfo(self.tr(
                 "Створ «%s»: участков %d, отметки из источника «%s», уклон "
@@ -12570,12 +12729,166 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             _set_output_name(context, ldest2,
                              self.tr("Уровни обеспеченности"))
             res[self.OUTPUT_LEVELS] = ldest2
+        if fsink is not None:
+            _set_output_name(context, fdest, self.tr("Подвал чертежа"))
+            res[self.OUTPUT_FOOTER] = fdest
+        if gsink is not None:
+            _set_output_name(context, gdest,
+                             self.tr("Отметки земли и расстояния"))
+            res[self.OUTPUT_GROUND] = gdest
         rep = self.parameterAsFileOutput(parameters, self.REPORT, context)
         if rep:
             self._write_html(rep, reports)
             res[self.REPORT] = rep
         feedback.pushInfo(self.tr("Построено створов: %d.") % n_sec)
         return res
+
+    @staticmethod
+    def _svg_curve(cv, levels_found, width=460, height=300):
+        """График Q(H) с линиями уровней: инлайновый SVG без зависимостей.
+
+        Отчёт открывают в браузере, и картинка в нём должна быть не
+        ссылкой на файл, а частью страницы: иначе отчёт перестаёт быть
+        одним файлом, который можно переслать.
+        """
+        import numpy as _np
+
+        q = _np.asarray(cv["q_total"], float)
+        h = _np.asarray(cv["level"], float)
+        if q.size < 2:
+            return ""
+        pad_l, pad_b, pad_t, pad_r = 58, 38, 14, 12
+        qmax = float(_np.max(q)) or 1.0
+        hlo, hhi = float(_np.min(h)), float(_np.max(h))
+        if hhi <= hlo:
+            hhi = hlo + 1.0
+
+        def px(qq):
+            return pad_l + (width - pad_l - pad_r) * float(qq) / qmax
+
+        def py(hh):
+            return height - pad_b - (height - pad_b - pad_t) * \
+                (float(hh) - hlo) / (hhi - hlo)
+
+        out = ["<svg viewBox='0 0 %d %d' width='%d' height='%d' "
+               "xmlns='http://www.w3.org/2000/svg' "
+               "style='background:#fff'>" % (width, height, width, height)]
+        # сетка и подписи осей
+        for i in range(5):
+            hv = hlo + (hhi - hlo) * i / 4.0
+            y = py(hv)
+            out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
+                       "stroke='#e0e0e0'/>" % (pad_l, y, width - pad_r, y))
+            out.append("<text x='%.1f' y='%.1f' font-size='10' "
+                       "text-anchor='end' fill='#555'>%.2f</text>"
+                       % (pad_l - 5, y + 3, hv))
+            qv = qmax * i / 4.0
+            x = px(qv)
+            out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
+                       "stroke='#e0e0e0'/>" % (x, pad_t, x, height - pad_b))
+            out.append("<text x='%.1f' y='%.1f' font-size='10' "
+                       "text-anchor='middle' fill='#555'>%.4g</text>"
+                       % (x, height - pad_b + 14, qv))
+        # уровни обеспеченности и наблюдённые
+        for lb, qv, lv in levels_found:
+            if not (hlo <= lv <= hhi):
+                continue
+            y = py(lv)
+            colour = "#c33" if lb.startswith("УВВ") else "#38a"
+            out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
+                       "stroke='%s' stroke-dasharray='4 3'/>"
+                       % (pad_l, y, px(qv) if qv else width - pad_r, y,
+                          colour))
+            if qv:
+                out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
+                           "stroke='%s' stroke-dasharray='4 3'/>"
+                           % (px(qv), y, px(qv), height - pad_b, colour))
+            out.append("<text x='%.1f' y='%.1f' font-size='10' fill='%s'>"
+                       "%s</text>" % (pad_l + 4, y - 3, colour, lb))
+        # сама кривая
+        pts = " ".join("%.1f,%.1f" % (px(q[i]), py(h[i]))
+                       for i in range(q.size))
+        out.append("<polyline points='%s' fill='none' stroke='#111' "
+                   "stroke-width='1.6'/>" % pts)
+        out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
+                   "stroke='#111'/>" % (pad_l, pad_t, pad_l, height - pad_b))
+        out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
+                   "stroke='#111'/>" % (pad_l, height - pad_b,
+                                        width - pad_r, height - pad_b))
+        out.append("<text x='%.1f' y='%.1f' font-size='11' fill='#111'>"
+                   "H, м</text>" % (6, pad_t + 8))
+        out.append("<text x='%.1f' y='%.1f' font-size='11' fill='#111' "
+                   "text-anchor='end'>Q, м³/с</text>"
+                   % (width - pad_r, height - 6))
+        out.append("</svg>")
+        return "".join(out)
+
+    @staticmethod
+    def _svg_profile(frags, levels_found, width=460, height=260):
+        """Профиль створа с уровнями: тот же чертёж, только в отчёте."""
+        import numpy as _np
+
+        dd = _np.concatenate([_np.asarray(f.d, float) for f in frags])
+        zz = _np.concatenate([_np.asarray(f.z, float) for f in frags])
+        if dd.size < 2:
+            return ""
+        order = _np.argsort(dd, kind="stable")
+        dd, zz = dd[order], zz[order]
+        pad_l, pad_b, pad_t, pad_r = 52, 30, 26, 12
+        d0, d1 = float(dd[0]), float(dd[-1])
+        z0, z1 = float(_np.min(zz)), float(_np.max(zz))
+        if d1 <= d0:
+            return ""
+        if z1 <= z0:
+            z1 = z0 + 1.0
+
+        def px(x):
+            return pad_l + (width - pad_l - pad_r) * (float(x) - d0) / (d1 - d0)
+
+        def py(z):
+            return height - pad_b - (height - pad_b - pad_t) * \
+                (float(z) - z0) / (z1 - z0)
+
+        out = ["<svg viewBox='0 0 %d %d' width='%d' height='%d' "
+               "xmlns='http://www.w3.org/2000/svg' "
+               "style='background:#fff'>" % (width, height, width, height)]
+        for lb, qv, lv in levels_found:
+            if not (z0 <= lv <= z1):
+                continue
+            y = py(lv)
+            colour = "#38a" if lb.startswith("УВ ") else "#c33"
+            out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
+                       "stroke='%s'/>" % (pad_l, y, width - pad_r, y, colour))
+            out.append("<text x='%.1f' y='%.1f' font-size='10' fill='%s'>"
+                       "%s %.2f</text>" % (pad_l + 4, y - 3, colour, lb, lv))
+        pts = " ".join("%.1f,%.1f" % (px(dd[i]), py(zz[i]))
+                       for i in range(dd.size))
+        out.append("<polyline points='%s' fill='none' stroke='#a44' "
+                   "stroke-width='1.6'/>" % pts)
+        # границы членения по стыкам фрагментов
+        edge = 0.0
+        for f in frags[:-1]:
+            edge = float(_np.max(f.d))
+            out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
+                       "stroke='#999' stroke-dasharray='3 3'/>"
+                       % (px(edge), pad_t, px(edge), height - pad_b))
+        out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
+                   "stroke='#111'/>" % (pad_l, pad_t, pad_l, height - pad_b))
+        out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
+                   "stroke='#111'/>" % (pad_l, height - pad_b,
+                                        width - pad_r, height - pad_b))
+        for i in range(4):
+            zv = z0 + (z1 - z0) * i / 3.0
+            out.append("<text x='%.1f' y='%.1f' font-size='10' "
+                       "text-anchor='end' fill='#555'>%.2f</text>"
+                       % (pad_l - 5, py(zv) + 3, zv))
+        out.append("<text x='%.1f' y='%.1f' font-size='11' fill='#111'>"
+                   "H, м</text>" % (6, pad_t - 10))
+        out.append("<text x='%.1f' y='%.1f' font-size='11' fill='#111' "
+                   "text-anchor='end'>L, м</text>"
+                   % (width - pad_r, height - 6))
+        out.append("</svg>")
+        return "".join(out)
 
     def _write_html(self, path, reports):
         title = _tr("Кривые расходов по створам")
@@ -12584,13 +12897,20 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                "table{border-collapse:collapse;margin:8px 0}"
                "td,th{border:1px solid #ccc;padding:3px 8px;text-align:right}"
                "td:first-child,th:first-child{text-align:left}"
-               "h2{margin:14px 0 6px}.k{color:#666}</style></head><body>"
+               "h2{margin:14px 0 6px}.k{color:#666}"
+               ".pics{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}"
+               ".pics svg{border:1px solid #ddd}</style></head><body>"
                "<h1>%s</h1>" % (title, title)]
-        for nm, km, slope, srcname, names, cv, levels_found in reports:
+        for nm, km, slope, srcname, names, cv, levels_found, frags \
+                in reports:
             out.append("<h2>%s</h2>" % (_tr("Створ %s") % nm))
             out.append("<p class='k'>%s</p>" % (_tr(
                 "Километраж %s, уклон %.5g, отметки из источника «%s».")
                 % ("-" if km is None else "%.3f" % km, slope, srcname or "-")))
+            svg1 = self._svg_profile(frags, levels_found)
+            svg2 = self._svg_curve(cv, levels_found)
+            if svg1 or svg2:
+                out.append("<div class='pics'>%s%s</div>" % (svg1, svg2))
             if levels_found:
                 cells = "".join(
                     "<tr><td>%s</td><td>%.4g</td><td>%.2f</td></tr>"
@@ -12632,6 +12952,7 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
     CELL = "CELL"
     OUTPUT, OUTPUT_REF = "OUTPUT", "OUTPUT_REF"
     OUTPUT_DEM, OUTPUT_TABLE = "OUTPUT_DEM", "OUTPUT_TABLE"
+    OUTPUT_PROB, OUTPUT_OBS = "OUTPUT_PROB", "OUTPUT_OBS"
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return DemoRiverAlgorithm()
@@ -12657,6 +12978,12 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
             "существует только линиями. Поверхность строится из тех же створов,\n"
             "что и кривые, поэтому полигон затопления и кривая расходов говорят\n"
             "об одной долине, а не о двух похожих.\n\n"
+            "Ещё одной таблицей идут учебные **наблюдённые уровни** с подписями\n"
+            "дат, чтобы было на чём показать замеры рядом с расчётными.\n\n"
+            "Отдельной таблицей идут учебные **расходы обеспеченности**: настоящие\n"
+            "выходят из статистики рядов наблюдений и плагином не считаются, а\n"
+            "эти взяты долями от наибольшего на кривой, чтобы уровни и подвал\n"
+            "чертежа было на чём показать без экстраполяции.\n\n"
             "Вторым выходом идёт эталонная кривая, посчитанная ядром "
             "напрямую. Расхождение с тем, что даст **6.01** на этих же "
             "створах, есть ошибка инструмента, а не данных: ответ известен "
@@ -12686,6 +13013,12 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
             type=QgsProcessing.SourceType.TypeVector))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT_TABLE, self.tr("Таблица промеров (демо)"),
+            type=QgsProcessing.SourceType.TypeVector))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_PROB, self.tr("Расходы обеспеченности (демо)"),
+            type=QgsProcessing.SourceType.TypeVector))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_OBS, self.tr("Наблюдённые уровни (демо)"),
             type=QgsProcessing.SourceType.TypeVector))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT_DEM, self.tr("Поверхность долины (демо)")))
@@ -12742,6 +13075,10 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
                               demo_river.N_FLOOD, demo_river.SLOPE,
                               s["z_bed"]])
             sink.addFeature(ft)
+            feedback.pushInfo(self.tr(
+                "Створ %d: км %.3f, отметки %.2f..%.2f, вершин %d.")
+                % (j + 1, s["km"], float(np.min(s["z"])),
+                   float(np.max(s["z"])), len(s["d"])))
 
         rf = QgsFields()
         for nm, tp in (("level", QVariant.Double), ("area", QVariant.Double),
@@ -12803,6 +13140,34 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
         _set_output_name(context, path, self.tr("Поверхность долины (демо)"))
         _set_output_name(context, tdest, self.tr("Таблица промеров (демо)"))
 
+        # учебные расходы обеспеченности: чтобы уровни и подвал чертежа
+        # было на чём показать, значения берутся долями от наибольшего на
+        # кривой и заведомо лежат внутри неё
+        pf = QgsFields()
+        pf.append(QgsField("prob", QVariant.Double))
+        pf.append(QgsField("q", QVariant.Double))
+        psink2, pdest2 = self.parameterAsSink(
+            parameters, self.OUTPUT_PROB, context, pf,
+            QgsWkbTypes.Type.NoGeometry, crs)
+        for row in demo_river.probability_table(cv):
+            ft = QgsFeature(pf)
+            ft.setAttributes([row["prob"], row["q"]])
+            psink2.addFeature(ft)
+        _set_output_name(context, pdest2,
+                         self.tr("Расходы обеспеченности (демо)"))
+
+        of = QgsFields()
+        of.append(QgsField("level", QVariant.Double))
+        of.append(QgsField("label", QVariant.String))
+        osink, odest = self.parameterAsSink(
+            parameters, self.OUTPUT_OBS, context, of,
+            QgsWkbTypes.Type.NoGeometry, crs)
+        for row in demo_river.observed_levels(secs):
+            ft = QgsFeature(of)
+            ft.setAttributes([row["level"], row["label"]])
+            osink.addFeature(ft)
+        _set_output_name(context, odest, self.tr("Наблюдённые уровни (демо)"))
+
         feedback.pushInfo(self.tr(
             "Створов %d, ширина долины %.0f м, русло %.0f м при глубине "
             "%.1f м, шероховатость русла %.3f и поймы %.3f, уклон %.5g. "
@@ -12813,7 +13178,8 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
         _set_output_name(context, dest, self.tr("Створы (демо)"))
         _set_output_name(context, rdest, self.tr("Эталонная кривая (демо)"))
         return {self.OUTPUT: dest, self.OUTPUT_REF: rdest,
-                self.OUTPUT_TABLE: tdest, self.OUTPUT_DEM: path}
+                self.OUTPUT_TABLE: tdest, self.OUTPUT_DEM: path,
+                self.OUTPUT_PROB: pdest2, self.OUTPUT_OBS: odest}
 
 
 class FloodExtentAlgorithm(IsolinerAlgorithm):

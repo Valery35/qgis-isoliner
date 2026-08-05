@@ -82,10 +82,10 @@ The tools are split into seven Processing groups — **"Grid and isolines"**, **
 
 ### "6. River hydrology" group
 
-- **7.01 Cross-sections and rating curves** — the dependence of discharge on level for a section: the profile along the vertices, the division into the left bank, the channel and the right bank, the discharge by Manning separately on every part. Roughness and slope from the fields of the section, the slope can be computed from the chain of sections. A table, the profiles and an HTML report.
-- **7.02 Flood extent polygon** — cutting the surface by a water level with an extent and a raster of depth. The level can be set by a discharge: it is taken backwards along the curve.
-- **7.03 Import section tables** — distance and elevation pairs from existing programs become lines with Z. If the sections are digitized on the map, the soundings lie along the real lines. Computation properties are carried along with the profile.
-- **7.04 Create an example river (demo)** — a chain of sections with a known answer, a table of soundings, a valley surface and a reference curve.
+- **6.01 Cross-sections and rating curves** — the dependence of discharge on level for a section: the profile along the vertices, the division into the left bank, the channel and the right bank, the discharge by Manning separately on every part. Roughness and slope from the fields of the section, the slope can be computed from the chain of sections. Probability and observed levels as lines onto the drawing, the footer of a gauging sheet as a row per part, ground elevations and distances as points. An HTML report with the profile and the Q(H) graph on the page itself.
+- **6.02 Flood extent polygon** — cutting the surface by a water level with an extent and a raster of depth. The level can be set by a discharge: it is taken backwards along the curve.
+- **6.03 Import section tables** — distance and elevation pairs from existing programs become lines with Z. If the sections are digitized on the map, the soundings lie along the real lines. Computation properties are carried along with the profile.
+- **6.04 Create an example river (demo)** — a chain of sections with a known answer, a table of soundings, a valley surface, a reference curve, teaching probability discharges and observed levels.
 
 ### "7. Fractal analysis" group
 
@@ -310,6 +310,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
+- **4.74.1** — probability and observed levels on the drawing, the footer of a gauging sheet, a report with graphics: the profile with the levels and the graph of discharge against level on the page itself.
 - **4.69.1** — the new "6. River hydrology" group: cross-sections and rating curves by Manning with a separate count over the channel and the floodplains, a flood extent polygon with the backward move along the curve, an import of sounding tables laid along digitized lines, a demo river with a known answer. Fractal analysis moved to the seventh group, the geological model is marked beta.
 - **4.63.0** — 4.02 gains a new output: label anchors of intervals, a point in the middle of every interval with all its attributes. Composite grade labels attach to points and place normally.
 - **4.62.0** — the demo became a full section of the Verkhnekamskoye type: the whole column from the reference, erosion from the dissolution level, a subcrop map, the water-protective sequence, a folder output.

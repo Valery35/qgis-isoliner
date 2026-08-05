@@ -254,6 +254,113 @@ def test_process_bodies_have_no_late_definitions():
     assert not bad, "имя читается раньше присваивания: %s" % sorted(set(bad))
 
 
+def test_core_calls_unpack_right_number_of_values():
+    """Вызовы ядра разбираются по фактическому числу возвращаемых значений.
+
+    manning_q возвращает одно число, а в подвале чертежа его разбирали в
+    пару: компиляция такое пропускает, headless-тесты формы не касаются, и
+    падало оно только на живом прогоне. Сторож сверяет число целей
+    присваивания с числом значений в return самой функции.
+    """
+    import ast
+    import inspect
+    import os
+
+    from grid_isolines import hydro_section, section_core, drillhole_core
+
+    mods = {"hydro_section": hydro_section, "section_core": section_core,
+            "drillhole_core": drillhole_core, "_sc": section_core,
+            "_dh": drillhole_core}
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    tree = ast.parse(open(os.path.join(root, "algorithms.py"),
+                          encoding="utf-8").read())
+    bad = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign)
+                and isinstance(node.value, ast.Call)):
+            continue
+        f = node.value.func
+        if not (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name)):
+            continue
+        mod = mods.get(f.value.id)
+        fn = getattr(mod, f.attr, None) if mod is not None else None
+        if fn is None or not callable(fn):
+            continue
+        try:
+            fsrc = inspect.getsource(fn)
+        except (OSError, TypeError):
+            continue
+        want = len(node.targets[0].elts) \
+            if isinstance(node.targets[0], ast.Tuple) else 1
+        got = set()
+        for r in ast.walk(ast.parse(fsrc)):
+            if isinstance(r, ast.Return) and r.value is not None:
+                got.add(len(r.value.elts)
+                        if isinstance(r.value, ast.Tuple) else 1)
+        if got and want not in got:
+            bad.append("%s строка %d: берут %d, отдаёт %s"
+                       % (f.attr, node.lineno, want, sorted(got)))
+    assert not bad, bad
+
+
+def test_parameters_are_not_reassigned_inside_loops():
+    """Переменная, прочитанная из параметра, не присваивается внутри цикла.
+
+    Цикл отметок земли завёл переменную step и затёр параметр шага по
+    отметке: кривые всех створов после первого строились с шагом в
+    десятки метров и выходили нулями. Нормализация параметра сразу после
+    чтения законна и остаётся, запрещено присваивание того же имени
+    внутри for и while: оно повторяется на каждом обороте и живёт после
+    цикла.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from grid_isolines import algorithms as A
+
+    bad = []
+    for cls in A.ALGORITHMS:
+        src = inspect.getsource(cls)
+        k = src.find("def _process")
+        if k < 0:
+            continue
+        try:
+            fn = ast.parse(textwrap.dedent(src[k:])).body[0]
+        except SyntaxError:
+            continue
+        pnames = set()
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Assign) \
+                    and isinstance(node.value, ast.Call) \
+                    and isinstance(node.value.func, ast.Attribute) \
+                    and node.value.func.attr.startswith("parameterAs"):
+                for t in node.targets:
+                    if isinstance(t, ast.Name):
+                        pnames.add(t.id)
+        loops = [n for n in ast.walk(fn)
+                 if isinstance(n, (ast.For, ast.While))]
+        for loop in loops:
+            for node in ast.walk(loop):
+                targets = []
+                if isinstance(node, ast.Assign):
+                    targets = node.targets
+                elif isinstance(node, ast.AugAssign):
+                    targets = [node.target]
+                v = getattr(node, "value", None)
+                fresh = isinstance(v, ast.Call) \
+                    and isinstance(v.func, ast.Attribute) \
+                    and v.func.attr.startswith("parameterAs")
+                if fresh:
+                    continue  # повторное чтение параметра в цикле законно
+                for t in targets:
+                    for nm in ast.walk(t):
+                        if isinstance(nm, ast.Name) and nm.id in pnames:
+                            bad.append("%s: %s строка %d"
+                                       % (cls.__name__, nm.id, nm.lineno))
+    assert not bad, "параметр затирается в цикле: %s" % sorted(set(bad))
+
+
 def test_metadata_reads_with_strict_parser():
     """metadata.txt читается тем же парсером, что и каталог плагинов.
 

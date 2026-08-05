@@ -2702,6 +2702,18 @@ The slope can be computed **from the chain of sections**: if the chainage and th
 
 Fields with the names of the contract - sec, km, div_l, div_r, n_left, n_channel, n_right, slope - are picked up without the user, and the picked ones are printed to the log. An explicit choice is always senior to what has been found.
 
+## Levels
+
+Probability discharges - 1, 5, 10 percent - are supplied as a table of probability and discharge pairs. The tool does not compute them from observation series, that is hydrological statistics. For every discharge a level is found along the curve, and the levels come out as lines in drawing coordinates with ready labels of the UVV1% kind, the way they are put on a gauging section. A discharge above the curve gives a warning rather than an extrapolation.
+
+Observed levels are supplied by their own table: an elevation and a label. This is a measurement rather than a computation, it does not rely on the curve and lies next to the computed ones, in the manner of UV 472.90 X/2021. In the layer of levels such rows are marked kind=obs, the computed ones kind=prob, and the field gives them different styling.
+
+## The drawing footer
+
+For the sheet of a gauging section a footer is produced separately - a row per part with the width, mean depth, flow area, wetted perimeter, hydraulic radius, slope in per mille, roughness coefficient and its inverse, velocity, discharge and the share of the total. The level is set by a parameter, without it the first one by probability is taken.
+
+Next to it go the ground elevations and distances as points - the bottom rows of the same drawing. The sheet is assembled by a print layout: the tool gives the data, the design lives in the template.
+
 ## What matters about the method
 
 The Manning formula describes steady uniform flow. The curve is a hydraulic characteristic of the section rather than a computation of a release wave, and the tool promises no more.
@@ -2710,7 +2722,9 @@ The slope enters the discharge under a square root, so an error in it tells dire
 
 ## What comes out
 
-A table of the curve by parts and in total with the area, width, perimeter, radius, velocity and discharge at every level. The section profiles as drawing layers. An HTML report with a table for every section.
+A table of the curve by parts and in total with the area, width, perimeter, radius, velocity and discharge at every level. The section profiles, the levels, the footer and the ground elevations as separate layers in drawing coordinates.
+
+An HTML report for every section: the profile with the levels and the division boundaries drawn on it, a graph of discharge against level with the probability lines, a table of levels and the table of the curve. The pictures are embedded into the page itself, so the report stays one file that can be forwarded.
 
 # 6.02 Flood extent polygon
 
