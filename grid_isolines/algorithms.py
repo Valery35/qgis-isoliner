@@ -13248,10 +13248,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
     PROB = "PROB"
     OBS = "OBS"
     OUTPUT_LEVELS = "OUTPUT_LEVELS"
-<<<<<<< Updated upstream
-=======
     OUTPUT_LEVELS_MAP = "OUTPUT_LEVELS_MAP"
->>>>>>> Stashed changes
     FOOTER_LEVEL = "FOOTER_LEVEL"
     OUTPUT_FOOTER, OUTPUT_GROUND = "OUTPUT_FOOTER", "OUTPUT_GROUND"
 
@@ -13379,14 +13376,11 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             self.OUTPUT_LEVELS, self.tr("Уровни обеспеченности (чертёж)"),
             type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
             createByDefault=True))
-<<<<<<< Updated upstream
-=======
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT_LEVELS_MAP,
             self.tr("Уровни по створам на карте (для 6.02)"),
             type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
             createByDefault=True))
->>>>>>> Stashed changes
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.FOOTER_LEVEL, self.tr("Отметка для подвала чертежа"),
             QgsProcessingParameterNumber.Type.Double, optional=True)))
@@ -13567,8 +13561,6 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                     lb = str(ft[f_lb]) if f_lb else ""
                     obs_rows.append((lv, lb))
 
-<<<<<<< Updated upstream
-=======
         # Линии уровней в чертёжных координатах годятся для листа, но не
         # для карты: там x это расстояние вдоль створа. Для полигона
         # затопления нужен тот же уровень, но на плановой геометрии
@@ -13583,7 +13575,6 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             parameters, self.OUTPUT_LEVELS_MAP, context, mlf,
             QgsWkbTypes.Type.LineString, src.sourceCrs())
 
->>>>>>> Stashed changes
         lsink2 = ldest2 = None
         if prob_rows or obs_rows:
             lf = QgsFields()
@@ -13764,15 +13755,12 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                         fl.setAttributes([nm, pv, qv, round(float(lv), 3),
                                           label, "prob"])
                         lsink2.addFeature(fl)
-<<<<<<< Updated upstream
-=======
                     if msink is not None:
                         fm = QgsFeature(mlf)
                         fm.setGeometry(QgsGeometry(fts[0].geometry()))
                         fm.setAttributes([nm, pv, qv, round(float(lv), 3),
                                           label, "prob"])
                         msink.addFeature(fm)
->>>>>>> Stashed changes
                     levels_found.append((label, qv, float(lv)))
             if obs_rows and lsink2 is not None:
                 for lv, lb in obs_rows:
@@ -13785,15 +13773,12 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                         fl.setAttributes([nm, None, None, round(lv, 3),
                                           label, "obs"])
                         lsink2.addFeature(fl)
-<<<<<<< Updated upstream
-=======
                     if msink is not None:
                         fm = QgsFeature(mlf)
                         fm.setGeometry(QgsGeometry(fts[0].geometry()))
                         fm.setAttributes([nm, None, None, round(lv, 3),
                                           label, "obs"])
                         msink.addFeature(fm)
->>>>>>> Stashed changes
 
             # подвал на заданной отметке: если она не задана числом, берётся
             # первая по обеспеченности - именно её и наносят на чертёж
@@ -13862,13 +13847,10 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             _set_output_name(context, ldest2,
                              self.tr("Уровни обеспеченности"))
             res[self.OUTPUT_LEVELS] = ldest2
-<<<<<<< Updated upstream
-=======
         if msink is not None:
             _set_output_name(context, mdest,
                              self.tr("Уровни по створам на карте"))
             res[self.OUTPUT_LEVELS_MAP] = mdest
->>>>>>> Stashed changes
         if fsink is not None:
             _set_output_name(context, fdest, self.tr("Подвал чертежа"))
             res[self.OUTPUT_FOOTER] = fdest

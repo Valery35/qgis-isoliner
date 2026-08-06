@@ -2089,8 +2089,6 @@ TRANSLATIONS = {
     'Урез работает изолинией: закреплена только линия берега, поверхность внутри определяется точками и структурными линиями.': 'The water edge works as a contour: only the shore line is fixed, the surface inside is defined by the points and the structural lines.',
     'Включено «Заполнить понижения в итоге», а урез работает изолинией: русло и дно будут заровнены на последнем шаге, потому что для заполнения это обычное понижение. Снимите галочку, если строите ЦМР с дном.': '"Fill depressions at the end" is on while the water edge works as a contour: the channel and the bed will be levelled out at the last step, because for the filling this is an ordinary depression. Clear the checkbox if you are building a DEM with a bed.',
     'Понижения заполняются поверх русла, построенного урезом-изолинией: дно сейчас исчезнет.': 'The depressions are filled over a channel built by a contour water edge: the bed is about to disappear.',
-<<<<<<< Updated upstream
-=======
     'Уровни по створам, линии с отметкой (из 6.01)': 'Levels at the sections, lines with an elevation (from 6.01)',
     'Поле отметки уровня (обычно level)': 'Level elevation field (usually level)',
     'В слое уровней нет линий с отметкой: проверьте поле.': 'The layer of levels holds no lines with an elevation: check the field.',
@@ -2192,7 +2190,6 @@ TRANSLATIONS = {
     'Створ «%s»: расход %.4g вне кривой, створ пропущен.': 'Section "%s": the discharge %.4g is outside the curve, the section is skipped.',
     'Расход %.4g м³/с разнесён по %d створам обратным ходом по готовой кривой, пропущено %d. Поверхность воды поднята по ним: пересобирать кривую не потребовалось.': 'The discharge of %.4g m3/s is spread over %d sections backwards along the curve already computed, %d skipped. The water surface is raised from them: there was no need to rebuild the curve.',
     'Расход вне кривой на всех створах: уровень нельзя найти, не считая кривую заново.': 'The discharge is outside the curve at every section: the level cannot be found without computing the curve anew.',
->>>>>>> Stashed changes
     'Зона складки (демо)': 'Fold zone (demo)',
     'Поверхность растворения (демо)': 'Dissolution surface (demo)',
     'Справочник пластов (демо-пачка)': 'Bed reference (demo stack)',

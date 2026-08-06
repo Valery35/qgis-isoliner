@@ -316,10 +316,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
-<<<<<<< Updated upstream
-=======
 - **4.91.0** — the geological model has grown up to assembly: a stack from the relief and from a datum surface, a correction by the statistics of thicknesses, the model manifest, a map of folding, telling a cut from a pinch-out by the mirror. In hydrology the flood extent is built for any desired discharge over a curve already computed.
->>>>>>> Stashed changes
 - **4.74.1** — probability and observed levels on the drawing, the footer of a gauging sheet, a report with graphics: the profile with the levels and the graph of discharge against level on the page itself.
 - **4.69.1** — the new "6. River hydrology" group: cross-sections and rating curves by Manning with a separate count over the channel and the floodplains, a flood extent polygon with the backward move along the curve, an import of sounding tables laid along digitized lines, a demo river with a known answer. Fractal analysis moved to the seventh group, the geological model is marked beta.
 - **4.63.0** — 4.02 gains a new output: label anchors of intervals, a point in the middle of every interval with all its attributes. Composite grade labels attach to points and place normally.
