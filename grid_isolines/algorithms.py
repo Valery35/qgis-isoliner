@@ -42,6 +42,8 @@ from . import section_core as _sc  # чистое ядро разреза, бе�
 from . import drillhole_core as _dh  # чистое ядро данных бурения, без QGIS
 from . import validate_core as _vc  # чистое ядро валидации, без QGIS
 from . import hydro_section  # чистое ядро гидравлики створа, без QGIS
+from . import manifest  # роли слоёв модели, без QGIS
+from . import fold  # складчатость поверхности, без QGIS
 from . import demo_river  # демо-река: створы с известным ответом
 from .topo_smooth import smooth_clamped as _smooth_clamped
 from qgis.core import (
@@ -11553,6 +11555,889 @@ def _write_demo_grid(arr, path, nx, ny, gt, wkt):
     ds = None
 
 
+class StackBuildAlgorithm(IsolinerAlgorithm):
+    """5.03 Собрать пачку от рельефа."""
+
+    DEM, COLLAR, INTERVAL, REF = "DEM", "COLLAR", "INTERVAL", "REF"
+    DATUM, DATUM_CODE = "DATUM", "DATUM_CODE"
+    CID, CZ, CDIP = "CID", "CZ", "CDIP"
+    IID, IFROM, ITO, ICODE = "IID", "IFROM", "ITO", "ICODE"
+    RCODE, RORDER = "RCODE", "RORDER"
+    CONTACT, CONTACT_CODE, THIN = "CONTACT", "CONTACT_CODE", "THIN"
+    FOLDER, OUTPUT_THICK = "FOLDER", "OUTPUT_THICK"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return StackBuildAlgorithm()
+    def name(self): return "stack_build"
+    def displayName(self): return self.tr("5.03 Собрать пачку от рельефа")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_GEO)
+    def groupId(self): return GROUP_GEO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Собирает колонку сверху вниз: от рельефа, тело за телом по "
+            "справочнику. Для каждого тела строится растр мощности по "
+            "скважинам, подошва получается вычитанием мощности из "
+            "вышележащей поверхности, и она же служит верхом для "
+            "следующего.\n\n"
+            "**Достоинство схемы не в простоте.** Если мощности "
+            "неотрицательны, поверхности не могут пересечься: они "
+            "получаются вычитанием одна из другой. Непротиворечивость "
+            "выходит по построению, а не проверкой после.\n\n"
+            "**Опорной может быть не рельеф.** Если подать прослеженный контакт и\n"
+            "указать, чьей кровлей он служит, сборка идёт от него в обе стороны:\n"
+            "вниз вычитанием мощностей, вверх прибавлением. Ошибка тогда делится\n"
+            "пополам вместо накопления вниз от рельефа, и это единственный\n"
+            "разумный путь для глубоких пачек.\n\n"
+            "**Ограничение тоже понятное.** Ошибка каждой мощности "
+            "складывается с предыдущими, и к нижним телам накопленное "
+            "отклонение способно превысить саму мощность. Схема для "
+            "неглубоких пачек и инженерных задач, где верхний контакт и "
+            "есть дневная поверхность. Для глубоких пачек опорной берут "
+            "прослеженный контакт и идут от него в обе стороны.\n\n"
+            "**Мощность считается по стволу и приводится к вертикали.** У "
+            "наклонной скважины вскрытая мощность больше истинной, и без "
+            "поправки на угол пачка распухнет. Угол берётся из поля у "
+            "устья, без него ствол считается вертикальным.\n\n"
+            "**Отсутствие тела в скважине это ноль**, а не пропуск: между "
+            "такой скважиной и соседней мощность уходит в ноль, и тело "
+            "выклинивается само.\n\n"
+            "**Линии контакта дают достоверные нули.** Там, где тело "
+            "выходит на поверхность, мощность всего вышележащего равна "
+            "нулю по определению границы, и это значение известно, а не "
+            "оценено. Узлы линии прореживаются: густота оцифровки не "
+            "должна превращаться в вес.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.DEM, self.tr("Рельеф (ЦМР)")))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.COLLAR, self.tr("Устья скважин"),
+            [QgsProcessing.SourceType.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INTERVAL, self.tr("Интервалы по стволу"),
+            [QgsProcessing.SourceType.TypeVector]))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.REF, self.tr("Справочник пластов"),
+            [QgsProcessing.SourceType.TypeVector]))
+        for pid, label in ((self.CID, "Поле идентификатора устья (обычно hole_id)"),
+                           (self.CZ, "Поле отметки устья (обычно z)"),
+                           (self.CDIP, "Поле угла падения ствола (обычно dip)")):
+            self.addParameter(_advanced(QgsProcessingParameterField(
+                pid, self.tr(label), parentLayerParameterName=self.COLLAR,
+                optional=True)))
+        for pid, label in ((self.IID, "Поле идентификатора интервала (обычно hole_id)"),
+                           (self.IFROM, "Поле начала интервала (обычно from)"),
+                           (self.ITO, "Поле конца интервала (обычно to)"),
+                           (self.ICODE, "Поле кода пласта (обычно code)")):
+            self.addParameter(_advanced(QgsProcessingParameterField(
+                pid, self.tr(label), parentLayerParameterName=self.INTERVAL,
+                optional=True)))
+        for pid, label in ((self.RCODE, "Поле кода в справочнике (обычно code)"),
+                           (self.RORDER, "Поле порядка залегания (обычно order)")):
+            self.addParameter(_advanced(QgsProcessingParameterField(
+                pid, self.tr(label), parentLayerParameterName=self.REF,
+                optional=True)))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.DATUM, self.tr("Опорная поверхность (если не от рельефа)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterString(
+            self.DATUM_CODE, self.tr("Код тела, чья кровля опорная"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.CONTACT, self.tr("Линии контакта (нули мощности)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.CONTACT_CODE, self.tr("Поле кода линии (обычно code)"),
+            parentLayerParameterName=self.CONTACT, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.THIN, self.tr("Шаг прореживания линий, м (0 - по ячейке)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.THIN, 0.0), minValue=0.0)))
+        self.addParameter(QgsProcessingParameterFolderDestination(
+            self.FOLDER, self.tr("Папка для поверхностей")))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_THICK, self.tr("Мощности по скважинам (точки)"),
+            type=QgsProcessing.SourceType.TypeVectorPoint, optional=True,
+            createByDefault=True))
+
+    def _process(self, parameters, context, feedback):
+        dem = self.parameterAsRasterLayer(parameters, self.DEM, context)
+        csrc = self.parameterAsSource(parameters, self.COLLAR, context)
+        isrc = self.parameterAsSource(parameters, self.INTERVAL, context)
+        rsrc = self.parameterAsSource(parameters, self.REF, context)
+        if dem is None or csrc is None or isrc is None or rsrc is None:
+            raise QgsProcessingException(self.tr(
+                "Нужны рельеф, устья, интервалы и справочник."))
+
+        def _fld(pid, src, *names):
+            got = self.parameterAsString(parameters, pid, context)
+            return got or _field_by_names(src, *names)
+
+        f_cid = _fld(self.CID, csrc, "hole_id", "id", "скважина")
+        f_cz = _fld(self.CZ, csrc, "z", "отметка", "elev")
+        f_dip = _fld(self.CDIP, csrc, "dip", "угол")
+        f_iid = _fld(self.IID, isrc, "hole_id", "id", "скважина")
+        f_from = _fld(self.IFROM, isrc, "from", "от", "top")
+        f_to = _fld(self.ITO, isrc, "to", "до", "bot")
+        f_code = _fld(self.ICODE, isrc, "code", "код", "пласт")
+        f_rcode = _fld(self.RCODE, rsrc, "code", "код")
+        f_rorder = _fld(self.RORDER, rsrc, "order", "порядок", "n")
+        if not (f_cid and f_iid and f_from and f_to and f_code and f_rcode):
+            raise QgsProcessingException(self.tr(
+                "Не найдены обязательные поля: задайте их явно."))
+
+        gdal.UseExceptions()
+        ds = gdal.Open(dem.source())
+        band = ds.GetRasterBand(1)
+        relief = band.ReadAsArray().astype("float64")
+        nod = band.GetNoDataValue()
+        if nod is not None:
+            relief = np.where(relief == nod, np.nan, relief)
+        gt = ds.GetGeoTransform()
+        wkt = ds.GetProjection()
+        ny, nx = relief.shape
+        cell = abs(gt[1])
+        ext = (gt[0], gt[3] + gt[5] * ny, gt[0] + gt[1] * nx, gt[3])
+
+        # порядок залегания: из справочника, а не из порядка объектов
+        order = []
+        for ft in rsrc.getFeatures():
+            code = str(ft[f_rcode])
+            try:
+                pos = float(ft[f_rorder]) if f_rorder else len(order)
+            except (TypeError, ValueError):
+                pos = len(order)
+            order.append((pos, code))
+        order.sort()
+        codes = [c for _p, c in order]
+        if not codes:
+            raise QgsProcessingException(self.tr("Справочник пуст."))
+        feedback.pushInfo(self.tr("Колонка из справочника, %d тел: %s.")
+                          % (len(codes), ", ".join(codes[:8])
+                             + (" ..." if len(codes) > 8 else "")))
+
+        collars = {}
+        for ft in csrc.getFeatures():
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            p = g.asPoint()
+            try:
+                dip = float(ft[f_dip]) if f_dip else 90.0
+            except (TypeError, ValueError):
+                dip = 90.0
+            collars[str(ft[f_cid])] = (p.x(), p.y(), dip)
+
+        # Вскрытая мощность приводится к вертикальной: у наклонного ствола
+        # она больше истинной, и без поправки пачка распухнет.
+        thick = {}
+        n_skip = 0
+        for ft in isrc.getFeatures():
+            hid = str(ft[f_iid])
+            if hid not in collars:
+                n_skip += 1
+                continue
+            try:
+                a, b = float(ft[f_from]), float(ft[f_to])
+            except (TypeError, ValueError):
+                continue
+            if b < a:
+                a, b = b, a
+            code = str(ft[f_code])
+            k = math.sin(math.radians(abs(collars[hid][2]))) or 1.0
+            thick.setdefault(hid, {}).setdefault(code, 0.0)
+            thick[hid][code] += (b - a) * k
+        if n_skip:
+            feedback.pushWarning(self.tr(
+                "Интервалов без устья: %d, пропущены.") % n_skip)
+
+        tf = QgsFields()
+        tf.append(QgsField("hole_id", QVariant.String))
+        tf.append(QgsField("code", QVariant.String))
+        tf.append(QgsField("thick", QVariant.Double))
+        tsink, tdest = self.parameterAsSink(
+            parameters, self.OUTPUT_THICK, context, tf,
+            QgsWkbTypes.Type.Point, dem.crs())
+
+        # достоверные нули по линиям контакта: там, где тело выходит на
+        # поверхность, всё вышележащее имеет нулевую мощность
+        thin = self.parameterAsDouble(parameters, self.THIN, context) or cell
+        zeros = {}
+        lsrc = self.parameterAsSource(parameters, self.CONTACT, context)
+        if lsrc is not None:
+            f_lc = self.parameterAsString(parameters, self.CONTACT_CODE,
+                                          context) \
+                or _field_by_names(lsrc, "code", "код", "пласт")
+            n_node = 0
+            for ft in lsrc.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                code = str(ft[f_lc]) if f_lc else None
+                if code not in codes:
+                    continue
+                above = codes[:codes.index(code)]
+                ln = g.length()
+                k, step = 0.0, max(thin, 1e-6)
+                while k <= ln:
+                    p = g.interpolate(k).asPoint()
+                    for c in above:
+                        zeros.setdefault(c, []).append((p.x(), p.y()))
+                    n_node += 1
+                    k += step
+            if zeros:
+                feedback.pushInfo(self.tr(
+                    "Линии контакта дали %d узлов после прореживания шагом "
+                    "%.1f м: вдоль них мощность вышележащих тел нулевая.")
+                    % (n_node, thin))
+
+        folder = self.parameterAsString(parameters, self.FOLDER, context)
+        if not os.path.isdir(folder):
+            os.makedirs(folder)
+        drv = gdal.GetDriverByName("GTiff")
+
+        # Опорная поверхность: сборка идёт от неё в обе стороны, и ошибка
+        # делится пополам вместо того, чтобы копиться вниз от рельефа.
+        datum = self.parameterAsRasterLayer(parameters, self.DATUM, context)
+        dcode = self.parameterAsString(parameters, self.DATUM_CODE, context)
+        base, k0 = relief.copy(), 0
+        if datum is not None:
+            if not dcode or dcode not in codes:
+                raise QgsProcessingException(self.tr(
+                    "Задайте код тела, чья кровля служит опорной "
+                    "поверхностью, из справочника."))
+            dds = gdal.Open(datum.source())
+            db = dds.GetRasterBand(1)
+            base = db.ReadAsArray().astype("float64")
+            dnod = db.GetNoDataValue()
+            if dnod is not None:
+                base = np.where(base == dnod, np.nan, base)
+            if base.shape != relief.shape:
+                raise QgsProcessingException(self.tr(
+                    "Опорная поверхность и рельеф на разных сетках: "
+                    "приведите их к одной."))
+            dds = None
+            k0 = codes.index(dcode)
+            feedback.pushInfo(self.tr(
+                "Опорная поверхность: кровля «%s», тело %d из %d. Вверх от "
+                "неё собирается %d тел, вниз %d: ошибка делится пополам "
+                "вместо накопления вниз от рельефа.")
+                % (dcode, k0 + 1, len(codes), k0, len(codes) - k0))
+
+        def _thickness(code):
+            """Растр мощности тела по скважинам и достоверным нулям."""
+            pts = []
+            for hid, (x, y, _dip) in collars.items():
+                tv = thick.get(hid, {}).get(code, 0.0)
+                pts.append((x, y, float(tv)))
+                if tsink is not None:
+                    fa = QgsFeature(tf)
+                    fa.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
+                    fa.setAttributes([hid, code, round(float(tv), 3)])
+                    tsink.addFeature(fa)
+            for x, y in zeros.get(code, ()):
+                pts.append((x, y, 0.0))
+            if len(pts) < 3:
+                return None
+            try:
+                m = topo_t2r.topo2raster(pts, [], [], [], ext, cell)
+            except Exception as exc:  # noqa: BLE001
+                raise QgsProcessingException(str(exc))
+            m = m[0] if isinstance(m, tuple) else m
+            m = m[:ny, :nx]
+            # мощность не бывает отрицательной, и это же не даёт
+            # поверхностям пересечься
+            return np.where(np.isfinite(m), np.maximum(m, 0.0), 0.0)
+
+        def _emit(code, arr, n):
+            path = os.path.join(folder, "%02d_%s.tif" % (n, code))
+            out = drv.Create(path, nx, ny, 1, gdal.GDT_Float32,
+                             ["COMPRESS=DEFLATE"])
+            out.SetGeoTransform(gt)
+            out.SetProjection(wkt)
+            b2 = out.GetRasterBand(1)
+            b2.WriteArray(np.where(np.isfinite(arr), arr, -9999.0))
+            b2.SetNoDataValue(-9999.0)
+            out = None
+            return path
+
+        made = []
+        # вверх от опорной: подошва тела известна, кровля выше на мощность
+        bot_up = base.copy()
+        for k in range(k0 - 1, -1, -1):
+            code = codes[k]
+            m = _thickness(code)
+            if m is None:
+                feedback.pushWarning(self.tr(
+                    "Тело «%s» пропущено: меньше трёх замеров мощности.")
+                    % code)
+                continue
+            made.append((code, _emit(code, bot_up, k + 1),
+                         float(np.nanmin(m)), float(np.nanmax(m))))
+            bot_up = bot_up + m
+            if feedback.isCanceled():
+                return {}
+
+        top = base.copy()
+        for k, code in enumerate(codes):
+            if k < k0:
+                continue
+            m = _thickness(code)
+            if m is None:
+                feedback.pushWarning(self.tr(
+                    "Тело «%s» пропущено: меньше трёх замеров мощности.")
+                    % code)
+                continue
+            bot = top - m
+            made.append((code, _emit(code, bot, k + 1),
+                         float(np.nanmin(m)), float(np.nanmax(m))))
+            top = bot
+            if feedback.isCanceled():
+                return {}
+
+        ds = None
+        if not made:
+            raise QgsProcessingException(self.tr(
+                "Ни одно тело не собрано: проверьте разбивку и справочник."))
+        for code, path, lo, hi in made:
+            name = "%s (подошва)" % code
+            try:
+                details = QgsProcessingContext.LayerDetails(
+                    name, context.project(), name)
+                context.addLayerToLoadOnCompletion(path, details)
+            except (AttributeError, TypeError):
+                pass
+            _set_output_name(context, path, name)
+        feedback.pushInfo(self.tr(
+            "Собрано тел: %d. Мощности от %.2f до %.2f м. Перехлёстов быть "
+            "не может: подошвы получены вычитанием неотрицательных "
+            "мощностей, и непротиворечивость выходит по построению.")
+            % (len(made), min(m0 for _c, _p, m0, _m1 in made),
+               max(m1 for _c, _p, _m0, m1 in made)))
+        res = {self.FOLDER: folder}
+        if tsink is not None:
+            _set_output_name(context, tdest, self.tr("Мощности по скважинам"))
+            res[self.OUTPUT_THICK] = tdest
+        return res
+
+
+class StackFixAlgorithm(IsolinerAlgorithm):
+    """5.04 Поправить пачку по статистике мощностей."""
+
+    INPUT, ORDER = "INPUT", "ORDER"
+    THICK, TCODE, TVAL = "THICK", "TCODE", "TVAL"
+    KSIG, LOW, HIGH = "KSIG", "LOW", "HIGH"
+    FOLDER, OUTPUT_FIX = "FOLDER", "OUTPUT_FIX"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return StackFixAlgorithm()
+    def name(self): return "stack_fix"
+    def displayName(self):
+        return self.tr("5.04 Поправить пачку по статистике мощностей")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_GEO)
+    def groupId(self): return GROUP_GEO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Правит унаследованную пачку, которую никто не станет "
+            "пересобирать заново. Приём известен из практики: по замерам "
+            "считается статистика мощности каждого тела, берётся "
+            "доверительный интервал, и мощности на гриде **срезаются по "
+            "его границам** - всё, что вышло за них, заменяется самой "
+            "границей. Из исправленных мощностей пачка собирается заново "
+            "от верхней поверхности.\n\n"
+            "Число ячеек при этом не меняется, в отличие от выбрасывания: "
+            "место остаётся, обезврежена только величина. В статистике "
+            "приём называется винзорированием.\n\n"
+            "**Что именно делает срезание.** Оно отделяет артефакт "
+            "интерполяции от геологии. Мощность вне интервала на "
+            "выдержанном теле почти наверняка есть разгон метода между "
+            "скважинами, а не настоящее утолщение. Там, где тело "
+            "закономерно меняет мощность, интервал широк, и правка не "
+            "срабатывает.\n\n"
+            "**Статистика берётся из замеров, если они поданы.** Мощности "
+            "по скважинам - выход 5.03 или своя таблица. Без них интервал "
+            "считается по самому гриду, и это слабее: грид уже содержит "
+            "артефакт, который мы ищем.\n\n"
+            "**Перехлёсты уходят по построению.** Пачка пересобирается "
+            "вычитанием неотрицательных мощностей, поэтому поверхности "
+            "после правки пересечься не могут. Цена в том, что правка "
+            "ложится поверх результата и не связана с исходными "
+            "измерениями: более тонкий путь через искусственные точки в "
+            "местах перехлёста остаётся на будущее.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterMultipleLayers(
+            self.INPUT, self.tr("Кровли и подошвы пластов"),
+            QgsProcessing.SourceType.TypeRaster))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.ORDER, self.tr("Справочник пластов (порядок сверху вниз)"),
+            [QgsProcessing.SourceType.TypeVector], optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.THICK, self.tr("Мощности по скважинам (из 5.03)"),
+            [QgsProcessing.SourceType.TypeVector], optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.TCODE, self.tr("Поле кода пласта (обычно code)"),
+            parentLayerParameterName=self.THICK, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.TVAL, self.tr("Поле мощности (обычно thick)"),
+            parentLayerParameterName=self.THICK, optional=True)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.KSIG, self.tr("Ширина интервала в сигмах"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.KSIG, 2.0), minValue=0.5))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.LOW, self.tr("Нижняя граница мощности, м (пусто - из сигм)"),
+            QgsProcessingParameterNumber.Type.Double, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.HIGH, self.tr("Верхняя граница мощности, м (пусто - из сигм)"),
+            QgsProcessingParameterNumber.Type.Double, optional=True)))
+        self.addParameter(QgsProcessingParameterFolderDestination(
+            self.FOLDER, self.tr("Папка для исправленных поверхностей")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_FIX, self.tr("Величина правки, м"),
+            optional=True, createByDefault=True))
+
+    def _process(self, parameters, context, feedback):
+        layers = self.parameterAsLayerList(parameters, self.INPUT, context)
+        if not layers or len(layers) % 2:
+            raise QgsProcessingException(self.tr(
+                "Подайте кровли и подошвы парами: их число должно быть "
+                "чётным."))
+        gdal.UseExceptions()
+        arrs, names = [], []
+        gt = proj = shape = None
+        for lyr in layers:
+            ds = gdal.Open(lyr.source())
+            if ds is None:
+                raise QgsProcessingException(self.tr(
+                    "Не удалось открыть растр: %s") % lyr.name())
+            band = ds.GetRasterBand(1)
+            a = band.ReadAsArray().astype(float)
+            nod = band.GetNoDataValue()
+            if nod is not None:
+                a = np.where(a == nod, np.nan, a)
+            if gt is None:
+                gt, proj, shape = ds.GetGeoTransform(), ds.GetProjection(), \
+                    a.shape
+            elif a.shape != shape:
+                raise QgsProcessingException(self.tr(
+                    "Растры разного размера: %s. Приведите пачку к одной "
+                    "сетке.") % lyr.name())
+            arrs.append(a)
+            names.append(lyr.name())
+            ds = None
+        cell = abs(gt[1])
+        pairs = [(names[i], arrs[i], arrs[i + 1])
+                 for i in range(0, len(arrs), 2)]
+
+        # Статистика мощности: по замерам, если они есть. Грид уже содержит
+        # артефакт, который мы ищем, поэтому интервал по нему слабее.
+        stats = {}
+        tsrc = self.parameterAsSource(parameters, self.THICK, context)
+        if tsrc is not None:
+            f_c = self.parameterAsString(parameters, self.TCODE, context) \
+                or _field_by_names(tsrc, "code", "код", "пласт")
+            f_v = self.parameterAsString(parameters, self.TVAL, context) \
+                or _field_by_names(tsrc, "thick", "мощность", "m")
+            if f_v:
+                for ft in tsrc.getFeatures():
+                    try:
+                        v = float(ft[f_v])
+                    except (TypeError, ValueError):
+                        continue
+                    key = str(ft[f_c]) if f_c else ""
+                    stats.setdefault(key, []).append(v)
+            feedback.pushInfo(self.tr(
+                "Статистика по замерам: тел %d, всего значений %d.")
+                % (len(stats), sum(len(v) for v in stats.values())))
+        else:
+            feedback.pushWarning(self.tr(
+                "Мощности по скважинам не поданы: интервал считается по "
+                "самому гриду, а он уже содержит артефакт, который мы "
+                "ищем."))
+
+        ksig = self.parameterAsDouble(parameters, self.KSIG, context)
+        lo_par = hi_par = None
+        if parameters.get(self.LOW) is not None:
+            lo_par = self.parameterAsDouble(parameters, self.LOW, context)
+        if parameters.get(self.HIGH) is not None:
+            hi_par = self.parameterAsDouble(parameters, self.HIGH, context)
+
+        folder = self.parameterAsString(parameters, self.FOLDER, context)
+        if not os.path.isdir(folder):
+            os.makedirs(folder)
+        drv = gdal.GetDriverByName("GTiff")
+
+        top = pairs[0][1].copy()
+        fix = np.zeros(shape, dtype=float)
+        n_fix, made = 0, []
+        for k, (nm, a_top, a_bot) in enumerate(pairs):
+            m = a_top - a_bot
+            key = nm.split()[0] if nm else ""
+            vals = stats.get(key) or stats.get(nm)
+            if vals and len(vals) > 2:
+                arr = np.asarray([v for v in vals if np.isfinite(v)], float)
+                mu, sd = float(np.mean(arr)), float(np.std(arr))
+                src = self.tr("замеры")
+            else:
+                fin = m[np.isfinite(m)]
+                mu = float(np.mean(fin)) if fin.size else 0.0
+                sd = float(np.std(fin)) if fin.size else 0.0
+                src = self.tr("грид")
+            lo = lo_par if lo_par is not None else max(0.0, mu - ksig * sd)
+            hi = hi_par if hi_par is not None else mu + ksig * sd
+            if hi <= lo:
+                hi = lo + max(sd, 1e-3)
+
+            m2 = np.clip(np.where(np.isfinite(m), m, 0.0), lo, hi)
+            d = np.abs(np.where(np.isfinite(m), m, 0.0) - m2)
+            touched = int((d > 1e-6).sum())
+            n_fix += touched
+            fix = np.maximum(fix, d)
+
+            bot = top - m2
+            bed_path = os.path.join(folder,
+                                    "%02d_%s.tif" % (k + 1, key or "bed"))
+            out = drv.Create(bed_path, shape[1], shape[0], 1, gdal.GDT_Float32,
+                             ["COMPRESS=DEFLATE"])
+            out.SetGeoTransform(gt)
+            out.SetProjection(proj)
+            b2 = out.GetRasterBand(1)
+            b2.WriteArray(np.where(np.isfinite(bot), bot, -9999.0))
+            b2.SetNoDataValue(-9999.0)
+            out = None
+            made.append(bed_path)
+            feedback.pushInfo(self.tr(
+                "%s: интервал %.2f..%.2f м по источнику «%s», правка "
+                "затронула %.2f га.")
+                % (nm, lo, hi, src, touched * cell ** 2 / 10000.0))
+            top = bot
+            if feedback.isCanceled():
+                return {}
+
+        res = {self.FOLDER: folder}
+        path = self.parameterAsOutputLayer(parameters, self.OUTPUT_FIX,
+                                           context)
+        if path:
+            out = drv.Create(path, shape[1], shape[0], 1, gdal.GDT_Float32,
+                             ["COMPRESS=DEFLATE"])
+            out.SetGeoTransform(gt)
+            out.SetProjection(proj)
+            b2 = out.GetRasterBand(1)
+            b2.WriteArray(fix.astype("float32"))
+            b2.SetNoDataValue(-9999.0)
+            out = None
+            _set_output_name(context, path, self.tr("Величина правки"))
+            res[self.OUTPUT_FIX] = path
+
+        for k, made_path in enumerate(made):
+            name = "%s (правка)" % pairs[k][0]
+            try:
+                details = QgsProcessingContext.LayerDetails(
+                    name, context.project(), name)
+                context.addLayerToLoadOnCompletion(made_path, details)
+            except (AttributeError, TypeError):
+                pass
+            _set_output_name(context, made_path, name)
+        feedback.pushInfo(self.tr(
+            "Правка затронула %.2f га суммарно. Пачка пересобрана "
+            "вычитанием неотрицательных мощностей, поэтому перехлёстов "
+            "после неё быть не может.") % (n_fix * cell ** 2 / 10000.0))
+        return res
+
+
+class ManifestAlgorithm(IsolinerAlgorithm):
+    """5.05 Манифест модели."""
+
+    LAYERS, WRITE, CLEAR = "LAYERS", "WRITE", "CLEAR"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return ManifestAlgorithm()
+    def name(self): return "model_manifest"
+    def displayName(self): return self.tr("5.05 Манифест модели")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_GEO)
+    def groupId(self): return GROUP_GEO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Записывает, какую роль играет каждый слой проекта: опорная "
+            "поверхность, контакт тела, зеркало, устья, интервалы, замеры "
+            "оси, справочник, наземные наблюдения.\n\n"
+            "**Зачем.** После сборки проект превращается в кучу растров и "
+            "таблиц без явной структуры. Что из этого что, знает "
+            "пользователь, но голова не передаётся вместе с проектом.\n\n"
+            "**Где живёт.** В пользовательских свойствах проекта QGIS - "
+            "штатное место, которое сохраняется в файле проекта и "
+            "переносится вместе с ним. Ничего внешнего не нужно.\n\n"
+            "**Правило, которое важнее прочих.** Инструменты читают "
+            "манифест, но не требуют его. Есть роли - входы находятся "
+            "сами. Нет ролей, потому что проект чужой или унаследованный, "
+            "- всё работает по явному выбору, как раньше. Манифест "
+            "сокращает путь, а не становится условием работы.\n\n"
+            "Роли угадываются по именам слоёв, и это подсказка, а не "
+            "решение за пользователя: имя ничего не гарантирует, поэтому "
+            "разметка выдаётся таблицей на проверку. Чужие роли, "
+            "записанные другими модулями, сохраняются: манифест общий, и "
+            "вычищать незнакомое значит ломать соседям работу.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterMultipleLayers(
+            self.LAYERS, self.tr("Слои модели (пусто - весь проект)"),
+            QgsProcessing.SourceType.TypeMapLayer, optional=True))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.WRITE, self.tr("Записать роли в проект"),
+            defaultValue=_dv(self, self.WRITE, True)))
+        self.addParameter(_advanced(QgsProcessingParameterBoolean(
+            self.CLEAR, self.tr("Очистить манифест перед записью"),
+            defaultValue=_dv(self, self.CLEAR, False))))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Роли слоёв (таблица)"),
+            type=QgsProcessing.SourceType.TypeVector))
+
+    def _process(self, parameters, context, feedback):
+        project = context.project()
+        if project is None:
+            raise QgsProcessingException(self.tr(
+                "Манифест живёт в проекте, а проекта нет."))
+
+        layers = self.parameterAsLayerList(parameters, self.LAYERS, context)
+        if not layers:
+            layers = list(project.mapLayers().values())
+        if not layers:
+            raise QgsProcessingException(self.tr("В проекте нет слоёв."))
+
+        clear = self.parameterAsBool(parameters, self.CLEAR, context)
+        old_txt, _ok = project.readEntry(manifest.SCOPE, manifest.KEY, "")
+        old = {} if clear else manifest.parse(old_txt)
+
+        fields = QgsFields()
+        fields.append(QgsField("layer", QVariant.String))
+        fields.append(QgsField("layer_id", QVariant.String))
+        fields.append(QgsField("role", QVariant.String))
+        fields.append(QgsField("source", QVariant.String))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.NoGeometry)
+
+        found = {}
+        n_kept, n_guess, n_none = 0, 0, 0
+        for lyr in layers:
+            lid = lyr.id()
+            name = lyr.name()
+            role = old.get(lid)
+            src = self.tr("из манифеста")
+            if role:
+                n_kept += 1
+            else:
+                role = manifest.guess_role(name)
+                if role:
+                    src = self.tr("по имени слоя")
+                    n_guess += 1
+                else:
+                    src = self.tr("не распознано")
+                    n_none += 1
+            if role:
+                found[lid] = role
+            ft = QgsFeature(fields)
+            ft.setAttributes([name, lid, role, src])
+            sink.addFeature(ft)
+
+        if self.parameterAsBool(parameters, self.WRITE, context):
+            merged = manifest.merge(old, found)
+            project.writeEntry(manifest.SCOPE, manifest.KEY,
+                               manifest.dump(merged))
+            feedback.pushInfo(self.tr(
+                "Записано ролей: %d. Чужие роли из манифеста сохранены: он "
+                "общий, и вычищать незнакомое значит ломать соседям "
+                "работу.") % len(merged))
+        else:
+            feedback.pushInfo(self.tr(
+                "Запись выключена: таблица выдана на проверку, проект не "
+                "тронут."))
+
+        feedback.pushInfo(self.tr(
+            "Слоёв просмотрено %d: из манифеста %d, угадано по имени %d, "
+            "не распознано %d. Догадка это подсказка, а не решение: имя "
+            "слоя ничего не гарантирует.")
+            % (len(layers), n_kept, n_guess, n_none))
+        _set_output_name(context, dest, self.tr("Роли слоёв"))
+        return {self.OUTPUT: dest}
+
+
+class FoldMapAlgorithm(IsolinerAlgorithm):
+    """5.06 Складчатость поверхности."""
+
+    INPUT, WIN, WINS = "INPUT", "WIN", "WINS"
+    OUTPUT, OUTPUT_SLOPE, OUTPUT_RES = "OUTPUT", "OUTPUT_SLOPE", "OUTPUT_RES"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return FoldMapAlgorithm()
+    def name(self): return "fold_map"
+    def displayName(self): return self.tr("5.06 Складчатость поверхности")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_GEO)
+    def groupId(self): return GROUP_GEO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Считает, насколько поверхность смята, по разбросу отметок "
+            "вокруг местного наклона.\n\n"
+            "**Складчатость мерится по поверхности, а не по мощности.** "
+            "Цилиндрическая складка с постоянной истинной мощностью "
+            "существует и по мощности невидима вовсе: тело изгибается, не "
+            "меняя толщины.\n\n"
+            "**Прямая дисперсия отметок не годится.** На общем наклоне "
+            "она велика всюду, и спокойный склон получает ту же оценку, "
+            "что смятая зона. Поэтому в каждом окне подгоняется плоскость "
+            "и считается разброс остатков вокруг неё: наклон уходит, "
+            "извилистость остаётся. Тренд именно линейный, квадратичный "
+            "вобрал бы в себя часть самой складчатости.\n\n"
+            "**Одно окно ничего не решает.** Дисперсия зависит от "
+            "масштаба, и правильная мера это скорость её роста с "
+            "размером окна. Наклон в двойном логарифме и есть эта "
+            "скорость: на спокойной поверхности он около нуля, на смятой "
+            "заметно больше. Задайте несколько окон через запятую, и "
+            "выйдет карта наклона.\n\n"
+            "**Остаток выдаётся отдельно** и годится входом для "
+            "фрактальной размерности: на детрендированной поверхности "
+            "наклон вариограммы описывает извилистость, а не общее "
+            "падение слоя.\n\n"
+            "Мощность из базы остаётся вторым, независимым признаком "
+            "складчатости: она вскрытая, а не истинная, и на крыле растёт "
+            "тем сильнее, чем круче залегание. Два разных измерения, "
+            "сходящихся в одном месте, надёжнее одного.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.INPUT, self.tr("Поверхность (кровля тела)")))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.WIN, self.tr("Окно, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.WIN, 300.0), minValue=1.0))
+        self.addParameter(QgsProcessingParameterString(
+            self.WINS, self.tr("Окна для наклона по масштабу, м через запятую"),
+            defaultValue=_dv(self, self.WINS, "150, 300, 600, 1200"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Дисперсия со снятым наклоном, м²")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_SLOPE, self.tr("Наклон по масштабу"),
+            optional=True, createByDefault=True))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_RES, self.tr("Остаток поверхности (для 7.01)"),
+            optional=True, createByDefault=False))
+
+    def _process(self, parameters, context, feedback):
+        lyr = self.parameterAsRasterLayer(parameters, self.INPUT, context)
+        if lyr is None:
+            raise QgsProcessingException(self.tr("Не задана поверхность."))
+        gdal.UseExceptions()
+        ds = gdal.Open(lyr.source())
+        band = ds.GetRasterBand(1)
+        z = band.ReadAsArray().astype(float)
+        nod = band.GetNoDataValue()
+        if nod is not None:
+            z = np.where(z == nod, np.nan, z)
+        gt = ds.GetGeoTransform()
+        wkt = ds.GetProjection()
+        ds = None
+        cell = abs(gt[1])
+
+        def _cells(metres):
+            return max(3, int(round(float(metres) / cell)) | 1)
+
+        win_m = self.parameterAsDouble(parameters, self.WIN, context)
+        win = _cells(win_m)
+        feedback.pushInfo(self.tr(
+            "Окно %.0f м это %d ячеек при размере ячейки %.1f м.")
+            % (win_m, win, cell))
+        var = fold.detrended_variance(z, win)
+
+        drv = gdal.GetDriverByName("GTiff")
+
+        def _emit(pid, arr, name):
+            path = self.parameterAsOutputLayer(parameters, pid, context)
+            if not path:
+                return None
+            out = drv.Create(path, arr.shape[1], arr.shape[0], 1,
+                             gdal.GDT_Float32, ["COMPRESS=DEFLATE"])
+            out.SetGeoTransform(gt)
+            out.SetProjection(wkt)
+            b = out.GetRasterBand(1)
+            b.WriteArray(np.where(np.isfinite(arr), arr, -9999.0))
+            b.SetNoDataValue(-9999.0)
+            out = None
+            _set_output_name(context, path, name)
+            return path
+
+        res = {}
+        path = _emit(self.OUTPUT, var, self.tr("Складчатость (дисперсия)"))
+        if path:
+            res[self.OUTPUT] = path
+        fin = var[np.isfinite(var)]
+        if fin.size:
+            feedback.pushInfo(self.tr(
+                "Дисперсия от %.3g до %.3g м², медиана %.3g. Спокойная "
+                "поверхность даёт около нуля: наклон снят подгонкой "
+                "плоскости, и остаётся только извилистость.")
+                % (float(fin.min()), float(fin.max()),
+                   float(np.median(fin))))
+
+        txt = self.parameterAsString(parameters, self.WINS, context) or ""
+        wins = []
+        for part in txt.replace(";", ",").split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                wins.append(_cells(float(part)))
+            except ValueError:
+                continue
+        wins = sorted(set(wins))
+        if len(wins) >= 2:
+            slope = fold.scale_slope(z, wins)
+            path = _emit(self.OUTPUT_SLOPE, slope,
+                         self.tr("Складчатость (наклон по масштабу)"))
+            if path:
+                res[self.OUTPUT_SLOPE] = path
+            fin2 = slope[np.isfinite(slope)]
+            if fin2.size:
+                feedback.pushInfo(self.tr(
+                    "Наклон по масштабу считался по окнам %s ячеек: от "
+                    "%.2f до %.2f, медиана %.2f. Около нуля означает, что "
+                    "разброс не растёт с масштабом, то есть поверхность "
+                    "спокойна.")
+                    % (", ".join(str(w) for w in wins), float(fin2.min()),
+                       float(fin2.max()), float(np.median(fin2))))
+        else:
+            feedback.pushInfo(self.tr(
+                "Окон для наклона меньше двух: карта наклона не строится. "
+                "Одно окно о складчатости не говорит, потому что дисперсия "
+                "зависит от масштаба."))
+
+        path = self.parameterAsOutputLayer(parameters, self.OUTPUT_RES,
+                                           context)
+        if path:
+            _emit(self.OUTPUT_RES, fold.detrend(z, win),
+                  self.tr("Остаток поверхности"))
+            res[self.OUTPUT_RES] = path
+        return res
+
+
 class StackDemoAlgorithm(IsolinerAlgorithm):
     """5.02 Создать пример разреза (демо)."""
 
@@ -11568,6 +12453,9 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
     WEDGE = "WEDGE"
     FOLDZONE = "FOLDZONE"
     REF = "REF"
+    SURVEY = "SURVEY"
+    OUTCROP, OUTCROP_LINE = "OUTCROP", "OUTCROP_LINE"
+    CONTACT_LINE = "CONTACT_LINE"
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return StackDemoAlgorithm()
@@ -11651,6 +12539,18 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.FOLDZONE, self.tr("Зона складки (демо)"),
             type=QgsProcessing.SourceType.TypeVectorPolygon))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.SURVEY, self.tr("Замеры оси скважин (демо)"),
+            type=QgsProcessing.SourceType.TypeVector))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTCROP, self.tr("Наземные наблюдения (демо)"),
+            type=QgsProcessing.SourceType.TypeVectorPoint))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTCROP_LINE, self.tr("След выхода на поверхность (демо)"),
+            type=QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.CONTACT_LINE, self.tr("Линии контакта (демо)"),
+            type=QgsProcessing.SourceType.TypeVectorLine))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.REF, self.tr("Справочник пластов (демо)"),
             type=QgsProcessing.SourceType.TypeVector))
@@ -11796,6 +12696,9 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
         cf.append(QgsField("hole_id", QVariant.String))
         cf.append(QgsField("z", QVariant.Double))
         cf.append(QgsField("eoh", QVariant.Double))
+        cf.append(QgsField("azimuth", QVariant.Double))
+        cf.append(QgsField("dip", QVariant.Double))
+        cf.append(QgsField("kind", QVariant.String))
         cs, cdest = self.parameterAsSink(
             parameters, self.COLLAR, context, cf,
             QgsWkbTypes.Type.Point, crs)
@@ -11809,11 +12712,20 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
             parameters, self.INTERVAL, context, i_f,
             QgsWkbTypes.Type.NoGeometry, crs)
 
+        sf = QgsFields()
+        sf.append(QgsField("hole_id", QVariant.String))
+        sf.append(QgsField("md", QVariant.Double))
+        sf.append(QgsField("azimuth", QVariant.Double))
+        sf.append(QgsField("dip", QVariant.Double))
+        ssink, sdest = self.parameterAsSink(
+            parameters, self.SURVEY, context, sf,
+            QgsWkbTypes.Type.NoGeometry, crs)
+
         # Забой с запасом: в складке толща заворачивается, и ствол обязан
         # пройти её всю, иначе нижние вскрытия срежутся забоем.
         z_top = demo_stack.DEFAULT_RELIEF + 25.0
         depth = z_top - (demo_stack.DEFAULT_TOP - 1.8 * salt)
-        n_hole, n_multi = 0, 0
+        n_hole, n_multi, n_incl, n_up = 0, 0, 0, 0
         for jy in range(hstep // 2, ny, hstep):
             for jx in range(hstep // 2, nx, hstep):
                 x = (jx + 0.5) * cell
@@ -11824,10 +12736,44 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
                                                dome=dome)
                 if not iv:
                     continue
+                # Каждая пятая скважина наклонная, каждая одиннадцатая
+                # восходящая из выработки: демо обязано покрывать все три
+                # случая оси, иначе проверять этап нечем.
+                kind, az, dip = "вертикальная", None, None
+                if n_hole % 11 == 10:
+                    kind, az, dip = "восходящая", 45.0, -65.0
+                elif n_hole % 5 == 4:
+                    kind, az, dip = "наклонная", 90.0, 65.0
+
+                if kind == "вертикальная":
+                    z_collar, eoh = z_top, depth
+                else:
+                    if kind == "восходящая":
+                        # устье в выработке: ниже рельефа, ствол идёт вверх
+                        z_collar = demo_stack.DEFAULT_TOP - 40.0
+                        eoh = 90.0
+                    else:
+                        z_collar, eoh = z_top, depth * 1.15
+                    dd, axs, ays, azs = demo_stack.axis_points(
+                        float(x), float(yv), z_collar, az, dip, eoh)
+                    iv = demo_stack.hole_intervals_along(
+                        dd, axs, ays, azs, fold=fold, dome=dome)
+                    if not iv:
+                        continue
+                    for md in (0.0, eoh):
+                        fs = QgsFeature(sf)
+                        fs.setAttributes([hid, round(md, 2), az, dip])
+                        ssink.addFeature(fs)
+                    if kind == "восходящая":
+                        n_up += 1
+                    else:
+                        n_incl += 1
+
                 ft = QgsFeature(cf)
                 ft.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(
                     ox + x, oy - yv)))
-                ft.setAttributes([hid, z_top, depth])
+                ft.setAttributes([hid, round(z_collar, 2), round(eoh, 2),
+                                  az, dip, kind])
                 cs.addFeature(ft)
                 seen = {}
                 for frm, to, code in iv:
@@ -11841,7 +12787,79 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
                 n_hole += 1
         feedback.pushInfo(self.tr(
             "Скважин %d, из них %d вскрывают тело больше одного раза. "
-            "Номер вскрытия лежит в поле entry.") % (n_hole, n_multi))
+            "Номер вскрытия лежит в поле entry. Наклонных %d, восходящих "
+            "из выработки %d: у них отметки точек вскрытия считаются по "
+            "оси, а не по устью.")
+            % (n_hole, n_multi, n_incl, n_up))
+
+        # Наземные наблюдения: точки контакта там, где тело выходит на
+        # дневную поверхность. Это не оценка, а измерение: контакт видно
+        # глазами, и мощность вышележащего там равна нулю по определению
+        # границы. Вес выше скважинного именно поэтому.
+        of = QgsFields()
+        of.append(QgsField("code", QVariant.String))
+        of.append(QgsField("z", QVariant.Double))
+        of.append(QgsField("kind", QVariant.String))
+        of.append(QgsField("weight", QVariant.Double))
+        osink, odest = self.parameterAsSink(
+            parameters, self.OUTCROP, context, of,
+            QgsWkbTypes.Type.PointZ, crs)
+        lf2 = QgsFields()
+        lf2.append(QgsField("code", QVariant.String))
+        lf2.append(QgsField("npt", QVariant.Int))
+        olsink, oldest = self.parameterAsSink(
+            parameters, self.OUTCROP_LINE, context, lf2,
+            QgsWkbTypes.Type.LineStringZ, crs)
+
+        n_out, n_line = 0, 0
+        for code, _b, _t, _c in demo_stack.COLUMN:
+            pts_o = demo_stack.outcrop_points(surf, code, cell, tol=1.5)
+            for xv, yv, zv, cd in pts_o:
+                fo = QgsFeature(of)
+                fo.setGeometry(QgsGeometry(QgsPoint(ox + xv, oy - yv, zv)))
+                fo.setAttributes([cd, round(zv, 2), "обнажение", 3.0])
+                osink.addFeature(fo)
+                n_out += 1
+            for chain in demo_stack.outcrop_lines(surf, code, cell, tol=1.5):
+                pts_l = [QgsPoint(ox + a, oy - b, c) for a, b, c in chain]
+                fl2 = QgsFeature(lf2)
+                fl2.setGeometry(QgsGeometry(QgsLineString(pts_l)))
+                fl2.setAttributes([code, len(pts_l)])
+                olsink.addFeature(fl2)
+                n_line += 1
+        # Линии контакта: тот же след, но поданный как сплошная граница с
+        # источником и весом. Отличие от точек не в достоверности, а в
+        # плотности: оцифрованная линия несёт тысячи узлов, и вперемешку
+        # с наблюдениями она задавила бы всё количеством.
+        cl = QgsFields()
+        cl.append(QgsField("code", QVariant.String))
+        cl.append(QgsField("source", QVariant.String))
+        cl.append(QgsField("weight", QVariant.Double))
+        cl.append(QgsField("npt", QVariant.Int))
+        clsink, cldest = self.parameterAsSink(
+            parameters, self.CONTACT_LINE, context, cl,
+            QgsWkbTypes.Type.LineStringZ, crs)
+        n_cl = 0
+        for code, _b, _t, _c in demo_stack.COLUMN:
+            for chain in demo_stack.outcrop_lines(surf, code, cell, tol=1.5):
+                pts_c = [QgsPoint(ox + a, oy - b, c) for a, b, c in chain]
+                fc = QgsFeature(cl)
+                fc.setGeometry(QgsGeometry(QgsLineString(pts_c)))
+                fc.setAttributes([code, "геологическая карта", 3.0,
+                                  len(pts_c)])
+                clsink.addFeature(fc)
+                n_cl += 1
+        feedback.pushInfo(self.tr(
+            "Линий контакта %d, источник в поле source, вес в поле weight. "
+            "Плотность узлов у линии выше точечной, поэтому слой отдельный: "
+            "прореживание и вес назначаются линии, а не каждому узлу.")
+            % n_cl)
+
+        feedback.pushInfo(self.tr(
+            "Наземных наблюдений %d, цепочек следа выхода %d. Мощность "
+            "вышележащего тела вдоль следа равна нулю, и этот ноль "
+            "известен, а не оценен: вес у него выше скважинного.")
+            % (n_out, n_line))
 
         # границы выклинивания
         wf = QgsFields()
@@ -11897,7 +12915,13 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
                               (self.INTERVAL, idest, "interval (демо)"),
                               (self.WEDGE, wdest, "Границы выклинивания"),
                               (self.FOLDZONE, fdest, "Зона складки"),
-                              (self.REF, rdest, "Справочник пластов")):
+                              (self.REF, rdest, "Справочник пластов"),
+                              (self.SURVEY, sdest, "Замеры оси скважин"),
+                              (self.OUTCROP, odest, "Наземные наблюдения"),
+                              (self.OUTCROP_LINE, oldest,
+                               "След выхода на поверхность"),
+                              (self.CONTACT_LINE, cldest,
+                               "Линии контакта")):
             _set_output_name(context, dest, self.tr(nm))
             results[pid] = dest
         return results
@@ -11909,6 +12933,7 @@ class StackCheckAlgorithm(IsolinerAlgorithm):
     INPUT = "INPUT"
     ORDER = "ORDER"
     ZERO_TOL = "ZERO_TOL"
+    MIRROR, CUT_TOL = "MIRROR", "CUT_TOL"
     OUTPUT = "OUTPUT"
     GAPMAP = "GAPMAP"
     TREE_ORDER = "TREE_ORDER"
@@ -11975,6 +13000,13 @@ class StackCheckAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.ORDER, self.tr("Справочник пластов (порядок сверху вниз)"),
             [QgsProcessing.SourceType.TypeVector], optional=True))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.MIRROR, self.tr("Уровень растворения, зеркало (если есть)"),
+            optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.CUT_TOL, self.tr("Допуск совпадения с зеркалом, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.CUT_TOL, 0.5), minValue=0.0)))
         self.addParameter(QgsProcessingParameterNumber(
             self.ZERO_TOL, self.tr("Допуск выклинивания, м"),
             QgsProcessingParameterNumber.Type.Double,
@@ -12088,6 +13120,42 @@ class StackCheckAlgorithm(IsolinerAlgorithm):
             beds.append((bed, arrs[0], arrs[1]))
 
         codes, report = stack_check.check_stack(beds, zero_tol=tol)
+
+        # Срез от выклинивания отличает только зеркало: и там, и там
+        # мощность уходит в ноль, но при срезе кровля лежит на уровне
+        # растворения, а выше тела просто нет. Без зеркала зона
+        # остаётся выклиниванием.
+        mir = self.parameterAsRasterLayer(parameters, self.MIRROR, context)
+        n_cut = 0
+        if mir is not None:
+            mds = gdal.Open(mir.source())
+            mb = mds.GetRasterBand(1)
+            marr = mb.ReadAsArray().astype(float)
+            mnod = mb.GetNoDataValue()
+            if mnod is not None:
+                marr = np.where(marr == mnod, np.nan, marr)
+            mds = None
+            if marr.shape != shape:
+                raise QgsProcessingException(self.tr(
+                    "Зеркало и пачка на разных сетках: приведите их к "
+                    "одной."))
+            ctol = self.parameterAsDouble(parameters, self.CUT_TOL, context)
+            cut = np.zeros(shape, dtype=bool)
+            for _bed, top_a, _bot_a in beds:
+                cut |= stack_check.cut_mask(top_a, marr, tol=ctol)
+            take = cut & (codes == stack_check.CODE_ZERO)
+            codes = np.where(take, stack_check.CODE_CUT, codes)
+            n_cut = int(take.sum())
+            feedback.pushInfo(self.tr(
+                "Зеркало подано: %.2f га нулевой мощности признаны срезом, "
+                "остальное осталось выклиниванием. Разница не в арифметике: "
+                "при срезе кровля лежит на зеркале, и выше тела нет.")
+                % (n_cut * cell ** 2 / 10000.0))
+        else:
+            feedback.pushInfo(self.tr(
+                "Зеркало не подано: срез и выклинивание неразличимы, все "
+                "нулевые мощности показаны выклиниванием."))
+
         for line in stack_check.summarize(report, cell):
             feedback.pushInfo(line)
         bad = int((codes == stack_check.CODE_NEG).sum()) + \
@@ -12180,6 +13248,10 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
     PROB = "PROB"
     OBS = "OBS"
     OUTPUT_LEVELS = "OUTPUT_LEVELS"
+<<<<<<< Updated upstream
+=======
+    OUTPUT_LEVELS_MAP = "OUTPUT_LEVELS_MAP"
+>>>>>>> Stashed changes
     FOOTER_LEVEL = "FOOTER_LEVEL"
     OUTPUT_FOOTER, OUTPUT_GROUND = "OUTPUT_FOOTER", "OUTPUT_GROUND"
 
@@ -12307,6 +13379,14 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             self.OUTPUT_LEVELS, self.tr("Уровни обеспеченности (чертёж)"),
             type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
             createByDefault=True))
+<<<<<<< Updated upstream
+=======
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_LEVELS_MAP,
+            self.tr("Уровни по створам на карте (для 6.02)"),
+            type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=True))
+>>>>>>> Stashed changes
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.FOOTER_LEVEL, self.tr("Отметка для подвала чертежа"),
             QgsProcessingParameterNumber.Type.Double, optional=True)))
@@ -12487,6 +13567,23 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                     lb = str(ft[f_lb]) if f_lb else ""
                     obs_rows.append((lv, lb))
 
+<<<<<<< Updated upstream
+=======
+        # Линии уровней в чертёжных координатах годятся для листа, но не
+        # для карты: там x это расстояние вдоль створа. Для полигона
+        # затопления нужен тот же уровень, но на плановой геометрии
+        # створа, иначе он не ляжет на ЦМР.
+        mlf = QgsFields()
+        for nm2, tp in (("sec", QVariant.String), ("prob", QVariant.Double),
+                        ("q", QVariant.Double), ("level", QVariant.Double),
+                        ("label", QVariant.String),
+                        ("kind", QVariant.String)):
+            mlf.append(QgsField(nm2, tp))
+        msink, mdest = self.parameterAsSink(
+            parameters, self.OUTPUT_LEVELS_MAP, context, mlf,
+            QgsWkbTypes.Type.LineString, src.sourceCrs())
+
+>>>>>>> Stashed changes
         lsink2 = ldest2 = None
         if prob_rows or obs_rows:
             lf = QgsFields()
@@ -12667,6 +13764,15 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                         fl.setAttributes([nm, pv, qv, round(float(lv), 3),
                                           label, "prob"])
                         lsink2.addFeature(fl)
+<<<<<<< Updated upstream
+=======
+                    if msink is not None:
+                        fm = QgsFeature(mlf)
+                        fm.setGeometry(QgsGeometry(fts[0].geometry()))
+                        fm.setAttributes([nm, pv, qv, round(float(lv), 3),
+                                          label, "prob"])
+                        msink.addFeature(fm)
+>>>>>>> Stashed changes
                     levels_found.append((label, qv, float(lv)))
             if obs_rows and lsink2 is not None:
                 for lv, lb in obs_rows:
@@ -12679,6 +13785,15 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                         fl.setAttributes([nm, None, None, round(lv, 3),
                                           label, "obs"])
                         lsink2.addFeature(fl)
+<<<<<<< Updated upstream
+=======
+                    if msink is not None:
+                        fm = QgsFeature(mlf)
+                        fm.setGeometry(QgsGeometry(fts[0].geometry()))
+                        fm.setAttributes([nm, None, None, round(lv, 3),
+                                          label, "obs"])
+                        msink.addFeature(fm)
+>>>>>>> Stashed changes
 
             # подвал на заданной отметке: если она не задана числом, берётся
             # первая по обеспеченности - именно её и наносят на чертёж
@@ -12747,6 +13862,13 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             _set_output_name(context, ldest2,
                              self.tr("Уровни обеспеченности"))
             res[self.OUTPUT_LEVELS] = ldest2
+<<<<<<< Updated upstream
+=======
+        if msink is not None:
+            _set_output_name(context, mdest,
+                             self.tr("Уровни по створам на карте"))
+            res[self.OUTPUT_LEVELS_MAP] = mdest
+>>>>>>> Stashed changes
         if fsink is not None:
             _set_output_name(context, fdest, self.tr("Подвал чертежа"))
             res[self.OUTPUT_FOOTER] = fdest
@@ -13207,6 +14329,8 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
     """6.02 Полигон затопления."""
 
     DEM, LEVEL = "DEM", "LEVEL"
+    LEVEL_LINES, LEVEL_FIELD = "LEVEL_LINES", "LEVEL_FIELD"
+    SECTIONS, SEC_FIELD = "SECTIONS", "SEC_FIELD"
     CURVE, Q, SECFLD = "CURVE", "Q", "SECFLD"
     MIN_AREA = "MIN_AREA"
     OUTPUT, OUTPUT_DEPTH = "OUTPUT", "OUTPUT_DEPTH"
@@ -13223,6 +14347,19 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
         return _help_version(self.tr(
             "Отрезает поверхность отметкой воды и выдаёт контур затопления "
             "и глубину.\n\n"
+            "**Желаемый расход по готовой кривой.** Кривая не зависит от расхода,\n"
+            "она характеристика створа. Поэтому для любого расхода, а не только\n"
+            "расчётного, отметки берутся обратным ходом по уже посчитанной\n"
+            "кривой: подайте створы на карте, таблицу кривой и расход. По\n"
+            "каждому створу найдётся своя отметка, из них поднимется поверхность\n"
+            "воды, и пересобирать 6.01 не потребуется. Створ, у которого расход\n"
+            "вне кривой, пропускается с предупреждением.\n\n"
+            "Уровень вдоль реки не постоянен: вверх по течению он выше. Если подать\n"
+            "**уровни по створам** линиями с отметкой, инструмент поднимет из них\n"
+            "поверхность воды и будет считать глубину от неё. Иначе вся площадь\n"
+            "режется одной отметкой, и долина заливается там, где дно ниже этой\n"
+            "отметки, хотя вода туда не доходит. Линии берутся прямо с выхода\n"
+            "**6.01**.\n\n"
             "Отметку можно задать прямо, а можно **расходом**: тогда она "
             "берётся обратным ходом по кривой от **6.01** - тем самым, что "
             "на ручных построениях рисуют красной стрелкой. Кривая "
@@ -13245,6 +14382,19 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterNumber(
             self.LEVEL, self.tr("Отметка воды, м"),
             QgsProcessingParameterNumber.Type.Double, optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.LEVEL_LINES,
+            self.tr("Уровни по створам, линии с отметкой (из 6.01)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.LEVEL_FIELD, self.tr("Поле отметки уровня (обычно level)"),
+            parentLayerParameterName=self.LEVEL_LINES, optional=True)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.SECTIONS, self.tr("Створы на карте (для расхода по кривой)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.SEC_FIELD, self.tr("Поле имени створа (обычно sec)"),
+            parentLayerParameterName=self.SECTIONS, optional=True)))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.CURVE, self.tr("Кривая расходов (из 6.01)"),
             [QgsProcessing.SourceType.TypeVector], optional=True))
@@ -13321,8 +14471,13 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
             if parameters.get(self.Q) is not None:
                 q = self.parameterAsDouble(parameters, self.Q, context)
             if curve is None or q is None:
-                raise QgsProcessingException(self.tr(
-                    "Задайте отметку воды либо кривую расходов и расход."))
+                if parameters.get(self.LEVEL_LINES) is not None \
+                        or parameters.get(self.SECTIONS) is not None:
+                    level = 0.0      # поверхность воды придёт линиями
+                else:
+                    raise QgsProcessingException(self.tr(
+                        "Задайте отметку воды, либо кривую расходов и "
+                        "расход, либо уровни по створам линиями."))
             sec = self.parameterAsString(parameters, self.SECFLD, context)
             level = self._level_from_curve(curve, q, sec, feedback)
             feedback.pushInfo(self.tr(
@@ -13344,7 +14499,146 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
         gt = ds.GetGeoTransform()
         wkt = ds.GetProjection()
         cell = abs(gt[1]) * abs(gt[5])
-        depth = np.where(np.isfinite(arr), level - arr, np.nan)
+        # Уровень вдоль реки не постоянен: вверх по течению он выше.
+        # Резать всю площадь одной отметкой значит заливать долину там,
+        # где дно лежит ниже этой отметки, но вода туда не доходит.
+        # Поэтому уровни по створам поднимаются в поверхность воды, и
+        # глубина считается от неё, а не от плоскости.
+        surf = None
+
+        # Кривая не зависит от расхода: она характеристика створа. Значит
+        # для любого желаемого расхода отметки берутся обратным ходом по
+        # уже посчитанной кривой, и пересобирать её незачем. По створам
+        # это даёт не одну отметку, а поверхность воды: вверх по течению
+        # уровень выше.
+        sec_src = self.parameterAsSource(parameters, self.SECTIONS, context)
+        curve_src = self.parameterAsSource(parameters, self.CURVE, context)
+        q_want = None
+        if parameters.get(self.Q) is not None:
+            q_want = self.parameterAsDouble(parameters, self.Q, context)
+        if sec_src is not None and curve_src is not None and q_want is not None:
+            f_sec = self.parameterAsString(parameters, self.SEC_FIELD,
+                                           context) \
+                or _field_by_names(sec_src, "sec", "name", "створ")
+            by_sec = {}
+            for ft in curve_src.getFeatures():
+                try:
+                    part = str(ft["part"])
+                except KeyError:
+                    part = ""
+                if part and part not in (_tr("итого"), "итого", "total"):
+                    continue
+                try:
+                    nm = str(ft["sec"])
+                    by_sec.setdefault(nm, []).append(
+                        (float(ft["level"]), float(ft["q"])))
+                except (TypeError, ValueError, KeyError):
+                    continue
+            pts, n_sec, n_above = [], 0, 0
+            for ft in sec_src.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                nm = str(ft[f_sec]) if f_sec else ""
+                rows = sorted(by_sec.get(nm, []))
+                if len(rows) < 2:
+                    continue
+                lv = None
+                prev = None
+                for level_v, q_v in rows:
+                    if prev is not None and prev[1] <= q_want <= q_v:
+                        dq = q_v - prev[1]
+                        t = 0.0 if dq <= 0 else (q_want - prev[1]) / dq
+                        lv = prev[0] + t * (level_v - prev[0])
+                        break
+                    prev = (level_v, q_v)
+                if lv is None:
+                    n_above += 1
+                    feedback.pushWarning(self.tr(
+                        "Створ «%s»: расход %.4g вне кривой, створ "
+                        "пропущен.") % (nm, q_want))
+                    continue
+                for v in g.vertices():
+                    pts.append((v.x(), v.y(), float(lv)))
+                n_sec += 1
+            if len(pts) >= 2:
+                ext = (gt[0], gt[3] + gt[5] * arr.shape[0],
+                       gt[0] + gt[1] * arr.shape[1], gt[3])
+                try:
+                    surf = topo_t2r.topo2raster(pts, [], [], [], ext,
+                                                abs(gt[1]))
+                except Exception as exc:  # noqa: BLE001
+                    raise QgsProcessingException(str(exc))
+                surf = surf[0] if isinstance(surf, tuple) else surf
+                if surf.shape != arr.shape:
+                    surf = surf[:arr.shape[0], :arr.shape[1]]
+                feedback.pushInfo(self.tr(
+                    "Расход %.4g м³/с разнесён по %d створам обратным ходом "
+                    "по готовой кривой, пропущено %d. Поверхность воды "
+                    "поднята по ним: пересобирать кривую не потребовалось.")
+                    % (q_want, n_sec, n_above))
+            elif n_above:
+                raise QgsProcessingException(self.tr(
+                    "Расход вне кривой на всех створах: уровень нельзя "
+                    "найти, не считая кривую заново."))
+
+        lvl_src = self.parameterAsSource(parameters, self.LEVEL_LINES,
+                                         context)
+        if surf is None and lvl_src is not None:
+            f_lv = self.parameterAsString(parameters, self.LEVEL_FIELD,
+                                          context) \
+                or _field_by_names(lvl_src, "level", "z", "отметка")
+            pts = []
+            for ft in lvl_src.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                try:
+                    zv = float(ft[f_lv]) if f_lv else None
+                except (TypeError, ValueError):
+                    zv = None
+                if zv is None:
+                    continue
+                for v in g.vertices():
+                    pts.append((v.x(), v.y(), zv))
+            if len(pts) < 2:
+                raise QgsProcessingException(self.tr(
+                    "В слое уровней нет линий с отметкой: проверьте поле."))
+            # Слой уровней бывает чертёжным: у него x это расстояние вдоль
+            # створа, а не координата на карте. Такой слой не ляжет на
+            # ЦМР, и молчаливый пустой результат хуже отказа.
+            px = [p[0] for p in pts]
+            py = [p[1] for p in pts]
+            ex0 = gt[0]
+            ey1 = gt[3]
+            ex1 = gt[0] + gt[1] * arr.shape[1]
+            ey0 = gt[3] + gt[5] * arr.shape[0]
+            if (max(px) < min(ex0, ex1) or min(px) > max(ex0, ex1)
+                    or max(py) < min(ey0, ey1) or min(py) > max(ey0, ey1)):
+                raise QgsProcessingException(self.tr(
+                    "Слой уровней лежит вне охвата поверхности. Похоже, "
+                    "подан чертёжный слой уровней: у него по горизонтали "
+                    "расстояние вдоль створа, а не координата на карте. "
+                    "Возьмите выход «Уровни по створам на карте» из 6.01."))
+            ext = (gt[0], gt[3] + gt[5] * arr.shape[0],
+                   gt[0] + gt[1] * arr.shape[1], gt[3])
+            try:
+                surf = topo_t2r.topo2raster(pts, [], [], [], ext, abs(gt[1]))
+            except Exception as exc:  # noqa: BLE001
+                raise QgsProcessingException(str(exc))
+            surf = surf[0] if isinstance(surf, tuple) else surf
+            if surf.shape != arr.shape:
+                surf = surf[:arr.shape[0], :arr.shape[1]]
+            feedback.pushInfo(self.tr(
+                "Поверхность воды построена по %d уровням на створах: "
+                "отметки %.2f..%.2f. Глубина считается от неё, а не от "
+                "плоскости.") % (len(pts), float(np.nanmin(surf)),
+                                 float(np.nanmax(surf))))
+
+        if surf is not None:
+            depth = np.where(np.isfinite(arr), surf - arr, np.nan)
+        else:
+            depth = np.where(np.isfinite(arr), level - arr, np.nan)
         wet = np.isfinite(depth) & (depth > 0.0)
         if not wet.any():
             raise QgsProcessingException(self.tr(
@@ -19617,6 +20911,10 @@ ALGORITHMS = [
     SectionUnprojectAlgorithm,
     ShaftUnwrapAlgorithm,
     StackCheckAlgorithm,
+    StackBuildAlgorithm,
+    StackFixAlgorithm,
+    ManifestAlgorithm,
+    FoldMapAlgorithm,
     StackDemoAlgorithm,
     FractalDimensionAlgorithm,
     BoxCountingAlgorithm,

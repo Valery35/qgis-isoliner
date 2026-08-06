@@ -211,19 +211,40 @@ def column_at(x, zs, fold=None, y=None, dome=None, beds=SALT, level=True):
     return idx
 
 
+COVER_WEDGE_X = 400.0        # левее этой отметки покровные сходят на нет
+
+
+def cover_scale(x):
+    """Доля мощности покровных тел: у левого края площади они выклиниваются.
+
+    Без этого ни одно тело не выходит на дневную поверхность, и следу
+    выхода взяться неоткуда - а он нужен и для расчёта залегания, и как
+    достоверный ноль мощности при сборке.
+    """
+    if x >= COVER_WEDGE_X:
+        return 1.0
+    return max(0.0, float(x) / COVER_WEDGE_X)
+
+
 def cover_at(x, z, y=None, salt_top=None):
     """Код надсолевого тела на отметке z или None, если её там нет.
 
     Отсчёт идёт от рельефа вниз постоянными мощностями. Заполняющее тело
     занимает всё от подошвы вышележащего до кровли соли: его подошва и
     есть зеркало.
+
+    У левого края площади покровные тела сходят на нет, и подстилающее
+    выходит на поверхность: там и живёт след выхода.
     """
     zr = relief_at(x, y)
     if z > zr:
         return None
     d = zr - z
     acc = 0.0
+    k = cover_scale(x)
     for code, _body, thk, _col in COVER:
+        if thk is not None:
+            thk = thk * k
         if thk is None:
             if salt_top is not None and z <= salt_top:
                 return None
@@ -379,9 +400,14 @@ def surfaces(nx, ny, cell, beds=SALT, fold=None, wedge=None, seed=7,
     # тело занимает остаток до кровли уцелевшей соли.
     z = _field(relief_at, xs, ys) + _smooth_noise(rng, shape, sigma=0.3,
                                                   passes=8)
+    # Мощности покровных сходят на нет у левого края площади: там
+    # подстилающее тело выходит на дневную поверхность, и появляется след
+    # выхода - вход для расчёта залегания и достоверный ноль мощности.
+    kx = np.asarray([cover_scale(float(v)) for v in xs], float)
+    kk = np.broadcast_to(kx, shape)
     for code, _body, thk, _col in COVER:
         out[code][0] = z.copy()
-        z = z - thk if thk is not None else salt_top.copy()
+        z = z - thk * kk if thk is not None else salt_top.copy()
         out[code][1] = z.copy()
     return out
 
@@ -427,3 +453,120 @@ def _smooth_noise(rng, shape, sigma=0.4, passes=4):
              + 4.0 * e) / 8.0
     sd = float(e.std())
     return e * (sigma / sd) if sd > 1e-12 else e
+
+
+def axis_points(x0, y0, z0, azimuth, dip, length, step=0.5):
+    """Точки прямой оси ствола: расстояния по стволу и координаты.
+
+    Угол падения отсчитывается от горизонтали: девяносто это вертикаль
+    вниз, минус девяносто вертикаль вверх, промежуточные значения дают
+    наклонный ствол. Восходящие скважины подземного бурения задаются
+    отрицательным углом, и отметка вдоль оси у них растёт.
+
+    Возвращает (d, xs, ys, zs), где d это глубины по стволу от устья.
+    """
+    n = int(math.ceil(length / step)) + 1
+    d = np.arange(n, dtype=float) * step
+    a = math.radians(azimuth)
+    t = math.radians(dip)
+    hor = np.cos(t) * d
+    xs = x0 + hor * math.sin(a)
+    ys = y0 + hor * math.cos(a)
+    zs = z0 - np.sin(t) * d
+    return d, xs, ys, zs
+
+
+def hole_intervals_along(d, xs, ys, zs, beds=SALT, fold=None, dome=None,
+                         cover=True):
+    """Интервалы по стволу произвольной оси, от устья вдоль ствола.
+
+    То же, что для вертикальной скважины, но код тела берётся в точке
+    оси, а не под устьем: у наклонного ствола пласт вскрыт в стороне, и
+    считать по устью нельзя.
+    """
+    codes = []
+    top_salt = None
+    for x, y, z in zip(xs, ys, zs):
+        idx = column_at(float(x), np.asarray([float(z)]), fold=fold,
+                        y=float(y), dome=dome, beds=beds)
+        i0 = int(idx[0])
+        code = beds[i0][0] if i0 >= 0 else None
+        if code is not None and top_salt is None:
+            top_salt = float(z)
+        codes.append(code)
+    if cover:
+        for i, code in enumerate(codes):
+            if code is None and (top_salt is None or zs[i] > top_salt):
+                codes[i] = cover_at(float(xs[i]), float(zs[i]),
+                                    y=float(ys[i]), salt_top=top_salt)
+    out = []
+    cur, start = None, 0.0
+    for i, code in enumerate(codes):
+        if code != cur:
+            if cur is not None:
+                out.append((start, float(d[i]), cur))
+            cur, start = code, float(d[i])
+    if cur is not None:
+        out.append((start, float(d[-1]), cur))
+    return out
+
+
+def outcrop_points(surf, code, cell, tol=1.0, step=3,
+                   relief_code=COLUMN[0][0]):
+    """Точки выхода тела на поверхность: где его кровля совпадает с рельефом.
+
+    Такая точка не оценка, а измерение: контакт видно глазами, и мощность
+    вышележащего тела там равна нулю по определению границы. Для сборки
+    это самые надёжные значения, и вес у них должен быть выше скважинного.
+
+    Возвращает список (x, y, z, code) в координатах грида, прореженный
+    шагом step: сплошная линия ячеек столько же и весит, сколько говорит.
+    """
+    relief = surf.get(relief_code)
+    top = surf.get(code)
+    if relief is None or top is None:
+        return []
+    # запись поверхности это пара кровля-подошва
+    relief = relief[0]
+    top = top[0]
+    d = np.abs(top - relief)
+    m = np.isfinite(d) & (d <= tol)
+    out = []
+    ys, xs = np.nonzero(m)
+    for k in range(0, xs.size, max(int(step), 1)):
+        j, i = int(xs[k]), int(ys[k])
+        out.append(((j + 0.5) * cell, (i + 0.5) * cell,
+                    float(relief[i, j]), code))
+    return out
+
+
+def outcrop_lines(surf, code, cell, tol=1.0,
+                  relief_code=COLUMN[0][0]):
+    """След выхода тела как цепочки точек: вход для расчёта залегания.
+
+    Инструмент определения элементов залегания по следу выхода ждёт
+    именно линию: три точки следа задают плоскость. Здесь след собирается
+    построчно, по одной цепочке на строку грида, что для демо достаточно
+    и не требует трассировки контуров.
+    """
+    relief = surf.get(relief_code)
+    top = surf.get(code)
+    if relief is None or top is None:
+        return []
+    # запись поверхности это пара кровля-подошва
+    relief = relief[0]
+    top = top[0]
+    d = np.abs(top - relief)
+    m = np.isfinite(d) & (d <= tol)
+    lines = []
+    for i in range(m.shape[0]):
+        js = np.nonzero(m[i])[0]
+        if js.size < 2:
+            continue
+        cuts = np.nonzero(np.diff(js) > 1)[0]
+        for part in np.split(js, cuts + 1):
+            if part.size < 2:
+                continue
+            lines.append([((int(j) + 0.5) * cell, (i + 0.5) * cell,
+                           float(relief[i, int(j)])) for j in part])
+    return lines

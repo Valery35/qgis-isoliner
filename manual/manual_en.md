@@ -111,6 +111,10 @@ so it never drifts from the plugin.
 
 - `5.01` Consistency of a bed stack
 - `5.02` Create an example section (demo)
+- `5.03` Build a stack from the relief
+- `5.04` Fix a stack by the statistics of thicknesses
+- `5.05` Model manifest
+- `5.06` Folding of a surface
 
 **6. River hydrology**
 
@@ -127,7 +131,7 @@ so it never drifts from the plugin.
 - `7.04` Minkowski dimension (vectors)
 - `7.05` Create a fractal example (demo)
 
-_Tools in total: 63_
+_Tools in total: 67_
 <!-- /TREE -->
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
@@ -2670,6 +2674,64 @@ Everything is deterministic: the same parameters give the same section.
 
 Build the example, feed its surfaces into **5.01** and make sure that the overlap is found in the fold zone and the pinch-out where the boundaries are set. Then run a section line across the crest of the dome with **4.01**, supplying the bed reference: the bands break off on the mirror, over the crest the upper body is absent altogether and the next one is truncated. This is the picture an erosional contact gives, and it is convenient for checking how sections behave on real data.
 
+# 5.03 Build a stack from the relief
+
+The column is built from the top down, body after body along the reference. For every body the thickness is interpolated from the boreholes, the floor is obtained by subtracting the thickness from the overlying surface, and it serves as the top for the next one.
+
+## Why this is reliable
+
+If the thicknesses are non-negative, the surfaces cannot intersect: they are obtained by subtracting one from another. Consistency comes out by construction rather than by a check afterwards. This is the main merit of the scheme, and it matters more than its simplicity.
+
+## What is paid for it
+
+The error of every thickness adds up with the previous ones, and for the lower bodies the accumulated deviation can exceed the thickness itself. The scheme suits shallow stacks and engineering tasks, where the upper contact is the daylight surface itself.
+
+For deep stacks supply a traced contact as the datum and say whose roof it serves as. Then the assembly goes from it in both directions, downwards by subtracting and upwards by adding, and the error is halved.
+
+## What counts as thickness
+
+The thickness is taken along the hole and reduced to the vertical by the dip: in an inclined borehole the penetrated thickness is greater than the true one, and without a correction the stack swells. The angle is read from a field at the collar, without it the hole is treated as vertical.
+
+The absence of a body in a borehole is a zero rather than a gap. Between such a borehole and its neighbour the thickness goes to zero, and the body pinches out on its own.
+
+## Contact lines
+
+Where a body reaches the surface, the thickness of everything above it is zero by the definition of the boundary, and this value is known rather than estimated. The vertices of the line are thinned with a step of about the cell: the density of the digitizing must not turn into weight.
+
+# 5.04 Fix a stack by the statistics of thicknesses
+
+Fixes an inherited stack that nobody is going to reassemble from scratch. The statistics of the thickness of every body is computed from the measurements, a confidence interval is taken, and the thicknesses on the grid are cut by its bounds: everything beyond them is replaced by the bound itself. From the corrected thicknesses the stack is reassembled.
+
+The number of cells does not change, unlike with discarding: the place remains, only the value is disarmed. In statistics the move is called winsorizing.
+
+The cutting separates an artefact of interpolation from geology. A thickness outside the interval on a persistent body is almost certainly a run-away of the method between boreholes rather than a real thickening. Where a body changes its thickness in a regular way, the interval is wide and the correction does not fire.
+
+The statistics come from the measurements if they are supplied. Without them the interval is computed from the grid itself, and that is weaker: the grid already holds the artefact we are looking for. The tool warns about it.
+
+# 5.05 Model manifest
+
+Records what role every layer of the project plays: the datum surface, a contact of a body, the mirror, the collars, the intervals, the axis surveys, the reference, the ground observations, a gauging section, a cross-section.
+
+After the assembly the project turns into a heap of rasters and tables with no explicit structure. What is what is known to the user, but the head does not travel with the project. The manifest lives in the custom properties of the QGIS project - the regular place, which is saved in the project file and travels with it.
+
+The rule that matters more than the others: the tools read the manifest but do not require it. If the roles are there, the inputs are found on their own. If they are not, everything works by explicit choice. The manifest shortens the path rather than becoming a condition of work.
+
+The roles are guessed from the names of the layers and produced as a table for checking: a name guarantees nothing. Foreign roles written by other modules are kept: the manifest is shared, and clearing out the unfamiliar means breaking the work of neighbours.
+
+# 5.06 Folding of a surface
+
+Computes how crumpled a surface is, from the spread of elevations around the local slope.
+
+Folding is measured on the surface rather than on the thickness: a cylindrical fold with a constant true thickness exists and is invisible in the thickness altogether.
+
+A plain variance of elevations will not do. On a general slope it is large everywhere, and a quiet hillside gets the same score as a crumpled zone. Therefore a plane is fitted in every window and the spread of the residuals around it is computed: the slope goes, the sinuosity remains. The trend is linear on purpose, a quadratic one would absorb part of the folding itself.
+
+One window decides nothing. The variance depends on scale, and the proper measure is the rate of its growth with the size of the window. The slope in a double logarithm is that rate: on a quiet surface it is about zero, on a crumpled one noticeably larger.
+
+The residual of the surface is produced separately and serves as an input for the fractal dimension: on a detrended surface the slope of the variogram describes the sinuosity rather than the general dip of the bed.
+
+The thickness from the database stays a second, independent sign of folding: it is the penetrated thickness rather than the true one, and on a limb it grows the more steeply the steeper the dip.
+
 # River hydrology
 
 The group answers the question by which flooding is justified: how high the water rises at a given discharge, and what discharge passes at a given level. The link between discharge and level is built for a cross-section and is called a rating curve.
@@ -2766,6 +2828,16 @@ Cuts the surface by a water level and produces the flood extent and a raster of 
 The level can be set directly or by a discharge: then it is taken backwards along the curve from 6.01 - the very move drawn as a red arrow on manual constructions. The curve is supplied as a table, the discharge as a number, the accepted level is printed to the log.
 
 The tool is deliberately separate from 6.01: it has a different input and a different consumer, and there is no point in running the whole curve computation for the sake of one polygon.
+
+## The level is not constant along the river
+
+Upstream it is higher, and cutting the whole area by a single elevation floods the valley where the bed lies below that elevation even though the water does not reach there. Therefore the levels are supplied at the sections: a water surface rises from them, and the depth is computed from it.
+
+There are two paths. Ready levels as lines - take the output **Levels at the sections on the map** from 6.01. Or a desired discharge over a curve already computed: supply the sections on the map, the table of the curve and a number, and for every section the level is found backwards along the curve.
+
+The second path answers the frequent question about a catastrophic scenario. The curve does not depend on the discharge, it is a characteristic of the section, so any discharge, not only the design one, is cut without running 6.01 again. A section whose discharge went above the top of the curve is skipped with a warning: the curve is built up to the top of the profile, and above it there is nowhere to take an elevation from. If such scenarios are needed, raise the upper elevation in 6.01 and the curve will continue with a margin.
+
+The drawing layer of levels will not do for the map: along its horizontal axis runs the distance along the section rather than a coordinate. The tool recognizes this and refuses with an explanation of which output to take.
 
 Small patches are dropped by area: on a flat floodplain single cells below the water line give speckle that has nothing to do with the flood. Connectivity with the channel is not checked, and the log says so: closed depressions away from the river will stay in the extent, and that is visible on the map.
 

@@ -200,6 +200,97 @@ def test_no_negative_thickness_in_quiet_part():
         assert float(np.nanmin(thk)) > -0.05, row[0]
 
 
+def test_axis_of_vertical_hole_matches_the_old_way():
+    """Ось с углом девяносто даёт то же, что вертикальная скважина.
+
+    Проверка нужна не сама по себе: она страхует переход на общий путь.
+    Если наклонная ось начнёт врать, вертикальный случай покажет это
+    первым, потому что ответ для него известен.
+    """
+    x, y = 1200.0, 800.0
+    z0 = ds.DEFAULT_RELIEF + 25.0
+    depth = 240.0
+    a = ds.hole_intervals(x, z0, depth, y=y)
+    d, xs, ys, zs = ds.axis_points(x, y, z0, 0.0, 90.0, depth)
+    b = ds.hole_intervals_along(d, xs, ys, zs)
+    assert [c for _, _, c in a] == [c for _, _, c in b]
+
+
+def test_inclined_hole_moves_away_from_the_collar():
+    """У наклонного ствола забой уходит в сторону, и вскрытие вместе с ним.
+
+    Это и есть причина, по которой ось нужна модели: считать пласт под
+    устьем у наклонной скважины неверно.
+    """
+    x, y = 1200.0, 800.0
+    z0 = ds.DEFAULT_RELIEF + 25.0
+    d, xs, ys, zs = ds.axis_points(x, y, z0, 90.0, 60.0, 240.0)
+    assert abs(float(xs[-1] - xs[0]) - 240.0 * np.cos(np.radians(60.0))) < 1e-6
+    assert abs(float(ys[-1] - ys[0])) < 1e-6
+    assert float(zs[-1]) < float(zs[0])
+    iv = ds.hole_intervals_along(d, xs, ys, zs)
+    # устье в демо поднято над рельефом, поэтому первый интервал
+    # начинается там, где ствол входит в породу, а не с нуля
+    assert iv and iv[0][0] > 0.0
+    assert all(a < b for a, b, _ in iv)
+
+
+def test_upward_hole_rises_along_the_axis():
+    """У восходящего ствола отметка вдоль оси растёт.
+
+    Подземные скважины бурятся из выработки вверх, и правило «отметка
+    равна отметке устья минус глубина» для них неверно.
+    """
+    d, xs, ys, zs = ds.axis_points(1200.0, 800.0, 120.0, 0.0, -70.0, 60.0)
+    assert float(zs[-1]) > float(zs[0])
+    assert abs(float(zs[-1] - zs[0]) - 60.0 * np.sin(np.radians(70.0))) < 1e-6
+
+
+def test_cover_wedges_out_and_bodies_reach_the_surface():
+    """У левого края покровные сходят на нет, и тело выходит наружу.
+
+    Без этого в демо ни одно тело не выходит на дневную поверхность, и
+    следу выхода взяться неоткуда - а он нужен и для расчёта залегания, и
+    как достоверный ноль мощности при сборке.
+    """
+    assert ds.cover_scale(ds.COVER_WEDGE_X * 2) == 1.0
+    assert ds.cover_scale(0.0) == 0.0
+    assert 0.0 < ds.cover_scale(ds.COVER_WEDGE_X / 2.0) < 1.0
+
+    surf = ds.surfaces(80, 60, 25.0)
+    relief = surf[ds.COLUMN[0][0]][0]
+    found = False
+    for code, _b, _t, _c in ds.COLUMN[1:]:
+        top = surf[code][0]
+        if float(np.nanmin(np.abs(top - relief))) < 1.5:
+            found = True
+            break
+    assert found, "ни одно тело не выходит на поверхность"
+
+
+def test_outcrop_points_and_lines_lie_on_the_relief():
+    """Точки следа выхода лежат на рельефе, цепочки идут по нему же."""
+    cell = 25.0
+    surf = ds.surfaces(80, 60, cell)
+    relief = surf[ds.COLUMN[0][0]][0]
+    code = None
+    for c, _b, _t, _col in ds.COLUMN[1:]:
+        if ds.outcrop_points(surf, c, cell, tol=1.5):
+            code = c
+            break
+    assert code is not None
+
+    pts = ds.outcrop_points(surf, code, cell, tol=1.5)
+    for x, y, z, cd in pts:
+        j = int(x / cell)
+        i = int(y / cell)
+        assert abs(z - float(relief[i, j])) < 1e-6
+        assert cd == code
+
+    lines = ds.outcrop_lines(surf, code, cell, tol=1.5)
+    assert all(len(ch) >= 2 for ch in lines)
+
+
 def _run():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

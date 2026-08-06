@@ -276,6 +276,27 @@ def test_gap_map_needs_two_beds():
                             np.full((n, n), 0.0))]) is None
 
 
+def test_cut_is_told_from_pinch_out_only_by_the_mirror():
+    """Срез отличается от выклинивания лишь совпадением кровли с зеркалом.
+
+    И там, и там мощность уходит в ноль, поэтому арифметика их не
+    различает. Разница в том, что при срезе кровля лежит на уровне
+    растворения, а выше тела просто нет.
+    """
+    top = np.array([[100.0, 100.0, 100.0]])
+    mirror = np.array([[100.2, 95.0, 100.0]])
+    cut = sc.cut_mask(top, mirror, tol=0.5)
+    assert cut.tolist() == [[True, False, True]]
+    assert sc.CODE_CUT != sc.CODE_ZERO
+
+
+def test_cut_mask_ignores_holes_in_data():
+    """Там, где зеркала нет, срез не объявляется."""
+    top = np.array([[100.0, 100.0]])
+    mirror = np.array([[np.nan, 100.0]])
+    assert sc.cut_mask(top, mirror, tol=0.5).tolist() == [[False, True]]
+
+
 def _run():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

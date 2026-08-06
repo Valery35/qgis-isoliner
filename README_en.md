@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data, building isolines and working with terrain.
-The tools are split into seven Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"**, **"Geological model"** (beta), **"River hydrology"** and **"Fractal analysis"** — sixty-three in all:
+The tools are split into seven Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"**, **"Geological model"** (beta), **"River hydrology"** and **"Fractal analysis"** — sixty-seven in all:
 
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
@@ -79,6 +79,10 @@ The tools are split into seven Processing groups — **"Grid and isolines"**, **
 
 - **5.01 Consistency of a bed stack** — checks roofs and floors built separately: pinch-out, negative thickness, overlap of neighbours, a map of the smallest gap, a sign of a reversed order. The bed order comes from the layer tree or the reference.
 - **5.02 Create an example section (demo)** — a teaching section of the Verkhnekamskoye type: the full column from the bed reference, a recumbent fold with triple penetration, a pinch-out, a salt dome with a dissolution mirror, a subcrop map, the water-protective sequence, a drilling model.
+- **5.03 Build a stack from the relief** — the column from the top down, body after body along the reference: a raster of thickness from the boreholes, the floor by subtracting from the overlying surface. The thickness is reduced to the vertical by the dip of the hole, the absence of a body in a borehole is a zero. The datum may be a traced contact rather than the relief - then the assembly goes both ways and the error is halved. Overlaps do not happen by construction.
+- **5.04 Fix a stack by the statistics of thicknesses** — a confidence interval from the measurements, cutting the thicknesses by its bounds and reassembling. Separates an artefact of interpolation from geology: on a persistent body a thickness outside the interval is almost certainly a run-away of the method between boreholes.
+- **5.05 Model manifest** — the roles of the layers in the project properties: the datum, a contact, the mirror, the collars, the intervals, the axis surveys, the reference, the observations. The tools read the manifest but do not require it.
+- **5.06 Folding of a surface** — the spread of elevations around the local slope plus the rate of its growth with scale. A plain variance on a general slope is large everywhere, hence a plane is fitted in the window.
 
 ### "6. River hydrology" group
 
@@ -312,6 +316,10 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 
 Full list — in `metadata.txt` (`changelog` field). The user manual (PDF) is
 
+<<<<<<< Updated upstream
+=======
+- **4.91.0** — the geological model has grown up to assembly: a stack from the relief and from a datum surface, a correction by the statistics of thicknesses, the model manifest, a map of folding, telling a cut from a pinch-out by the mirror. In hydrology the flood extent is built for any desired discharge over a curve already computed.
+>>>>>>> Stashed changes
 - **4.74.1** — probability and observed levels on the drawing, the footer of a gauging sheet, a report with graphics: the profile with the levels and the graph of discharge against level on the page itself.
 - **4.69.1** — the new "6. River hydrology" group: cross-sections and rating curves by Manning with a separate count over the channel and the floodplains, a flood extent polygon with the backward move along the curve, an import of sounding tables laid along digitized lines, a demo river with a known answer. Fractal analysis moved to the seventh group, the geological model is marked beta.
 - **4.63.0** — 4.02 gains a new output: label anchors of intervals, a point in the middle of every interval with all its attributes. Composite grade labels attach to points and place normally.
