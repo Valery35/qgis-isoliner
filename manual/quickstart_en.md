@@ -96,7 +96,7 @@ Minimum: **Section line**, **Surfaces top to bottom**, **Vertical scale**.
 
 Three minutes.
 
-**Step 1.** **6.04 Create an example river (demo)**
+**Step 1.** **6.04 Example river (demo)**
 Minimum: nothing to set, everything by default.
 *You get:* sections with the fields filled in, a table of soundings, a valley surface and a reference curve.
 
@@ -105,10 +105,40 @@ Minimum: **Cross-sections**, the rest is picked up by the field names.
 *You get:* a table of the dependence of discharge on level by parts and in total, the section profiles and an HTML report with a table for every section.
 
 **Step 3.** **6.02 Flood extent polygon**
-Minimum: the valley **Surface** from step 1, the **Rating curve** from step 2 and a **Discharge**, say 60.
-*You get:* the flood extent and a raster of depth. The level is taken backwards along the curve and printed to the log.
+Minimum: the valley **Surface** from step 1, the **Sections** and the **Rating curve** from step 2, a **Discharge**, say 60.
+*You get:* the flood extent and a raster of depth. For every section a level is found backwards along the curve, and a water surface rises from them.
 
-If you have your own tables of soundings as distance and elevation pairs, start with **6.03 Import section tables**: it turns them into sections ready for step 2. Section lines digitized on the map go there as well - the soundings will lie along them.
+---
+
+## Scenario 5. I have my own sections and a DEM
+
+This path is for those who already have data. It also answers the question of what exactly the tool is missing when the result looks odd.
+
+**What the sections must carry.** Elevations in the Z of the vertices: a surveyed elevation is more accurate than any terrain model, so the source is the geometry of the section itself. If there is no Z, the tool says so.
+
+**What is worth adding as fields.** `div_l` and `div_r` for the part boundaries as distances along the profile, `n_left`, `n_channel`, `n_right` for the roughness, `slope` for the slope, `km` for the chainage, `sec` for the name. The fields are picked up by these names on their own.
+
+Without them the computation goes through, but the whole profile is treated as one channel with defaults, and the discharges come out several times too large: a floodplain hundreds of metres wide gets the roughness of a channel. This is the most frequent cause of implausible numbers.
+
+**Step 1.** **6.03 Import section tables** - if the profiles are kept as tables of distance and elevation pairs.
+Minimum: the **Table of soundings**. If the sections are already digitized on the map, supply them as a layer - the soundings will lie along the real lines.
+*You get:* lines with Z ready for the next step. Skip this step if your sections already carry elevations.
+
+**Step 2.** **6.01 Cross-sections and rating curves**
+Minimum: the **Sections**. The slope can be computed from the chain if you give the chainage and tick the corresponding box.
+*You get:* the curve, the profiles, the drawing footer, the ground elevations and a report with a graph. Check the accepted slope and roughness in the log: it also shows whether the fields were picked up or the defaults were taken.
+
+**Step 3.** **6.02 Flood extent polygon**
+Minimum: the **Surface** (your DEM), the **Sections on the map**, the **Rating curve** from step 2 and a desired **Discharge**.
+*You get:* the flood extent and the depth. The discharge can be changed as many times as you like: the curve does not depend on it, and there is no need to run 6.01 again.
+
+### Three places where people usually stumble
+
+**One elevation for the whole valley.** The level is not constant along the river, upstream it is higher. Supplying a single level as a plane floods the valley where the water does not reach. That is why the levels go by section.
+
+**The drawing layer of levels.** In the output "Probability levels (drawing)" the horizontal axis carries the distance along the section rather than a map coordinate. For 6.02 you need the output **Levels at the sections on the map**. The tool recognizes this and says so plainly.
+
+**A discharge above the curve.** The curve is built up to the top of the profile, and in a catastrophic scenario the water rises above the banks. Such a section is skipped with a warning. If you need large scenarios, raise the upper elevation in 6.01 and the curve will continue with a margin.
 
 ---
 

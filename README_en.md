@@ -78,9 +78,9 @@ The tools are split into seven Processing groups — **"Grid and isolines"**, **
 ### "5. Geological model" group (beta)
 
 - **5.01 Consistency of a bed stack** — checks roofs and floors built separately: pinch-out, negative thickness, overlap of neighbours, a map of the smallest gap, a sign of a reversed order. The bed order comes from the layer tree or the reference.
-- **5.02 Create an example section (demo)** — a teaching section of the Verkhnekamskoye type: the full column from the bed reference, a recumbent fold with triple penetration, a pinch-out, a salt dome with a dissolution mirror, a subcrop map, the water-protective sequence, a drilling model.
-- **5.03 Build a stack from the relief** — the column from the top down, body after body along the reference: a raster of thickness from the boreholes, the floor by subtracting from the overlying surface. The thickness is reduced to the vertical by the dip of the hole, the absence of a body in a borehole is a zero. The datum may be a traced contact rather than the relief - then the assembly goes both ways and the error is halved. Overlaps do not happen by construction.
-- **5.04 Fix a stack by the statistics of thicknesses** — a confidence interval from the measurements, cutting the thicknesses by its bounds and reassembling. Separates an artefact of interpolation from geology: on a persistent body a thickness outside the interval is almost certainly a run-away of the method between boreholes.
+- **5.02 Example section (demo)** — a teaching section of the Verkhnekamskoye type: the full column from the bed reference, a recumbent fold with triple penetration, a pinch-out, a salt dome with a dissolution mirror, a subcrop map, the water-protective sequence, a drilling model.
+- **5.03 Assembly of a stack from the relief** — the column from the top down, body after body along the reference: a raster of thickness from the boreholes, the floor by subtracting from the overlying surface. The thickness is reduced to the vertical by the dip of the hole, the absence of a body in a borehole is a zero. The datum may be a traced contact rather than the relief - then the assembly goes both ways and the error is halved. Overlaps do not happen by construction.
+- **5.04 Correction of a stack by the statistics of thicknesses** — a confidence interval from the measurements, cutting the thicknesses by its bounds and reassembling. Separates an artefact of interpolation from geology: on a persistent body a thickness outside the interval is almost certainly a run-away of the method between boreholes.
 - **5.05 Model manifest** — the roles of the layers in the project properties: the datum, a contact, the mirror, the collars, the intervals, the axis surveys, the reference, the observations. The tools read the manifest but do not require it.
 - **5.06 Folding of a surface** — the spread of elevations around the local slope plus the rate of its growth with scale. A plain variance on a general slope is large everywhere, hence a plane is fitted in the window.
 
@@ -89,7 +89,7 @@ The tools are split into seven Processing groups — **"Grid and isolines"**, **
 - **6.01 Cross-sections and rating curves** — the dependence of discharge on level for a section: the profile along the vertices, the division into the left bank, the channel and the right bank, the discharge by Manning separately on every part. Roughness and slope from the fields of the section, the slope can be computed from the chain of sections. Probability and observed levels as lines onto the drawing, the footer of a gauging sheet as a row per part, ground elevations and distances as points. An HTML report with the profile and the Q(H) graph on the page itself.
 - **6.02 Flood extent polygon** — cutting the surface by a water level with an extent and a raster of depth. The level can be set by a discharge: it is taken backwards along the curve.
 - **6.03 Import section tables** — distance and elevation pairs from existing programs become lines with Z. If the sections are digitized on the map, the soundings lie along the real lines. Computation properties are carried along with the profile.
-- **6.04 Create an example river (demo)** — a chain of sections with a known answer, a table of soundings, a valley surface, a reference curve, teaching probability discharges and observed levels.
+- **6.04 Example river (demo)** — a chain of sections with a known answer, a table of soundings, a valley surface, a reference curve, teaching probability discharges and observed levels.
 
 **Fields of the hydrology group.** Sections: `sec` the name, `km` the chainage in km, `div_l` and `div_r` the part boundaries as distances along the profile in m, `n_left`, `n_channel`, `n_right` the Manning roughness by part (dimensionless), `slope` the slope in m/m, `role` the role of the line when supplied as three lines. Probability discharges: `prob` in percent, `q` in m3/s. Observed levels: `level` in m, `label` as text. The full list of fields of every input and output with units is in the [manual](manual/manual_en.md).
 
@@ -99,7 +99,7 @@ The tools are split into seven Processing groups — **"Grid and isolines"**, **
 - **7.02 Box-counting of masks** — one D per binary mask: replacement and workings outlines compared by a number.
 - **7.03 Dimension of lines and boundaries** — D of each line by the divider method: diagnostics of oversmoothed isolines.
 - **7.04 Minkowski dimension (vectors)** — box-counting directly over lines and polygon boundaries, without rasterization.
-- **7.05 Create a fractal example (demo)** — a river network with tributary orders, a catchment with a ragged boundary, a coastline.
+- **7.05 Example for fractals (demo)** — a river network with tributary orders, a catchment with a ragged boundary, a coastline.
 
 Suitable for bed elevations, thicknesses, rock properties, chemistry and any numeric attribute.
 

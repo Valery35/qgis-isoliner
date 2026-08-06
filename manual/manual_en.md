@@ -110,9 +110,9 @@ so it never drifts from the plugin.
 **5. Geological model (beta)**
 
 - `5.01` Consistency of a bed stack
-- `5.02` Create an example section (demo)
-- `5.03` Build a stack from the relief
-- `5.04` Fix a stack by the statistics of thicknesses
+- `5.02` Example section (demo)
+- `5.03` Assembly of a stack from the relief
+- `5.04` Correction of a stack by the statistics of thicknesses
 - `5.05` Model manifest
 - `5.06` Folding of a surface
 
@@ -121,7 +121,7 @@ so it never drifts from the plugin.
 - `6.01` Cross-sections and rating curves
 - `6.02` Flood extent polygon
 - `6.03` Import section tables
-- `6.04` Create an example river (demo)
+- `6.04` Example river (demo)
 
 **7. Fractal analysis**
 
@@ -129,7 +129,7 @@ so it never drifts from the plugin.
 - `7.02` Box-counting of masks
 - `7.03` Dimension of lines and boundaries
 - `7.04` Minkowski dimension (vectors)
-- `7.05` Create a fractal example (demo)
+- `7.05` Example for fractals (demo)
 
 _Tools in total: 67_
 <!-- /TREE -->
@@ -2642,7 +2642,7 @@ A negative thickness comes from two origins, and arithmetic cannot tell them apa
 
 Telling an erosional truncation from a pinch-out is likewise impossible without the dissolution surface on the input: at a truncation the thickness breaks off on the mirror, at a pinch-out the roof and the floor converge on each other, but on the map of zones both look the same.
 
-# 5.02 Create an example section (demo)
+# 5.02 Example section (demo)
 
 The tool builds a teaching section of the Verkhnekamskoye type with all the cases for whose sake the rest of the group exists. It is useful because the answer is known in advance: any disagreement with it is an error of the tool rather than of the data.
 
@@ -2674,7 +2674,7 @@ Everything is deterministic: the same parameters give the same section.
 
 Build the example, feed its surfaces into **5.01** and make sure that the overlap is found in the fold zone and the pinch-out where the boundaries are set. Then run a section line across the crest of the dome with **4.01**, supplying the bed reference: the bands break off on the mirror, over the crest the upper body is absent altogether and the next one is truncated. This is the picture an erosional contact gives, and it is convenient for checking how sections behave on real data.
 
-# 5.03 Build a stack from the relief
+# 5.03 Assembly of a stack from the relief
 
 The column is built from the top down, body after body along the reference. For every body the thickness is interpolated from the boreholes, the floor is obtained by subtracting the thickness from the overlying surface, and it serves as the top for the next one.
 
@@ -2698,7 +2698,7 @@ The absence of a body in a borehole is a zero rather than a gap. Between such a 
 
 Where a body reaches the surface, the thickness of everything above it is zero by the definition of the boundary, and this value is known rather than estimated. The vertices of the line are thinned with a step of about the cell: the density of the digitizing must not turn into weight.
 
-# 5.04 Fix a stack by the statistics of thicknesses
+# 5.04 Correction of a stack by the statistics of thicknesses
 
 Fixes an inherited stack that nobody is going to reassemble from scratch. The statistics of the thickness of every body is computed from the measurements, a confidence interval is taken, and the thicknesses on the grid are cut by its bounds: everything beyond them is replaced by the bound itself. From the corrected thicknesses the stack is reassembled.
 
@@ -2853,7 +2853,7 @@ Without a line layer the geometry is built as straight sections by an azimuth an
 
 Computation properties are carried along with the profile if the table holds them: the division boundaries, the roughness values and the slope. Without them the geometry would come back but not the computation, and the curve over the restored sections would part from the original one.
 
-# 6.04 Create an example river (demo)
+# 6.04 Example river (demo)
 
 A teaching chain of sections with a known answer: a valley with a channel and two floodplains, elevations in the vertex Z, the fields of division, roughness, slope and chainage filled in.
 
@@ -2950,7 +2950,7 @@ The method complements the divider of 7.03: the divider measures the sinuosity o
 | Grid offsets per size (Adv.) | Random shifts, the minimal cover is taken - removes the grid alignment. | 3 |
 | Densify factor (Adv.) | The sampling step along segments as a cell fraction; 0 - vertices only. | 0.5 |
 
-# 7.05 Create a fractal example (demo)
+# 7.05 Example for fractals (demo)
 
 A generator of study features for the whole fractal five: a branching river network with an order field (the tributary order), a basin polygon with a rugged boundary and a separate coastline built by midpoint displacements. Feed the rivers into 7.04 - you get the network dimension; the coast and the basin boundary - into 7.03 and 7.04 and compare the divider with Minkowski; rasterise the basin with the standard tool - and it doubles as an example for 7.02.
 
