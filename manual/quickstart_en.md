@@ -48,7 +48,7 @@ Minimum: the **DEM** from step 1. Leave the filling of depressions on.
 Minimum: the accumulation raster from step 3, **Catchment threshold** in cells. Start with a thousand and tune it until the network looks plausible.
 *You get:* watercourse lines directed downstream, that is, ready-made streamlines.
 
-**Step 5.** **2.09 Peaks**
+**Step 5.** **2.09 Peaks and pits**
 Minimum: the **DEM** from step 1, **Search radius** in cells.
 *You get:* points of local maxima with elevations.
 

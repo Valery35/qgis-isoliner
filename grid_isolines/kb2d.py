@@ -363,7 +363,7 @@ def cross_validate_detrend(xd, yd, vrd, degree, vg, ktype, skmean,
 
 def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                rad2, nodata, xmn, ymn, cell, nx, ny, progress=None,
-               with_variance=False, ndisc=1):
+               with_variance=False, ndisc=1, fault_segs=None):
     """Sweep the grid, GSLIB order (north row first). Returns float32 (ny,nx).
 
     При with_variance=True возвращает кортеж (оценка, стд.ошибка), где второй
@@ -373,7 +373,20 @@ def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
     ndisc - дискретизация блока N×N на ячейку: 1 (по умолчанию) - точечный
     кригинг, >1 - блочный (оценка среднего по ячейке, дисперсия блочная). Блок
     равен ячейке грида; смещения дискретизации и блок-блок ковариация считаются
-    один раз до прохода (вариограмма стационарна)."""
+    один раз до прохода (вариограмма стационарна).
+
+    fault_segs - звенья разломов массивом (m, 4) из fault_segments. Замер,
+    отрезок до которого пересекает разлом, в выборку ячейки не попадает, и
+    поверхность вдоль линии рвётся. У затухающего разлома влияние огибает
+    его конец само: точки за концом остаются видимыми.
+
+    Разлом проверяется точной геометрией, а не растровой маской. Маска
+    делала дырку в гриде: луч начинается в центре оцениваемой ячейки, и
+    ячейка на самой линии не видела ни одного замера.
+
+    Приближение названо прямо: по видимости отбираются только соседи, а
+    ковариации между самими замерами остаются евклидовыми. Занулять их
+    нельзя, система потеряет положительную определённость."""
     grid = np.full((ny, nx), nodata, dtype=np.float32)
     sgrid = np.full((ny, nx), nodata, dtype=np.float32) if with_variance else None
     bdx = bdy = None
@@ -388,8 +401,23 @@ def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
         yloc = ymn + (iy - 1) * cell
         for ix in range(nx):
             xloc = xmn + ix * cell
+            xs, ys, vs = xd, yd, vrd
+            if fault_segs is not None and len(fault_segs):
+                # Замер за разломом в выборку не идёт. Сперва отсев по
+                # радиусу, и только потом видимость: проверять все точки
+                # площади для каждой ячейки незачем.
+                near = np.nonzero((xd - xloc) ** 2 + (yd - yloc) ** 2
+                                  <= rad2)[0] if rad2 > 0 else \
+                    np.arange(len(xd))
+                idx = near[visible_mask(xloc, yloc, xd[near], yd[near],
+                                        fault_segs)]
+                if idx.size < ndmin:
+                    grid[row, ix] = nodata
+                    done += 1
+                    continue
+                xs, ys, vs = xd[idx], yd[idx], vrd[idx]
             e, v = _solve_point(
-                xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
+                xloc, yloc, xs, ys, vs, vg, ktype, skmean,
                 ndmin, ndmax, rad2, nodata, bdx=bdx, bdy=bdy, cbb=cbb)
             grid[row, ix] = e
             if with_variance and e != nodata:
@@ -1382,3 +1410,83 @@ def fan_triangulate(ring):
     if len(pts) >= 2 and pts[0] == pts[-1]:
         pts = pts[:-1]
     return [(pts[0], pts[i], pts[i + 1]) for i in range(1, len(pts) - 1)]
+
+
+# ---------------------------------------------------------------------------
+#  Разломы: отбор соседей по видимости
+# ---------------------------------------------------------------------------
+
+def fault_segments(lines):
+    """Звенья разломов массивом (m, 4): x0, y0, x1, y1.
+
+    Разлом здесь остаётся линией и в сетку не переводится. Растровая маска
+    барьерных ячеек, стоявшая тут раньше, порождала две беды сразу.
+    Первая: ячейка не передаёт диагональ, и косой разлом ложился в сетку
+    ступеньками. Вторая, и она была причиной пустот в гриде: луч видимости
+    начинается в центре оцениваемой ячейки, и если сама ячейка барьерная,
+    первая же проверка попадала в маску. Такая ячейка не видела ни одного
+    замера из всей площади, получала nodata, и вдоль разлома в гриде
+    оставалась ступенчатая щель.
+    """
+    segs = []
+    for ln in lines or ():
+        pts = np.asarray(ln, dtype=float)
+        if pts.ndim != 2 or pts.shape[0] < 2:
+            continue
+        for k in range(pts.shape[0] - 1):
+            x0, y0 = float(pts[k, 0]), float(pts[k, 1])
+            x1, y1 = float(pts[k + 1, 0]), float(pts[k + 1, 1])
+            if x0 != x1 or y0 != y1:
+                segs.append((x0, y0, x1, y1))
+    if not segs:
+        return np.zeros((0, 4), dtype=float)
+    return np.asarray(segs, dtype=float)
+
+
+def visible_mask(xloc, yloc, xs, ys, segs):
+    """Какие замеры видны из точки оценки: отрезок не пересекает разлом.
+
+    Пересечение строгое: знаки поворотов на обоих концах обязаны быть
+    противоположны. Касание концом и совпадение по прямой барьером не
+    считаются, и это осознанно. Центр ячейки, попавший точно на линию,
+    иначе не увидел бы ни одного замера - ровно та беда, ради которой
+    маска и убрана. Замер, стоящий точно на разломе, виден с обоих крыльев.
+
+    Крыло у ячейки получается само собой: центр лежит строго с одной
+    стороны линии, и всё, что за ней, отсекается. Отдельного разбиения на
+    блоки не нужно.
+
+    Приближение здесь одно и оно названо в справке: по видимости
+    отбираются только соседи, а ковариации между самими замерами остаются
+    евклидовыми. Занулять их нельзя - система потеряет положительную
+    определённость, и кригинг развалится.
+    """
+    xs = np.asarray(xs, dtype=float)
+    ys = np.asarray(ys, dtype=float)
+    if segs is None or len(segs) == 0 or xs.size == 0:
+        return np.ones(xs.shape, dtype=bool)
+    ax = segs[:, 0][:, None]
+    ay = segs[:, 1][:, None]
+    bx = segs[:, 2][:, None]
+    by = segs[:, 3][:, None]
+    # d1, d2 - с какой стороны звена лежат точка оценки и замер
+    d1 = (bx - ax) * (yloc - ay) - (by - ay) * (xloc - ax)
+    d2 = (bx - ax) * (ys - ay) - (by - ay) * (xs - ax)
+    # d3, d4 - с какой стороны луча лежат концы звена
+    rx = xs - xloc
+    ry = ys - yloc
+    d3 = rx * (ay - yloc) - ry * (ax - xloc)
+    d4 = rx * (by - yloc) - ry * (bx - xloc)
+    crossed = ((d1 * d2) < 0.0) & ((d3 * d4) < 0.0)
+    return ~crossed.any(axis=0)
+
+
+def visible(x0, y0, x1, y1, segs):
+    """Виден ли один замер из точки оценки. Обёртка над visible_mask."""
+    return bool(visible_mask(x0, y0, np.array([x1], dtype=float),
+                             np.array([y1], dtype=float), segs)[0])
+
+
+def visible_points(xloc, yloc, xd, yd, segs):
+    """Индексы замеров, видимых из точки оценки."""
+    return np.nonzero(visible_mask(xloc, yloc, xd, yd, segs))[0]

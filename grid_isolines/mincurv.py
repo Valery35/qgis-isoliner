@@ -23,6 +23,87 @@
 import numpy as np
 
 
+def _side(d):
+    """Знак с нулём на плюсовой стороне: -1 или +1, но не 0."""
+    return np.where(d >= 0.0, 1, -1)
+
+
+def fault_edges(segs, xmin, ymin, cell, nx, ny):
+    """Рёбра сетки, пересечённые разломом: (на восток, на юг).
+
+    Барьер живёт на РЁБРАХ между соседними узлами, а не в ячейках. Так он
+    точен: разлом остаётся линией, в сетку не переводится, ступенек по
+    ячейкам не возникает и крыло у каждого узла определяется само -
+    стороной, с которой лежит сам узел.
+
+    Хранятся два направления из четырёх: на восток от узла и на юг.
+    Западное и северное рёбра это те же самые рёбра соседних узлов.
+
+    Узел, попавший ровно на линию, приписывается к одной стороне по
+    правилу знака (ноль считается плюсом). Строгое сравнение здесь не
+    годится: разлом, проведённый точно через центры узлов, не перекрывал
+    бы ни одного ребра, а на шахтной сетке линия по оси - обычное дело.
+    Приписывание же к обеим сторонам сразу отрезало бы такой узел от всех
+    соседей, и он застыл бы на стартовом значении.
+
+    segs: массив (m, 4) из kb2d.fault_segments.
+    Узлы в центрах ячеек, row 0 = север, как в grid_points.
+    """
+    blk_e = np.zeros((ny, nx), dtype=bool)
+    blk_s = np.zeros((ny, nx), dtype=bool)
+    if segs is None or len(segs) == 0 or nx < 2 or ny < 2:
+        return blk_e, blk_s
+    top = ymin + ny * cell
+    gx = xmin + (np.arange(nx) + 0.5) * cell
+    gy = top - (np.arange(ny) + 0.5) * cell
+    X, Y = np.meshgrid(gx, gy)
+    segs = np.asarray(segs, dtype=float)
+    for ax, ay, bx, by in segs:
+        sx, sy = bx - ax, by - ay
+
+        def crossed(px, py, qx, qy):
+            d1 = sx * (py - ay) - sy * (px - ax)
+            d2 = sx * (qy - ay) - sy * (qx - ax)
+            rx, ry = qx - px, qy - py
+            d3 = rx * (ay - py) - ry * (ax - px)
+            d4 = rx * (by - py) - ry * (bx - px)
+            return (_side(d1) != _side(d2)) & (_side(d3) != _side(d4))
+
+        blk_e[:, :-1] |= crossed(X[:, :-1], Y[:, :-1], X[:, 1:], Y[:, 1:])
+        blk_s[:-1, :] |= crossed(X[:-1, :], Y[:-1, :], X[1:, :], Y[1:, :])
+    return blk_e, blk_s
+
+
+def _dilate2(mask):
+    """Расширить маску на два узла по четырём соседям."""
+    m = mask.copy()
+    for _ in range(2):
+        g = m.copy()
+        g[1:, :] |= m[:-1, :]
+        g[:-1, :] |= m[1:, :]
+        g[:, 1:] |= m[:, :-1]
+        g[:, :-1] |= m[:, 1:]
+        m = g
+    return m
+
+
+def _membrane(z, blk_e, blk_s):
+    """Среднее по НЕперекрытым четырём соседям: (сумма, количество)."""
+    acc = np.zeros_like(z)
+    cnt = np.zeros_like(z)
+    oke = ~blk_e[:, :-1]
+    acc[:, :-1] += np.where(oke, z[:, 1:], 0.0)
+    cnt[:, :-1] += oke
+    acc[:, 1:] += np.where(oke, z[:, :-1], 0.0)
+    cnt[:, 1:] += oke
+    oks = ~blk_s[:-1, :]
+    acc[:-1, :] += np.where(oks, z[1:, :], 0.0)
+    cnt[:-1, :] += oks
+    acc[1:, :] += np.where(oks, z[:-1, :], 0.0)
+    cnt[1:, :] += oks
+    return acc, cnt
+
+
 def _pad_natural(z, pad=2):
     """Дополняет массив ghost-узлами линейной экстраполяцией (натуральная
     граница: вторая производная поперёк края = 0). Плоскость при этом
@@ -37,9 +118,19 @@ def _pad_natural(z, pad=2):
     return zp
 
 
-def _targets(z, tfield, aniso):
+def _targets(z, tfield, aniso, blocks=None):
     """Целевое значение узла: смесь бигармонического (мин. кривизна) и
-    лапласова (натяжение) шаблонов. tfield - поле натяжения [0..1]."""
+    лапласова (натяжение) шаблонов. tfield - поле натяжения [0..1].
+
+    blocks = (blk_e, blk_s, near). У разлома тринадцатиточечный шаблон
+    непригоден: он дотягивается на две ячейки и всё равно перешагнул бы
+    линию, а вырезать из него отдельные точки нельзя - шаблон перестанет
+    приближать бигармонию. Поэтому в полосе шириной два узла вдоль линии
+    (near) решение переходит на мембрану по неперекрытым соседям, и та
+    разрыв держит точно. Дальше от линии работает обычная кривизна.
+
+    Тот же приём стоит в Topo2Raster у обрывов, и по той же причине.
+    """
     zp = _pad_natural(z, 2)
     c = zp[2:-2, 2:-2]
     N = zp[1:-3, 2:-2]; S = zp[3:-1, 2:-2]
@@ -56,17 +147,30 @@ def _targets(z, tfield, aniso):
     # анизотропный лаплас ∇²z = 0 (натяжение вдоль осей)
     wx, wy = 1.0, float(aniso)
     lap = (wx * (E + W) + wy * (N + S)) / (2.0 * wx + 2.0 * wy)
-    return (1.0 - tfield) * bih + tfield * lap
+    out = (1.0 - tfield) * bih + tfield * lap
+    if blocks is None:
+        return out
+    blk_e, blk_s, near = blocks
+    acc, cnt = _membrane(z, blk_e, blk_s)
+    # узел, отрезанный со всех сторон, остаётся при своём значении
+    mem = np.where(cnt > 0, acc / np.maximum(cnt, 1.0), z)
+    return np.where(near, mem, out)
 
 
 def solve(z, fixed, tension=0.0, boundary_tension=0.0,
-          max_iter=100000, tol=1e-4, relax=1.5, aniso=1.0, progress=None):
+          max_iter=100000, tol=1e-4, relax=1.5, aniso=1.0, progress=None,
+          fault_segs=None, xmin=0.0, ymin=0.0, cell=1.0):
     """SOR к поверхности минимальной кривизны с натяжением.
 
     z: 2D float, стартовое поле (в fixed-узлах - данные).
     fixed: 2D bool, узлы-данные (держатся, условие Дирихле).
     tension: 0 = мин. кривизна, 1 = мембрана. boundary_tension - на краю.
     relax: коэффициент релаксации SOR (1 = Гаусс-Зейдель, >1 - ускорение).
+
+    fault_segs - звенья разломов (m, 4) из kb2d.fault_segments вместе с
+    привязкой сетки (xmin, ymin, cell). Ребро между соседними узлами,
+    пересечённое разломом, из шаблона выпадает, и поверхность вдоль линии
+    рвётся. Барьер точный, в сетку разлом не переводится.
 
     Обход девятью цветами (i%3, j%3): узлы одного цвета отстоят на 3+ и не
     попадают в 13-точечный шаблон друг друга, поэтому их можно обновлять
@@ -84,6 +188,18 @@ def solve(z, fixed, tension=0.0, boundary_tension=0.0,
     tfield[:, 0] = tb; tfield[:, -1] = tb
     relax = float(relax)
     max_iter = max(1, int(max_iter))
+    blocks = None
+    if fault_segs is not None and len(fault_segs):
+        ny, nx = z.shape
+        blk_e, blk_s = fault_edges(fault_segs, float(xmin), float(ymin),
+                                   float(cell), nx, ny)
+        if blk_e.any() or blk_s.any():
+            touched = np.zeros(z.shape, dtype=bool)
+            touched[:, :-1] |= blk_e[:, :-1]
+            touched[:, 1:] |= blk_e[:, :-1]
+            touched[:-1, :] |= blk_s[:-1, :]
+            touched[1:, :] |= blk_s[:-1, :]
+            blocks = (blk_e, blk_s, _dilate2(touched))
     ii, jj = np.indices(z.shape)
     colors = [((ii % 3 == a) & (jj % 3 == b) & ~fixed)
               for a in range(3) for b in range(3)]
@@ -94,7 +210,7 @@ def solve(z, fixed, tension=0.0, boundary_tension=0.0,
         for m in colors:
             if not m.any():
                 continue
-            target = _targets(z, tfield, aniso)
+            target = _targets(z, tfield, aniso, blocks)
             z[m] = z[m] + relax * (target[m] - z[m])
         change = float(np.max(np.abs(z - prev))) if z.size else 0.0
         last = change

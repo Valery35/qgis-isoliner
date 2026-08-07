@@ -48,6 +48,31 @@ class _Stub(metaclass=type("_M", (type,), {
         return 0
 
 
+# Заглушки живут в sys.modules и переживают файл, если их не убрать. Пока
+# уборки не было, подставной «osgeo» доставался тестам, которые идут следом
+# по алфавиту: TestDstAxisOrder, TestSectionDrawCrs и проверка WKT в
+# demo_relief просили настоящий osgeo, получали заглушку, пропуск по
+# ImportError не срабатывал, и сторожа падали на ровном месте. По одному
+# файлу они проходили, в общем прогоне - нет.
+_SAVED_MODULES = None
+
+
+def setup_module(module):
+    """Снимок sys.modules до первого теста файла."""
+    global _SAVED_MODULES
+    _SAVED_MODULES = dict(sys.modules)
+
+
+def teardown_module(module):
+    """Вернуть sys.modules в исходное состояние."""
+    if _SAVED_MODULES is None:
+        return
+    for name in list(sys.modules):
+        if name not in _SAVED_MODULES:
+            del sys.modules[name]
+    sys.modules.update(_SAVED_MODULES)
+
+
 def _install_qgis_stubs():
     for mod in ("qgis", "qgis.core", "qgis.gui",
                 "qgis.PyQt", "qgis.PyQt.QtCore",

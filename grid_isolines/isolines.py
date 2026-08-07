@@ -502,6 +502,506 @@ def _level_step(levels):
     return float(np.min(d)) if d.size else 0.0
 
 
+def _as_layer(src, context):
+    """Слой из чего угодно: строки Processing, пути или самого слоя.
+
+    В цепочке изолиний соседствуют два вида звеньев. Алгоритмы Processing
+    возвращают СТРОКУ-идентификатор, а свои шаги (чистка обрывков,
+    притяжка, овершут) отдают готовый memory-слой: они обходят объекты
+    сами, мимо проверки геометрии Processing. Дальше эти звенья
+    перемешаны, и любое место, разрешающее слой, обязано принимать оба.
+
+    Прямой вызов mapLayerFromString на объекте слоя бросает TypeError.
+    Так и упала полигонизация, когда овершут перестал быть шагом
+    Processing: сама правка была верной, а звено ниже по цепочке о ней не
+    знало. Поэтому разрешение слоя живёт в одном месте.
+    """
+    from qgis.core import QgsProcessingUtils
+    if src is None or isinstance(src, str):
+        return QgsProcessingUtils.mapLayerFromString(src, context) \
+            if src else None
+    return src
+
+
+def _fault_polylines(faults, context):
+    """Разломы списком ломаных [(x, y), ...]. Пусто, если слой не открылся."""
+    from qgis.core import QgsVectorLayer
+    lay = _as_layer(faults, context)
+    if lay is None:
+        lay = QgsVectorLayer(faults, "faults", "ogr")
+    if lay is None or not lay.isValid():
+        return []
+    out = []
+    for f in lay.getFeatures():
+        g = f.geometry()
+        if g is None or g.isEmpty():
+            continue
+        try:
+            parts = (g.asMultiPolyline() if g.isMultipart()
+                     else [g.asPolyline()])
+        except TypeError:                      # QGIS 4 на одиночной геометрии
+            parts = [g.asPolyline()]
+        for part in parts:
+            if len(part) >= 2:
+                out.append([(float(p.x()), float(p.y())) for p in part])
+    return out
+
+
+def _nearest_on_fault(x, y, lines):
+    """Ближайшая точка на разломах: (расстояние, x, y, ломаная) или None."""
+    best = None
+    for pts in lines:
+        for k in range(len(pts) - 1):
+            ax, ay = pts[k]
+            bx, by = pts[k + 1]
+            dx, dy = bx - ax, by - ay
+            den = dx * dx + dy * dy
+            if den <= 0.0:
+                continue
+            s = ((x - ax) * dx + (y - ay) * dy) / den
+            s = 0.0 if s < 0.0 else (1.0 if s > 1.0 else s)
+            cx, cy = ax + s * dx, ay + s * dy
+            d = math.hypot(x - cx, y - cy)
+            if best is None or d < best[0]:
+                best = (d, cx, cy, pts)
+    return best
+
+
+def _on_fault(x, y, lines, eps):
+    """Лежит ли точка на линии разлома с точностью eps."""
+    near = _nearest_on_fault(x, y, lines)
+    return near is not None and near[0] <= eps
+
+
+def _closest_on_fault(x, y, lines, tol):
+    """Ближайшая точка на разломе или None, если притягивать не надо.
+
+    None возвращается в двух случаях. Первый простой: разлом дальше
+    допуска. Второй и есть лекарство от веера: ближайшая точка совпала с
+    КОНЦЕВОЙ вершиной ломаной, то есть исходная точка лежит за концом
+    разлома. Для всех таких точек ближайшая точка одна и та же, и притяжка
+    сводила их в один узел пучком расходящихся отрезков.
+
+    За концом разлома разрыва нет, поверхность там смыкается, и тянуть
+    туда изолинию не к чему.
+    """
+    best = _nearest_on_fault(x, y, lines)
+    if best is None or best[0] > tol:
+        return None
+    d, cx, cy, pts = best
+    eps = max(tol * 1e-3, 1e-9)
+    for tx, ty in (pts[0], pts[-1]):
+        if math.hypot(cx - tx, cy - ty) <= eps:
+            return None
+    return cx, cy
+
+
+def _trim_polyline(pts, cut):
+    """Укоротить ломаную на cut с обоих концов. Чистая математика.
+
+    Нужна коридору. Полоса, доходящая до самого конца разлома, режет
+    изолинии своим торцом, и обрезанный конец оказывается ЗА концевой
+    вершиной линии. Притянуть его нельзя (там разрыв уже сошёл на нет),
+    и он остаётся висеть в стороне от разлома. Полигонизация выбрасывает
+    висячее ребро вместе со всем куском изолинии до ближайшего узла, а
+    узлов у изолиний почти нет - выбрасывается кусок целиком. На карте
+    такая изолиния рисуется без границы пояса под ней, а соседние пояса
+    сливаются.
+
+    Укороченная линия ставит торец коридора внутрь разлома. Тогда любой
+    обрезанный конец лежит сбоку от линии, проекция попадает строго
+    внутрь, и притяжка его берёт.
+
+    Короткая линия не укорачивается до исчезновения: срез не больше трети
+    длины с каждой стороны.
+    """
+    if len(pts) < 2 or cut <= 0.0:
+        return list(pts)
+    seg = [math.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1])
+           for k in range(len(pts) - 1)]
+    total = sum(seg)
+    if total <= 0.0:
+        return list(pts)
+    cut = min(float(cut), total / 3.0)
+
+    def walk(points, lengths, dist):
+        """Точка на расстоянии dist от начала и хвост ломаной после неё."""
+        acc = 0.0
+        for k, ln in enumerate(lengths):
+            if acc + ln >= dist:
+                s = (dist - acc) / ln if ln > 0 else 0.0
+                x = points[k][0] + s * (points[k + 1][0] - points[k][0])
+                y = points[k][1] + s * (points[k + 1][1] - points[k][1])
+                return [(x, y)] + list(points[k + 1:])
+            acc += ln
+        return [points[-1]]
+
+    head = walk(pts, seg, cut)
+    rev = list(reversed(head))
+    seg2 = [math.hypot(rev[k + 1][0] - rev[k][0], rev[k + 1][1] - rev[k][1])
+            for k in range(len(rev) - 1)]
+    return list(reversed(walk(rev, seg2, cut)))
+
+
+def _trimmed_fault_layer(faults, cut, context):
+    """Слой разломов, укороченных на cut с концов, или None."""
+    from qgis.core import (QgsVectorLayer, QgsFeature, QgsGeometry,
+                           QgsPointXY)
+    lines = _fault_polylines(faults, context)
+    if not lines:
+        return None
+    src = _as_layer(faults, context)
+    crs = src.crs() if src is not None else None
+    uri = "LineString?crs=%s" % ((crs.authid() or crs.toWkt()) if crs else "")
+    mem = QgsVectorLayer(uri, "faults_trimmed", "memory")
+    if not mem.isValid():
+        return None
+    feats = []
+    for pts in lines:
+        short = _trim_polyline(pts, cut)
+        if len(short) < 2:
+            continue
+        f = QgsFeature()
+        f.setGeometry(QgsGeometry.fromPolylineXY(
+            [QgsPointXY(x, y) for x, y in short]))
+        feats.append(f)
+    if not feats:
+        return None
+    mem.dataProvider().addFeatures(feats)
+    mem.updateExtents()
+    return mem
+
+
+def _snap_ends_to_faults(iso, faults, tol, context, feedback):
+    """Притянуть концы изолиний к линии разлома по нормали.
+
+    Своя притяжка вместо native:snapgeometries. Штатная тянет конец к
+    ближайшей точке опорного слоя без разбора, и за концом разлома этой
+    точкой оказывается концевая вершина - одна на все окрестные концы.
+    Управлять этим у алгоритма нечем, поэтому проверка стоит здесь.
+
+    Заодно обход объектов идёт мимо проверки геометрии Processing, как в
+    _clean_lines, и вырожденный обрывок не роняет расчёт.
+    """
+    from qgis.core import (QgsProcessingUtils, QgsVectorLayer, QgsFeature,
+                           QgsGeometry, QgsPointXY, QgsWkbTypes)
+    lines = _fault_polylines(faults, context)
+    lay = _as_layer(iso, context)
+    if not lines or lay is None:
+        return iso
+    crs = lay.crs()
+    uri = "%s?crs=%s" % (QgsWkbTypes.displayString(lay.wkbType()),
+                         crs.authid() or crs.toWkt())
+    mem = QgsVectorLayer(uri, "snapped_lines", "memory")
+    if not mem.isValid():
+        return iso
+    mem.dataProvider().addAttributes(lay.fields())
+    mem.updateFields()
+    feats = []
+    moved = 0
+    for f in lay.getFeatures():
+        g = f.geometry()
+        if g is None or g.isEmpty():
+            continue
+        try:
+            parts = (g.asMultiPolyline() if g.isMultipart()
+                     else [g.asPolyline()])
+        except TypeError:
+            parts = [g.asPolyline()]
+        out_parts = []
+        for part in parts:
+            pts = [QgsPointXY(p) for p in part]
+            if len(pts) >= 2:
+                for at in (0, len(pts) - 1):
+                    hit = _closest_on_fault(pts[at].x(), pts[at].y(),
+                                            lines, tol)
+                    if hit is not None:
+                        pts[at] = QgsPointXY(hit[0], hit[1])
+                        moved += 1
+            out_parts.append(pts)
+        ng = (QgsGeometry.fromMultiPolylineXY(out_parts) if len(out_parts) > 1
+              else QgsGeometry.fromPolylineXY(out_parts[0]))
+        nf = QgsFeature(mem.fields())
+        nf.setGeometry(ng)
+        nf.setAttributes(f.attributes())
+        feats.append(nf)
+    mem.dataProvider().addFeatures(feats)
+    mem.updateExtents()
+    feedback.pushInfo(_tr("Концов притянуто к разлому: %d.") % moved)
+    return mem
+
+
+def _extend_ends_xy(pts, over_head, over_tail):
+    """Продлить ломаную [(x, y), ...] с концов. Чистая математика.
+
+    Длина задаётся по концам отдельно, ноль означает не продлевать. У
+    контура области нужен хвостик в ячейку, у разлома - короткий: там
+    достаточно пересечь линию, чтобы стык занодировался.
+
+    Обе вершины-хвостика считаются ДО того, как список изменится, и только
+    потом дописываются. Иначе вставка в начало сдвигает индексы, и второй
+    конец берётся не от той вершины: хвостик уезжает от предпоследней
+    точки, а приписывается к последней. На карте это чужой отрезок поперёк
+    изолиний, а в поясах - незамкнутые грани и потеря части полигонов.
+
+    Замкнутая ломаная не трогается: хвостик на точке замыкания дал бы
+    шпору внутрь поля и лишние полигоны-слайверы.
+    """
+    if len(pts) < 2:
+        return list(pts)
+    (x0, y0), (x1, y1) = pts[0], pts[-1]
+    if abs(x0 - x1) < 1e-12 and abs(y0 - y1) < 1e-12:
+        return list(pts)
+
+    def tip(p, q, over):
+        if over <= 0.0:
+            return None
+        dx, dy = p[0] - q[0], p[1] - q[1]
+        d = math.hypot(dx, dy)
+        if d <= 0.0:
+            return None
+        return (p[0] + dx / d * over, p[1] + dy / d * over)
+
+    head = tip(pts[0], pts[1], float(over_head))
+    tail = tip(pts[-1], pts[-2], float(over_tail))
+    out = list(pts)
+    if tail is not None:
+        out.append(tail)
+    if head is not None:
+        out.insert(0, head)
+    return out
+
+
+def _extend_free_ends(iso, faults, over, context, feedback, hold_r=0.0):
+    """Продлить открытые концы за контур, НЕ перепрыгивая разлом.
+
+    Овершут нужен на контуре области: касание T-стыком в GEOS часто не
+    нодируется, и грань пояса не замыкается. Хвостик полигонизация
+    отбрасывает как висячее ребро, поэтому границы поясов совпадают с
+    изолиниями.
+
+    У разлома он вреден. Конец изолинии там лежит ТОЧНО на линии, потому
+    что его туда притянули, и продление на ячейку выносит его на другое
+    крыло. Изолинии у разлома густые, хвостик достаёт до соседней, и
+    вместе они замыкают лишнюю грань. На карте это тонкие тёмные полосы
+    поперёк разлома: сами изолинии лежат верно, а границы поясов торчат.
+    Именно так артефакт и выглядел, когда изолинии уже были в порядке.
+
+    У разлома хвостик нужен тоже, но КОРОТКИЙ. Отменять его было ошибкой:
+    конец, притянутый на линию, образует с ней T-стык, а такой стык GEOS
+    часто не нодирует - ровно то, ради чего овершут и заведён. Грань не
+    замыкалась, соседние пояса сливались, и под частью изолиний границы
+    полигонов не было вовсе.
+
+    Длинный хвостик у разлома тоже вреден: он выносится на другое крыло и
+    достаёт до соседней изолинии, замыкая лишнюю грань. Отсюда доля от
+    ячейки: пересечь линию хватает, дотянуться до чужого крыла нет. Запас
+    надёжен, потому что коридор уже вычистил полосу своей ширины по обе
+    стороны, и ближайшая чужая изолиния не ближе неё.
+
+    Замкнутые петли не трогаются: овершут на точке замыкания дал бы шпору
+    внутрь поля и лишние полигоны-слайверы.
+
+    Обход идёт по объектам, мимо проверки геометрии Processing. Заодно из
+    цепочки ушли три шага: разделение по замкнутости, продление и слияние
+    обратно.
+    """
+    from qgis.core import (QgsProcessingUtils, QgsVectorLayer, QgsFeature,
+                           QgsGeometry, QgsPointXY, QgsWkbTypes)
+    lay = _as_layer(iso, context)
+    if lay is None:
+        return iso
+    lines = _fault_polylines(faults, context) if faults else []
+    eps = max(float(hold_r), float(over) * 0.05, 1e-9)
+    short = float(over) * 0.1
+    crs = lay.crs()
+    uri = "%s?crs=%s" % (QgsWkbTypes.displayString(lay.wkbType()),
+                         crs.authid() or crs.toWkt())
+    mem = QgsVectorLayer(uri, "extended_lines", "memory")
+    if not mem.isValid():
+        return iso
+    mem.dataProvider().addAttributes(lay.fields())
+    mem.updateFields()
+    feats = []
+    grown = 0
+    held = 0
+    for f in lay.getFeatures():
+        g = f.geometry()
+        if g is None or g.isEmpty():
+            continue
+        try:
+            parts = (g.asMultiPolyline() if g.isMultipart()
+                     else [g.asPolyline()])
+        except TypeError:
+            parts = [g.asPolyline()]
+        out_parts = []
+        for part in parts:
+            xy = [(float(p.x()), float(p.y())) for p in part]
+            at_fault_head = bool(lines) and len(xy) >= 2 and _on_fault(
+                xy[0][0], xy[0][1], lines, eps)
+            at_fault_tail = bool(lines) and len(xy) >= 2 and _on_fault(
+                xy[-1][0], xy[-1][1], lines, eps)
+            held += int(at_fault_head) + int(at_fault_tail)
+            new_xy = _extend_ends_xy(
+                xy,
+                short if at_fault_head else over,
+                short if at_fault_tail else over)
+            grown += max(len(new_xy) - len(xy), 0)
+            out_parts.append([QgsPointXY(x, y) for x, y in new_xy])
+        ng = (QgsGeometry.fromMultiPolylineXY(out_parts) if len(out_parts) > 1
+              else QgsGeometry.fromPolylineXY(out_parts[0]))
+        nf = QgsFeature(mem.fields())
+        nf.setGeometry(ng)
+        nf.setAttributes(f.attributes())
+        feats.append(nf)
+    mem.dataProvider().addFeatures(feats)
+    mem.updateExtents()
+    feedback.pushInfo(_tr("Концов продлено: %d, из них коротко у разлома: %d.")
+                      % (grown, held))
+    return mem
+
+
+def _cut_fault_corridor(processing, iso, faults, width, context, feedback):
+    """Вырезать из изолиний полосу вдоль разлома и притянуть концы к линии.
+
+    Зачем. Грид сплошной, а значения по разные стороны разлома отличаются
+    на всю амплитуду, и скачок приходится на пару соседних ячеек. Контурер
+    рисует в этом промежутке все промежуточные уровни разом: при
+    амплитуде в двадцать метров и сечении в два метра это десяток изолиний
+    в ширине одной ячейки. Геологического смысла у них нет, это
+    интерполяция поперёк разрыва, которого пласт не знает.
+
+    Торцы коридора плоские: полоса обрывается ровно на конце разлома. За
+    концом разрыва уже нет, поверхность смыкается, и резать там нечего.
+    Круглый торец пробовали, и он оставлял в поясах клин: изолинии,
+    обрезанные за концом линии, получали свободные концы посреди
+    просвета, овершут продлевал их навстречу друг другу, и они замыкали
+    лишнюю грань.
+
+    Веер сходящихся линий, который был раньше, формой торца не лечился
+    вовсе: дело было в притяжке. Штатная тянула конец к ближайшей точке
+    разлома, а за концом линии такая точка одна на всех - концевая
+    вершина. Поэтому притяжка своя (_snap_ends_to_faults): конец,
+    ближайшая точка которого совпала с концевой вершиной, не двигается.
+    С плоским торцом такие концы вообще перестали появляться.
+
+    Ширина задаётся в единицах карты. Меньше ячейки брать незачем: скачок
+    занимает ровно ячейку. Заметно больше - начнут пропадать изолинии,
+    идущие вдоль разлома по делу, и просвет у конца станет шире.
+    """
+    if not faults or width <= 0:
+        return iso
+    feedback.pushInfo(_tr("Коридор у разлома: полоса %.4g ед. карты…") % width)
+    # Коридор строится по УКОРОЧЕННОЙ линии, а притягиваются концы к
+    # настоящей. Так торец полосы стоит внутри разлома, и всякий
+    # обрезанный конец лежит сбоку от линии, а не за её концом.
+    axis = _trimmed_fault_layer(faults, float(width), context) or faults
+    buf = processing.run("native:buffer", {
+        "INPUT": axis, "DISTANCE": float(width), "SEGMENTS": 12,
+        "END_CAP_STYLE": 1, "JOIN_STYLE": 0, "MITER_LIMIT": 2.0,
+        "DISSOLVE": True, "OUTPUT": "TEMPORARY_OUTPUT",
+    }, context=context, feedback=feedback,
+        is_child_algorithm=True)["OUTPUT"]
+    iso = processing.run("native:difference", {
+        "INPUT": iso, "OVERLAY": buf, "OUTPUT": "TEMPORARY_OUTPUT",
+    }, context=context, feedback=feedback,
+        is_child_algorithm=True)["OUTPUT"]
+    iso = _clean_lines(iso, context, feedback, _tr("вырезание коридора"))
+    return _snap_ends_to_faults(iso, faults, float(width) * 1.25,
+                                context, feedback)
+
+
+def _split_by_faults(processing, iso, faults, corridor, context, feedback):
+    """Разрез изолиний разломом и вырезание коридора. Общий шаг двух веток."""
+    if not faults:
+        return iso
+    feedback.pushInfo(_tr("Разрез изолиний линиями разломов…"))
+    iso = processing.run("native:splitwithlines", {
+        "INPUT": iso, "LINES": faults, "OUTPUT": "TEMPORARY_OUTPUT",
+    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    iso = _clean_lines(iso, context, feedback, _tr("разрез разломами"))
+    return _cut_fault_corridor(processing, iso, faults, corridor,
+                               context, feedback)
+
+
+def _clean_lines(layer_id, context, feedback, where=""):
+    """Убрать вырожденные линии, не проходя через проверку геометрии.
+
+    Разрез линией разлома оставляет обрывки: если линия проходит точно
+    через вершину изолинии, кусок вырождается в точку или в отрезок
+    нулевой длины. Processing считает такую геометрию некорректной и по
+    умолчанию прерывает расчёт целиком, а не пропускает объект. Падало на
+    продлении открытых концов, и виноват был не тот шаг, на котором
+    вылезло: обрывок родился раньше, при разрезе.
+
+    Чистка идёт обходом объектов и записью в память, минуя проверку
+    Processing: иначе очищающий шаг сам сорвался бы на том, что чистит.
+    Совпадающие соседние узлы снимаются, объекты нулевой длины
+    выбрасываются, число выброшенных уходит в журнал.
+    """
+    from qgis.core import (QgsProcessingUtils, QgsVectorLayer, QgsFeature,
+                           QgsGeometry, QgsWkbTypes)
+    lay = _as_layer(layer_id, context)
+    if lay is None:
+        return layer_id
+    crs = lay.crs()
+    uri = "%s?crs=%s" % (QgsWkbTypes.displayString(lay.wkbType()),
+                         crs.authid() or crs.toWkt())
+    mem = QgsVectorLayer(uri, "clean_lines", "memory")
+    if not mem.isValid():
+        return layer_id
+    mem.dataProvider().addAttributes(lay.fields())
+    mem.updateFields()
+    feats = []
+    dropped = 0
+    for f in lay.getFeatures():
+        g = QgsGeometry(f.geometry())
+        if g is None or g.isEmpty():
+            dropped += 1
+            continue
+        g.removeDuplicateNodes()
+        if g.isEmpty() or float(g.length()) <= 0.0:
+            dropped += 1
+            continue
+        nf = QgsFeature(mem.fields())
+        nf.setGeometry(g)
+        nf.setAttributes(f.attributes())
+        feats.append(nf)
+    mem.dataProvider().addFeatures(feats)
+    mem.updateExtents()
+    if dropped:
+        feedback.pushInfo(_tr("Вырожденных обрывков отброшено: %d%s.")
+                          % (dropped, (" (%s)" % where) if where else ""))
+    return mem
+
+
+def _drop_fid(processing, layer_id, context, feedback):
+    """Убрать поле fid, пришедшее из GeoPackage.
+
+    gdal:contour пишет во временный GeoPackage, а QGIS показывает у слоя
+    GPKG служебный ключ fid обычным полем. Дальше оно едет по всей цепочке
+    как атрибут. Пока изолинию никто не разрезал, значения оставались
+    уникальными и всё работало. Разрез линией разлома делает из одной
+    изолинии несколько кусков с ОДНИМ И ТЕМ ЖЕ fid, и запись результата в
+    GeoPackage падает на UNIQUE constraint failed: OUTPUT.fid.
+
+    Поле снимается сразу после контуринга, один раз для всех потребителей:
+    любой шаг, размножающий объекты (разрез, разбор мультичастей), даёт ту
+    же беду, и чинить её у каждого по отдельности значит ждать следующего.
+    """
+    from qgis.core import QgsProcessingUtils
+    try:
+        lay = _as_layer(layer_id, context)
+        names = [f.name() for f in lay.fields()] if lay is not None else []
+    except (AttributeError, RuntimeError):
+        return layer_id
+    if "fid" not in names:
+        return layer_id
+    return processing.run("native:deletecolumn", {
+        "INPUT": layer_id, "COLUMN": ["fid"], "OUTPUT": "TEMPORARY_OUTPUT",
+    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+
+
 def _contour_lines(processing, raster, band, interval, base, levels,
                    min_length, line_iter, field_name, ignore_nodata, nodata,
                    context, feedback, confidence=0, conf_frac=0.01):
@@ -529,6 +1029,7 @@ def _contour_lines(processing, raster, band, interval, base, levels,
     feedback.pushInfo("gdal:contour…")
     cur = processing.run("gdal:contour", params, context=context,
                          feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    cur = _drop_fid(processing, cur, context, feedback)
 
     # Уверенность считаем ДО фильтра коротких линий: иначе обрывки, оставшиеся
     # от разрезания, попали бы в статистику длин и часть выкинулась бы дважды
@@ -719,7 +1220,7 @@ def isolines_from_raster(raster, band, interval, base, levels_text,
                          densify, line_iter, field_name, ignore_nodata, nodata,
                          final_output, context, feedback, slope_ref=None,
                          uphill_ref=None, confidence=0, conf_frac=0.01,
-                         hatch_flip=0):
+                         hatch_flip=0, faults=None, corridor=0.0):
     """Изолинии-линии. levels_text (если задан) имеет приоритет над шагом.
     Сглаживание - на уровне поля; line_iter - лёгкое скругление линий."""
     from qgis import processing
@@ -731,6 +1232,9 @@ def isolines_from_raster(raster, band, interval, base, levels_text,
     cur = _contour_lines(processing, rp, rb, interval, base, levels,
                          min_length, li, field_name, ignore_nodata, nodata,
                          context, feedback, confidence, conf_frac)
+    # Разлом режет изолинии и тогда, когда пояса не строятся: разрыв
+    # принадлежит линиям, а не полигонам.
+    cur = _split_by_faults(processing, cur, faults, corridor, context, feedback)
     return _finalize_lines(processing, cur, interval, base, index_every,
                            field_name, final_output, context, feedback,
                            slope_ref=slope_ref, uphill_ref=uphill_ref,
@@ -741,14 +1245,18 @@ def isolines_from_raster(raster, band, interval, base, levels_text,
 #  Полигоны = пояса между изолиниями (границы совпадают с линиями, без дыр)
 # ---------------------------------------------------------------------------
 def _layer_from_string(s, context):
-    """Загружает слой по строке-результату дочернего алгоритма (id/путь)."""
+    """Слой по результату дочернего алгоритма, с проверкой годности.
+
+    Разрешение делает _as_layer, поэтому объект слоя принимается наравне
+    со строкой. Отличие от _as_layer одно: здесь негодный слой это None,
+    а не он сам.
+    """
     if s is None:
         return None
     try:
-        from qgis.core import QgsProcessingUtils
-        lyr = QgsProcessingUtils.mapLayerFromString(s, context)
+        lyr = _as_layer(s, context)
         return lyr if (lyr is not None and lyr.isValid()) else None
-    except Exception:
+    except (TypeError, AttributeError, RuntimeError):
         return None
 
 
@@ -833,7 +1341,7 @@ def _sample_value(arr, valid, gt, x, y, max_r=4):
 
 
 def _polygonize_belts(processing, lines_layer, area_lines, crs, context,
-                      feedback):
+                      feedback, faults=None):
     """Строит замкнутые пояса из набора линий + контура области.
 
     Нодирование и полигонизация - напрямую через GEOS (QgsGeometry.unaryUnion +
@@ -845,8 +1353,14 @@ def _polygonize_belts(processing, lines_layer, area_lines, crs, context,
     from qgis.core import (QgsProcessingUtils, QgsGeometry, QgsVectorLayer,
                             QgsFeature)
     geoms = []
-    for lid in (lines_layer, area_lines):
-        lay = QgsProcessingUtils.mapLayerFromString(lid, context)
+    # Линия разлома входит в сеть наравне с изолиниями и контуром: тогда
+    # грани замыкаются точно по ней, и граница поясов идёт по разлому, а
+    # не ступеньками по ячейкам.
+    sources = [lines_layer, area_lines]
+    if faults:
+        sources.append(faults)
+    for lid in sources:
+        lay = _as_layer(lid, context)
         if lay is None:
             continue
         for f in lay.getFeatures():
@@ -874,8 +1388,30 @@ def _polygonize_belts(processing, lines_layer, area_lines, crs, context,
     return mem
 
 
+def belt_thickness(geom):
+    """Средняя толщина полигона: удвоенная площадь на периметр.
+
+    У полосы, порождённой разрывом грида, ширина около ячейки при любой
+    длине, поэтому по площади её не отличить от настоящего пояса: полоса
+    вдоль разлома тянется на сотни ячеек и площадь имеет большую.
+    Отношение площади к периметру от длины не зависит и даёт как раз
+    ширину.
+
+    Для вытянутой фигуры длиной L и шириной w площадь равна L·w, периметр
+    примерно 2L, и удвоенное отношение даёт w. Для компактной фигуры
+    величина завышена, но там она и не нужна: пояс шириной в десятки
+    ячеек порог проходит с запасом.
+    """
+    if geom is None or geom.isEmpty():
+        return 0.0
+    per = float(geom.length())
+    if per <= 0.0:
+        return 0.0
+    return 2.0 * float(geom.area()) / per
+
+
 def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
-                    final_output, context, feedback):
+                    final_output, context, feedback, min_thick=0.0):
     """Каждому поясу присваивает диапазон уровней выборкой растра в
     репрезентативной точке (point-on-surface) и сохраняет слой."""
     from qgis.core import (
@@ -910,6 +1446,7 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
 
     feedback.pushInfo(_tr("Назначение диапазонов поясам…"))
     out_feats = []
+    n_thin = 0
     n_total = max(poly_layer.featureCount(), 1)
     for i, feat in enumerate(poly_layer.getFeatures()):
         g = feat.geometry()
@@ -920,6 +1457,9 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
             rep = g.centroid()
         if rep is None or rep.isEmpty():
             continue
+        if min_thick > 0.0 and belt_thickness(g) < min_thick:
+            n_thin += 1
+            continue                       # полоса с разрыва, а не пояс
         p = rep.asPoint()
         val = _sample_value(arr, valid, gt, p.x(), p.y())
         if val is None:
@@ -933,6 +1473,23 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
         out_feats.append(nf)
         if i % 200 == 0:
             feedback.setProgress(int(100.0 * i / n_total))
+    if n_thin:
+        feedback.pushInfo(_tr(
+            "Отброшено полос тоньше %.3g: %d. Такой полигон не возникает из "
+            "склона, он только из скачка между соседними ячейками - у "
+            "разлома, обрыва или края области.") % (min_thick, n_thin))
+        # Порог задуман против обрывков у разрыва, а не против нормальных
+        # поясов. На крутой поверхности с частым сечением пояс между
+        # соседними уровнями сам по себе уже ячейки, и порог в ячейку
+        # выкашивает карту. Молчать об этом нельзя: на выходе останется
+        # горстка полигонов, и причина будет неочевидна.
+        if n_thin * 2 > n_total:
+            feedback.pushWarning(_tr(
+                "Отсеяно больше половины поясов (%d из %d). Порог толщины "
+                "задуман против обрывков у разрыва. На крутой поверхности "
+                "с частым сечением нормальный пояс сам по себе уже ячейки, "
+                "и порог выкашивает карту. Уменьшите порог или поставьте "
+                "ноль.") % (n_thin, n_total))
     if not out_feats:
         raise QgsProcessingException(_tr("Ни один пояс не получил значения."))
     dp.addFeatures(out_feats)
@@ -946,7 +1503,8 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
                           densify, line_iter, field_name, ignore_nodata, nodata,
                           lines_output, polygons_output, context, feedback,
                           slope_ref=None, uphill_ref=None,
-                          hatch_flip=0):
+                          hatch_flip=0, min_thick=0.0, faults=None,
+                          corridor=0.0):
     """Изолинии И контурные пояса из ОДНОГО набора линий.
 
     Сглаживание выполняется один раз на уровне поля (растра); этот же
@@ -988,6 +1546,11 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
     iso = _contour_lines(processing, rp, rb, interval, base, levels,
                          min_length, li, field_name, ignore_nodata, nodata,
                          context, feedback)
+    # Разлом режет изолинии по векторной части, а не по гриду: ячейка не
+    # передаёт диагональ, и вырезанный из грида барьер шёл бы ступеньками.
+    # Здесь линия точная, разрез идёт ровно по ней.
+    iso = _split_by_faults(processing, iso, faults, corridor, context, feedback)
+
     snap_tol = float(3.0 * px)
     feedback.pushInfo(_tr("Согласование концов изолиний с контуром…"))
     iso = processing.run("native:snapgeometries", {
@@ -1013,25 +1576,17 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
     iso_single = processing.run("native:multiparttosingleparts", {
         "INPUT": iso, "OUTPUT": "TEMPORARY_OUTPUT",
     }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    iso_single = _clean_lines(iso_single, context, feedback,
+                              _tr("разбор мультичастей"))
     feedback.pushInfo(_tr("Продление открытых концов за контур…"))
-    split = processing.run("native:extractbyexpression", {
-        "INPUT": iso_single,
-        "EXPRESSION":
-            "distance(start_point($geometry), end_point($geometry)) > 0",
-        "OUTPUT": "TEMPORARY_OUTPUT", "FAIL_OUTPUT": "TEMPORARY_OUTPUT",
-    }, context=context, feedback=feedback, is_child_algorithm=True)
-    open_ext = processing.run("native:extendlines", {
-        "INPUT": split["OUTPUT"], "START_DISTANCE": over,
-        "END_DISTANCE": over, "OUTPUT": "TEMPORARY_OUTPUT",
-    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
-    iso_for_poly = processing.run("native:mergevectorlayers", {
-        "LAYERS": [open_ext, split["FAIL_OUTPUT"]],
-        "CRS": crs, "OUTPUT": "TEMPORARY_OUTPUT",
-    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    iso_for_poly = _extend_free_ends(iso_single, faults, over,
+                                     context, feedback,
+                                     hold_r=float(corridor) * 1.1)
     polys_src = _polygonize_belts(processing, iso_for_poly, area_lines, crs,
-                                  context, feedback)
+                                  context, feedback, faults=faults)
     polys_out = _belts_to_layer(processing, polys_src, arr, valid, gt, levels,
-                                crs, polygons_output, context, feedback)
+                                crs, polygons_output, context, feedback,
+                                min_thick=min_thick)
 
     return {"lines": lines_out, "polygons": polys_out}
 

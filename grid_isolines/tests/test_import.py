@@ -18,6 +18,29 @@ import sys
 import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# Заглушки живут в sys.modules и переживают файл, если их не убрать. Без
+# уборки подставной «osgeo» доставался тестам, идущим следом по алфавиту,
+# и их пропуск по ImportError не срабатывал. Тот же приём, что в
+# tests/test_algorithms_init.py.
+_SAVED_MODULES = None
+
+
+def setup_module(module):
+    """Снимок sys.modules до первого теста файла."""
+    global _SAVED_MODULES
+    _SAVED_MODULES = dict(sys.modules)
+
+
+def teardown_module(module):
+    """Вернуть sys.modules в исходное состояние."""
+    if _SAVED_MODULES is None:
+        return
+    for name in list(sys.modules):
+        if name not in _SAVED_MODULES:
+            del sys.modules[name]
+    sys.modules.update(_SAVED_MODULES)
+
 PKG = os.path.dirname(HERE)
 ROOT = os.path.dirname(PKG)
 
@@ -46,6 +69,11 @@ def main():
         importlib.import_module(m)
         print("[ok] import", m)
     print("ALL IMPORTS OK")
+
+
+def test_modules_import_under_pytest():
+    """Обёртка для pytest, см. пояснение в tests/test_i18n.py."""
+    main()
 
 
 if __name__ == "__main__":

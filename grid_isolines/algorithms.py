@@ -96,6 +96,7 @@ from qgis.core import (
 
 from .kb2d import (
     Variogram, build_grid, clip_outliers, cross_validate, EPS, PolyTrend,
+    fault_segments as kb2d_fault_segments,
     cross_validate_detrend, ExternalDrift, exceedance_prob,
     experimental_variogram, fit_variogram, model_curve, variogram_map,
     MODEL_SPHERICAL, MODEL_EXPONENTIAL, MODEL_GAUSSIAN, GAUSS_MIN_NUGGET_FRAC)
@@ -1809,10 +1810,47 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
             "по блоку, стандартная ошибка блочная (ниже точечной). Значения в "
             "узлах-пробах точно не воспроизводятся.") % (ndisc, ndisc))
 
+    # Разломы: замер за линией в выборку ячейки не идёт, и поверхность
+    # вдоль неё рвётся. У затухающего разлома влияние огибает его конец
+    # само, поэтому линия не обязана рассекать площадь насквозь.
+    fsegs = None
+    fsrc = None
+    if hasattr(alg, "FAULTS") and parameters.get(alg.FAULTS) is not None:
+        fsrc = alg.parameterAsSource(parameters, alg.FAULTS, context)
+    if fsrc is not None:
+        lines = []
+        for ft in fsrc.getFeatures():
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            for part in (g.asMultiPolyline() if g.isMultipart()
+                         else [g.asPolyline()]):
+                if len(part) >= 2:
+                    lines.append([(p.x(), p.y()) for p in part])
+        if lines:
+            fsegs = kb2d_fault_segments(lines)
+            feedback.pushInfo(_tr(
+                "Разломов подано %d, звеньев %d. Замер за разломом "
+                "в выборку не идёт, и поверхность вдоль линии рвётся. "
+                "Разлом проверяется точной геометрией, в сетку он не "
+                "переводится, поэтому пустых ячеек вдоль линии не "
+                "возникает. Отбираются по видимости только соседи: "
+                "ковариации между самими замерами остаются евклидовыми, "
+                "иначе система потеряет положительную определённость.")
+                % (len(lines), int(len(fsegs))))
+
     res = build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                      rad2, nodata, xmn, ymn, cell, nx, ny, progress=prog,
-                     with_variance=want_se, ndisc=ndisc)
+                     with_variance=want_se, ndisc=ndisc, fault_segs=fsegs)
     grid, segrid = res if want_se else (res, None)
+
+    # Дырки в гриде по разлому нет ни явной, ни случайной. Явную не
+    # делаем: разрыв живёт в векторной части, изолинии режутся линией
+    # разлома в 1.04. Случайная возникала, пока барьер был растровой
+    # маской - луч видимости начинается в центре оцениваемой ячейки, и
+    # ячейка на линии не видела ни одного замера, получая nodata. Теперь
+    # разлом проверяется точной геометрией, барьерных ячеек не существует,
+    # и крыло у ячейки определяется само стороной, с которой лежит центр.
 
     # --- регрессия-кригинг: возврат тренда к оценке ------------------------
     # Координаты ячеек строго как в build_grid (строка 0 - север):
@@ -2281,6 +2319,7 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
     CELL_SIZE, EXTENT, OUTPUT = "CELL_SIZE", "EXTENT", "OUTPUT"
     CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
     OUTPUT_STDERR = "OUTPUT_STDERR"
+    FAULTS = "FAULTS"
     PROFILE = "PROFILE"
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
 
@@ -2303,14 +2342,44 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
 
     def shortHelpString(self):
         return _help_version(self.tr(
-            "Ординарный/простой кригинг 2D по точечному слою (ядро GSLIB KB2D). "
-            "Вариограмма: наггет + структура (сферическая, экспоненциальная, "
-            "гауссова или степенная) с азимутом и анизотропией. "
-            "Подходит для отметок пласта, мощностей, ФМС, химии и любых "
-            "числовых атрибутов.\n\nРадиус поиска 0 = по всей выборке; "
-            "размер ячейки 0 = min(охват)/50; радиус корреляции 0 = "
-            "max(охват)/3. Опция обрезки убирает экстраполяцию вне контура "
-            "скважин.") + _credit())
+            "Ординарный или простой кригинг 2D по точечному слою (ядро GSLIB "
+            "KB2D). Вариограмма: наггет плюс структура (сферическая, "
+            "экспоненциальная, гауссова или степенная) с азимутом и "
+            "анизотропией. Подходит для отметок пласта, мощностей, ФМС, химии "
+            "и любых числовых атрибутов.\n\n"
+            "**Радиус поиска** 0 означает всю выборку, **размер ячейки** 0 - "
+            "одну пятидесятую меньшей стороны охвата, **радиус корреляции** "
+            "0 - треть большей стороны. **Обрезка по контуру скважин** убирает "
+            "экстраполяцию за пределы данных.\n\n"
+            "**Разломы** подаются линиями и работают барьерами влияния: замер, "
+            "отрезок до которого пересекает линию, в выборку ячейки не идёт. "
+            "Поверхность вдоль разлома рвётся, и изолинии по такому гриду "
+            "рвутся сами.\n\n"
+            "Линия не обязана рассекать площадь насквозь. У затухающего "
+            "разлома влияние огибает его конец, и поверхность выше конца "
+            "смыкается. Сгущение изолиний у самого конца при этом нормально: "
+            "амплитуда там падает до нуля, и все промежуточные уровни "
+            "укладываются в узкую полосу.\n\n"
+            "Барьер проверяется точной геометрией, в сетку разлом не "
+            "переводится. Поэтому косая линия не даёт ступенек по ячейкам, "
+            "пустых ячеек вдоль разлома не возникает, а крыло у ячейки "
+            "определяется само стороной, с которой лежит её центр. Отдельно "
+            "делить площадь на блоки не нужно. Замер, стоящий точно на "
+            "разломе, виден с обоих крыльев: скважина на линии принадлежит "
+            "обеим сторонам.\n\n"
+            "**Приближение названо прямо.** По видимости отбираются только "
+            "соседи, а ковариации между самими замерами остаются евклидовыми. "
+            "Занулять их нельзя: система кригинга потеряет положительную "
+            "определённость и станет вырожденной. Именно из-за этого кригинг "
+            "с разломами встречается редко, а часть пакетов от него "
+            "отказалась в пользу минимальной кривизны. Ценой приближения "
+            "служит то, что вблизи линии веса соседей рассчитаны без учёта "
+            "разрыва между ними самими. На расстояниях порядка радиуса "
+            "корреляции это заметно мало, на очень частой сети у самой линии "
+            "может слегка занижать контраст.\n\n"
+            "Разломы принимает и 1.03, и 1.04. В 1.03 барьер разрывает связи "
+            "между узлами сетки, в 1.04 - режет готовые изолинии по линии.") 
+            + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -2381,6 +2450,9 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.SMOOTH_RADIUS, 1.0),
             minValue=0.0, maxValue=10.0))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.FAULTS, self.tr("Разломы (линии, барьеры влияния)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Растр кригинга")))
         se = QgsProcessingParameterRasterDestination(
@@ -3001,6 +3073,9 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
     STYLE = "STYLE"
     ADD_Z = "ADD_Z"
     FIELD_NAME, OUTPUT, OUTPUT_POLYGONS = "FIELD_NAME", "OUTPUT", "OUTPUT_POLYGONS"
+    MIN_THICK = "MIN_THICK"
+    FAULTS = "FAULTS"
+    CORRIDOR = "CORRIDOR"
 
     # выбор стиля линий -> имя пресета в папке styles (None = без стиля).
     # Депрессия сама включает расчёт стороны склона (dn_sign), отдельной галки нет.
@@ -3034,7 +3109,36 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
             "границы СОВПАДАЮТ с изолиниями, покрытие сплошное. Чтобы их не "
             "строить - очистите поле «Контурные полигоны».\n\nПоля: линии - "
             "значение уровня (по умолчанию ELEV) и is_index (1 у главных); "
-            "полигоны - ELEV_MIN/ELEV_MAX (диапазон пояса).\n\nФлажок **Топографические подписи** задаёт линиям одно направление относительно склона, и тогда верх цифры всегда смотрит вверх по склону, как на топокарте. QGIS отсчитывает верх подписи от направления линии, поэтому поворот текста задавать не нужно. В слое остаётся поле up_side: 1 означает, что линия оставлена как была, 0 что развёрнута.\n\nВажно: в настройках подписей слоя должно быть разрешено показывать перевёрнутые подписи. Иначе QGIS доворачивает текст ради читаемости и сводит разворот линий на нет. В стилях **Структура** и **Депрессия** это уже настроено. Если подписываете своим стилем, включите в разделе отрисовки подписей показ перевёрнутых. Топографическая подпись по определению бывает перевёрнутой: на склоне, обращённом на юг, цифра читается вверх ногами.") + _credit())
+            "полигоны - ELEV_MIN/ELEV_MAX (диапазон пояса).\n\nФлажок **Топографические подписи** задаёт линиям одно направление относительно склона, и тогда верх цифры всегда смотрит вверх по склону, как на топокарте. QGIS отсчитывает верх подписи от направления линии, поэтому поворот текста задавать не нужно. В слое остаётся поле up_side: 1 означает, что линия оставлена как была, 0 что развёрнута.\n\nВажно: в настройках подписей слоя должно быть разрешено показывать перевёрнутые подписи. Иначе QGIS доворачивает текст ради читаемости и сводит разворот линий на нет. В стилях **Структура** и **Депрессия** это уже настроено. Если подписываете своим стилем, включите в разделе отрисовки подписей показ перевёрнутых. Топографическая подпись по определению бывает перевёрнутой: на склоне, обращённом на юг, цифра читается вверх ногами.\n\n"
+            "**Разломы** подаются линиями и режут изолинии точно по линии, а не "
+            "по ячейкам. Линия входит и в сеть построения поясов, поэтому "
+            "граница пояса идёт ровно по разлому. Разрыв живёт в векторной "
+            "части: грид при этом сплошной, дырок в нём нет.\n\n"
+            "**Ширина коридора у разлома** задаётся в ячейках, умолчание одна. "
+            "Зачем она нужна: значения по разные стороны разлома отличаются на "
+            "всю амплитуду, а скачок приходится на пару соседних ячеек. "
+            "Контурер рисует в этом промежутке все промежуточные уровни разом, "
+            "и вдоль линии получается полоса частых изолиний. Геологического "
+            "смысла у неё нет, это интерполяция поперёк разрыва, которого пласт "
+            "не знает. Полоса вырезается, а концы освободившихся изолиний "
+            "притягиваются к самой линии.\n\n"
+            "Ноль отключает вырезание. Меньше ячейки брать незачем: скачок "
+            "занимает ровно ячейку. Заметно больше - начнут пропадать "
+            "изолинии, идущие вдоль разлома по делу.\n\n"
+            "У затухающего конца разлома остаётся короткий участок частых "
+            "изолиний длиной около ширины коридора, и это верно по смыслу: "
+            "разрыв там сошёл на нет, поверхность смыкается, и рвать её нечем. "
+            "Изолинии, огибающие конец, сходятся в узкий пучок - так "
+            "затухающий разлом и выглядит на структурной карте.\n\n"
+            "**Наименьшая толщина полигона** задаётся в ячейках и отсекает "
+            "узкие полосы поясов. Толщина считается как удвоенная площадь на "
+            "периметр. Порог задуман против обрывков у разрыва там, где линии "
+            "разломов не поданы: у карьеров, обрывов и края области. "
+            "Пользоваться им надо осторожно. На крутой поверхности с частым "
+            "сечением нормальный пояс между соседними уровнями сам по себе уже "
+            "ячейки, и порог в ячейку выкосит карту. Инструмент предупреждает "
+            "в журнале, если отсеял больше половины поясов. Умолчание ноль, "
+            "то есть отсева нет.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -3073,6 +3177,19 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterVectorDestination(
             self.OUTPUT, self.tr("Изолинии (линии)"),
             type=QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.FAULTS, self.tr("Разломы (линии, разрыв изолиний)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.CORRIDOR,
+            self.tr("Ширина коридора у разлома, ячеек (0 - не вырезать)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.CORRIDOR, 1.0), minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MIN_THICK,
+            self.tr("Наименьшая толщина полигона, ячеек (0 - не отсекать)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.MIN_THICK, 0.0), minValue=0.0)))
         self.addParameter(QgsProcessingParameterVectorDestination(
             self.OUTPUT_POLYGONS, self.tr("Контурные полигоны"),
             type=QgsProcessing.SourceType.TypeVectorPolygon,
@@ -3139,13 +3256,42 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
             eps2 = rl.rasterUnitsPerPixelX() or 1.0
             uphill_ref = (rl.id(), band, float(eps2))
 
+        cell_sz = rl.rasterUnitsPerPixelX() or 1.0
+        min_thick = self.parameterAsDouble(
+            parameters, self.MIN_THICK, context) * float(cell_sz)
+        f_src = self.parameterAsSource(parameters, self.FAULTS, context) \
+            if parameters.get(self.FAULTS) is not None else None
+        faults_id = None
+        corridor = self.parameterAsDouble(
+            parameters, self.CORRIDOR, context) * float(cell_sz)
+        if f_src is not None:
+            faults_id = self.parameterAsCompatibleSourceLayerPath(
+                parameters, self.FAULTS, context, ["gpkg", "shp"])
+            feedback.pushInfo(_tr(
+                "Разломы поданы: изолинии режутся по линии, и граница "
+                "поясов идёт точно по ней. Разрыв живёт в векторной "
+                "части, поэтому ступенек по ячейкам не будет."))
+            if corridor > 0:
+                feedback.pushInfo(_tr(
+                    "Коридор у разлома %.4g ед. карты. Скачок значений "
+                    "приходится на пару соседних ячеек, и контурер рисует "
+                    "в этом промежутке все промежуточные уровни разом. "
+                    "Полоса вырезается, концы притягиваются к линии.")
+                    % corridor)
+            else:
+                feedback.pushInfo(_tr(
+                    "Коридор у разлома выключен. Вдоль линии останется "
+                    "полоса частых изолиний шириной в ячейку: это "
+                    "интерполяция поперёк разрыва."))
+
         if poly_dest:
             # линии и пояса строятся из ОДНОГО набора линий -> границы совпадают
             res = isolines_and_polygons(
                 rl.source(), band, interval, base, levels, index_every,
                 min_len, False, 0.0, densify, sm_line, field_name, True, nodata,
                 out_dest, poly_dest, context, feedback, slope_ref=slope_ref,
-                uphill_ref=uphill_ref,
+                uphill_ref=uphill_ref, min_thick=min_thick, faults=faults_id,
+                corridor=corridor,
                 hatch_flip={0: 0, 1: 1, 2: -1}[self.parameterAsEnum(
                     parameters, self.HATCH, context)])
             out, poly = res["lines"], res["polygons"]
@@ -3171,6 +3317,7 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
                                                 context),
                 conf_frac=self.parameterAsDouble(parameters, self.CONF_FRAC,
                                                  context),
+                faults=faults_id, corridor=corridor,
                 hatch_flip={0: 0, 1: 1, 2: -1}[self.parameterAsEnum(
                     parameters, self.HATCH, context)])
             if add_z:
@@ -3940,6 +4087,8 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
     HYDRO = "HYDRO"
     SEED = "SEED"
     OUTPUT = "OUTPUT"
+    FAULT, THROW = "FAULT", "THROW"
+    OUTPUT_FAULT = "OUTPUT_FAULT"
     OUTPUT_DRIFT = "OUTPUT_DRIFT"
 
     def tr(self, s): return _tr(s)
@@ -3950,7 +4099,7 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
         return "examplewells"
 
     def displayName(self):
-        return self.tr("1.10 Создать пример скважин (демо)")
+        return self.tr("1.10 Пример скважин (демо)")
 
     def group(self): return self.tr(GROUP)
 
@@ -3978,7 +4127,23 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
             "добавляет напор и лог-нормальные поля K (коэф. фильтрации) и "
             "T = K·мощность для «Удельного расхода (Дарси)». Включённый вывод "
             "«Поверхность дрейфа» даёт растр сторонней поверхности и поле dz, "
-            "линейно с ней связанное, для кригинга с внешним дрейфом."))
+            "линейно с ней связанное, для кригинга с внешним дрейфом.\n\n"
+            "**Амплитуда разлома** задаёт учебный разрыв. Генератор проводит "
+            "линию поперёк площади, не доводя её до краёв, и прибавляет "
+            "амплитуду к значению у всех скважин по одну сторону. Прибавка "
+            "действует только в пределах длины линии, поэтому выше её конца "
+            "обе стороны одинаковы и поверхность там обязана смыкаться. Линия "
+            "выдаётся отдельным выходом **Разлом (демо)** и подаётся дальше в "
+            "1.02, 1.03 и 1.04.\n\n"
+            "При нуле линия всё равно выдаётся, но сдвига нет: разлом есть "
+            "геометрически и отсутствует по значениям. Это удобный контрольный "
+            "прогон - барьер работает, а рвать нечего.\n\n"
+            "Для проверки барьера берите амплитуду заметно больше радиуса "
+            "корреляции, тогда скачок очевиден. Для проверки коридора в 1.04 "
+            "хватит амплитуды порядка сечения изолиний.\n\n"
+            "Значение амплитуды пишется в атрибут throw выходного слоя разлома. "
+            "Атрибут справочный: инструменты его не читают, барьер у них чисто "
+            "геометрический и о величине смещения не знает."))
 
     def createInstance(self):
         return ExampleWellsAlgorithm()
@@ -4030,6 +4195,14 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
             self.SEED, self.tr("Зерно ГСЧ (0 = случайно)"),
             QgsProcessingParameterNumber.Type.Integer, defaultValue=0, minValue=0)
         _advanced(p); self.addParameter(p)
+        self.addParameter(QgsProcessingParameterNumber(
+            self.THROW, self.tr("Амплитуда разлома, единицы значения"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.THROW, 0.0)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_FAULT, self.tr("Разлом (демо)"),
+            type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Скважины (демо)"),
             type=QgsProcessing.SourceType.TypeVectorPoint))
@@ -4158,6 +4331,36 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Type.Point, crs)
+
+        # Разлом: линия поперёк площади, не доходящая до краёв, и сдвиг
+        # значений по разные стороны от неё. Затухающий конец нужен
+        # намеренно: на нём видно, что влияние огибает разлом, а не
+        # обрывается по всей линии.
+        throw = self.parameterAsDouble(parameters, self.THROW, context)
+        fx = xmin + 0.5 * (xmax - xmin)
+        fy0 = ymin + 0.12 * (ymax - ymin)
+        fy1 = ymin + 0.72 * (ymax - ymin)
+        ff = QgsFields()
+        ff.append(QgsField("name", QVariant.String))
+        ff.append(QgsField("throw", QVariant.Double))
+        fsink, fdest = self.parameterAsSink(
+            parameters, self.OUTPUT_FAULT, context, ff,
+            QgsWkbTypes.Type.LineString, crs)
+        if fsink is not None:
+            ft = QgsFeature(ff)
+            ft.setGeometry(QgsGeometry.fromPolylineXY(
+                [QgsPointXY(fx, fy0), QgsPointXY(fx, fy1)]))
+            ft.setAttributes([_tr("Разлом (демо)"), throw])
+            fsink.addFeature(ft)
+        if abs(throw) > 1e-12:
+            side = (xs > fx) & (ys >= fy0) & (ys <= fy1)
+            valsX = np.asarray(valsX, float).copy()
+            valsX[side] += throw
+            feedback.pushInfo(_tr(
+                "Разлом с амплитудой %.3g: значения сдвинуты по одну "
+                "сторону от линии. Линия не доходит до краёв площади, и "
+                "выше её конца поверхность обязана смыкаться.") % throw)
+
         for i in range(n):
             f = QgsFeature(fields)
             f.setGeometry(QgsGeometry.fromPointXY(
@@ -4176,6 +4379,8 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
             f.setAttributes(attrs)
             sink.addFeature(f)
 
+        if fsink is not None:
+            _set_output_name(context, fdest, _tr("Разлом (демо)"))
         rng_m = 2.0 * smooth * max(xmax - xmin, ymax - ymin)
         var = float(np.var(valsX))
         feedback.pushInfo(
@@ -4442,7 +4647,7 @@ class GeophysProfilesDemoAlgorithm(IsolinerAlgorithm):
     def helpUrl(self): return _help_url()
     def name(self): return "geophysprofiles"
     def displayName(self):
-        return self.tr("1.11 Создать пример геофизических профилей (демо)")
+        return self.tr("1.11 Пример геофизических профилей (демо)")
     def group(self): return self.tr(GROUP)
     def groupId(self): return "grid_isolines"
     def createInstance(self): return GeophysProfilesDemoAlgorithm()
@@ -4966,7 +5171,7 @@ class DensityDemoAlgorithm(IsolinerAlgorithm):
     def helpUrl(self): return _help_url()
     def name(self): return "densitydemo"
     def displayName(self):
-        return self.tr("3.08 Создать пример для плотности (демо)")
+        return self.tr("3.08 Пример для плотности (демо)")
     def group(self): return self.tr(GROUP2)
     def groupId(self): return GROUP2_ID
     def createInstance(self): return DensityDemoAlgorithm()
@@ -5339,13 +5544,13 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
                     gev = experimental_variogram(gx, gy, gv, n_lags=n_lags,
                                                  maxlag=ev["maxlag"], robust=robust,
                                                  cloud_max=0)
-                    label = "%s = %s" % (gfield, "—" if g is None else g)
+                    label = "%s = %s" % (gfield, _tr("(пусто)") if g is None else g)
                     col = _VG_COLORS[(k + 1) % len(_VG_COLORS)]
                     series.append({"label": label, "lag": gev["lag"],
                                    "gamma": gev["gamma"], "npairs": gev["npairs"],
                                    "color": col})
                 if skipped:
-                    txt = ", ".join("%s (%d)" % (("—" if g is None else g), n)
+                    txt = ", ".join("%s (%d)" % ((_tr("(пусто)") if g is None else g), n)
                                     for g, n in skipped)
                     feedback.pushInfo(_tr("Группы меньше %d точек пропущены: %s.")
                                       % (group_min, txt))
@@ -6927,7 +7132,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionDemoAlgorithm()
     def name(self): return "section_demo"
-    def displayName(self): return self.tr("4.10 Создать пример для разреза")
+    def displayName(self): return self.tr("4.10 Пример для разреза (демо)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP3)
     def groupId(self): return GROUP3_ID
@@ -10194,7 +10399,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             "Кладёт скважины на чертежи разрезов из пары слоёв модели бурения: "
             "устья collar (hole_id, z, eoh, точки) и таблица интервалов "
             "interval (hole_id, from, to, code, глубины по стволу от устья). "
-            "Такую пару выдают «Создать пример для разреза» и выгрузка из "
+            "Такую пару выдают «Пример для разреза» и выгрузка из "
             "Геоконструктора. Поля обеих таблиц находятся сами по "
             "ожидаемым именам, выбор полей спрятан в дополнительные "
             "параметры.\n\nЛинии, вертикальный масштаб и раскладка "
@@ -10957,6 +11162,7 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
     EXTENT, CELL_SIZE = "EXTENT", "CELL_SIZE"
     MAX_RESIDUAL, MAX_ITER, RELAX = "MAX_RESIDUAL", "MAX_ITER", "RELAX"
     TENSION, BOUNDARY_TENSION, ANISO = "TENSION", "BOUNDARY_TENSION", "ANISO"
+    FAULTS = "FAULTS"
     OUTPUT = "OUTPUT"
 
     def tr(self, s): return _tr(s)
@@ -10981,10 +11187,33 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
             "задаётся натяжение на границе. Решение итеративное (SOR обходом "
             "девятью цветами): сетка сходится, пока изменение узла не станет "
             "меньше порога невязки или не исчерпаются итерации.\n\nРазмер "
-            "ячейки 0 = min(охват)/50. Порог невязки 0 = 0.01 процента от "
-            "размаха данных. Выход - грид, готовый для «1.2 Изолинии из "
-            "растра». Это детерминированная альтернатива кригингу без "
-            "подбора вариограммы; кригинг же даёт оценку с погрешностью.")
+            "ячейки 0 означает одну пятидесятую меньшей стороны охвата. "
+            "**Порог невязки** 0 означает сотую долю процента от размаха "
+            "данных. **Коэффициент релаксации** ускоряет сходимость, значения "
+            "около 1.85 обычно оптимальны, единица даёт чистый Гаусса-Зейделя. "
+            "**Анизотропия** растягивает натяжение по осям: значение больше "
+            "единицы делает поверхность более гладкой вдоль Y.\n\n"
+            "Выход - грид, готовый для 1.04. Это детерминированная "
+            "альтернатива кригингу без подбора вариограммы, тогда как кригинг "
+            "даёт ещё и оценку погрешности.\n\n"
+            "**Разломы** подаются линиями и рвут поверхность. Барьер живёт на "
+            "рёбрах между соседними узлами сетки: ребро, пересечённое линией, "
+            "выпадает из шаблона, и связь между крыльями обрывается. Разлом "
+            "остаётся линией и в сетку не переводится, поэтому косая линия не "
+            "ложится ступеньками, а крыло у узла определяется само стороной, с "
+            "которой он лежит.\n\n"
+            "В полосе шириной два узла вдоль линии решение переходит на "
+            "мембрану по неперекрытым соседям. Шаблон минимальной кривизны "
+            "дотягивается на две ячейки и перешагнул бы разрыв, а выбрасывать "
+            "из него отдельные точки нельзя: он перестанет приближать "
+            "бигармонию. Практическое следствие одно - у самой линии "
+            "поверхность чуть менее гладкая, чем вдали от неё.\n\n"
+            "Узел, попавший ровно на линию, приписывается к одной стороне. Это "
+            "важно для разлома, проведённого по оси шахтной сетки: иначе он не "
+            "перекрыл бы ни одного ребра.\n\n"
+            "Линия не обязана рассекать площадь насквозь: выше конца разлома "
+            "рёбра не перекрыты, и поверхность там смыкается. Те же разломы "
+            "принимают 1.02 и 1.04.") 
             + _credit())
 
     def initAlgorithm(self, config=None):
@@ -11033,6 +11262,9 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.ANISO, 1.0),
             minValue=0.05, maxValue=20.0)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.FAULTS, self.tr("Разломы (линии, разрыв поверхности)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Грид (минимальная кривизна)")))
 
@@ -11087,10 +11319,39 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
                 raise QgsProcessingException(self.tr("Прервано пользователем."))
             feedback.setProgress(min(95, int(95.0 * it / max(mx, 1))))
 
+        fsegs = None
+        f_src = self.parameterAsSource(parameters, self.FAULTS, context) \
+            if parameters.get(self.FAULTS) is not None else None
+        if f_src is not None:
+            flines = []
+            for ft in f_src.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                try:
+                    parts = (g.asMultiPolyline() if g.isMultipart()
+                             else [g.asPolyline()])
+                except TypeError:
+                    parts = [g.asPolyline()]
+                for part in parts:
+                    if len(part) >= 2:
+                        flines.append([(p.x(), p.y()) for p in part])
+            if flines:
+                fsegs = kb2d_fault_segments(flines)
+                be, bs = mc.fault_edges(fsegs, xmin, ymin, cell, nx, ny)
+                feedback.pushInfo(self.tr(
+                    "Разломов подано %d, звеньев %d, перекрытых рёбер "
+                    "сетки %d. Ребро между соседними узлами, пересечённое "
+                    "линией, из шаблона выпадает, и поверхность вдоль "
+                    "разлома рвётся. В полосе шириной два узла вдоль линии "
+                    "работает мембрана: тринадцатиточечный шаблон кривизны "
+                    "дотягивается на две ячейки и перешагнул бы разрыв.")
+                    % (len(flines), len(fsegs), int(be.sum() + bs.sum())))
+
         grid, iters, last = mc.solve(
             z0, fixed, tension=tension, boundary_tension=btens,
             max_iter=max_iter, tol=tol, relax=relax, aniso=aniso,
-            progress=prog)
+            progress=prog, fault_segs=fsegs, xmin=xmin, ymin=ymin, cell=cell)
         if last <= tol:
             feedback.pushInfo(self.tr(
                 "Сошлось за %d итераций (невязка %.4g).") % (iters, last))
@@ -11556,7 +11817,7 @@ def _write_demo_grid(arr, path, nx, ny, gt, wkt):
 
 
 class StackBuildAlgorithm(IsolinerAlgorithm):
-    """5.03 Собрать пачку от рельефа."""
+    """5.03 Сборка пачки от рельефа."""
 
     DEM, COLLAR, INTERVAL, REF = "DEM", "COLLAR", "INTERVAL", "REF"
     DATUM, DATUM_CODE = "DATUM", "DATUM_CODE"
@@ -11569,7 +11830,7 @@ class StackBuildAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return StackBuildAlgorithm()
     def name(self): return "stack_build"
-    def displayName(self): return self.tr("5.03 Собрать пачку от рельефа")
+    def displayName(self): return self.tr("5.03 Сборка пачки от рельефа")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_GEO)
     def groupId(self): return GROUP_GEO_ID
@@ -11926,7 +12187,7 @@ class StackBuildAlgorithm(IsolinerAlgorithm):
 
 
 class StackFixAlgorithm(IsolinerAlgorithm):
-    """5.04 Поправить пачку по статистике мощностей."""
+    """5.04 Коррекция пачки по статистике мощностей."""
 
     INPUT, ORDER = "INPUT", "ORDER"
     THICK, TCODE, TVAL = "THICK", "TCODE", "TVAL"
@@ -11937,7 +12198,7 @@ class StackFixAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return StackFixAlgorithm()
     def name(self): return "stack_fix"
     def displayName(self):
-        return self.tr("5.04 Поправить пачку по статистике мощностей")
+        return self.tr("5.04 Коррекция пачки по статистике мощностей")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_GEO)
     def groupId(self): return GROUP_GEO_ID
@@ -12439,7 +12700,7 @@ class FoldMapAlgorithm(IsolinerAlgorithm):
 
 
 class StackDemoAlgorithm(IsolinerAlgorithm):
-    """5.02 Создать пример разреза (демо)."""
+    """5.02 Пример разреза (демо)."""
 
     NX = "NX"
     NY = "NY"
@@ -12461,7 +12722,7 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return StackDemoAlgorithm()
     def name(self): return "stack_demo"
     def displayName(self):
-        return self.tr("5.02 Создать пример разреза (демо)")
+        return self.tr("5.02 Пример разреза (демо)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_GEO)
     def groupId(self): return GROUP_GEO_ID
@@ -14071,7 +14332,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
 
 
 class DemoRiverAlgorithm(IsolinerAlgorithm):
-    """6.04 Создать пример реки (демо)."""
+    """6.04 Пример реки (демо)."""
 
     CRS, EXTENT, COUNT, KM_STEP = "CRS", "EXTENT", "COUNT", "KM_STEP"
     CELL = "CELL"
@@ -14083,7 +14344,7 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return DemoRiverAlgorithm()
     def name(self): return "demo_river"
     def displayName(self):
-        return self.tr("6.04 Создать пример реки (демо)")
+        return self.tr("6.04 Пример реки (демо)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_HYDRO)
     def groupId(self): return GROUP_HYDRO_ID
@@ -15414,7 +15675,7 @@ class FractalDemoAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return FractalDemoAlgorithm()
     def name(self): return "fractal_demo"
     def displayName(self):
-        return self.tr("7.05 Создать пример для фракталов (демо)")
+        return self.tr("7.05 Пример для фракталов (демо)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP5)
     def groupId(self): return GROUP5_ID
@@ -19252,7 +19513,7 @@ def _write_terracing_report(path, st, keys, z, interval, base, feedback=None):
 
 
 class TerraceSmoothAlgorithm(IsolinerAlgorithm):
-    """2.14 Убрать ступени (сглаживание с ограничением).
+    """2.14 Снятие ступеней (сглаживание с ограничением).
 
     Лечение террасинга: ступени уходят, а горизонтали остаются на месте,
     потому что каждой точке запрещено уходить от исходного значения дальше
@@ -19268,7 +19529,7 @@ class TerraceSmoothAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return TerraceSmoothAlgorithm()
     def name(self): return "terracesmooth"
     def displayName(self):
-        return self.tr("2.14 Убрать ступени (сглаживание с ограничением)")
+        return self.tr("2.14 Снятие ступеней (сглаживание с ограничением)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPODIAG)
     def groupId(self): return GROUP_TOPODIAG_ID
@@ -19512,7 +19773,7 @@ def _write_smooth_report(path, before, after, z_before, z_after, interval,
             feedback.pushInfo(_tr("plotly недоступен (%s) - отчёт без графика.") % e)
         chart = _tr("<p><i>Интерактивный график недоступен (нет plotly).</i></p>")
 
-    title = _tr("Убрать ступени: до и после")
+    title = _tr("Снятие ступеней: до и после")
     html = ("<html><head><meta charset='utf-8'><title>%s</title></head><body>"
             "<h2>%s</h2>%s<h3>%s</h3>%s%s%s</body></html>" % (
                 title, title, table, _tr("Разбор"), advice, chart,
@@ -20627,7 +20888,7 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return TopoDemoPitAlgorithm()
     def name(self): return "topo_demo_pit"
     def displayName(self):
-        return self.tr("2.21 Создать пример карьера (демо)")
+        return self.tr("2.21 Пример карьера (демо)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID

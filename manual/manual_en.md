@@ -43,7 +43,7 @@ so it never drifts from the plugin.
 **1. Grid and isolines**
 
 - `1.01` Declustering (weights)
-- `1.02` 2D Kriging (points -> raster)
+- `1.02` 2D Kriging (points → raster)
 - `1.03` Minimum curvature (points -> raster)
 - `1.04` Isolines from raster
 - `1.05` Variogram (experimental)
@@ -430,13 +430,54 @@ A 4×4 discretization is almost always enough. A larger N takes longer to comput
 Block kriging combines with trend removal. The residuals are kriged over the block and the trend is added back to the estimate. It also combines with grid smoothing, but block averaging alone is usually enough and extra smoothing is not needed.
 
 
+## Faults
+
+A fault here is a line along which the surface breaks. It is supplied as a line layer in the **Faults** field, and the same layer is accepted by 1.03 and 1.04.
+
+The fault acts as a barrier of influence. For every cell being estimated the tool draws a segment to each measurement, and if the segment crosses the line, that measurement does not enter the sample of the cell. The cell sees only its own wing, the values on the two sides diverge, and the surface gets a break along the line.
+
+The wing of a cell follows by itself from the side its centre lies on. There is no need to split the area into blocks and grid them separately, and the tool needs no list of wings.
+
+**The line need not cut across the area.** For a dying fault the influence goes round its end: a measurement beyond the end of the line stays visible, and above the end the surface closes up. That is ordinary geology, the displacement along a fault plane falls to zero and the break dies out.
+
+Right at the end the isolines crowd together into a narrow bundle. That is how a dying fault is drawn on a structural map. One caveat: in the model the throw does not fall gradually but at once, because the barrier is binary. Up to the last vertex a measurement beyond the line is not visible at all, past it the measurement is fully visible. So the whole decay falls on a single cell, and the bundle is shorter than it would be for a real fault, where the displacement dies out over a length comparable with the fault itself.
+
+## Why the fault is never turned into cells
+
+The barrier is tested by exact geometry: does the segment cross a link of the line. There is no raster mask of barrier cells, and that is deliberate.
+
+The mask brought two troubles. A cell cannot carry a diagonal, so a slanted fault fell into the grid as a staircase, and everything built over such a grid inherited the steps. The other trouble was worse: the ray of visibility starts at the centre of the cell being estimated, and if that cell is itself a barrier cell, the very first test hits the mask. Such a cell saw not a single measurement in the whole area and went to nodata. A stepped slit was left in the grid along the fault.
+
+With exact geometry there are no barrier cells at all. The grid comes out solid, there are no empty cells along the line, and the break shows as a jump of values between neighbouring cells on opposite sides.
+
+A measurement standing exactly on the fault is visible from both wings. A borehole on the line belongs to both sides and there is no reason to discard it.
+
+## The price of the approximation
+
+There is one approximation here and it is worth naming aloud. Only the neighbours are selected by visibility. The covariances between the measurements themselves, which make up the kriging system, stay Euclidean: they are computed over the straight distance, as if there were no fault.
+
+Zeroing them is not allowed. The matrix would lose positive definiteness, the system would become singular and the kriging would fall apart. This is exactly what the developers of well-known packages ran into, and some of them removed kriging with faults altogether, sending users to minimum curvature instead.
+
+What that means in practice. Near the line the weights of the neighbours are computed without regard for the break lying between two of those neighbours. At distances of the order of the correlation range the difference is negligible. On a very dense network right at the line the contrast may be slightly lowered. The break itself does not go anywhere, it is held by the selection of neighbours rather than by the covariances.
+
+## How to try it on teaching data
+
+The tool **1.10 Example wells** can create a fault by itself. The **Fault throw** field sets the size of the shift: the generator draws a line across the area without bringing it to the edges and adds the throw to the value at every well on one side. Above the end of the line both sides are equal, so the teaching data contain both the break and its dying end.
+
+The line is produced as a separate output **Fault (demo)**. Supply it to **Faults** here, then the same line to 1.04, and the whole chain comes together.
+
+To test the barrier itself take a throw noticeably larger than the correlation range, the jump will be obvious. To test the corridor in 1.04 a throw of the order of the contour interval is enough.
+
+The `throw` attribute in the output fault layer is for reference. The tools do not read it: their barrier is purely geometric and knows nothing of the size of the displacement.
+
+
 # 1.03 Minimum curvature (points -> raster)
 
 The tool builds a grid by minimum curvature. The surface behaves like a thin elastic plate passing through the data with the least bending, that is a solution of the biharmonic equation. The method is not exact: the data are honored approximately, but the surface comes out as smooth as possible, which is why it is traditionally used for maps of geophysical fields and any smooth quantity. It is a deterministic alternative to kriging without variogram fitting. Kriging, unlike it, gives an estimate with a standard-error map.
 
 **Tension** mixes in a membrane term: 0 is pure minimum curvature, 1 is a taut membrane with fewer overshoots between samples. Boundary tension is set separately and helps remove edge overshoots. The solution is iterative, by successive over-relaxation (SOR) with a nine-colour sweep of the grid: nodes of one colour do not fall into each other's stencil, so they are updated at once and stably. The grid is recomputed until the largest node change drops below the **residual threshold** or the iterations run out.
 
-Free nodes start from the nearest data value, so convergence is fast on dense data. On very sparse data more iterations are needed: raise their limit or the residual threshold. Faults and breaklines are not supported in this version; they are planned for the future.
+Free nodes start from the nearest data value, so convergence is fast on dense data. On very sparse data more iterations are needed: raise their limit or the residual threshold.
 
 | Parameter | Purpose | Default |
 | --- | --- | --- |
@@ -450,9 +491,28 @@ Free nodes start from the nearest data value, so convergence is fast on dense da
 | Boundary tension (Adv.) | Tension at the grid edge. | 0 |
 | Relaxation factor (Adv.) | SOR acceleration, sensibly 1.5 - 1.9. | 1.85 |
 | Anisotropy (Adv.) | Y/X axis ratio in the membrane term. | 1 |
+| Faults | Lines along which the surface breaks. | optional |
 | Grid (minimum curvature) | Output raster. | - |
 
 The output is an ordinary grid ready for **1.04 Isolines from raster**. The log prints the grid size, the number of data nodes, the number of iterations and the final residual. If the iteration cap is reached while the residual is still above the threshold, the tool warns about it.
+
+## Faults
+
+Faults are supplied by the same line layer as in 1.02, but they work differently. In kriging the barrier decides which measurements a cell can see. Here there are no measurements, there is a grid of nodes tied together by a stencil, so the barrier lives on the links.
+
+An edge between two neighbouring nodes crossed by the fault line drops out of the stencil. The link between the wings is cut, each wing is solved on its own, and the surface breaks along the line. The fault stays a line and is never turned into cells, so a slanted line does not fall into steps, and the wing of a node follows by itself from the side it lies on.
+
+A node that falls exactly on the line is assigned to one side. It looks like a detail but it matters: a fault drawn along an axis of a mine grid passes exactly through the node centres, and under a strict test it would block no edge at all. Assigning such a node to both sides is not an option either, it would be left without neighbours and would freeze at its starting value, leaving a seam of uncomputed nodes along the fault.
+
+## The membrane band along the line
+
+Minimum curvature has a feature that kriging does not. Its stencil reaches two cells out in each direction rather than one. So right at the line it would step over the break anyway, even with the neighbouring edge blocked.
+
+Single points cannot be dropped from the stencil: it would stop approximating the biharmonic equation and the solution would lose its meaning. So within a band two nodes wide along the line the solution switches to a membrane over the unblocked neighbours. The membrane works over the four nearest nodes and holds the break exactly. Away from the line the ordinary minimum curvature does the work.
+
+There is one practical consequence: right at the line the surface is slightly less smooth than away from it. On a map that is not noticeable, but it is worth knowing. The same device is used in **2.03 Topo2Raster** at cliffs, and for the same reason.
+
+The line, as in kriging, need not cut across the area: above the end of the fault the edges are not blocked and the surface closes up there.
 
 
 # 1.04 Isolines from raster
@@ -599,6 +659,33 @@ A summary goes to the log: how many lines came in, how many parts came out, how 
 ### What the tool does not do
 
 It does not smooth flat areas so that the line stops wandering. That would be a forgery of the data: the result would be a smooth and wrong contour instead of a ragged one that matches what the matrix actually holds. The decision whether to show a weak stretch stays with a human.
+
+## Faults
+
+The same line layer that was supplied to 1.02 or 1.03 goes here into the **Faults** field. Here it does two things.
+
+First, the isolines are cut along the line, exactly along it and not along cell edges. Second, the line itself enters the network from which the contour polygons are built, so the boundary of a belt runs exactly along the fault.
+
+The break is entirely vectorial. The grid stays solid, there are no holes in it, and everything computed off the grid works as usual.
+
+## The corridor at a fault
+
+One parameter needs an explanation, because without it the result looks odd.
+
+The grid is solid, while the values on the two sides of a fault differ by the whole throw, and the jump falls on a pair of neighbouring cells. The contourer faithfully draws every intermediate level at once in that gap. With a throw of twenty metres and an interval of two, that is a dozen isolines within the width of a single cell. They carry no geological meaning: this is interpolation across a break the bed does not know about.
+
+**Corridor width at a fault** is given in cells, one by default. A strip of that width is cut out of the isolines, and the ends of the freed lines are snapped to the fault itself. What is left on the map is a clean break along the line.
+
+Zero switches the cutting off. There is no point taking less than a cell: the jump occupies exactly one cell. Noticeably more and isolines that run along the fault for a reason will start to disappear.
+
+At the dying end a short stretch of crowded isolines remains, about the width of the corridor. That is right in meaning: the break has come to nothing there, the surface closes up and there is nothing to tear.
+
+## Smallest polygon thickness
+
+The threshold is given in cells and filters out narrow strips of belts. The thickness is taken as twice the area over the perimeter: for a long narrow strip it equals its width at any length, whereas by area such a strip cannot be told from a normal belt.
+
+The threshold is meant against fragments at a break where fault lines have not been supplied: at open pits, cliffs and the edge of the area. **It must be used with care.** On a steep surface with a fine interval a normal belt between neighbouring levels is itself narrower than a cell, and a threshold of one cell will mow the map down. The tool warns in the log if it has filtered out more than half of the belts. By default the threshold is zero, that is, there is no filtering.
+
 
 # 1.05 Variogram (experimental)
 
@@ -1213,7 +1300,7 @@ Slope in degrees and aspect with the Horn 3×3 kernel, as in gdaldem. Aspect is 
 
 ![Slope (left) and aspect (right) of the demo relief. The cyclic aspect palette stitches 0 and 360 degrees.](images/topo_slope_aspect.png){width=92%}
 
-# 2.09 Peaks
+# 2.09 Peaks and pits
 
 Finds peaks: cells that are the highest in a square window of the given radius, with a drop over the window minimum at or above the threshold.
 
@@ -1478,7 +1565,7 @@ The tool computes basin morphometry and nothing else. Discharges, runoff moduli,
 
 Catchments are built from the topology of the relief. On terrain without clear flow boundaries - flat floodplains, hydraulic transfers and backwater - the result should be verified by hydrodynamic modelling.
 
-# 2.16 Catchment. Lines and outlines (ditches, open pits)
+# 2.16 Catchment of a line or an outline (ditches, open pits)
 
 The tool computes the catchment area of an intake: a hillside ditch, a chute, a road gutter or the outline of an open pit. The question is how much area the intake intercepts when the intake itself is not on the DEM yet.
 
@@ -2225,7 +2312,7 @@ A ready training set is produced by the **Create a section example** tool (4.10)
 
 A plain profile curve over a single grid is built by the native **Elevation Profile** panel, no separate tool is needed for that. The section instead shows the beds between surfaces, which the native tools do not do. A kriging surface can also be viewed in 3D without a section: set the grid as terrain in the 3D Map View.
 
-# 4.02 Boreholes on the section (drilling model)
+# 4.02 Boreholes on sections (drilling model)
 
 The **Boreholes on the section** tool places boreholes onto section drawings from a pair of drilling-model layers. It sits in the **Cross-sections** group and works in batch: one run serves every section of the definition.
 
@@ -2902,7 +2989,7 @@ A bed roof from kriging → **7.01** with a window of 8 → the D grid → **1.0
 | Write H (Adv.) | Add H as band 2. | off |
 | Fractal dimension | A D grid (and H if checked). | - |
 
-# 7.02 Mask box-counting
+# 7.02 Box-counting of masks
 
 Classic box-counting for binary masks: the raster is binarised by a threshold (the object - values above it), the mask is covered by cells of a decreasing size, the slope of log N versus log(1/size) gives one dimension D for the whole mask. A linear object gives D near 1, a blob - near 2, rugged outlines of replacement zones or mined-out areas fall in between. The accuracy on finite masks is about ±0.1, so the method is good for comparing masks with each other rather than as an absolute measure. The result is printed to the log with a table of sizes and counts and returned as the number D - usable further in Processing models.
 
@@ -2918,7 +3005,7 @@ The mineral-type band of a bed grid with a threshold between the class codes, an
 | Threshold | The object/background boundary. | 0.5 |
 | Band (Adv.) | The raster band. | 1 |
 
-# 7.03 Line and boundary dimension
+# 7.03 Dimension of lines and boundaries
 
 The dimension of every line by the divider (Richardson) method: the line is walked with chords of a decreasing span, the slope of log N versus log r gives D. A straight line gives one, a rugged line - more. Polygons are accepted alongside lines - the exterior ring of the boundary is measured, so the ruggedness of zone and basin outlines is computed without a prior conversion. The output is the same features with the D and steps fields, the mean D is printed to the log; short lines get an empty D. The method is checked on references: the Koch curve gives 1.262 against the theoretical 1.2619.
 
