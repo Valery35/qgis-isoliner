@@ -154,3 +154,125 @@ def _run():
 
 if __name__ == "__main__":
     raise SystemExit(_run())
+
+
+def _scatter(n=200, seed=0):
+    rng = np.random.default_rng(seed)
+    return (rng.uniform(0.0, 60.0, n), rng.uniform(0.0, 60.0, n),
+            rng.normal(100.0, 5.0, n))
+
+
+def _grid_kw():
+    vg = kb2d.Variogram(0.1, [dict(it=1, cc=100.0, aa=25.0, ang=0.0,
+                                   anis=1.0)])
+    return dict(vg=vg, ktype=1, skmean=0.0, ndmin=1, ndmax=16,
+                rad2=(3 * 60.0) ** 2, nodata=-9999.0, xmn=0.0, ymn=0.0,
+                cell=1.0, nx=60, ny=60)
+
+
+def test_u_shaped_fault_blocks_from_outside_and_opens_at_the_mouth():
+    """U-образный разлом: снаружи стенка отсекает, изнутри видно устье.
+
+    Проверка по предложению Ивана Иванова: вогнутый барьер это классическое
+    место, где подходы с трассировкой лучей ошибаются. Стенки U стоят на
+    x = 20 и x = 40, дно на y = 15, устье открыто вверх.
+    """
+    segs = kb2d.fault_segments([[(20.0, 50.0), (20.0, 15.0),
+                                 (40.0, 15.0), (40.0, 50.0)]])
+    rng = np.random.default_rng(1)
+    xd = rng.uniform(0.0, 60.0, 400)
+    yd = rng.uniform(0.0, 60.0, 400)
+    inside = (xd > 20.0) & (xd < 40.0) & (yd > 15.0) & (yd < 50.0)
+
+    out_side = kb2d.visible_mask(10.0, 20.0, xd, yd, segs)
+    assert int((out_side & inside).sum()) == 0, (
+        "снаружи U видно внутренность: стенка не держит")
+
+    deep = kb2d.visible_mask(30.0, 20.0, xd, yd, segs)
+    near_mouth = kb2d.visible_mask(30.0, 48.0, xd, yd, segs)
+    assert deep[inside].all(), "изнутри U не видно собственных замеров"
+    # чем ближе к устью, тем шире конус наружу
+    assert int((near_mouth & ~inside).sum()) > int((deep & ~inside).sum()), (
+        "конус видимости через устье не расширяется к устью")
+
+
+def test_zigzag_fault_leaves_no_holes_while_folds_are_coarser_than_the_cell():
+    """Змейка с крупной амплитудой пустых ячеек не даёт.
+
+    Второй случай из предложения Иванова. Пока складка крупнее ячейки,
+    у каждой ячейки остаётся своё крыло с замерами.
+    """
+    xd, yd, vd = _scatter()
+    zig = [[(5.0 + 5.0 * i, 30.0 + (20.0 if i % 2 else -20.0))
+            for i in range(11)]]
+    grid = kb2d.build_grid(xd, yd, vd,
+                           fault_segs=kb2d.fault_segments(zig), **_grid_kw())
+    assert not (grid == -9999.0).any(), (
+        "змейка с крупной складкой оставила пустые ячейки")
+
+
+def test_folds_finer_than_the_cell_create_pockets_and_that_is_expected():
+    """Складка мельче ячейки даёт карманы без замеров, и это законно.
+
+    Ячейка оказывается заперта в складке, где нет ни одного замера.
+    Оценивать там не из чего, поэтому она честно остаётся пустой, а
+    инструмент 1.02 предупреждает об этом в журнале. Тест закрепляет
+    поведение как известное, чтобы оно не выглядело сюрпризом.
+    """
+    xd, yd, vd = _scatter()
+    fine = [[(5.0 + 0.5 * i, 30.0 + (15.0 if i % 2 else -15.0))
+             for i in range(101)]]
+    grid = kb2d.build_grid(xd, yd, vd,
+                           fault_segs=kb2d.fault_segments(fine), **_grid_kw())
+    holes = int((grid == -9999.0).sum())
+    assert holes > 0, "мелкая складка карманов не дала, проверка потеряла смысл"
+    # карманы локальны: это не развал грида
+    assert holes < grid.size // 4, "пустых ячеек стало непозволительно много"
+
+
+def test_pockets_are_filled_from_the_neighbours():
+    """Запертые ячейки заполняются по соседям, дырок не остаётся.
+
+    Дырка в гриде дороже небольшого сдвига: по ней рвутся изолинии,
+    разваливаются пояса и искажаются объёмы. Значение соседней ячейки
+    даёт ошибку геометрии не больше размера самого кармана.
+    """
+    xd, yd, vd = _scatter()
+    fine = [[(5.0 + 0.5 * i, 30.0 + (15.0 if i % 2 else -15.0))
+             for i in range(101)]]
+    grid = kb2d.build_grid(xd, yd, vd,
+                           fault_segs=kb2d.fault_segments(fine), **_grid_kw())
+    holes = int((grid == -9999.0).sum())
+    assert holes > 0, "карманов не получилось, проверка потеряла смысл"
+    filled_grid, filled, width = kb2d.fill_pockets(grid, -9999.0)
+    assert not (filled_grid == -9999.0).any(), "после заполнения остались дырки"
+    assert filled == holes, "заполнено не столько, сколько было пусто"
+    assert width <= 2, "карман оказался шире двух ячеек: %d" % width
+
+
+def test_filled_values_stay_within_the_data_range():
+    """Заполненные значения не выходят за пределы рассчитанного поля.
+
+    Среднее по соседям не может вынести ячейку за диапазон, но сторож
+    нужен: волна идёт по уже заполненным ячейкам, и ошибка могла бы
+    накапливаться от прохода к проходу.
+    """
+    xd, yd, vd = _scatter(seed=4)
+    fine = [[(5.0 + 0.25 * i, 30.0 + (15.0 if i % 2 else -15.0))
+             for i in range(201)]]
+    grid = kb2d.build_grid(xd, yd, vd,
+                           fault_segs=kb2d.fault_segments(fine), **_grid_kw())
+    good = grid[grid != -9999.0]
+    out, _, _ = kb2d.fill_pockets(grid, -9999.0)
+    assert out.min() >= good.min() - 1e-9, "заполнение ушло ниже поля"
+    assert out.max() <= good.max() + 1e-9, "заполнение ушло выше поля"
+
+
+def test_fill_leaves_a_clean_grid_untouched():
+    """Грид без пустот заполнение не трогает вовсе."""
+    xd, yd, vd = _scatter(seed=6)
+    grid = kb2d.build_grid(xd, yd, vd, **_grid_kw())
+    assert not (grid == -9999.0).any()
+    out, filled, width = kb2d.fill_pockets(grid, -9999.0)
+    assert filled == 0 and width == 0
+    assert np.array_equal(out, grid), "чистый грид изменился при заполнении"

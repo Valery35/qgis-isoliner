@@ -36,13 +36,28 @@ import re
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(os.path.dirname(HERE), "algorithms.py")
 
-# Обвязка: вход, выход, поле, охват. Назначение видно из имени.
-PLUMBING = (
-    "точечный слой", "точки", "растр", "канал", "поле", "охват", "рамка",
-    "слой", "выход", "результат", "изолинии", "полигоны", "линии",
-    "только выделенные", "целевая ск", "система координат", "таблица",
-    "открыть", "сохранить", "имя", "папка", "файл", "входн", "исходн",
-    "цмр", "входная", "вход",
+# Обвязка определяется ТИПОМ параметра, а не словами в подписи. Слой,
+# поле, охват, система координат и место сохранения не нуждаются в
+# объяснении: их назначение задано самим типом. Список слов вместо этого
+# приходилось вести руками, он разрастался и всё равно промахивался -
+# «Входная ЦМР» в него попадала, а «Озёра и урез воды» нет, хотя обе
+# суть входные слои.
+PLUMBING_TYPES = (
+    "QgsProcessingParameterFeatureSource",
+    "QgsProcessingParameterMultipleLayers",
+    "QgsProcessingParameterRasterLayer",
+    "QgsProcessingParameterVectorLayer",
+    "QgsProcessingParameterMapLayer",
+    "QgsProcessingParameterField",
+    "QgsProcessingParameterBand",
+    "QgsProcessingParameterExtent",
+    "QgsProcessingParameterCrs",
+    "QgsProcessingParameterFile",
+    "QgsProcessingParameterFileDestination",
+    "QgsProcessingParameterFolderDestination",
+    "QgsProcessingParameterRasterDestination",
+    "QgsProcessingParameterVectorDestination",
+    "QgsProcessingParameterFeatureSink",
 )
 
 # Инструменты, у которых справка описывает предмет целиком и разбор по
@@ -51,92 +66,13 @@ PLUMBING = (
 WHOLE_SUBJECT = ("7.05",)
 
 
-# Известный долг на момент постановки сторожа. Смысл списка в том, чтобы
-# НОВАЯ ручка не появилась немой, а старые закрывались по мере правки
-# справок. Список обязан только убывать: если пробел закрыт, а строка
-# осталась, тест об этом скажет и потребует её убрать. Так долг виден
-# числом и не растёт молча.
-KNOWN_GAPS = frozenset((
-    '1.01: Смещений начала сетки (усреднение)',
-    '1.01: Цель свипа',
-    '1.02: Дискретизация блока, N×N на ячейку',
-    '1.02: Преобразование значения',
-    '1.02: Сгладить грид (Гаусс)',
-    '1.02: Снять полиномиальный тренд',
-    '1.04: Уверенность горизонталей',
-    '1.05: Минимум точек в группе, % от выборки (пол 30 точек)',
-    '1.05: Срезать к границе (capping) вместо удаления',
-    '1.05: Ураганные пробы: перцентиль обрезки, % (0 = выкл.)',
-    '1.05: Устойчивая оценка (Кресси-Хокинса)',
-    '1.06: Бинов на полуось (детализация карты)',
-    '1.06: Мин. количество пар в ячейке',
-    '1.07: Снять полиномиальный тренд',
-    '1.07: Степень тренда',
-    '1.08: Зерно ГСЧ (0 = случайно)',
-    '1.08: Ошибки кросс-валидации',
-    '1.09: Модель: анизотропия (малая/главная)',
-    '1.09: Модель: тип',
-    '1.10: Зерно ГСЧ (0 = случайно)',
-    '1.11: Зерно ГСЧ (0 - случайно)',
-    '1.11: Область (экстент)',
-    '1.11: Шаг пикетов, м',
-    '2.01: Предел числа плиток 1x1 градус',
-    '2.01: Размер ячейки, м',
-    '2.01: Сглаживание: окно нормалей, ячеек',
-    '2.01: Сглаживание: порог различия нормалей, град',
-    '2.01: Сглаживание: число проходов',
-    '2.02: Предел площади рамки, кв. градусов',
-    '2.02: Таймаут запроса, с',
-    '2.03: Озёра и урез воды',
-    '2.03: Размер ячейки, м',
-    '2.03: Функция формы поперёк',
-    '2.06: Epsilon уклона при заполнении, м',
-    '2.06: Заполнить понижения перед расчётом',
-    '2.06: Речная сеть',
-    '2.07: Epsilon уклона при заполнении, м',
-    '2.07: Заполнить понижения перед расчётом',
-    '2.10: Высота, ячеек',
-    '2.10: Зерно генератора',
-    '2.10: Компактный int16 (для поставки демо)',
-    '2.10: Размер ячейки, м',
-    '2.10: Ширина, ячеек',
-    '2.11: Сдвиг выбора',
-    '2.15: Epsilon уклона при заполнении, м',
-    '2.16: Epsilon уклона при заполнении, м',
-    '2.16: Заполнить понижения перед расчётом',
-    '2.16: Профиль врезки',
-    '2.20: Доля согласных проб',
-    '2.21: Шум съёмки, м',
-    '3.01: Бикубическое сглаживание границ',
-    '3.01: Макс. количество точек',
-    '3.01: Мин. количество точек',
-    '3.01: Радиус поиска (0 = вся выборка)',
-    '3.01: Скругление границ (Chaikin), итераций',
-    '3.02: Радиус сглаживания, ячеек',
-    '3.02: Сгладить грид (Гаусс)',
-    '3.06: Зерно ГСЧ (0 = случайное)',
-    '3.06: Макс. количество соседей на узел',
-    '3.06: Медиана P50',
-    '3.06: Радиус поиска (0 = авто, 3 радиуса вариограммы)',
-    '3.07: Область (по умолчанию по слою)',
-    '3.08: Зерно ГСЧ (0 - случайно)',
-    '3.08: Область (экстент)',
-    '4.09: Угловой шаг, градусы',
-    '4.10: Зерно генератора (0 = случайно)',
-    '4.10: Область (экстент)',
-    '4.10: Опрокинутая TIN (3D-грани для пересечения)',
-    '5.01: Уровень растворения, зеркало (если есть)',
-    '5.02: Высота, ячеек',
-    '5.02: Интервалы interval (демо)',
-    '5.02: Наземные наблюдения (демо)',
-    '5.02: Размер ячейки, м',
-    '5.02: Ширина, ячеек',
-    '5.04: Кровли и подошвы пластов',
-    '5.04: Справочник пластов (порядок сверху вниз)',
-    '5.05: Слои модели (пусто - весь проект)',
-    '6.04: Створы (демо)',
-    '7.01: Полурадиус окна, ячеек',
-))
+# Долг закрыт полностью: настроечных параметров без описания не осталось.
+# Список сохранён пустым намеренно. Он нужен, если однажды придётся внести
+# большую партию параметров разом и описать их не сразу: тогда новые
+# записи кладутся сюда и обязаны отсюда уходить. Пока он пуст, сторож
+# работает строго - ни одной немой ручки.
+KNOWN_GAPS = frozenset()
+
 
 
 def _lit(node):
@@ -151,10 +87,44 @@ def _lit(node):
     return None
 
 
+def _shared_blocks(tree):
+    """Общие куски справки, подставляемые функциями вроде _fill_help().
+
+    Пара «Заполнить понижения» плюс «Epsilon уклона» описана один раз и
+    подключается к пяти инструментам вызовом функции. Читая только
+    строковые литералы внутри shortHelpString, сторож такой блок не видит
+    и считает параметры неописанными. Поэтому имена таких функций
+    разворачиваются в текст их константы.
+    """
+    consts = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            name = getattr(node.targets[0], "id", None)
+            val = _lit(node.value)
+            if name and isinstance(val, str):
+                consts[name] = val
+    blocks = {}
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for st in node.body:
+            if not isinstance(st, ast.Return):
+                continue
+            call = st.value
+            if (isinstance(call, ast.Call)
+                    and getattr(call.func, "id", None) == "_tr"
+                    and call.args
+                    and isinstance(call.args[0], ast.Name)
+                    and call.args[0].id in consts):
+                blocks[node.name] = consts[call.args[0].id]
+    return blocks
+
+
 def _tools():
     """Список (префикс, имя, справка, подписи параметров)."""
     with open(SRC, encoding="utf-8") as fh:
         tree = ast.parse(fh.read())
+    blocks = _shared_blocks(tree)
     out = []
     for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
         disp = None
@@ -172,6 +142,11 @@ def _tools():
                 help_text = "".join(
                     s.value for s in ast.walk(fn)
                     if isinstance(s, ast.Constant) and isinstance(s.value, str))
+                for call in ast.walk(fn):
+                    name = (getattr(getattr(call, "func", None), "id", None)
+                            if isinstance(call, ast.Call) else None)
+                    if name in blocks:
+                        help_text += blocks[name]
             elif fn.name == "initAlgorithm":
                 for call in ast.walk(fn):
                     if not isinstance(call, ast.Call):
@@ -183,16 +158,15 @@ def _tools():
                     for arg in call.args:
                         val = _lit(arg)
                         if val and " " in val and not val.isupper():
-                            params.append(val)
+                            params.append((name, val))
                             break
         if disp:
             out.append((disp[:4], disp, help_text, params))
     return out
 
 
-def _is_plumbing(label):
-    low = label.lower()
-    return any(low.startswith(p) or p in low.split(",")[0] for p in PLUMBING)
+def _is_plumbing(kind):
+    return kind in PLUMBING_TYPES
 
 
 def _words(label):
@@ -207,8 +181,8 @@ def _gaps():
         if num in WHOLE_SUBJECT:
             continue
         low = help_text.lower()
-        for label in params:
-            if _is_plumbing(label):
+        for kind, label in params:
+            if _is_plumbing(kind):
                 continue
             words = _words(label)
             if not words:
@@ -218,11 +192,11 @@ def _gaps():
     return set(found)
 
 
-def test_no_new_undocumented_knobs():
-    """Новая ручка не должна появляться без описания в справке."""
+def test_every_knob_is_documented():
+    """Ни одного настроечного параметра без описания в справке."""
     fresh = sorted(_gaps() - KNOWN_GAPS)
     assert not fresh, (
-        "новые параметры без описания в справке:\n  " + "\n  ".join(fresh))
+        "параметры без описания в справке:\n  " + "\n  ".join(fresh))
 
 
 def test_known_gaps_list_only_shrinks():
