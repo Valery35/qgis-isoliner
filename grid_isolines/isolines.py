@@ -596,6 +596,98 @@ def _closest_on_fault(x, y, lines, tol):
     return cx, cy
 
 
+def _junction_report(lines, tol):
+    """Сомкнутые и недоведённые концы разломов. См. kb2d.junction_report."""
+    eps = float(tol) * 1e-3
+    joined = 0
+    gaps = []
+    for i, pts in enumerate(lines):
+        if len(pts) < 2:
+            continue
+        for at, (x, y) in ((0, pts[0]), (1, pts[-1])):
+            near = None
+            for j, other in enumerate(lines):
+                if j == i or len(other) < 2:
+                    continue
+                hit = _nearest_on_fault(x, y, [other])
+                if hit is not None and (near is None or hit[0] < near):
+                    near = hit[0]
+            if near is None:
+                continue
+            if near <= eps:
+                joined += 1
+            elif near <= tol:
+                gaps.append((i, at, near))
+    return joined, gaps
+
+
+def _abuts_other(pts, at, others, eps):
+    """Упирается ли конец ломаной в другую линию разлома.
+
+    Конец, лежащий на соседнем разломе, НЕ затухающий. Смещение там не
+    сходит на нет, оно передаётся соседнему нарушению, и разрыв
+    продолжается. Обходиться с таким концом как с выклинивающимся
+    неправильно: у стыка появится просвет и пучок изолиний, которых там
+    быть не должно.
+    """
+    x, y = pts[0] if at == 0 else pts[-1]
+    for other in others:
+        if other is pts or len(other) < 2:
+            continue
+        near = _nearest_on_fault(x, y, [other])
+        if near is not None and near[0] <= eps:
+            return True
+    return False
+
+
+def _axis_for_corridor(pts, others, width, eps):
+    """Ось коридора: свободный конец укоротить, примыкающий продлить.
+
+    Свободный конец укорачивается на ширину полосы, иначе торец режет
+    изолинии за концевой вершиной и обрезанные концы повисают.
+
+    Примыкающий конец, наоборот, продлевается на ту же ширину: коридор
+    должен дойти до соседнего разлома и перекрыться с его коридором,
+    иначе у стыка останется непрорезанный участок.
+    """
+    head_join = _abuts_other(pts, 0, others, eps)
+    tail_join = _abuts_other(pts, 1, others, eps)
+    out = list(pts)
+    if head_join or tail_join:
+        out = _extend_ends_xy(out,
+                              width if head_join else 0.0,
+                              width if tail_join else 0.0)
+    if not head_join or not tail_join:
+        # укорачиваем только свободные концы: режем с одной стороны за раз
+        if not head_join:
+            out = list(reversed(_trim_one_end(list(reversed(out)), width)))
+        if not tail_join:
+            out = _trim_one_end(out, width)
+    return out
+
+
+def _trim_one_end(pts, cut):
+    """Укоротить ломаную на cut с КОНЦА. Чистая математика."""
+    if len(pts) < 2 or cut <= 0.0:
+        return list(pts)
+    rev = list(reversed(pts))
+    seg = [math.hypot(rev[k + 1][0] - rev[k][0], rev[k + 1][1] - rev[k][1])
+           for k in range(len(rev) - 1)]
+    total = sum(seg)
+    if total <= 0.0:
+        return list(pts)
+    cut = min(float(cut), total / 3.0)
+    acc = 0.0
+    for k, ln in enumerate(seg):
+        if acc + ln >= cut:
+            s = (cut - acc) / ln if ln > 0 else 0.0
+            x = rev[k][0] + s * (rev[k + 1][0] - rev[k][0])
+            y = rev[k][1] + s * (rev[k + 1][1] - rev[k][1])
+            return list(reversed([(x, y)] + list(rev[k + 1:])))
+        acc += ln
+    return list(pts)
+
+
 def _trim_polyline(pts, cut):
     """Укоротить ломаную на cut с обоих концов. Чистая математика.
 
@@ -644,7 +736,7 @@ def _trim_polyline(pts, cut):
 
 
 def _trimmed_fault_layer(faults, cut, context):
-    """Слой разломов, укороченных на cut с концов, или None."""
+    """Ось коридора: свободные концы укорочены, примыкающие продлены."""
     from qgis.core import (QgsVectorLayer, QgsFeature, QgsGeometry,
                            QgsPointXY)
     lines = _fault_polylines(faults, context)
@@ -657,8 +749,9 @@ def _trimmed_fault_layer(faults, cut, context):
     if not mem.isValid():
         return None
     feats = []
+    eps = float(cut) * 0.05
     for pts in lines:
-        short = _trim_polyline(pts, cut)
+        short = _axis_for_corridor(pts, lines, float(cut), eps)
         if len(short) < 2:
             continue
         f = QgsFeature()
@@ -915,6 +1008,18 @@ def _split_by_faults(processing, iso, faults, corridor, context, feedback):
     """Разрез изолиний разломом и вырезание коридора. Общий шаг двух веток."""
     if not faults:
         return iso
+    lines_dbg = _fault_polylines(faults, context)
+    if lines_dbg and corridor > 0:
+        joined, gaps = _junction_report(lines_dbg, 2.0 * float(corridor))
+        if joined:
+            feedback.pushInfo(_tr("Сомкнутых стыков разломов: %d.") % joined)
+        if gaps:
+            feedback.pushWarning(_tr(
+                "Недоведённых концов разломов: %d, наибольший зазор %.4g ед. "
+                "карты. У такого конца коридор считает разлом затухающим и "
+                "оставляет просвет, хотя разрыв там продолжается в соседнее "
+                "нарушение. Доведите концы до соседней линии.")
+                % (len(gaps), max(d for _, _, d in gaps)))
     feedback.pushInfo(_tr("Разрез изолиний линиями разломов…"))
     iso = processing.run("native:splitwithlines", {
         "INPUT": iso, "LINES": faults, "OUTPUT": "TEMPORARY_OUTPUT",

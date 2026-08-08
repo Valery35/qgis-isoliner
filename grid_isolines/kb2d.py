@@ -1416,6 +1416,67 @@ def fan_triangulate(ring):
 #  Разломы: отбор соседей по видимости
 # ---------------------------------------------------------------------------
 
+def _dist_point_to_polyline(x, y, pts):
+    """Расстояние от точки до ломаной."""
+    best = None
+    for k in range(len(pts) - 1):
+        ax, ay = pts[k]
+        bx, by = pts[k + 1]
+        dx, dy = bx - ax, by - ay
+        den = dx * dx + dy * dy
+        if den <= 0.0:
+            continue
+        s = ((x - ax) * dx + (y - ay) * dy) / den
+        s = 0.0 if s < 0.0 else (1.0 if s > 1.0 else s)
+        d = math.hypot(x - (ax + s * dx), y - (ay + s * dy))
+        if best is None or d < best:
+            best = d
+    return best
+
+
+def junction_report(lines, tol, eps=None):
+    """Стыки разломов: сомкнутые концы и недоведённые.
+
+    Барьер локален и пересечения обрабатывает сам: на X-образном
+    пересечении и на T-стыке из своего сектора чужих замеров не видно.
+    Матрица отношений между разломами, как в других реализациях, здесь не
+    нужна - она лечит болезнь подхода через дрейф, где функция разлома
+    задана на всей площади и её надо где-то обрывать.
+
+    Чего барьер не умеет, так это догадаться о намерении. Разлом,
+    недоведённый до соседнего при оцифровке, оставляет щель, и через неё
+    видимость протекает. На карте это невидимо: линии выглядят
+    сомкнутыми. Замеры показывают, что щель в один метр пропускает
+    единицы замеров, в три метра десятки, а в пять метров больше
+    половины.
+
+    Возвращает (сомкнутых концов, [(номер линии, конец, расстояние)]),
+    где конец это 0 для начала и 1 для конца ломаной. В список попадают
+    только недоведённые концы: расстояние больше eps и не больше tol.
+    """
+    eps = float(tol) * 1e-3 if eps is None else float(eps)
+    joined = 0
+    gaps = []
+    for i, pts in enumerate(lines):
+        if len(pts) < 2:
+            continue
+        for at, (x, y) in ((0, pts[0]), (1, pts[-1])):
+            near = None
+            for j, other in enumerate(lines):
+                if j == i or len(other) < 2:
+                    continue
+                d = _dist_point_to_polyline(x, y, other)
+                if d is not None and (near is None or d < near):
+                    near = d
+            if near is None:
+                continue
+            if near <= eps:
+                joined += 1
+            elif near <= tol:
+                gaps.append((i, at, near))
+    return joined, gaps
+
+
 def fill_pockets(grid, nodata):
     """Заполнить запертые ячейки значением ближайшей рассчитанной.
 

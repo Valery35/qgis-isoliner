@@ -98,6 +98,7 @@ from .kb2d import (
     Variogram, build_grid, clip_outliers, cross_validate, EPS, PolyTrend,
     fault_segments as kb2d_fault_segments,
     fill_pockets as kb2d_fill_pockets,
+    junction_report as kb2d_junction_report,
     cross_validate_detrend, ExternalDrift, exceedance_prob,
     experimental_variogram, fit_variogram, model_curve, variogram_map,
     MODEL_SPHERICAL, MODEL_EXPONENTIAL, MODEL_GAUSSIAN, GAUSS_MIN_NUGGET_FRAC)
@@ -178,6 +179,29 @@ def _sampling_help():
 def _demo_grid_help():
     """Общий блок про размеры учебной сетки: 2.10 и 5.02."""
     return _tr(DEMO_GRID_HELP)
+
+
+def _junction_check(lines, tol, feedback):
+    """Сказать о недоведённых стыках разломов.
+
+    Барьер локален и пересечения обрабатывает сам, матрица отношений
+    между разломами не нужна. Но догадаться о намерении он не может:
+    разлом, недоведённый до соседнего при оцифровке, оставляет щель, и
+    через неё видимость протекает. На карте это невидимо, линии выглядят
+    сомкнутыми.
+    """
+    joined, gaps = kb2d_junction_report(lines, tol)
+    if joined:
+        feedback.pushInfo(_tr("Сомкнутых стыков разломов: %d.") % joined)
+    if gaps:
+        worst = max(d for _, _, d in gaps)
+        feedback.pushWarning(_tr(
+            "Недоведённых концов разломов: %d, наибольший зазор %.4g ед. "
+            "карты. Через такую щель барьер протекает: замеры с чужого "
+            "крыла попадают в выборку, и разрыв слабеет. На карте это не "
+            "видно, линии выглядят сомкнутыми. Доведите концы до соседней "
+            "линии, привязка по узлу в QGIS делает это за секунду.")
+            % (len(gaps), worst))
 
 
 def _fill_help():
@@ -1869,6 +1893,7 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
                     lines.append([(p.x(), p.y()) for p in part])
         if lines:
             fsegs = kb2d_fault_segments(lines)
+            _junction_check(lines, 2.0 * cell, feedback)
             feedback.pushInfo(_tr(
                 "Разломов подано %d, звеньев %d. Замер за разломом "
                 "в выборку не идёт, и поверхность вдоль линии рвётся. "
@@ -11527,6 +11552,7 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
                         flines.append([(p.x(), p.y()) for p in part])
             if flines:
                 fsegs = kb2d_fault_segments(flines)
+                _junction_check(flines, 2.0 * cell, feedback)
                 be, bs = mc.fault_edges(fsegs, xmin, ymin, cell, nx, ny)
                 feedback.pushInfo(self.tr(
                     "Разломов подано %d, звеньев %d, перекрытых рёбер "

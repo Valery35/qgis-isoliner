@@ -250,3 +250,54 @@ def test_short_fault_is_not_trimmed_away():
     assert len(out) >= 2
     length = math.hypot(out[-1][0] - out[0][0], out[-1][1] - out[0][1])
     assert length > 0.0, "разлом укоротили до точки"
+
+
+# --- ось коридора у стыка --------------------------------------------------
+
+AXIS, ABUTS = _load("_axis_for_corridor", "_abuts_other", "_trim_one_end",
+                    "_extend_ends_xy", "_nearest_on_fault")[:2]
+
+STEM = [(30.0, 0.0), (30.0, 30.0)]        # упирается в перекладину
+BAR = [(0.0, 30.0), (60.0, 30.0)]         # оба конца свободны
+W = 5.0
+EPS = 0.25
+
+
+def test_free_end_is_trimmed_and_abutting_end_is_extended():
+    """Свободный конец укорачивается, примыкающий продлевается.
+
+    Конец, лежащий на соседнем разломе, не затухающий: смещение там не
+    сходит на нет, оно передаётся соседнему нарушению. Укоротить ось у
+    такого конца значит оставить у стыка непрорезанный участок и пучок
+    изолиний, которого там быть не должно.
+    """
+    axis = AXIS(STEM, [STEM, BAR], W, EPS)
+    assert abs(axis[0][1] - W) < 1e-9, "свободный конец не укорочен"
+    assert abs(axis[-1][1] - (30.0 + W)) < 1e-9, (
+        "примыкающий конец не продлён за стык")
+
+
+def test_both_free_ends_are_trimmed():
+    """У линии без стыков укорачиваются оба конца, как прежде."""
+    axis = AXIS(BAR, [STEM, BAR], W, EPS)
+    assert abs(axis[0][0] - W) < 1e-9
+    assert abs(axis[-1][0] - (60.0 - W)) < 1e-9
+
+
+def test_lone_fault_is_trimmed_on_both_sides():
+    """Одиночный разлом ведёт себя как раньше: оба конца свободны."""
+    lone = [(10.0, 0.0), (10.0, 40.0)]
+    axis = AXIS(lone, [lone], W, EPS)
+    assert abs(axis[0][1] - W) < 1e-9
+    assert abs(axis[-1][1] - (40.0 - W)) < 1e-9
+
+
+def test_abutment_is_recognised_only_within_tolerance():
+    """Недоведённый конец примыкающим не считается.
+
+    Иначе щель в оцифровке молча превращалась бы в стык, и коридор
+    прорезал бы то, что рвать там нечем.
+    """
+    short_stem = [(30.0, 0.0), (30.0, 29.0)]
+    assert not ABUTS(short_stem, 1, [short_stem, BAR], EPS)
+    assert ABUTS(STEM, 1, [STEM, BAR], EPS)

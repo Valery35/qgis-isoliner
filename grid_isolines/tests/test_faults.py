@@ -276,3 +276,65 @@ def test_fill_leaves_a_clean_grid_untouched():
     out, filled, width = kb2d.fill_pockets(grid, -9999.0)
     assert filled == 0 and width == 0
     assert np.array_equal(out, grid), "чистый грид изменился при заполнении"
+
+
+def test_crossing_faults_need_no_relation_matrix():
+    """Пересечения барьер обрабатывает сам, без матрицы отношений.
+
+    Матрица отношений между разломами нужна подходу через дрейф, где
+    функция разлома задана на всей площади и её надо где-то обрывать.
+    Здесь барьер локален: луч блокирует то звено, которое он пересёк.
+    """
+    rng = np.random.default_rng(0)
+    xd = rng.uniform(0.0, 60.0, 400)
+    yd = rng.uniform(0.0, 60.0, 400)
+    other = (xd > 30.0) & (yd > 30.0)
+    for name, lines in (
+            ("X", [[(30.0, 0.0), (30.0, 60.0)], [(0.0, 30.0), (60.0, 30.0)]]),
+            ("T", [[(30.0, 0.0), (30.0, 30.0)], [(0.0, 30.0), (60.0, 30.0)]])):
+        segs = kb2d.fault_segments(lines)
+        seen = kb2d.visible_mask(15.0, 15.0, xd, yd, segs)
+        assert int((seen & other).sum()) == 0, (
+            "%s: из своего сектора видно чужой" % name)
+
+
+def test_gap_in_digitising_leaks_and_is_reported():
+    """Недоведённый конец пропускает замеры, и об этом сказано.
+
+    Замер прямой: два ряда замеров по разные стороны вертикали, точка
+    оценки у самого стыка. Без щели не проходит ни один, с щелью проходят.
+    """
+    ys = np.linspace(20.0, 29.0, 40)
+    xd = np.concatenate([np.full(40, 26.0), np.full(40, 34.0)])
+    yd = np.concatenate([ys, ys])
+    right = np.array([False] * 40 + [True] * 40)
+
+    def leaked(gap):
+        lines = [[(30.0, 0.0), (30.0, 30.0 - gap)],
+                 [(0.0, 30.0), (60.0, 30.0)]]
+        segs = kb2d.fault_segments(lines)
+        return sum(int((kb2d.visible_mask(26.0, y, xd, yd, segs) & right).sum())
+                   for y in (22.0, 26.0, 28.0, 29.5))
+
+    assert leaked(0.0) == 0, "сомкнутый стык пропускает замеры"
+    assert leaked(5.0) > leaked(1.0) > 0, "щель не пропускает или не растёт"
+
+    # и то же самое обязано быть названо в отчёте
+    joined, gaps = kb2d.junction_report(
+        [[(30.0, 0.0), (30.0, 25.0)], [(0.0, 30.0), (60.0, 30.0)]], tol=10.0)
+    assert joined == 0 and len(gaps) == 1
+    assert abs(gaps[0][2] - 5.0) < 1e-6, "зазор измерен неверно"
+
+
+def test_closed_junction_is_counted_not_reported_as_gap():
+    """Сомкнутый T-стык считается стыком, а не щелью."""
+    joined, gaps = kb2d.junction_report(
+        [[(30.0, 0.0), (30.0, 30.0)], [(0.0, 30.0), (60.0, 30.0)]], tol=10.0)
+    assert joined == 1 and not gaps
+
+
+def test_independent_faults_are_not_called_junctions():
+    """Разлом, ни к чему не примыкающий, в отчёт не попадает."""
+    joined, gaps = kb2d.junction_report(
+        [[(10.0, 0.0), (10.0, 60.0)], [(50.0, 0.0), (50.0, 60.0)]], tol=10.0)
+    assert joined == 0 and not gaps
