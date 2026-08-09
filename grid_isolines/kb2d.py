@@ -211,7 +211,16 @@ def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
     dx = xd - xloc
     dy = yd - yloc
     h2 = dx * dx + dy * dy
-    order = np.argsort(h2)
+    # Полная сортировка не нужна: берётся ndmax ближайших. argpartition
+    # раскладывает за линейное время, сортируется потом только отобранная
+    # горстка. На густой сети это заметно: при десяти тысячах замеров
+    # сортировка всей выборки для каждой ячейки съедала больше половины
+    # времени.
+    if h2.size > ndmax:
+        cut = np.argpartition(h2, ndmax)[:ndmax]
+        order = cut[np.argsort(h2[cut])]
+    else:
+        order = np.argsort(h2)
     sel = order[h2[order] <= rad2][:ndmax]
     na = len(sel)
     if na < ndmin:
@@ -242,7 +251,7 @@ def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
             cb_arr = np.where(coin, cb_arr - vg.c0, cb_arr)
         rhs = cb_arr.mean(axis=1)
     else:
-        rhs = np.array([vg.cova2(xa[i] - xloc, ya[i] - yloc) for i in range(na)])
+        rhs = vg.cova2_array(xa - xloc, ya - yloc)
 
     if na == 1:
         cb = float(rhs[0])
@@ -261,13 +270,15 @@ def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
     neq = na + ktype                         # +1 row for OK unbiasedness
     A = np.empty((neq, neq))
     r = np.empty(neq)
-    for i in range(na):
-        A[i, i] = c0pt + jitter
-        for j in range(i + 1, na):
-            c = vg.cova2(xa[i] - xa[j], ya[i] - ya[j])
-            A[i, j] = c
-            A[j, i] = c
-        r[i] = rhs[i]
+    # Матрица ковариаций строится разом, а не двойным циклом с вызовом
+    # cova2 на каждую пару. При двадцати четырёх соседях это было 276
+    # питоновских вызовов на КАЖДУЮ ячейку сетки, и именно они, а не
+    # решение системы, съедали время: замер показывал полмиллисекунды на
+    # ячейку и почти полную независимость от числа замеров.
+    A[:na, :na] = vg.cova2_array(xa[:, None] - xa[None, :],
+                                 ya[:, None] - ya[None, :])
+    np.fill_diagonal(A[:na, :na], c0pt + jitter)
+    r[:na] = rhs
     if ktype == 1:                           # ordinary kriging
         A[na, :na] = vg.maxcov
         A[:na, na] = vg.maxcov
@@ -965,7 +976,8 @@ def rescale_nugget(vg, frac):
 def categorical_indicator_grids(xd, yd, labels, classes, xmn, ymn, cell, nx, ny,
                                 ndmin=4, ndmax=24, radius=None, nodata=-9999.0,
                                 models=None, progress=None, wts=None,
-                                nugget_frac=None, on_model=None):
+                                nugget_frac=None, on_model=None,
+                                fault_segs=None):
     """Категориальный индикаторный кригинг.
 
     На каждый класс из classes строит индикатор 0/1, кригует простым
@@ -1003,6 +1015,7 @@ def categorical_indicator_grids(xd, yd, labels, classes, xmn, ymn, cell, nx, ny,
         radius = max(nx * cell, ny * cell)
     rad2 = float(radius) * float(radius)
     raw = np.empty((ny, nx, K), dtype=np.float32)
+    pockets = 0
     for k, c in enumerate(classes):
         ind = (labels == c).astype(float)
         if w is not None:
@@ -1019,9 +1032,17 @@ def categorical_indicator_grids(xd, yd, labels, classes, xmn, ymn, cell, nx, ny,
             on_model(c, fitted, (vg.c0 / tot2) if tot2 > 0 else 0.0,
                      max(vg.aa) if vg.aa else 0.0)
         prog = (lambda d, t, _k=k: progress(_k, K, d, t)) if progress else None
-        raw[:, :, k] = build_grid(xd, yd, ind, vg, 0, skmean_k, ndmin, ndmax,
-                                  rad2, nodata, xmn, ymn, cell, nx, ny,
-                                  progress=prog)
+        g = build_grid(xd, yd, ind, vg, 0, skmean_k, ndmin, ndmax,
+                       rad2, nodata, xmn, ymn, cell, nx, ny,
+                       progress=prog, fault_segs=fault_segs)
+        if fault_segs is not None and len(fault_segs):
+            # Ячейка, запертая в складке разлома, не видит ни одного
+            # замера. У индикатора это опаснее, чем у поверхности: пустая
+            # полоса хотя бы одного класса выбивает ячейку из зоны
+            # целиком, потому что зона требует оценки по всем классам.
+            g, n_fill, _ = fill_pockets(g, nodata)
+            pockets = max(pockets, n_fill)
+        raw[:, :, k] = g
     valid = np.all(raw != nodata, axis=2)
     clipped = np.clip(raw, 0.0, 1.0)
     s = clipped.sum(axis=2, keepdims=True)
@@ -1559,6 +1580,27 @@ def fault_segments(lines):
     return np.asarray(segs, dtype=float)
 
 
+def _segments_near_bundle(segs, xloc, yloc, xs, ys):
+    """Звенья, чей габарит пересекается с габаритом пучка лучей.
+
+    Звено, лежащее в стороне от всего пучка, не может перекрыть ни один
+    луч. Проверка стоит O(звеньев), а снимает работу O(звеньев на
+    замеры). Возвращает None, если не осталось ни одного.
+    """
+    x0 = min(float(xloc), float(xs.min()))
+    x1 = max(float(xloc), float(xs.max()))
+    y0 = min(float(yloc), float(ys.min()))
+    y1 = max(float(yloc), float(ys.max()))
+    sx0 = np.minimum(segs[:, 0], segs[:, 2])
+    sx1 = np.maximum(segs[:, 0], segs[:, 2])
+    sy0 = np.minimum(segs[:, 1], segs[:, 3])
+    sy1 = np.maximum(segs[:, 1], segs[:, 3])
+    near = (sx1 >= x0) & (sx0 <= x1) & (sy1 >= y0) & (sy0 <= y1)
+    if not near.any():
+        return None
+    return segs[near] if not near.all() else segs
+
+
 def visible_mask(xloc, yloc, xs, ys, segs):
     """Какие замеры видны из точки оценки: отрезок не пересекает разлом.
 
@@ -1581,20 +1623,62 @@ def visible_mask(xloc, yloc, xs, ys, segs):
     ys = np.asarray(ys, dtype=float)
     if segs is None or len(segs) == 0 or xs.size == 0:
         return np.ones(xs.shape, dtype=bool)
+    # Отсев по габаритам. Звено, прямоугольник которого не пересекается с
+    # прямоугольником всего пучка лучей, не может перекрыть ни один из
+    # них. Проверка стоит O(звеньев), а снимает работу O(звеньев на
+    # замеры). На сети разломов, растянутой по площади, при ограниченном
+    # радиусе поиска до расчёта доходят единицы звеньев из сотен.
+    # Порог включения выбран замером, не на глаз. На малой задаче отсев
+    # не окупается: он сам заводит несколько массивов, а работы снимает
+    # меньше, чем стоит. При пороге вдвое ниже средние сети выигрывают
+    # вдвое, но задачи, где отсев ничего не снимает, теряют пятую часть
+    # скорости. Регресс дороже упущенного выигрыша, поэтому порог здесь.
+    spread = False
+    if segs.shape[0] > 8 and segs.shape[0] * xs.size > 20000:
+        n_all = segs.shape[0]
+        segs = _segments_near_bundle(segs, xloc, yloc, xs, ys)
+        if segs is None:
+            return np.ones(xs.shape, dtype=bool)
+        # Отсев снял большую часть звеньев - значит сеть разломов широко
+        # растянута относительно пучка лучей. Только в этом случае имеет
+        # смысл разбирать уцелевшие пары по индексам.
+        spread = segs.shape[0] * 4 <= n_all
+
     ax = segs[:, 0][:, None]
     ay = segs[:, 1][:, None]
     bx = segs[:, 2][:, None]
     by = segs[:, 3][:, None]
-    # d1, d2 - с какой стороны звена лежат точка оценки и замер
-    d1 = (bx - ax) * (yloc - ay) - (by - ay) * (xloc - ax)
-    d2 = (bx - ax) * (ys - ay) - (by - ay) * (xs - ax)
-    # d3, d4 - с какой стороны луча лежат концы звена
+    # Сперва d3, d4 - с какой стороны ЛУЧА лежат концы звена. Этот тест
+    # отсеивает куда сильнее, чем сторона звена: у дальнего звена оба
+    # конца почти всегда по одну сторону луча, тогда как по сторону
+    # звена замеры делятся примерно пополам.
     rx = xs - xloc
     ry = ys - yloc
     d3 = rx * (ay - yloc) - ry * (ax - xloc)
     d4 = rx * (by - yloc) - ry * (bx - xloc)
-    crossed = ((d1 * d2) < 0.0) & ((d3 * d4) < 0.0)
-    return ~crossed.any(axis=0)
+    cand = (d3 * d4) < 0.0
+
+    # d1, d2 - с какой стороны звена лежат точка оценки и замер. Ветка
+    # выбирается по итогу отсева, и это не украшение: разбор по индексам
+    # собирает значения вразнобой по памяти и на плотной матрице
+    # проигрывает сплошному счёту в полтора раза. Замерено.
+    if not spread or np.count_nonzero(cand) > 0.25 * cand.size:
+        d1 = (bx - ax) * (yloc - ay) - (by - ay) * (xloc - ax)
+        d2 = (bx - ax) * (ys - ay) - (by - ay) * (xs - ax)
+        return ~(cand & ((d1 * d2) < 0.0)).any(axis=0)
+    if not cand.any():
+        return np.ones(xs.shape, dtype=bool)
+
+    si, pj = np.nonzero(cand)
+    dx = segs[si, 2] - segs[si, 0]
+    dy = segs[si, 3] - segs[si, 1]
+    d1 = dx * (yloc - segs[si, 1]) - dy * (xloc - segs[si, 0])
+    d2 = dx * (ys[pj] - segs[si, 1]) - dy * (xs[pj] - segs[si, 0])
+    blocked = np.zeros(xs.shape, dtype=bool)
+    hit = (d1 * d2) < 0.0
+    if hit.any():
+        blocked[pj[hit]] = True
+    return ~blocked
 
 
 def visible(x0, y0, x1, y1, segs):

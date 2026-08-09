@@ -164,6 +164,84 @@ def _erode4(mask):
     return m
 
 
+# Сколько ближайших вершин кольца участвует в интерполяции уреза.
+# Меньше - урез точнее следует своему берегу, но в середине широкого
+# русла возможен шов по оси. Больше - глаже, но возвращается подтягивание
+# с чужого берега. Восемь проверено замером на меандрах.
+K_RING_NEAREST = 8
+
+
+def profile_ring_from_points(rings, points, tol, min_pts=2):
+    """Отметки вершин уреза по точкам высот у его контура.
+
+    Алгоритм В. Швалева, который он до сих пор выполнял руками: контур
+    уреза отрисован, а отметки уреза стоят обычными точками высот рядом с
+    ним. Берутся точки не дальше tol от контура, и вершина кольца
+    получает отметку по ним.
+
+    Чем это лучше профилирования по оси реки: оси не требуется вовсе,
+    поэтому работает и на пруду, и на старице, и на реке с островом.
+    Отметка при этом остаётся замером, а не значением, которое поставил
+    оцифровщик по своему разумению.
+
+    Точка, попавшая в допуск сразу от двух водоёмов, отдаётся ближайшему
+    и только ему: отдать обоим значило бы поднять один урез отметкой
+    другого.
+
+    rings - список колец (K, 2) по одному водоёму;
+    points - (N, 3) точки высот x, y, z;
+    tol - допуск отбора в единицах карты;
+    min_pts - сколько точек нужно, чтобы профилировать вообще.
+
+    Возвращает (список Z по кольцам, сколько точек подобрано) либо
+    (None, 0), если точек не хватило: тогда урез остаётся как был.
+    """
+    if points is None or len(points) == 0:
+        return None, 0
+    pts = np.asarray(points, dtype=np.float64)
+    px, py, pz = pts[:, 0], pts[:, 1], pts[:, 2]
+    # отбор: расстояние до ближайшего звена любого кольца не больше tol
+    best = np.full(px.shape, np.inf)
+    for ring in rings:
+        r = np.asarray(ring, dtype=np.float64)
+        for k in range(len(r) - 1):
+            ax, ay = r[k]
+            bx, by = r[k + 1]
+            dx, dy = bx - ax, by - ay
+            den = dx * dx + dy * dy
+            if den <= 0.0:
+                continue
+            s = ((px - ax) * dx + (py - ay) * dy) / den
+            s = np.clip(s, 0.0, 1.0)
+            d = np.hypot(px - (ax + s * dx), py - (ay + s * dy))
+            best = np.minimum(best, d)
+    take = best <= float(tol)
+    if int(take.sum()) < int(min_pts):
+        return None, int(take.sum())
+    sx, sy, sz = px[take], py[take], pz[take]
+
+    out = []
+    for ring in rings:
+        r = np.asarray(ring, dtype=np.float64)
+        # отметка вершины по ближайшим отобранным точкам, обратные
+        # квадраты расстояний. Локально, как и у переменного уреза:
+        # глобальное взвешивание тянуло бы уровень с другого конца
+        # водоёма.
+        k = int(min(K_RING_NEAREST, sx.size))
+        d2 = ((r[:, 0][:, None] - sx[None, :]) ** 2
+              + (r[:, 1][:, None] - sy[None, :]) ** 2)
+        d2 = np.where(d2 < 1e-6, 1e-6, d2)
+        if k < sx.size:
+            idx = np.argpartition(d2, k - 1, axis=1)[:, :k]
+            d2 = np.take_along_axis(d2, idx, axis=1)
+            vv = sz[idx]
+        else:
+            vv = np.broadcast_to(sz[None, :], d2.shape)
+        w = 1.0 / d2
+        out.append((w * vv).sum(axis=1) / w.sum(axis=1))
+    return out, int(take.sum())
+
+
 def _interp_ring_surface(rings, ring_z, mask, x0, y_top, cell, shape):
     """Поверхность переменного уреза по Z-высотам вершин кольца.
 
@@ -201,7 +279,20 @@ def _interp_ring_surface(rings, ring_z, mask, x0, y_top, cell, shape):
     cy = y_top - (rr + 0.5) * cell
 
     surf = np.zeros(shape, dtype=np.float64)
-    # IDW степени 2, блоками чтобы не раздувать память
+    # IDW степени 2 по БЛИЖАЙШИМ вершинам, блоками чтобы не раздувать
+    # память.
+    #
+    # Раньше веса брались по всем вершинам кольца сразу, и на меандре это
+    # давало ошибку: противоположный берег близко в пространстве, но далеко по
+    # реке и с другой отметкой, поэтому урез подтягивался к чужому
+    # уровню. Ошибка растёт с падением реки: при падении 15 м на лист она
+    # доходила до 0.9 м с размахом 1.8 м, и вдоль уреза шли бугры.
+    #
+    # Восемь ближайших вершин оставляют интерполяцию локальной. Для
+    # ячейки на самом урезе вес почти целиком у соседних вершин своего
+    # берега, а для ячейки в середине русла уровень плавно делится между
+    # двумя берегами, без шва по оси.
+    k = int(min(K_RING_NEAREST, pts.shape[0]))
     block = 4096
     for start in range(0, rr.size, block):
         sl = slice(start, start + block)
@@ -209,8 +300,14 @@ def _interp_ring_surface(rings, ring_z, mask, x0, y_top, cell, shape):
         dy = cy[sl][:, None] - pts[None, :, 1]
         d2 = dx * dx + dy * dy
         d2 = np.where(d2 < 1e-6, 1e-6, d2)
+        if k < pts.shape[0]:
+            idx = np.argpartition(d2, k - 1, axis=1)[:, :k]
+            d2 = np.take_along_axis(d2, idx, axis=1)
+            vv = vals[idx]
+        else:
+            vv = np.broadcast_to(vals[None, :], d2.shape)
         w = 1.0 / d2
-        surf[rr[sl], cc[sl]] = (w * vals[None, :]).sum(axis=1) / w.sum(axis=1)
+        surf[rr[sl], cc[sl]] = (w * vv).sum(axis=1) / w.sum(axis=1)
     return surf
 
 
@@ -227,7 +324,7 @@ def _shore_ring(mask):
 # --- сглаживание --------------------------------------------------------
 
 def _relax(z, pin_mask, pin_val, barrier, iters, streams_flat, min_drop,
-           feedback=None):
+           feedback=None, stream_bnds=None):
     """Якоби по 4 соседям с барьерами, приколкой и дренажем."""
     ny, nx = z.shape
     for it in range(iters):
@@ -246,7 +343,7 @@ def _relax(z, pin_mask, pin_val, barrier, iters, streams_flat, min_drop,
         z = np.where(have, acc / np.maximum(cnt, 1.0), z)
         z[pin_mask] = pin_val[pin_mask]
         if streams_flat and (it % 5 == 4 or it == iters - 1):
-            _enforce_streams(z, streams_flat, min_drop)
+            _enforce_streams(z, streams_flat, min_drop, stream_bnds)
             z[pin_mask] = pin_val[pin_mask]
         if feedback is not None and it % 10 == 0:
             if feedback.isCanceled():
@@ -254,16 +351,166 @@ def _relax(z, pin_mask, pin_val, barrier, iters, streams_flat, min_drop,
     return z
 
 
-def _enforce_streams(z, streams_flat, min_drop):
-    """Монотонное падение вдоль каждой цепочки вниз по течению."""
+def project_depth_points(axis_xy, points, tol):
+    """Промеры дна на ось тальвега: якоря по дуговой координате.
+
+    Промеры снимают створами поперёк русла, и в ячейку самой оси попадают
+    далеко не все. Такой промер держал только свою ячейку, а продольный
+    профиль не задавал, и между створами тальвег снова срезал дно по
+    минимальному падению.
+
+    Отметкой оси в створе берётся МИНИМУМ из спроецированных промеров:
+    тальвег это линия наибольших глубин, значит его касается самый низкий
+    промер створа. Береговые промеры при этом никуда не деваются, они
+    по-прежнему работают жёсткими узлами в своих ячейках и формируют
+    поперечник.
+
+    axis_xy - вершины оси (K, 2) в мировых координатах;
+    points - (N, 3) промеры x, y, z;
+    tol - допуск отбора от оси в единицах карты.
+
+    Возвращает (список (дуговая координата, отметка), число учтённых
+    промеров). Промеры дальше tol от оси не участвуют.
+    """
+    axis = np.asarray(axis_xy, dtype=np.float64)
+    if points is None or len(points) == 0 or len(axis) < 2 or tol <= 0:
+        return [], 0
+    pts = np.asarray(points, dtype=np.float64)
+    px, py, pz = pts[:, 0], pts[:, 1], pts[:, 2]
+    seg = np.hypot(np.diff(axis[:, 0]), np.diff(axis[:, 1]))
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    best_d = np.full(px.shape, np.inf)
+    best_s = np.zeros(px.shape)
+    for k in range(len(axis) - 1):
+        ax, ay = axis[k]
+        bx, by = axis[k + 1]
+        dx, dy = bx - ax, by - ay
+        den = dx * dx + dy * dy
+        if den <= 0.0:
+            continue
+        s = np.clip(((px - ax) * dx + (py - ay) * dy) / den, 0.0, 1.0)
+        d = np.hypot(px - (ax + s * dx), py - (ay + s * dy))
+        closer = d < best_d
+        best_d = np.where(closer, d, best_d)
+        best_s = np.where(closer, cum[k] + s * seg[k], best_s)
+    take = best_d <= float(tol)
+    if not take.any():
+        return [], 0
+    # минимум по створу: промеры с близкой дуговой координатой это один
+    # створ, и оси касается самый низкий из них
+    out = {}
+    for s, z in zip(best_s[take], pz[take]):
+        key = round(float(s), 6)
+        out[key] = min(out.get(key, float(z)), float(z))
+    return sorted(out.items()), int(take.sum())
+
+
+def against_the_fall(anchors):
+    """Сколько якорей идёт против общего падения и наибольший подъём.
+
+    Русло меняется год от года, плёсы и перекаты нормальны, поэтому
+    подъём между промерами это не ошибка и помечать каждый незачем.
+    Одна строка с итогом покажет опечатку в отметке и не создаст шума.
+    """
+    ups, worst = 0, 0.0
+    for (_s0, z0), (_s1, z1) in zip(anchors[:-1], anchors[1:]):
+        if z1 > z0:
+            ups += 1
+            worst = max(worst, float(z1 - z0))
+    return ups, worst
+
+
+def stream_bounds(chain, pin_mask, pin_val, min_drop, extra=None):
+    """Потолок и пол вдоль цепочки по закреплённым отметкам дна.
+
+    Прежнее принуждение умело только опускать. Отметку дна выше текущего
+    профиля оно просто игнорировало, поэтому пикет оставался одиноким
+    пиком: соседний узел оказывался ниже него на всю разницу. А ниже по
+    течению профиль срезался от верхнего значения и проходил мимо
+    следующего пикета, подпирая его ступенькой. На продольном профиле это
+    выглядело как ровное дно с двумя иглами вместо плавного ската от
+    отметки к отметке.
+
+    Теперь закреплённые отметки работают якорями с двух сторон.
+    Потолок идёт вниз по течению от каждого якоря: ниже якоря профиль не
+    поднимется. Пол идёт вверх по течению от каждого якоря: выше по руслу
+    профиль не срежется ниже того, что позволяет нижний якорь. Между
+    двумя якорями это даёт скат от одного к другому, а падение остаётся
+    монотонным.
+
+    Возвращает (потолок, пол) массивами по длине цепочки. Если якорей на
+    цепочке нет, потолок и пол бесконечны, и поведение прежнее.
+    """
+    n = int(chain.size)
+    step = np.arange(n, dtype=np.float64) * float(min_drop)
+    pinned = pin_mask.ravel()[chain].copy()
+    vals = pin_val.ravel()[chain].astype(np.float64).copy()
+    if extra:
+        # промеры, спроецированные на ось: якорь ставится в ближайший узел
+        # цепочки по дуговой координате, минимум если их несколько
+        last = int(chain.size) - 1
+        smax = max(s for s, _z in extra)
+        scale = (last / smax) if smax > 0 else 0.0
+        for s, z in extra:
+            i = int(round(float(s) * scale))
+            i = 0 if i < 0 else (int(chain.size) - 1 if i >= chain.size else i)
+            if pinned[i]:
+                vals[i] = min(float(vals[i]), float(z))
+            else:
+                pinned[i] = True
+                vals[i] = float(z)
+    cap = np.full(n, np.inf)
+    if pinned.any():
+        run = np.inf
+        for i in range(n):
+            if pinned[i]:
+                run = float(vals[i]) + step[i]
+            cap[i] = run
+        cap = cap - step
+        # Пол между двумя якорями идёт ПО ЛИНИИ от одного к другому, а не
+        # по минимальному падению. Иначе профиль срезается мимо нижнего
+        # пикета и подпирает его ступенькой: отметка дна влияет только
+        # рядом с собой, а между отметками русло определяет тальвег.
+        idx = np.nonzero(pinned)[0]
+        floor = np.full(n, -np.inf)
+        for a, b in zip(idx[:-1], idx[1:]):
+            if b > a:
+                line = np.linspace(float(vals[a]), float(vals[b]), b - a + 1)
+                # Между двумя отметками дна профиль И ЕСТЬ эта линия:
+                # других данных о русле там нет, а тальвег задаёт только
+                # направление падения, не глубину. Поэтому линия ставится
+                # и полом, и потолком.
+                floor[a:b + 1] = line
+                cap[a:b + 1] = line
+        # выше первого якоря держим минимальное падение к нему
+        first = int(idx[0])
+        floor[:first] = float(vals[first]) + (step[first] - step[:first])
+        floor[idx] = vals[idx]
+    else:
+        floor = np.full(n, -np.inf)
+    return cap, floor
+
+
+def _enforce_streams(z, streams_flat, min_drop, bounds=None):
+    """Монотонное падение вдоль каждой цепочки вниз по течению.
+
+    bounds - список (потолок, пол) по цепочкам из stream_bounds. Если он
+    задан, закреплённые отметки дна работают якорями и профиль идёт от
+    одной к другой, а не срезается мимо них.
+    """
     flat = z.ravel()
-    for chain in streams_flat:
+    for k, chain in enumerate(streams_flat):
         if chain.size < 2:
             continue
         v = flat[chain]
         v = np.minimum.accumulate(v + np.arange(v.size) * min_drop)
         v -= np.arange(v.size) * min_drop
-        flat[chain] = np.minimum(flat[chain], v)
+        v = np.minimum(flat[chain], v)
+        if bounds is not None and k < len(bounds):
+            cap, floor = bounds[k]
+            v = np.minimum(v, cap)
+            v = np.maximum(v, floor)
+        flat[chain] = v
 
 
 def _dilate(mask, steps):
@@ -279,7 +526,7 @@ def _dilate(mask, steps):
 
 
 def _polish(z, pin_mask, pin_val, barrier, iters, streams_flat, min_drop,
-            omega=0.5, feedback=None):
+            omega=0.5, feedback=None, stream_bnds=None):
     """Полировка минимальной кривизной (Briggs): бигармонический
     стенсил 13 точек с демпфированием. Мембрана из _relax
     держит узлы, но между кривыми изолиниями даёт смещение, кривизна
@@ -303,7 +550,7 @@ def _polish(z, pin_mask, pin_val, barrier, iters, streams_flat, min_drop,
             z = np.where(frozen, z, upd)
         z[pin_mask] = pin_val[pin_mask]
         if streams_flat and (it % 10 == 9 or it == iters - 1):
-            _enforce_streams(z, streams_flat, min_drop)
+            _enforce_streams(z, streams_flat, min_drop, stream_bnds)
             z[pin_mask] = pin_val[pin_mask]
         if feedback is not None and it % 20 == 0:
             if feedback.isCanceled():
@@ -380,7 +627,7 @@ def mask_edge(m):
 
 def topo2raster(points, streams, breaklines, lakes, extent, cell,
                 iterations=DEFAULT_ITERATIONS, min_drop=DEFAULT_MIN_DROP,
-                feedback=None):
+                feedback=None, depth_tol=0.0):
     """Построить рельеф из векторных ограничений.
 
     points: (N, 3) x, y, z либо (N, 4) x, y, z, w - все жёсткие узлы
@@ -430,9 +677,15 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
         lshape = (max(4, int(np.ceil(ny / f))), max(4, int(np.ceil(nx / f))))
         pin, pval = _pin_from_points(points, x0, y_top, lcell, lshape)
         barrier = _barrier_mask(breaklines, x0, y_top, lcell, lshape)
-        streams_flat = [polyline_cells(xy, x0, y_top, lcell, lshape)
-                        for xy in (streams or ())]
-        streams_flat = [s for s in streams_flat if s.size > 1]
+        pairs = [(xy, polyline_cells(xy, x0, y_top, lcell, lshape))
+                 for xy in (streams or ())]
+        pairs = [(xy, s) for xy, s in pairs if s.size > 1]
+        streams_flat = [s for _xy, s in pairs]
+        # промеры дна, спроецированные на ось: якоря продольного профиля
+        # по всем замерам, а не только по попавшим в ячейку тальвега
+        stream_extra = [project_depth_points(xy, points, depth_tol)[0]
+                        if depth_tol > 0 else []
+                        for xy, _s in pairs]
 
         lake_masks = []
         for lake in (lakes or ()):
@@ -474,8 +727,12 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
 
         iters = max(10, iterations // (li + 1)) if li < n_levels - 1 \
             else iterations
+        stream_bnds = [stream_bounds(ch, pin, pval, min_drop,
+                                     stream_extra[i])
+                       for i, ch in enumerate(streams_flat)] \
+            if streams_flat else None
         z = _relax(z, pin, pval, barrier, max(5, iters // 2),
-                   streams_flat, min_drop, feedback)
+                   streams_flat, min_drop, feedback, stream_bnds)
 
         # приоритет 3: уровень по минимуму прилегающего берега
         for m, lz, surf in lake_masks:
@@ -486,10 +743,14 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
                 pin |= m
                 pval[m] = level
                 z[m] = level
+        stream_bnds = [stream_bounds(ch, pin, pval, min_drop,
+                                     stream_extra[i])
+                       for i, ch in enumerate(streams_flat)] \
+            if streams_flat else None
         z = _relax(z, pin, pval, barrier, iters - max(5, iters // 2) + 1,
-                   streams_flat, min_drop, feedback)
+                   streams_flat, min_drop, feedback, stream_bnds)
         z = _polish(z, pin, pval, barrier, 2 * iters, streams_flat,
-                    min_drop, feedback=feedback)
+                    min_drop, feedback=feedback, stream_bnds=stream_bnds)
         if feedback is not None:
             if feedback.isCanceled():
                 break

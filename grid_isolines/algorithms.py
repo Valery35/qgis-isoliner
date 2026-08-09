@@ -2636,6 +2636,7 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
     INPUT, CLASS_FIELD = "INPUT", "CLASS_FIELD"
     WEIGHT_FIELD = "WEIGHT_FIELD"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
+    FAULTS = "FAULTS"
     CELL_SIZE, EXTENT = "CELL_SIZE", "EXTENT"
     NUGGET = "NUGGET"
     OUTPUT_PROB, OUTPUT_ZONE, OUTPUT_CONF = \
@@ -2676,6 +2677,16 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             "в центре ячейки, и если в одну ячейку попало несколько скважин "
             "разных классов, ни один самородок этого не разведёт. Ячейку "
             "задавайте мельче расстояния между соседними скважинами.\n\n"
+            "**Разломы** подаются линиями и работают барьером влияния, как в "
+            "1.02: замер, отрезок до которого пересекает линию, в выборку "
+            "ячейки не идёт. Индикатор каждого класса кригуется со своим "
+            "барьером, поэтому граница категории рвётся на разломе так же, "
+            "как поверхность. Без этого класс перетекал бы через разрыв, "
+            "которого пласт не знает.\n\n"
+            "Ячейка, запертая в складке разлома, заполняется по соседям. У "
+            "индикатора это важнее, чем у поверхности: зона требует оценки по "
+            "всем классам сразу, и пустая полоса хотя бы одного из них "
+            "выбивает ячейку из зоны целиком.\n\n"
             "**Радиус поиска** ограничивает окрестность узла, ноль означает "
             "всю выборку. **Мин. и макс. количество точек** задают, сколько "
             "соседей берётся в систему: ниже минимума ячейка остаётся пустой, "
@@ -2718,6 +2729,9 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             self.MAX_POINTS, self.tr("Макс. количество точек"),
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.MAX_POINTS, 24), minValue=1, maxValue=120))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.FAULTS, self.tr("Разломы (линии, барьеры влияния)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
         nug = QgsProcessingParameterNumber(
             self.NUGGET,
             self.tr("Доля самородка (пусто = из подбора, 0 = точно через данные)"),
@@ -3135,10 +3149,38 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
                     "Класс «%s»: самородок из подбора %.2f, применён %.2f, "
                     "радиус %.0f.") % (cls, fitted, used, rng))
 
+        fsegs = None
+        f_src = self.parameterAsSource(parameters, self.FAULTS, context) \
+            if parameters.get(self.FAULTS) is not None else None
+        if f_src is not None:
+            flines = []
+            for ft in f_src.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                try:
+                    parts = (g.asMultiPolyline() if g.isMultipart()
+                             else [g.asPolyline()])
+                except TypeError:
+                    parts = [g.asPolyline()]
+                for part in parts:
+                    if len(part) >= 2:
+                        flines.append([(p.x(), p.y()) for p in part])
+            if flines:
+                fsegs = kb2d_fault_segments(flines)
+                _junction_check(flines, 2.0 * cell, feedback)
+                feedback.pushInfo(_tr(
+                    "Разломов подано %d, звеньев %d. Индикатор каждого "
+                    "класса кригуется со своим барьером, поэтому граница "
+                    "категории рвётся на разломе так же, как поверхность. "
+                    "Замер за разломом в выборку ячейки не идёт.")
+                    % (len(flines), len(fsegs)))
+
         probs, zone, conf = categorical_indicator_grids(
             xs, ys, labels, classes, xmn, ymn, cell, nx, ny,
             ndmin=ndmin, ndmax=ndmax, radius=radius, nodata=nodata,
-            progress=prog, wts=wts, nugget_frac=nug, on_model=on_model)
+            progress=prog, wts=wts, nugget_frac=nug, on_model=on_model,
+            fault_segs=fsegs)
         if nug is not None and nug <= 0.0:
             feedback.pushInfo(_tr(
                 "Самородок обнулён: оценка проходит через данные. В узле со "
@@ -18332,6 +18374,8 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
     LAKES = "LAKES"
     LAKES_FIELD = "LAKES_FIELD"
     LAKES_PLANE = "LAKES_PLANE"
+    LAKE_PROFILE_TOL = "LAKE_PROFILE_TOL"
+    DEPTH_TOL = "DEPTH_TOL"
     FORM_TOP = "FORM_TOP"
     FORM_BOT = "FORM_BOT"
     FORM_LINK = "FORM_LINK"
@@ -18412,6 +18456,43 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             "не заворачиваются. Слой границы можно подавать в любой "
             "системе координат, геометрия переводится сама.\n\n"
             "**Размер ячейки** задаётся в метрах и здесь важнее, чем в загрузчиках: он определяет, какие формы рельефа вообще выживут. Ячейка должна быть заметно мельче расстояния между соседними горизонталями, иначе склон между ними ляжет в одну-две ячейки и станет ступенькой. Для топоплана масштаба 1:2000 с сечением 1 м разумный старт от двух до пяти метров.\n\n"
+            "**Промеры дна ближе к тальвегу** учитывает в продольном профиле "
+            "все замеры глубин, а не только попавшие ровно в ячейку оси. "
+            "Промеры снимают створами поперёк русла, и в ячейку самой оси "
+            "попадают далеко не все: такой замер держал только свою ячейку, "
+            "а профиль не задавал, и между створами тальвег снова срезал дно "
+            "по минимальному падению.\n\n"
+            "Отметкой оси в створе берётся минимум из спроецированных "
+            "промеров: тальвег это линия наибольших глубин, значит его "
+            "касается самый низкий замер створа. Береговые промеры при этом "
+            "никуда не деваются, они остаются жёсткими узлами в своих "
+            "ячейках и формируют поперечник.\n\n"
+            "Замеры главнее правила о падении. Русло меняется год от года, "
+            "плёсы и перекаты нормальны, поэтому монотонное падение "
+            "держится только там, где промеров нет, а участки против "
+            "общего падения считаются и выводятся одной строкой в журнал: "
+            "по ней видно опечатку в отметке, и она не превращается в "
+            "постоянный шум.\n\n"
+            "Ноль отключает проекцию. Разумный допуск подсказывает практика "
+            "съёмки: ставьте промеры на линию тальвега или в паре метров от "
+            "неё, и берите допуск того же порядка.\n\n"
+            "**Профилировать урез по точкам** решает старую ручную работу. "
+            "Отметки уреза геодезист ставит обычными точками высот рядом с "
+            "линией берега, а сам контур отрисован без Z. Инструмент берёт "
+            "точки не дальше заданного расстояния от контура и даёт каждой "
+            "вершине кольца отметку по ближайшим из них. Урез получает "
+            "продольный уклон из замеров, а не из значения, поставленного "
+            "оцифровщиком.\n\n"
+            "Оси реки для этого не нужно, поэтому приём работает и на пруду, "
+            "и на старице, и на реке с островом. Точка, попавшая в допуск "
+            "сразу от двух водоёмов, достаётся ближайшему: отдать обоим "
+            "значило бы поднять один урез отметкой другого.\n\n"
+            "Ноль отключает профилирование, и урез берётся как раньше - из "
+            "поля отметки, из Z узлов или по минимуму берега. Разумный "
+            "допуск это пара размеров ячейки: слишком малый не найдёт "
+            "ничего, слишком большой затянет отметки с берега. Сколько "
+            "точек подобрано и сколько водоёмов осталось без профиля, "
+            "пишется в журнал.\n\n"
             "**Функция формы поперёк** задаёт, как поверхность идёт между верхней и нижней линией формы. Линейная даёт прямой откос постоянного уклона, это проектная геометрия отвала или уступа. Плавная скругляет переход у кромок, что ближе к естественному виду отработанного откоса.") + _credit())
 
     def initAlgorithm(self, config=None):
@@ -18447,6 +18528,17 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterBoolean(
             self.LAKES_PLANE, self.tr("Урез как плоскость"),
             defaultValue=_dv(self, self.LAKES_PLANE, True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.DEPTH_TOL,
+            self.tr("Промеры дна ближе к тальвегу, м (0 - только в ячейке оси)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.DEPTH_TOL, 0.0), minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.LAKE_PROFILE_TOL,
+            self.tr("Профилировать урез по точкам ближе, м (0 - не профилировать)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.LAKE_PROFILE_TOL, 0.0),
+            minValue=0.0)))
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Охват (пусто: по слоям)"), optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
@@ -18849,6 +18941,40 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
                                         context)
             # в режиме изолинии закрепляется только линия уреза, а
             # поверхность внутри остаётся за точками дна и тальвегом
+            # Профилирование уреза по точкам высот у контура. Алгоритм
+            # В. Швалева: отметки уреза стоят обычными точками рядом с
+            # линией берега, и вершина кольца получает отметку по ним.
+            # Оси реки для этого не нужно, поэтому работает и на пруду, и
+            # на старице, и на реке с островом.
+            prof_tol = self.parameterAsDouble(
+                parameters, self.LAKE_PROFILE_TOL, context)
+            if prof_tol > 0 and len(pts):
+                done_n, skip_n, took = 0, 0, 0
+                fixed = []
+                for r, z_, rz in lakes:
+                    new_rz, n_take = topo_t2r.profile_ring_from_points(
+                        r, pts[:, :3], prof_tol)
+                    if new_rz is None:
+                        skip_n += 1
+                        fixed.append((r, z_, rz))
+                    else:
+                        done_n += 1
+                        took += n_take
+                        fixed.append((r, None, new_rz))
+                lakes = fixed
+                feedback.pushInfo(self.tr(
+                    "Урез профилирован по точкам высот: водоёмов %d, "
+                    "точек подобрано %d, оставлено как было %d. Отметка "
+                    "вершины берётся по ближайшим точкам не дальше %.4g м "
+                    "от контура. Точка, попавшая в допуск сразу от двух "
+                    "водоёмов, достаётся ближайшему.")
+                    % (done_n, took, skip_n, prof_tol))
+                if skip_n:
+                    feedback.pushWarning(self.tr(
+                        "У %d водоёмов точек рядом с контуром не нашлось, "
+                        "их урез остался прежним. Увеличьте допуск или "
+                        "проверьте, что отметки уреза попали в слой точек "
+                        "высот.") % skip_n)
             lakes = [(r, z_, rz, as_plane) for r, z_, rz in lakes]
             if lakes and not as_plane:
                 feedback.pushInfo(self.tr(
@@ -18931,10 +19057,34 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
 
         feedback.pushInfo(self.tr("Мультисеточная интерполяция..."))
         try:
+            depth_tol = self.parameterAsDouble(parameters, self.DEPTH_TOL,
+                                               context)
+            if depth_tol > 0 and streams and len(pts):
+                total, ups, worst = 0, 0, 0.0
+                for xy in streams:
+                    anch, n_take = topo_t2r.project_depth_points(
+                        xy, pts[:, :3], depth_tol)
+                    total += n_take
+                    u, w = topo_t2r.against_the_fall(anch)
+                    ups += u
+                    worst = max(worst, w)
+                feedback.pushInfo(self.tr(
+                    "Промеры дна спроецированы на тальвег: учтено %d "
+                    "замеров не дальше %.4g м от оси. Отметкой оси в "
+                    "створе берётся минимум: тальвег это линия наибольших "
+                    "глубин. Береговые промеры остаются жёсткими узлами и "
+                    "формируют поперечник.") % (total, depth_tol))
+                if ups:
+                    feedback.pushInfo(self.tr(
+                        "Участков против общего падения: %d, наибольший "
+                        "подъём %.3g м. Русло меняется год от года, плёсы "
+                        "и перекаты нормальны, поэтому замеры взяты как "
+                        "есть. Проверьте эти места, если подъём выглядит "
+                        "опечаткой.") % (ups, worst))
             z, x0, y_top = topo_t2r.topo2raster(
                 pts, streams, breaklines, lakes, ext, cell,
                 iterations=iterations, min_drop=min_drop,
-                feedback=feedback)
+                feedback=feedback, depth_tol=depth_tol)
         except topo_t2r.Topo2RasterError as exc:
             raise QgsProcessingException(str(exc))
         if feedback.isCanceled():
@@ -20937,12 +21087,16 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
 
 
 class SnapElevationsAlgorithm(IsolinerAlgorithm):
-    """2.22 Отметки с примыкающих горизонталей."""
+    """2.22 Профилирование откосов (отметки с горизонталей и точек)."""
 
     INPUT = "INPUT"
     CONTOURS = "CONTOURS"
     CONTOURS_FIELD = "CONTOURS_FIELD"
     TOL = "TOL"
+    POINTS = "POINTS"
+    POINTS_FIELD = "POINTS_FIELD"
+    SNAP_TOL = "SNAP_TOL"
+    MIN_STEP = "MIN_STEP"
     OUTPUT = "OUTPUT"
     SKIPPED = "SKIPPED"
 
@@ -20950,7 +21104,7 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return SnapElevationsAlgorithm()
     def name(self): return "snap_elevations"
     def displayName(self):
-        return self.tr("2.22 Отметки с примыкающих горизонталей")
+        return self.tr("2.22 Профилирование откосов")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
@@ -20979,7 +21133,25 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
             "топологически согласован: если горизонтали до линии не "
             "доведены, линия остаётся немой и уходит в отдельный слой с "
             "причиной. Число опорных точек пишется в атрибут n_samples и "
-            "в журнал - по нему сразу видно, годится ли комплект.")
+            "в журнал - по нему сразу видно, годится ли комплект.\n\n"
+            "**Высотные отметки** подаются вторым источником, рядом с "
+            "горизонталями. Топоплан из Автокада часто приходит без Z у "
+            "бровок и откосов, а отметки на нём есть отдельными точками. "
+            "Точка линию не пересекает, поэтому встречей считается "
+            "близость: точка не дальше допуска примыкания даёт опорную "
+            "отметку на своей дуговой координате.\n\n"
+            "**Привязка к существующей вершине** решает, добавлять ли "
+            "вершину. Если вершина уже стоит рядом со встречей, новая не "
+            "добавляется, а сама встреча переезжает на неё: отметка "
+            "встанет в вершину точно, а линия не распухнет лишними узлами. "
+            "Если ближайшая вершина дальше, вершина вставляется. Ноль "
+            "означает тот же допуск, что и для примыкания.\n\n"
+            "**Наименьший шаг вставки вершин** прореживает добавленные "
+            "узлы: две вставки подряд не ближе заданного расстояния. На "
+            "густых горизонталях без этого линия обрастает узлами гуще, "
+            "чем нужно рельефу. Проба, которой не досталось вершины, не "
+            "пропадает: профиль считается по всему ряду проб, и соседние "
+            "вершины к ней тянутся. Ноль отключает прореживание.")
             + _credit())
 
     def initAlgorithm(self, config=None):
@@ -20998,6 +21170,23 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
             self.TOL, self.tr("Допуск примыкания, м"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.TOL, 0.5), minValue=0.0))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.POINTS, self.tr("Высотные отметки (точки)"),
+            [QgsProcessing.SourceType.TypeVectorPoint], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.POINTS_FIELD, self.tr("Поле высоты точек (пусто: Z)"),
+            parentLayerParameterName=self.POINTS, optional=True,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SNAP_TOL,
+            self.tr("Привязка к существующей вершине, м (0 - как допуск)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.SNAP_TOL, 0.0), minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MIN_STEP,
+            self.tr("Наименьший шаг вставки вершин, м (0 - без прореживания)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.MIN_STEP, 0.0), minValue=0.0)))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Линии с отметками (LineStringZ)"),
             QgsProcessing.SourceType.TypeVectorLine))
@@ -21017,6 +21206,40 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
         cfield = self.parameterAsString(parameters, self.CONTOURS_FIELD,
                                         context)
         tol = self.parameterAsDouble(parameters, self.TOL, context)
+        snap_tol = self.parameterAsDouble(parameters, self.SNAP_TOL, context)
+        min_step = self.parameterAsDouble(parameters, self.MIN_STEP, context)
+        # Высотные отметки как источник: топоплан из Автокада часто
+        # приходит без Z у бровок и откосов, а отметки на нём есть
+        # отдельными точками.
+        hpts = None
+        src_pts = self.parameterAsSource(parameters, self.POINTS, context) \
+            if parameters.get(self.POINTS) is not None else None
+        if src_pts is not None:
+            f_pt = self.parameterAsString(parameters, self.POINTS_FIELD,
+                                          context)
+            rows = []
+            for ft in src_pts.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                zv = None
+                if f_pt:
+                    v = ft[f_pt]
+                    zv = None if v is None else float(v)
+                else:
+                    cg = g.constGet()
+                    if cg is not None and cg.is3D():
+                        zv = float(cg.z())
+                if zv is None:
+                    continue
+                pt = g.asPoint()
+                rows.append((pt.x(), pt.y(), zv))
+            if rows:
+                hpts = np.array(rows, dtype=float)
+                feedback.pushInfo(self.tr(
+                    "Высотных отметок с высотой: %d. Точка не пересекает "
+                    "линию, поэтому встречей считается близость: не дальше "
+                    "допуска примыкания.") % len(rows))
 
         def polylines(geom):
             try:
@@ -21073,13 +21296,17 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
             attrs = ft.attributes()
             for pts in polylines(ft.geometry()):
                 done, skipped = topo_snapz.snap_elevations(
-                    [{"pts": pts}], contours, tol)
+                    [{"pts": pts}], contours, tol, points=hpts,
+                    pt_tol=tol, snap_tol=(snap_tol or tol),
+                    min_step=min_step)
                 if done:
                     d = done[0]
                     feat = QgsFeature(out_fields)
+                    # геометрия берётся из результата: там уже вставлены
+                    # вершины в точках встречи с горизонталями
                     feat.setGeometry(QgsGeometry.fromPolyline(
-                        [QgsPoint(x, y, z) for (x, y), z
-                         in zip(pts, d["zs"])]))
+                        [QgsPoint(float(x), float(y), float(z))
+                         for (x, y), z in zip(d["pts"], d["zs"])]))
                     feat.setAttributes(list(attrs) + [int(d["n_samples"])])
                     sink.addFeature(feat)
                     n_done += 1

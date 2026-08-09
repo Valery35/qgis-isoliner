@@ -488,3 +488,90 @@ def _run_all():
 
 if __name__ == "__main__":
     _run_all()
+
+
+def test_covariance_vector_form_matches_the_scalar_one():
+    """Векторная ковариация совпадает со скалярной до машинного нуля.
+
+    Матрица системы кригинга строится разом через cova2_array, а не
+    двойным циклом с вызовом cova2 на каждую пару: при двадцати четырёх
+    соседях это было 276 питоновских вызовов на каждую ячейку сетки, и
+    именно они съедали время. Ускорение имеет смысл только при точном
+    совпадении, поэтому оно закреплено тестом.
+    """
+    rng = np.random.default_rng(0)
+    worst = 0.0
+    for it in (1, 2, 3):
+        for anis in (1.0, 0.4, 2.5):
+            for ang in (0.0, 35.0, 120.0):
+                vg = kb2d.Variogram(1.7, [dict(it=it, cc=12.0, aa=800.0,
+                                               ang=ang, anis=anis)])
+                dx = rng.uniform(-3000.0, 3000.0, 200)
+                dy = rng.uniform(-3000.0, 3000.0, 200)
+                a = vg.cova2_array(dx, dy)
+                b = np.array([vg.cova2(float(x), float(y))
+                              for x, y in zip(dx, dy)])
+                worst = max(worst, float(np.abs(a - b).max()))
+    assert worst < 1e-12, "векторная ковариация разошлась: %.3g" % worst
+
+
+def test_nested_structures_match_too():
+    """Вложенные структуры считаются одинаково обеими формами."""
+    vg = kb2d.Variogram(0.5, [dict(it=1, cc=8.0, aa=500.0, ang=20.0, anis=0.6),
+                              dict(it=2, cc=4.0, aa=2000.0, ang=70.0,
+                                   anis=1.5)])
+    rng = np.random.default_rng(1)
+    dx = rng.uniform(-4000.0, 4000.0, 300)
+    dy = rng.uniform(-4000.0, 4000.0, 300)
+    a = vg.cova2_array(dx, dy)
+    b = np.array([vg.cova2(float(x), float(y)) for x, y in zip(dx, dy)])
+    assert float(np.abs(a - b).max()) < 1e-12
+
+
+def test_nearest_selection_matches_a_full_sort():
+    """Отбор ближайших через argpartition даёт тот же результат.
+
+    Полная сортировка выборки для каждой ячейки не нужна: берётся ndmax
+    ближайших. На густой сети это удваивало время.
+    """
+    rng = np.random.default_rng(2)
+    for npts in (30, 300, 3000):
+        h2 = rng.uniform(0.0, 1e6, npts)
+        for ndmax in (4, 12, 24):
+            full = np.argsort(h2)[:ndmax]
+            cut = np.argpartition(h2, min(ndmax, npts - 1))[:ndmax]
+            part = cut[np.argsort(h2[cut])]
+            assert np.allclose(h2[full], h2[part]), (
+                "отбор ближайших разошёлся при %d замерах" % npts)
+
+
+def test_grid_matches_a_direct_solve_cell_by_cell():
+    """Грид совпадает с прямым пересчётом ячейки, в пределах float32.
+
+    Сторож на всю связку ускорений: векторизация системы и отбор
+    ближайших не должны менять ни одной оценки. Допуск взят по шагу
+    float32, в котором хранится грид.
+    """
+    rng = np.random.default_rng(5)
+    ext = 2000.0
+    xd = rng.uniform(0.0, ext, 200)
+    yd = rng.uniform(0.0, ext, 200)
+    vd = rng.normal(100.0, 7.0, 200)
+    vg = kb2d.Variogram(1.0, [dict(it=1, cc=15.0, aa=900.0, ang=0.0,
+                                   anis=1.0)])
+    nx = ny = 40
+    cell = ext / nx
+    rad2 = (3.0 * ext) ** 2
+    for ktype in (0, 1):
+        for ndmax in (4, 12, 24):
+            grid = kb2d.build_grid(xd, yd, vd, vg=vg, ktype=ktype,
+                                   skmean=100.0, ndmin=1, ndmax=ndmax,
+                                   rad2=rad2, nodata=-9999.0, xmn=0.0,
+                                   ymn=0.0, cell=cell, nx=nx, ny=ny)
+            for r, c in ((3, 7), (20, 20), (35, 11)):
+                xloc = c * cell
+                yloc = (ny - r - 1) * cell
+                want, _ = kb2d._solve_point(xloc, yloc, xd, yd, vd, vg, ktype,
+                                            100.0, 1, ndmax, rad2, -9999.0)
+                assert abs(float(grid[r, c]) - float(want)) < 1e-4, (
+                    "ячейка (%d, %d) разошлась с прямым пересчётом" % (r, c))

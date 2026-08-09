@@ -115,3 +115,138 @@ def _run():
 
 if __name__ == "__main__":
     _run()
+
+
+# --- вершины в точках встречи ---------------------------------------------
+
+def test_intermediate_contours_are_not_lost_on_a_coarse_line():
+    """Средние горизонтали доходят до результата, а не пропадают.
+
+    Дефект нашёлся при проверочном проходе по группе 2. Отметки ставились
+    только в существующие вершины линии, а горизонтали пересекают её где
+    придётся. Прямая бровка из двух вершин, пересекающая три горизонтали,
+    получала ровный скат от первой отметки к последней, и средняя
+    пропадала молча.
+
+    Существующие тесты дефект не ловили: во всех линия была достаточно
+    частой, чтобы вершина нашлась рядом с каждой встречей.
+    """
+    line = np.array([[0.0, 0.0], [100.0, 0.0]])
+    contours = [dict(pts=np.array([[x, -10.0], [x, 10.0]]), z=z)
+                for x, z in ((20.0, 150.0), (50.0, 151.0), (80.0, 152.0))]
+    done, skipped = sz.snap_elevations([{"pts": line}], contours, tol=1.0)
+    assert done and not skipped
+    d = done[0]
+    assert len(d["pts"]) > len(line), "вершины в точках встречи не вставлены"
+    assert 151.0 in list(np.round(d["zs"], 6)), "средняя горизонталь потерялась"
+    assert d["n_samples"] == 3
+
+
+def test_densify_keeps_the_original_vertices_and_order():
+    """Вставка вершин не трогает исходные и не меняет порядок."""
+    line = np.array([[0.0, 0.0], [30.0, 0.0], [30.0, 40.0]])
+    dense, cum = sz.densify_at(line, [10.0, 45.0])
+    assert len(dense) == 5
+    for v in line:
+        assert any(np.allclose(v, d) for d in dense), "исходная вершина пропала"
+    assert np.all(np.diff(cum) >= -1e-12), "дуговая координата пошла назад"
+
+
+def test_densify_ignores_positions_outside_the_line():
+    """Позиции за пределами линии вершин не добавляют."""
+    line = np.array([[0.0, 0.0], [100.0, 0.0]])
+    dense, _ = sz.densify_at(line, [-5.0, 0.0, 100.0, 250.0])
+    assert len(dense) == len(line)
+
+
+def test_geometry_and_elevations_stay_the_same_length():
+    """Вершин и отметок поровну: иначе инструмент соберёт кривую геометрию."""
+    line = np.array([[0.0, 0.0], [60.0, 0.0], [60.0, 60.0]])
+    contours = [dict(pts=np.array([[x, -10.0], [x, 10.0]]), z=z)
+                for x, z in ((15.0, 150.0), (45.0, 151.0))]
+    done, _ = sz.snap_elevations([{"pts": line}], contours, tol=1.0)
+    d = done[0]
+    assert len(d["pts"]) == len(d["zs"])
+
+
+# --- высотные отметки и расстановка вершин ---------------------------------
+
+def _pt_line():
+    return np.array([[0.0, 0.0], [100.0, 0.0]])
+
+
+def test_spot_heights_are_a_source_of_elevation():
+    """Точка высот у линии даёт опорную отметку.
+
+    Топоплан из Автокада часто приходит без Z у бровок и откосов, а
+    отметки на нём есть отдельными точками. Точка линию не пересекает,
+    поэтому встречей считается близость.
+    """
+    got = sz.gather_point_samples(_pt_line(),
+                                  np.array([(50.0, 0.8, 151.0),
+                                            (65.0, -0.5, 151.5)]), tol=2.0)
+    assert [(round(s, 3), z) for s, z in got] == [(50.0, 151.0),
+                                                  (65.0, 151.5)]
+
+
+def test_far_spot_heights_are_ignored():
+    got = sz.gather_point_samples(_pt_line(),
+                                  np.array([(50.0, 40.0, 160.0)]), tol=2.0)
+    assert got == []
+
+
+def test_meeting_moves_onto_a_nearby_existing_vertex():
+    """Рядом стоящая вершина принимает отметку, новая не добавляется.
+
+    Правило В. Швалева: линия не должна распухать лишними узлами там, где
+    вершина уже есть.
+    """
+    line = np.array([[0.0, 0.0], [20.3, 0.0], [100.0, 0.0]])
+    adds, fixed = sz.plan_vertices(line, [(20.0, 150.0)], snap_tol=1.0,
+                                   min_step=0.0)
+    assert adds == [], "вершина добавлена там, где уже была своя"
+    assert abs(fixed[0][0] - 20.3) < 1e-9, "проба не переехала на вершину"
+
+
+def test_meeting_far_from_any_vertex_inserts_one():
+    line = np.array([[0.0, 0.0], [100.0, 0.0]])
+    adds, _ = sz.plan_vertices(line, [(50.0, 151.0)], snap_tol=1.0,
+                               min_step=0.0)
+    assert adds == [50.0]
+
+
+def test_inserted_vertices_are_thinned_by_the_step():
+    """Две вставки подряд не ближе заданного шага."""
+    line = np.array([[0.0, 0.0], [100.0, 0.0]])
+    samples = [(float(x), 150.0) for x in range(10, 95, 5)]
+    adds, _ = sz.plan_vertices(line, samples, snap_tol=0.1, min_step=20.0)
+    assert adds and all(b - a >= 20.0 - 1e-9
+                        for a, b in zip(adds[:-1], adds[1:]))
+    assert len(adds) < len(samples), "прореживание не сработало"
+
+
+def test_thinned_out_sample_still_shapes_the_profile():
+    """Проба без своей вершины не пропадает из профиля.
+
+    Это и означает «дальше допуска - интерполировать»: соседние вершины
+    к такой пробе тянутся.
+    """
+    line = np.array([[0.0, 0.0], [100.0, 0.0]])
+    samples = [(10.0, 150.0), (50.0, 155.0), (90.0, 150.0)]
+    adds, fixed = sz.plan_vertices(line, samples, snap_tol=0.1,
+                                   min_step=100.0)
+    assert len(adds) == 1, "прореживание оставило больше одной вставки"
+    assert len(fixed) == 3, "проба выпала из ряда"
+
+
+def test_points_and_contours_work_together():
+    """Горизонтали и точки высот дают общий ряд опорных отметок."""
+    line = _pt_line()
+    contours = [dict(pts=np.array([[x, -10.0], [x, 10.0]]), z=z)
+                for x, z in ((20.0, 150.0), (80.0, 152.0))]
+    pts = np.array([(50.0, 0.8, 151.0)])
+    done, _ = sz.snap_elevations([{"pts": line}], contours, tol=1.0,
+                                 points=pts, pt_tol=2.0)
+    d = done[0]
+    assert d["n_samples"] == 3
+    assert 151.0 in list(np.round(d["zs"], 6)), "отметка точки потерялась"

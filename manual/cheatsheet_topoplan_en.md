@@ -37,7 +37,7 @@ The industry requirements put it plainly: terrain created automatically has to b
 
 # The chain
 
-**Step 1. Elevations - 2.22 Elevations from adjoining contours.** Input: the crest and toe lines plus the contour layer, adjoining tolerance 0.5 m. Output: the same lines as LineStringZ with a profile, and a separate layer of mute lines with the reason.
+**Step 1. Elevations - 2.22 Profiling of slopes.** Input: the crest and toe lines plus the contour layer, adjoining tolerance 0.5 m. Output: the same lines as LineStringZ with a profile, and a separate layer of mute lines with the reason.
 
 The mechanics: a contour **does not run along the crest**, contours are cut by the slope. But the standard requires bringing them up to the object line with node points, and every point carries the elevation of its contour - from them the profile of the line is recovered.
 

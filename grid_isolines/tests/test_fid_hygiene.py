@@ -109,16 +109,36 @@ def _steps(fn):
     return marks
 
 
-def test_cleaner_does_not_go_through_processing():
-    """Чистка идёт обходом объектов, а не алгоритмом Processing.
+def test_own_steps_do_not_go_through_processing():
+    """Свои шаги обходят объекты, а не зовут processing.run.
 
     Любой алгоритм Processing сам проверяет геометрию на входе и сорвался
-    бы ровно на том, что призван вычистить.
+    бы ровно на том, что призван вычистить. Проверяется общий каркас и
+    все три шага, которые на нём стоят.
     """
-    fn = _func("_clean_lines")
-    for node in ast.walk(fn):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            assert node.func.attr != "run", "чистка ушла в processing.run"
+    for name in ("_rewrite_lines", "_clean_lines", "_snap_ends_to_faults",
+                 "_extend_free_ends"):
+        fn = _func(name)
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)):
+                assert node.func.attr != "run", (
+                    "%s ушёл в processing.run" % name)
+
+
+def test_line_steps_share_one_frame():
+    """Три шага цепочки стоят на общем каркасе, а не копируют его.
+
+    Каркас был скопирован трижды, и каждая копия жила своей жизнью.
+    Ровно на этом сломались три правки подряд: переход на свой обход
+    уронил полигонизацию, а овершут сломался дважды сам. Ошибка в копии
+    не видна из соседней копии.
+    """
+    for name in ("_clean_lines", "_snap_ends_to_faults", "_extend_free_ends"):
+        src = ast.dump(_func(name))
+        assert "_rewrite_lines" in src, "%s больше не на общем каркасе" % name
+        assert "QgsVectorLayer" not in src, (
+            "%s снова заводит слой сам" % name)
 
 
 def test_corridor_is_cut_and_ends_snap_to_the_fault_line():

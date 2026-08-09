@@ -523,6 +523,80 @@ def _as_layer(src, context):
     return src
 
 
+def _geom_parts(geom):
+    """Геометрия линии -> список частей [[(x, y), ...], ...]."""
+    try:
+        raw = (geom.asMultiPolyline() if geom.isMultipart()
+               else [geom.asPolyline()])
+    except TypeError:                       # QGIS 4 на одиночной геометрии
+        raw = [geom.asPolyline()]
+    return [[(float(p.x()), float(p.y())) for p in part] for part in raw]
+
+
+def _parts_geom(parts):
+    """Список частей -> геометрия линии."""
+    from qgis.core import QgsGeometry, QgsPointXY
+    rings = [[QgsPointXY(x, y) for x, y in part] for part in parts]
+    return (QgsGeometry.fromMultiPolylineXY(rings) if len(rings) > 1
+            else QgsGeometry.fromPolylineXY(rings[0]))
+
+
+def _rewrite_lines(src, transform, context, name="lines"):
+    """Общий каркас шага цепочки: слой линий на входе, слой линий на выходе.
+
+    Три шага - чистка обрывков, притяжка концов к разлому и продление
+    открытых концов - делают одно и то же обрамление: разрешают слой,
+    заводят память с теми же полями и системой координат, обходят
+    объекты, разбирают геометрию на части и собирают обратно. Отличаются
+    они только тем, что делают с частями.
+
+    Каркас был скопирован трижды, и каждая копия жила своей жизнью. Ровно
+    на этом сломались три правки подряд: переход на свой обход уронил
+    полигонизацию, потом овершут дважды сломался сам - сперва отменой у
+    разлома, потом сдвигом индексов при дописывании вершин. Ошибка в
+    копии не видна из соседней копии.
+
+    Теперь обрамление одно, а `transform` получает список частей в
+    простых координатах и возвращает `(новые части, счётчик)`. Пустой
+    список частей означает, что объект выбрасывается. Функции-обработчики
+    от этого становятся чистой математикой без QGIS и проверяются
+    безголовыми тестами.
+
+    Обход идёт по объектам, а не через processing.run: алгоритм
+    проверяет геометрию на входе и срывается на том, что призван
+    вычистить.
+    """
+    from qgis.core import QgsVectorLayer, QgsFeature, QgsWkbTypes
+    lay = _as_layer(src, context)
+    if lay is None:
+        return src, 0
+    crs = lay.crs()
+    uri = "%s?crs=%s" % (QgsWkbTypes.displayString(lay.wkbType()),
+                         crs.authid() or crs.toWkt())
+    mem = QgsVectorLayer(uri, name, "memory")
+    if not mem.isValid():
+        return src, 0
+    mem.dataProvider().addAttributes(lay.fields())
+    mem.updateFields()
+    feats = []
+    total = 0
+    for f in lay.getFeatures():
+        g = f.geometry()
+        if g is None or g.isEmpty():
+            continue
+        parts, n = transform(_geom_parts(g))
+        total += n
+        if not parts:
+            continue
+        nf = QgsFeature(mem.fields())
+        nf.setGeometry(_parts_geom(parts))
+        nf.setAttributes(f.attributes())
+        feats.append(nf)
+    mem.dataProvider().addFeatures(feats)
+    mem.updateExtents()
+    return mem, total
+
+
 def _fault_polylines(faults, context):
     """Разломы списком ломаных [(x, y), ...]. Пусто, если слой не открылся."""
     from qgis.core import QgsVectorLayer
@@ -772,56 +846,28 @@ def _snap_ends_to_faults(iso, faults, tol, context, feedback):
     ближайшей точке опорного слоя без разбора, и за концом разлома этой
     точкой оказывается концевая вершина - одна на все окрестные концы.
     Управлять этим у алгоритма нечем, поэтому проверка стоит здесь.
-
-    Заодно обход объектов идёт мимо проверки геометрии Processing, как в
-    _clean_lines, и вырожденный обрывок не роняет расчёт.
     """
-    from qgis.core import (QgsProcessingUtils, QgsVectorLayer, QgsFeature,
-                           QgsGeometry, QgsPointXY, QgsWkbTypes)
     lines = _fault_polylines(faults, context)
-    lay = _as_layer(iso, context)
-    if not lines or lay is None:
+    if not lines:
         return iso
-    crs = lay.crs()
-    uri = "%s?crs=%s" % (QgsWkbTypes.displayString(lay.wkbType()),
-                         crs.authid() or crs.toWkt())
-    mem = QgsVectorLayer(uri, "snapped_lines", "memory")
-    if not mem.isValid():
-        return iso
-    mem.dataProvider().addAttributes(lay.fields())
-    mem.updateFields()
-    feats = []
-    moved = 0
-    for f in lay.getFeatures():
-        g = f.geometry()
-        if g is None or g.isEmpty():
-            continue
-        try:
-            parts = (g.asMultiPolyline() if g.isMultipart()
-                     else [g.asPolyline()])
-        except TypeError:
-            parts = [g.asPolyline()]
-        out_parts = []
+
+    def transform(parts):
+        out = []
+        moved = 0
         for part in parts:
-            pts = [QgsPointXY(p) for p in part]
+            pts = list(part)
             if len(pts) >= 2:
                 for at in (0, len(pts) - 1):
-                    hit = _closest_on_fault(pts[at].x(), pts[at].y(),
-                                            lines, tol)
+                    hit = _closest_on_fault(pts[at][0], pts[at][1], lines, tol)
                     if hit is not None:
-                        pts[at] = QgsPointXY(hit[0], hit[1])
+                        pts[at] = hit
                         moved += 1
-            out_parts.append(pts)
-        ng = (QgsGeometry.fromMultiPolylineXY(out_parts) if len(out_parts) > 1
-              else QgsGeometry.fromPolylineXY(out_parts[0]))
-        nf = QgsFeature(mem.fields())
-        nf.setGeometry(ng)
-        nf.setAttributes(f.attributes())
-        feats.append(nf)
-    mem.dataProvider().addFeatures(feats)
-    mem.updateExtents()
+            out.append(pts)
+        return out, moved
+
+    lay, moved = _rewrite_lines(iso, transform, context, "snapped_lines")
     feedback.pushInfo(_tr("Концов притянуто к разлому: %d.") % moved)
-    return mem
+    return lay
 
 
 def _extend_ends_xy(pts, over_head, over_tail):
@@ -873,13 +919,6 @@ def _extend_free_ends(iso, faults, over, context, feedback, hold_r=0.0):
     отбрасывает как висячее ребро, поэтому границы поясов совпадают с
     изолиниями.
 
-    У разлома он вреден. Конец изолинии там лежит ТОЧНО на линии, потому
-    что его туда притянули, и продление на ячейку выносит его на другое
-    крыло. Изолинии у разлома густые, хвостик достаёт до соседней, и
-    вместе они замыкают лишнюю грань. На карте это тонкие тёмные полосы
-    поперёк разлома: сами изолинии лежат верно, а границы поясов торчат.
-    Именно так артефакт и выглядел, когда изолинии уже были в порядке.
-
     У разлома хвостик нужен тоже, но КОРОТКИЙ. Отменять его было ошибкой:
     конец, притянутый на линию, образует с ней T-стык, а такой стык GEOS
     часто не нодирует - ровно то, ради чего овершут и заведён. Грань не
@@ -894,64 +933,29 @@ def _extend_free_ends(iso, faults, over, context, feedback, hold_r=0.0):
 
     Замкнутые петли не трогаются: овершут на точке замыкания дал бы шпору
     внутрь поля и лишние полигоны-слайверы.
-
-    Обход идёт по объектам, мимо проверки геометрии Processing. Заодно из
-    цепочки ушли три шага: разделение по замкнутости, продление и слияние
-    обратно.
     """
-    from qgis.core import (QgsProcessingUtils, QgsVectorLayer, QgsFeature,
-                           QgsGeometry, QgsPointXY, QgsWkbTypes)
-    lay = _as_layer(iso, context)
-    if lay is None:
-        return iso
     lines = _fault_polylines(faults, context) if faults else []
     eps = max(float(hold_r), float(over) * 0.05, 1e-9)
     short = float(over) * 0.1
-    crs = lay.crs()
-    uri = "%s?crs=%s" % (QgsWkbTypes.displayString(lay.wkbType()),
-                         crs.authid() or crs.toWkt())
-    mem = QgsVectorLayer(uri, "extended_lines", "memory")
-    if not mem.isValid():
-        return iso
-    mem.dataProvider().addAttributes(lay.fields())
-    mem.updateFields()
-    feats = []
-    grown = 0
-    held = 0
-    for f in lay.getFeatures():
-        g = f.geometry()
-        if g is None or g.isEmpty():
-            continue
-        try:
-            parts = (g.asMultiPolyline() if g.isMultipart()
-                     else [g.asPolyline()])
-        except TypeError:
-            parts = [g.asPolyline()]
-        out_parts = []
+
+    def transform(parts):
+        out = []
+        grown = 0
         for part in parts:
-            xy = [(float(p.x()), float(p.y())) for p in part]
-            at_fault_head = bool(lines) and len(xy) >= 2 and _on_fault(
-                xy[0][0], xy[0][1], lines, eps)
-            at_fault_tail = bool(lines) and len(xy) >= 2 and _on_fault(
-                xy[-1][0], xy[-1][1], lines, eps)
-            held += int(at_fault_head) + int(at_fault_tail)
-            new_xy = _extend_ends_xy(
-                xy,
-                short if at_fault_head else over,
-                short if at_fault_tail else over)
-            grown += max(len(new_xy) - len(xy), 0)
-            out_parts.append([QgsPointXY(x, y) for x, y in new_xy])
-        ng = (QgsGeometry.fromMultiPolylineXY(out_parts) if len(out_parts) > 1
-              else QgsGeometry.fromPolylineXY(out_parts[0]))
-        nf = QgsFeature(mem.fields())
-        nf.setGeometry(ng)
-        nf.setAttributes(f.attributes())
-        feats.append(nf)
-    mem.dataProvider().addFeatures(feats)
-    mem.updateExtents()
-    feedback.pushInfo(_tr("Концов продлено: %d, из них коротко у разлома: %d.")
-                      % (grown, held))
-    return mem
+            at_head = bool(lines) and len(part) >= 2 and _on_fault(
+                part[0][0], part[0][1], lines, eps)
+            at_tail = bool(lines) and len(part) >= 2 and _on_fault(
+                part[-1][0], part[-1][1], lines, eps)
+            new_part = _extend_ends_xy(part,
+                                       short if at_head else over,
+                                       short if at_tail else over)
+            grown += max(len(new_part) - len(part), 0)
+            out.append(new_part)
+        return out, grown
+
+    lay, grown = _rewrite_lines(iso, transform, context, "extended_lines")
+    feedback.pushInfo(_tr("Концов продлено: %d.") % grown)
+    return lay
 
 
 def _cut_fault_corridor(processing, iso, faults, width, context, feedback):
@@ -1029,8 +1033,8 @@ def _split_by_faults(processing, iso, faults, corridor, context, feedback):
                                context, feedback)
 
 
-def _clean_lines(layer_id, context, feedback, where=""):
-    """Убрать вырожденные линии, не проходя через проверку геометрии.
+def _clean_parts(parts):
+    """Выбросить вырожденные части и снять совпадающие соседние узлы.
 
     Разрез линией разлома оставляет обрывки: если линия проходит точно
     через вершину изолинии, кусок вырождается в точку или в отрезок
@@ -1039,45 +1043,33 @@ def _clean_lines(layer_id, context, feedback, where=""):
     продлении открытых концов, и виноват был не тот шаг, на котором
     вылезло: обрывок родился раньше, при разрезе.
 
-    Чистка идёт обходом объектов и записью в память, минуя проверку
-    Processing: иначе очищающий шаг сам сорвался бы на том, что чистит.
-    Совпадающие соседние узлы снимаются, объекты нулевой длины
-    выбрасываются, число выброшенных уходит в журнал.
+    Чистая математика, проверяется без QGIS.
     """
-    from qgis.core import (QgsProcessingUtils, QgsVectorLayer, QgsFeature,
-                           QgsGeometry, QgsWkbTypes)
-    lay = _as_layer(layer_id, context)
-    if lay is None:
-        return layer_id
-    crs = lay.crs()
-    uri = "%s?crs=%s" % (QgsWkbTypes.displayString(lay.wkbType()),
-                         crs.authid() or crs.toWkt())
-    mem = QgsVectorLayer(uri, "clean_lines", "memory")
-    if not mem.isValid():
-        return layer_id
-    mem.dataProvider().addAttributes(lay.fields())
-    mem.updateFields()
-    feats = []
+    out = []
     dropped = 0
-    for f in lay.getFeatures():
-        g = QgsGeometry(f.geometry())
-        if g is None or g.isEmpty():
+    for part in parts:
+        pts = []
+        for xy in part:
+            if not pts or abs(xy[0] - pts[-1][0]) > 1e-12 \
+                    or abs(xy[1] - pts[-1][1]) > 1e-12:
+                pts.append(tuple(xy))
+        length = sum(math.hypot(pts[k + 1][0] - pts[k][0],
+                                pts[k + 1][1] - pts[k][1])
+                     for k in range(len(pts) - 1))
+        if len(pts) < 2 or length <= 0.0:
             dropped += 1
             continue
-        g.removeDuplicateNodes()
-        if g.isEmpty() or float(g.length()) <= 0.0:
-            dropped += 1
-            continue
-        nf = QgsFeature(mem.fields())
-        nf.setGeometry(g)
-        nf.setAttributes(f.attributes())
-        feats.append(nf)
-    mem.dataProvider().addFeatures(feats)
-    mem.updateExtents()
+        out.append(pts)
+    return out, dropped
+
+
+def _clean_lines(src, context, feedback, where=""):
+    """Убрать вырожденные обрывки, минуя проверку геометрии Processing."""
+    lay, dropped = _rewrite_lines(src, _clean_parts, context, "clean_lines")
     if dropped:
         feedback.pushInfo(_tr("Вырожденных обрывков отброшено: %d%s.")
                           % (dropped, (" (%s)" % where) if where else ""))
-    return mem
+    return lay
 
 
 def _drop_fid(processing, layer_id, context, feedback):

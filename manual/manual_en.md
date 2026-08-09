@@ -214,7 +214,7 @@ The whole chain can be checked on synthetic data: **2.21 Create a demo open pit*
 
 A case that looks hopeless until you look into it. By the standard, contours inside areal quarries, cuts, fills and dumps **are not described** - only the outer outline is agreed. So the terrain from such a plan has a hole exactly where the working is, and there is nothing to fill it with except crests and toes.
 
-The catch is that the slope lines in the drawing carry no elevations. But the contours that adjoin them do: the standard requires them to be brought up to the object line with node points. **2.22 Elevations from adjoining contours** gathers those points and recovers the profile of the whole line from them - a varying elevation out of the data itself rather than one number per object.
+The catch is that the slope lines in the drawing carry no elevations. But the contours that adjoin them do: the standard requires them to be brought up to the object line with node points. **2.22 Profiling of slopes** gathers those points and recovers the profile of the whole line from them - a varying elevation out of the data itself rather than one number per object.
 
 Then **2.20**, but this time **without a DEM**: when the lines carry elevations of their own the descent is not needed, and the toe is the nearest line lying below the crest. That matters, because otherwise it went in a circle - to build the terrain you need pairs, and for pairs by descent you need terrain that does not exist yet.
 
@@ -1783,7 +1783,7 @@ The composition of the terrain is chosen so that every shape tests its own side 
 
 The second output, the **true lines**, carries the kind (brow, toe, thalweg) and link fields, with the elevations in the Z geometry. Against it the completeness and the precision of the detector are measured as numbers rather than by eye: put the candidates of 2.19 over the true lines and see where they diverge.
 
-## 2.22 Elevations from adjoining contours
+## 2.22 Profiling of slopes
 
 Gives mute lines a profile from the contours that adjoin them.
 
@@ -1805,6 +1805,23 @@ An important correction, worth one redaction of the specification: a contour **d
 **Place in the pipeline.** The output is LineStringZ, a ready form side for the **Top of forms** and **Bottom of forms** inputs of 2.03. Together with 2.20, which assembles the pairs and fills the link field, this closes the topographic scenario: areal quarries, cuts, fills and dumps, where contours inside are not described by the standard, receive a surface out of crests and toes alone.
 
 # 3. Additional analysis tools
+
+### Spot heights as a second source
+
+A plan coming out of AutoCAD often carries no Z on the breaks and slopes: the surveyor sets the elevations as separate points and leaves the lines flat. So spot heights are taken as a second source.
+
+A point does not cross the line, so a meeting is a matter of proximity: a point no farther than the abutment tolerance gives a control elevation at its arc position. From there everything goes as with contours, the profile is built over the whole series of control points.
+
+### Where the vertices go
+
+An elevation lives in a vertex while meetings happen wherever they happen, so vertices have to be added. The rule is as follows.
+
+If a vertex already stands near a meeting, closer than the snapping tolerance, no new one is added. Instead the meeting itself moves onto the existing vertex: the elevation lands in it exactly and the line does not swell with extra nodes.
+
+If the nearest vertex is farther away, a vertex is inserted at the meeting.
+
+The insertions are thinned by the smallest step: two in a row are no closer than the given distance. On dense contours the line would otherwise grow more nodes than the relief needs. A control point that gets no vertex is not lost: the profile is computed over the whole series, and the neighbouring vertices are drawn towards it.
+
 
 ## 3.01 Categorical indicator kriging
 

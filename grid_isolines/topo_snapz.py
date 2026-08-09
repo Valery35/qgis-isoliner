@@ -142,7 +142,115 @@ def profile_from_samples(line_pts, samples):
     return zs, len(su)
 
 
-def snap_elevations(lines, contours, tol):
+def gather_point_samples(line_pts, points, tol):
+    """Пробы отметок от точек высот у линии.
+
+    Топографы, отдавая топоплан из Автокада, не всегда ставят Z бровкам и
+    откосам. Отметки при этом на плане есть, но отдельными точками. Точка
+    линию не пересекает, поэтому встречей считается близость: точка не
+    дальше tol от линии даёт пробу на своей дуговой координате.
+
+    Возвращает список (дуговая координата, отметка).
+    """
+    line_pts = np.asarray(line_pts, dtype=np.float64)
+    if points is None or len(points) == 0 or len(line_pts) < 2:
+        return []
+    pts = np.asarray(points, dtype=np.float64)
+    px, py, pz = pts[:, 0], pts[:, 1], pts[:, 2]
+    cum = _cum_length(line_pts)
+    seg = np.diff(cum)
+    best_d = np.full(px.shape, np.inf)
+    best_s = np.zeros(px.shape)
+    for k in range(len(line_pts) - 1):
+        ax, ay = line_pts[k]
+        bx, by = line_pts[k + 1]
+        dx, dy = bx - ax, by - ay
+        den = dx * dx + dy * dy
+        if den <= 0.0:
+            continue
+        s = np.clip(((px - ax) * dx + (py - ay) * dy) / den, 0.0, 1.0)
+        d = np.hypot(px - (ax + s * dx), py - (ay + s * dy))
+        closer = d < best_d
+        best_d = np.where(closer, d, best_d)
+        best_s = np.where(closer, cum[k] + s * seg[k], best_s)
+    take = best_d <= float(tol)
+    return [(float(s), float(z)) for s, z in zip(best_s[take], pz[take])]
+
+
+def plan_vertices(line_pts, samples, snap_tol, min_step):
+    """Куда ставить вершины и куда переезжают пробы.
+
+    Правило В. Швалева. Если вершина уже стоит близко к встрече, новую не
+    добавляем, а саму встречу переносим на эту вершину: тогда отметка
+    встанет в неё точно, а линия не распухнет лишними узлами. Если
+    ближайшая вершина дальше допуска, вершину вставляем.
+
+    Вставки прореживаются: две подряд не ближе min_step друг к другу. На
+    густых горизонталях без этого линия обрастает узлами гуще, чем нужно
+    для рельефа.
+
+    Проба, которой не досталось вершины, не пропадает: профиль по-прежнему
+    считается по всему ряду проб, и соседние вершины к ней тянутся. Именно
+    это и означает «дальше допуска - интерполировать».
+
+    Возвращает (дуговые координаты вставок, поправленные пробы).
+    """
+    line_pts = np.asarray(line_pts, dtype=np.float64)
+    cum = _cum_length(line_pts)
+    fixed = []
+    want = []
+    for s, z in samples:
+        i = int(np.argmin(np.abs(cum - float(s))))
+        if abs(float(cum[i]) - float(s)) <= float(snap_tol):
+            fixed.append((float(cum[i]), float(z)))
+        else:
+            fixed.append((float(s), float(z)))
+            want.append(float(s))
+    kept = []
+    for s in sorted(want):
+        if not kept or (s - kept[-1]) >= float(min_step):
+            kept.append(s)
+    return kept, fixed
+
+
+def densify_at(line_pts, s_values, eps=1e-9):
+    """Вставить вершины на заданных дуговых координатах.
+
+    Отметки ставятся в вершины линии, а горизонтали пересекают её где
+    придётся. Без вставки всё, что горизонтали сказали между вершинами,
+    отбрасывалось: прямая бровка из двух вершин, пересекающая пять
+    горизонталей, получала ровный скат от первой отметки к последней, и
+    три средние пропадали молча.
+
+    Возвращает (новые вершины, новые дуговые координаты вершин).
+    Существующие вершины сохраняются, порядок не меняется.
+    """
+    line_pts = np.asarray(line_pts, dtype=np.float64)
+    cum = _cum_length(line_pts)
+    total = float(cum[-1])
+    want = sorted(float(s) for s in s_values if eps < float(s) < total - eps)
+    if not want:
+        return line_pts, cum
+    out = [line_pts[0]]
+    scum = [0.0]
+    k = 0
+    for i in range(1, len(line_pts)):
+        s0, s1 = float(cum[i - 1]), float(cum[i])
+        seg = s1 - s0
+        while k < len(want) and want[k] < s1 - eps:
+            s = want[k]
+            if s > s0 + eps and seg > 0.0:
+                fr = (s - s0) / seg
+                out.append(line_pts[i - 1] + fr * (line_pts[i] - line_pts[i - 1]))
+                scum.append(s)
+            k += 1
+        out.append(line_pts[i])
+        scum.append(s1)
+    return np.asarray(out, dtype=np.float64), np.asarray(scum, dtype=np.float64)
+
+
+def snap_elevations(lines, contours, tol, points=None, pt_tol=None,
+                    snap_tol=None, min_step=0.0):
     """Полный проход: линии форм получают профиль с горизонталей.
 
     lines - список dict(pts=(N, 2), ...произвольные поля сохраняются);
@@ -160,12 +268,28 @@ def snap_elevations(lines, contours, tol):
             skipped.append({"line": ln, "reason": "меньше двух вершин"})
             continue
         samples = gather_samples(pts, contours, tol)
-        zs, n = profile_from_samples(pts, samples)
+        if points is not None and len(points):
+            samples = samples + gather_point_samples(
+                pts, points, tol if pt_tol is None else pt_tol)
+            samples.sort()
+        if not samples:
+            skipped.append({"line": ln,
+                            "reason": "ни одна горизонталь не примыкает"})
+            continue
+        # Вершины ставятся в точках встречи, иначе средние горизонтали
+        # пропадают: профиль считается только по вершинам линии. Если
+        # вершина уже стоит рядом со встречей, новая не добавляется, а
+        # встреча переезжает на неё - линия не распухает.
+        st = tol if snap_tol is None else snap_tol
+        adds, samples = plan_vertices(pts, samples, st, min_step)
+        dense, _ = densify_at(pts, adds)
+        zs, n = profile_from_samples(dense, samples)
         if zs is None:
             skipped.append({"line": ln,
                             "reason": "ни одна горизонталь не примыкает"})
             continue
         item = dict(ln)
+        item["pts"] = dense
         item["zs"] = zs
         item["n_samples"] = n
         done.append(item)

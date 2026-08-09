@@ -301,3 +301,44 @@ def test_abutment_is_recognised_only_within_tolerance():
     short_stem = [(30.0, 0.0), (30.0, 29.0)]
     assert not ABUTS(short_stem, 1, [short_stem, BAR], EPS)
     assert ABUTS(STEM, 1, [STEM, BAR], EPS)
+
+
+# --- чистка частей ---------------------------------------------------------
+
+CLEAN = _load("_clean_parts", "_nearest_on_fault")[0]
+
+
+def test_zero_length_part_is_dropped():
+    """Кусок нулевой длины выбрасывается, а не роняет расчёт.
+
+    Разрез линией разлома оставляет такие обрывки там, где линия проходит
+    точно через вершину изолинии. Processing считает эту геометрию
+    некорректной и прерывает расчёт целиком.
+    """
+    out, dropped = CLEAN([[(0.0, 0.0), (0.0, 0.0)]])
+    assert out == [] and dropped == 1
+
+
+def test_single_point_part_is_dropped():
+    out, dropped = CLEAN([[(1.0, 2.0)]])
+    assert out == [] and dropped == 1
+
+
+def test_duplicate_nodes_are_removed_but_line_survives():
+    """Совпадающие соседние узлы снимаются, сама линия остаётся."""
+    out, dropped = CLEAN([[(0.0, 0.0), (0.0, 0.0), (10.0, 0.0)]])
+    assert dropped == 0
+    assert out == [[(0.0, 0.0), (10.0, 0.0)]]
+
+
+def test_good_parts_pass_through_unchanged():
+    parts = [[(0.0, 0.0), (10.0, 0.0)], [(0.0, 5.0), (10.0, 5.0)]]
+    out, dropped = CLEAN(parts)
+    assert dropped == 0 and out == parts
+
+
+def test_mixed_input_keeps_only_the_good_parts():
+    """Из мультичасти выбрасывается только вырожденная часть."""
+    out, dropped = CLEAN([[(0.0, 0.0), (10.0, 0.0)], [(5.0, 5.0), (5.0, 5.0)]])
+    assert dropped == 1
+    assert out == [[(0.0, 0.0), (10.0, 0.0)]]

@@ -338,3 +338,96 @@ def test_independent_faults_are_not_called_junctions():
     joined, gaps = kb2d.junction_report(
         [[(10.0, 0.0), (10.0, 60.0)], [(50.0, 0.0), (50.0, 60.0)]], tol=10.0)
     assert joined == 0 and not gaps
+
+
+def _ref_visible(xloc, yloc, xs, ys, segs):
+    """Прежняя реализация видимости: полная матрица, без отсева."""
+    ax = segs[:, 0][:, None]
+    ay = segs[:, 1][:, None]
+    bx = segs[:, 2][:, None]
+    by = segs[:, 3][:, None]
+    d1 = (bx - ax) * (yloc - ay) - (by - ay) * (xloc - ax)
+    d2 = (bx - ax) * (ys - ay) - (by - ay) * (xs - ax)
+    rx, ry = xs - xloc, ys - yloc
+    d3 = rx * (ay - yloc) - ry * (ax - xloc)
+    d4 = rx * (by - yloc) - ry * (bx - xloc)
+    return ~(((d1 * d2) < 0.0) & ((d3 * d4) < 0.0)).any(axis=0)
+
+
+def test_bbox_prefilter_does_not_change_a_single_answer():
+    """Отсев по габаритам ускоряет и НЕ меняет результат.
+
+    Ускорение бессмысленно, если оно хоть где-то меняет ответ. Проверка
+    случайная и широкая: разное число звеньев, разное число замеров,
+    разное положение точки оценки.
+    """
+    rng = np.random.default_rng(7)
+    checked = 0
+    for _ in range(300):
+        nseg = int(rng.integers(1, 40))
+        pts = rng.uniform(0.0, 100.0, (nseg + 1, 2))
+        segs = kb2d.fault_segments([[tuple(p) for p in pts]])
+        n = int(rng.integers(1, 80))
+        xs = rng.uniform(0.0, 100.0, n)
+        ys = rng.uniform(0.0, 100.0, n)
+        px, py = rng.uniform(0.0, 100.0, 2)
+        got = kb2d.visible_mask(px, py, xs, ys, segs)
+        want = _ref_visible(px, py, xs, ys, segs)
+        assert np.array_equal(got, want), "отсев изменил ответ"
+        checked += n
+    assert checked > 5000, "проверка вышла слишком узкой"
+
+
+def test_prefilter_survives_a_far_away_network():
+    """Сеть разломов в стороне от пучка лучей не блокирует ничего.
+
+    Здесь отсев снимает все звенья до расчёта, и это ровно тот путь,
+    который даёт основной выигрыш.
+    """
+    far = kb2d.fault_segments([[(1000.0 + i, 1000.0) for i in range(60)]])
+    xs = np.linspace(0.0, 10.0, 50)
+    ys = np.zeros(50)
+    assert kb2d.visible_mask(5.0, 5.0, xs, ys, far).all()
+
+
+def test_indicator_kriging_breaks_the_class_boundary_at_a_fault():
+    """Граница категории рвётся на разломе так же, как поверхность.
+
+    Замеры разрежены у самой линии, полоса вокруг неё пустая. Без барьера
+    вероятность класса плавно съезжает через разрыв, которого пласт не
+    знает. С барьером получается ступень.
+    """
+    rng = np.random.default_rng(3)
+    xd = np.concatenate([rng.uniform(0.0, 25.0, 120),
+                         rng.uniform(35.0, 60.0, 120)])
+    yd = rng.uniform(0.0, 60.0, 240)
+    labels = np.where(xd < 30.0, "соль", "глина")
+    classes = ["соль", "глина"]
+    segs = kb2d.fault_segments([[(30.0, 0.0), (30.0, 60.0)]])
+    kw = dict(xmn=0.0, ymn=0.0, cell=1.0, nx=60, ny=60, ndmin=1, ndmax=16,
+              radius=40.0, nodata=-9999.0)
+    plain, _, _ = kb2d.categorical_indicator_grids(xd, yd, labels, classes, **kw)
+    cut, _, _ = kb2d.categorical_indicator_grids(xd, yd, labels, classes,
+                                                 fault_segs=segs, **kw)
+    row = 60 - 1 - 30
+    # столбцы 29 и 31 лежат по разные стороны линии, 30 - на самой линии
+    jump_plain = float(plain[row, 29, 0] - plain[row, 31, 0])
+    jump_cut = float(cut[row, 29, 0] - cut[row, 31, 0])
+    assert jump_cut > 0.8, "барьер не держит границу класса: %.2f" % jump_cut
+    assert jump_cut > jump_plain + 0.5, (
+        "с разломом граница не резче: %.2f против %.2f"
+        % (jump_cut, jump_plain))
+
+
+def test_indicator_kriging_without_faults_is_unchanged():
+    """Пустой список разломов ничего не меняет."""
+    rng = np.random.default_rng(11)
+    xd = rng.uniform(0.0, 60.0, 200)
+    yd = rng.uniform(0.0, 60.0, 200)
+    labels = np.where(xd + yd < 60.0, "a", "b")
+    kw = dict(xmn=0.0, ymn=0.0, cell=2.0, nx=30, ny=30, ndmin=1, ndmax=12,
+              radius=40.0, nodata=-9999.0)
+    a, za, _ = kb2d.categorical_indicator_grids(xd, yd, labels, ["a", "b"], **kw)
+    b, zb, _ = kb2d.categorical_indicator_grids(xd, yd, labels, ["a", "b"],
+                                                fault_segs=None, **kw)
+    assert np.array_equal(a, b) and np.array_equal(za, zb)
