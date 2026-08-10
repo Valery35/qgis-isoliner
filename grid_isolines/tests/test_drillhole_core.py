@@ -412,11 +412,15 @@ def test_columns_sorted_by_distance():
 def test_summary_lines():
     s, _, _ = _demo()
     lines = s.lines()
-    assert len(lines) == 3
+    # Четвёртая строка появляется потому, что в наборе есть интервал без
+    # устья: сводка называет несошедшиеся ключи с обеих сторон.
+    assert len(lines) == 4
     assert "2 из 5" in lines[0] and "6 из 9" in lines[0]
     assert "без устья: 1" in lines[1]
     assert "переставлено from и to: 1" in lines[2]
     assert "за забоем (как есть): 1" in lines[2]
+    assert "Не сошлись hole_id" in lines[3]
+    assert "НЕТ-1" in lines[3], "не назван ключ из интервалов"
 
 
 def test_summary_clean_data_single_line():
@@ -565,3 +569,252 @@ def _run():
 
 if __name__ == "__main__":
     sys.exit(_run())
+
+
+# --- инклинометрия и ось скважины ------------------------------------------
+
+def test_vertical_hole_stays_under_its_collar():
+    """Нулевой зенит: ствол идёт строго вниз."""
+    axis = dh.axis_from_survey(10.0, 20.0, 100.0, [(0.0, 0.0, 0.0),
+                                                   (100.0, 0.0, 0.0)])
+    md, x, y, z = axis[-1]
+    assert md == 100.0
+    assert abs(x - 10.0) < 1e-9 and abs(y - 20.0) < 1e-9
+    assert abs(z - 0.0) < 1e-9, "вертикальная скважина ушла в сторону"
+
+
+def test_constant_inclination_matches_trigonometry():
+    """Постоянный зенит 30° на восток: смещение и отметка по формулам.
+
+    Проверка числом, а не на глаз: на 100 м по стволу смещение
+    100·sin30 = 50 м, падение 100·cos30 = 86.6 м.
+    """
+    axis = dh.axis_from_survey(0.0, 0.0, 100.0, [(0.0, 90.0, 30.0),
+                                                 (100.0, 90.0, 30.0)])
+    x, y, z = dh.point_at_depth(axis, 100.0)
+    assert abs(x - 50.0) < 1e-6, "смещение на восток %.3f" % x
+    assert abs(y) < 1e-6, "увело по северу"
+    assert abs(z - (100.0 - 86.6025403784)) < 1e-6
+
+
+def test_minimum_curvature_differs_from_the_tangential_method():
+    """Дуга, а не ломаная: при наборе угла методы расходятся заметно.
+
+    Касательный метод считает весь участок по нижнему замеру и при
+    редких замерах уводит забой. Здесь набор от нуля до шестидесяти
+    градусов на ста метрах.
+    """
+    axis = dh.axis_from_survey(0.0, 0.0, 0.0, [(0.0, 0.0, 0.0),
+                                               (100.0, 0.0, 60.0)])
+    _md, _x, north, z = axis[-1]
+    tangential_north = 100.0 * math.sin(math.radians(60.0))
+    assert north < tangential_north - 30.0, (
+        "смещение %.1f подозрительно близко к касательному методу" % north)
+    assert -100.0 < z < -70.0, "падение вне разумного: %.1f" % z
+
+
+def test_depth_beyond_the_last_station_continues_the_last_leg():
+    """Глубже последнего замера ствол продолжается, а не обрывается."""
+    axis = dh.axis_from_survey(0.0, 0.0, 0.0, [(0.0, 90.0, 30.0),
+                                               (50.0, 90.0, 30.0)])
+    x1, _y1, z1 = dh.point_at_depth(axis, 50.0)
+    x2, _y2, z2 = dh.point_at_depth(axis, 100.0)
+    assert x2 > x1 and z2 < z1, "за последним замером ствол встал"
+
+
+def test_eoh_extends_the_axis_by_the_last_orientation():
+    """Забой ниже последнего замера продолжает ствол его ориентацией."""
+    axis = dh.axis_from_survey(0.0, 0.0, 0.0, [(0.0, 90.0, 45.0)],
+                               eoh=100.0)
+    assert axis[-1][0] == 100.0, "забой не достроен"
+
+
+def test_corridor_sees_a_hole_that_leans_towards_the_line():
+    """Отбор идёт по всей оси, а не по устью.
+
+    Скважина с устьем в двухстах метрах от линии и зенитом восемьдесят
+    градусов подходит к ней вплотную. Отбор по устью потерял бы её.
+    """
+    line = [(0.0, -500.0), (0.0, 500.0)]
+    axis = dh.axis_from_survey(200.0, 0.0, 0.0, [(0.0, 270.0, 80.0)],
+                               eoh=200.0)
+    off = dh.axis_offset_to_line(axis, line)
+    assert off < 10.0, "ось не подошла к линии: %.1f" % off
+    _d, collar_off = dh.project_to_polyline(line, 200.0, 0.0)
+    assert collar_off > 190.0, "проверка потеряла смысл: устье близко"
+
+
+def test_survey_rows_are_read_tolerantly():
+    """Негодные строки инклинометрии пропускаются и считаются."""
+    summary = {}
+    got = dh.read_surveys([
+        ("A", 0, 90, 0),
+        ("A", 50, 90, 30),
+        ("A", 50, 91, 31),          # повтор глубины
+        ("", 10, 0, 0),             # без имени
+        ("B", "нет", 0, 0),         # не число
+    ], summary)
+    assert list(got) == ["A"] and len(got["A"]) == 2
+    assert summary.get("survey_dup_md") == 1
+    assert summary.get("survey_no_id") == 1
+    assert summary.get("survey_bad_num") == 1
+
+
+def test_stations_are_sorted_by_depth():
+    summary = {}
+    got = dh.read_surveys([("A", 80, 0, 40), ("A", 10, 0, 5)], summary)
+    assert [s[0] for s in got["A"]] == [10.0, 80.0]
+
+
+def test_inclined_hole_reports_its_horizontal_shift():
+    """Смещение забоя по горизонтали считается и отдаётся счётчиком.
+
+    На чертеже с большим преувеличением наклон визуально сжимается: у
+    демо-разреза множитель под шестьдесят, и ствол с наклоном сорок пять
+    градусов выглядит вертикалью. Число даёт опору там, где глаз
+    бесполезен.
+    """
+    s = dh.ReadSummary()
+    collars = dh.read_collars([("A", 0.0, 0.0, 100.0, 100.0)], s)
+    intervals = dh.read_intervals([("A", 0.0, 100.0, "К")], s)
+    holes = dh.assemble(collars, intervals, s)
+    line = [(-500.0, 0.0), (500.0, 0.0)]
+    cnt = {}
+    dh.columns_for_section(collars, holes, line, corridor=0.0, vex=50.0,
+                           counters=cnt,
+                           surveys={"A": [(0.0, 90.0, 45.0),
+                                          (100.0, 90.0, 45.0)]})
+    assert cnt.get("n_incl") == 1
+    want = 100.0 * math.sin(math.radians(45.0))
+    assert abs(cnt.get("max_shift", 0.0) - want) < 1.0, (
+        "смещение %.1f вместо %.1f" % (cnt.get("max_shift", 0.0), want))
+
+
+def test_vertical_hole_is_not_counted_as_inclined():
+    s = dh.ReadSummary()
+    collars = dh.read_collars([("A", 0.0, 0.0, 100.0, 100.0)], s)
+    intervals = dh.read_intervals([("A", 0.0, 100.0, "К")], s)
+    holes = dh.assemble(collars, intervals, s)
+    cnt = {}
+    dh.columns_for_section(collars, holes, [(-500.0, 0.0), (500.0, 0.0)],
+                           corridor=0.0, vex=1.0, counters=cnt,
+                           surveys={"A": [(0.0, 0.0, 0.0), (100.0, 0.0, 0.0)]})
+    assert not cnt.get("n_incl"), "вертикальная скважина сочтена наклонной"
+
+
+def test_intervals_of_an_inclined_hole_move_along_the_section():
+    """Кровля и подошва пласта стоят на разных расстояниях по разрезу."""
+    s = dh.ReadSummary()
+    collars = dh.read_collars([("A", 0.0, 0.0, 100.0, 200.0)], s)
+    intervals = dh.read_intervals([("A", 0.0, 100.0, "верх"),
+                                   ("A", 100.0, 200.0, "низ")], s)
+    holes = dh.assemble(collars, intervals, s)
+    cols = dh.columns_for_section(
+        collars, holes, [(-500.0, 0.0), (500.0, 0.0)], corridor=0.0, vex=1.0,
+        surveys={"A": [(0.0, 90.0, 45.0), (200.0, 90.0, 45.0)]})
+    assert cols[0].seg_xy, "координаты вдоль оси не заполнены"
+    (xt, _yt), (xb, _yb), _it = cols[0].seg_xy[0]
+    assert xb - xt > 50.0, "интервал не поехал вдоль разреза: %.1f" % (xb - xt)
+
+
+# --- несошедшиеся hole_id --------------------------------------------------
+
+def _orphan_case(collar_id, interval_id):
+    s = dh.ReadSummary()
+    collars = dh.read_collars([(collar_id, 0.0, 0.0, 100.0, 50.0)], s)
+    intervals = dh.read_intervals([(interval_id, 0.0, 10.0, "К")], s)
+    dh.assemble(collars, intervals, s)
+    return s
+
+
+def test_orphan_intervals_name_the_ids_from_both_sides():
+    """Сводка называет ключи, а не только считает осиротевшие интервалы.
+
+    Отчёт пользователя: устья и интервалы прочитаны, но не сошлись, и в
+    журнале было лишь число. Искать расхождение приходилось глазами по
+    таблице.
+    """
+    s = _orphan_case("DH-1", "DH-02")
+    assert s.int_orphan == 1
+    text = " ".join(s.lines())
+    assert "DH-02" in text and "DH-1" in text
+
+
+def test_case_mismatch_is_named():
+    text = " ".join(_orphan_case("dh-1", "DH-1").lines())
+    assert "регистр" in text
+
+
+def test_lookalike_letters_are_named():
+    """Кириллическая Н и латинская H на экране неотличимы.
+
+    Без подсказки такое ищут часами: строки выглядят одинаково.
+    """
+    text = " ".join(_orphan_case("D\u041d-1", "DH-1").lines())
+    assert "раскладк" in text
+
+
+def test_space_mismatch_is_named():
+    text = " ".join(_orphan_case("DH 1", "DH1").lines())
+    assert "пробел" in text
+
+
+def test_genuinely_different_ids_get_no_invented_reason():
+    """Разные номера скважин причиной не объявляются.
+
+    Выдумать объяснение хуже, чем не дать его: человек пойдёт искать
+    несуществующую опечатку.
+    """
+    s = _orphan_case("DH-1", "DH-77")
+    assert dh.explain_id_mismatch(s.orphan_ids, s.collar_ids) is None
+
+
+def test_matching_ids_produce_no_complaint():
+    s = _orphan_case("DH-1", "DH-1")
+    assert s.int_orphan == 0
+    assert not any("Не сошлись" in ln for ln in s.lines())
+
+
+# --- скважины без интервалов -----------------------------------------------
+
+def test_hole_without_intervals_still_gets_a_stick():
+    """Скважина без опробования выносится стволом и подписью.
+
+    Интервалов может не быть вовсе: положение и глубину скважин на
+    разрезе показывают и на стадии проекта, когда геология ещё не
+    описана.
+    """
+    s = dh.ReadSummary()
+    collars = dh.read_collars([("A", 0.0, 0.0, 100.0, 80.0)], s)
+    cols = dh.columns_for_section(collars, {"A": []},
+                                  [(-500.0, 0.0), (500.0, 0.0)],
+                                  corridor=0.0, vex=1.0)
+    assert len(cols) == 1
+    c = cols[0]
+    assert not c.segments, "интервалы взялись из ниоткуда"
+    assert abs(c.stick[0] - 100.0) < 1e-9
+    assert abs(c.stick[1] - 20.0) < 1e-9, "ствол не дошёл до забоя"
+
+
+def test_hole_depth_without_intervals_needs_eoh():
+    """Без интервалов длину ствола задаёт только забой.
+
+    Без забоя рисовать нечего, и выдумывать глубину неправильно.
+    """
+    collar = dh.Collar("A", 0.0, 0.0, 100.0, float("nan"))
+    assert dh.hole_depth(collar, []) == 0.0
+    collar_with = dh.Collar("A", 0.0, 0.0, 100.0, 55.0)
+    assert dh.hole_depth(collar_with, []) == 55.0
+
+
+def test_inclined_hole_without_intervals_keeps_its_axis():
+    """Наклонная скважина без интервалов рисуется ломаной по оси."""
+    s = dh.ReadSummary()
+    collars = dh.read_collars([("A", 0.0, 0.0, 100.0, 100.0)], s)
+    cols = dh.columns_for_section(
+        collars, {"A": []}, [(-500.0, 0.0), (500.0, 0.0)],
+        corridor=0.0, vex=1.0,
+        surveys={"A": [(0.0, 90.0, 45.0), (100.0, 90.0, 45.0)]})
+    c = cols[0]
+    assert c.path and len(c.path) >= 2, "ось не построена"
+    assert abs(c.path[-1][0] - c.path[0][0]) > 50.0, "ствол не наклонён"

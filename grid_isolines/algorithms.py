@@ -7319,6 +7319,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
     TRACES = "TRACES"
     LINE = "LINE"
     COLLAR, INTERVAL = "COLLAR", "INTERVAL"
+    SURVEY = "SURVEY"
     REFDEMO = "REFDEMO"
     BED1, BED2 = "BED1", "BED2"
     FAULT, MARKER, ZONE = "FAULT", "MARKER", "ZONE"
@@ -7433,6 +7434,10 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             createByDefault=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.INTERVAL, self.tr("Интервалы скважин interval (таблица)"),
+            type=QgsProcessing.SourceType.TypeVector, optional=True,
+            createByDefault=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.SURVEY, self.tr("Инклинометрия survey (таблица)"),
             type=QgsProcessing.SourceType.TypeVector, optional=True,
             createByDefault=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
@@ -7782,6 +7787,14 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         isink, idest = self.parameterAsSink(
             parameters, self.INTERVAL, context, fint,
             QgsWkbTypes.Type.NoGeometry)
+        fsv = QgsFields()
+        fsv.append(QgsField("hole_id", QVariant.String))
+        fsv.append(QgsField("md", QVariant.Double))
+        fsv.append(QgsField("azi", QVariant.Double))
+        fsv.append(QgsField("inc", QVariant.Double))
+        svsink, svdest = self.parameterAsSink(
+            parameters, self.SURVEY, context, fsv,
+            QgsWkbTypes.Type.NoGeometry)
         # Список кодов один на интервалы и на справочник: разъехаться им
         # негде. Справочник пишется независимо от выходов скважин - он нужен
         # сам по себе, а не только вместе с ними.
@@ -7819,6 +7832,29 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
                     fc.setAttributes([hid, round(zc, 2), round(eoh, 2)])
                     csink.addFeature(fc)
                     nhole += 1
+                    # Каждая третья скважина наклонная: без наклонных
+                    # проверить вынос вдоль оси не на чем, а сплошь
+                    # наклонное демо не показывало бы, что вертикальные
+                    # считаются по-прежнему.
+                    if svsink is not None:
+                        if nhole % 3 == 0:
+                            # Азимут вдоль первой линии разрезов, а не
+                            # случайный: скважина, наклонённая поперёк
+                            # разреза, проецируется почти в точку, и
+                            # проверить по ней вынос вдоль оси нельзя.
+                            azi = 90.0 if (nhole // 3) % 2 else 270.0
+                            inc = float(rng.uniform(45.0, 70.0))
+                            rows_sv = [(hid, 0.0, azi, 0.0),
+                                       (hid, eoh * 0.3, azi, inc * 0.5),
+                                       (hid, eoh, azi, inc)]
+                        else:
+                            rows_sv = [(hid, 0.0, 0.0, 0.0),
+                                       (hid, eoh, 0.0, 0.0)]
+                        for r in rows_sv:
+                            fv = QgsFeature(fsv)
+                            fv.setAttributes([r[0], round(r[1], 2),
+                                              round(r[2], 1), round(r[3], 1)])
+                            svsink.addFeature(fv)
                     for frm, to, code in ints:
                         kv = None
                         gsrc = kcl_of.get(code)
@@ -7837,6 +7873,15 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             _set_output_name(context, idest, self.tr("Интервалы interval (демо)"))
             results[self.COLLAR] = cdest
             results[self.INTERVAL] = idest
+            if svsink is not None:
+                feedback.pushInfo(self.tr(
+                    "Инклинометрия: каждая третья скважина наклонная, зенит "
+                    "от 15 до 40 градусов с набором по стволу. Подайте "
+                    "таблицу в 4.02, и интервалы лягут вдоль оси, а ствол "
+                    "выйдет ломаной."))
+                _set_output_name(context, svdest,
+                                 self.tr("Инклинометрия survey (демо)"))
+                results[self.SURVEY] = svdest
 
         # демо-векторы для «3.5 Пересечение векторов с разрезом»: разлом
         # (2D-линия без Z) -> вертикаль; маркер (3D-линия с Z) -> точка;
@@ -10198,6 +10243,7 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
 
     LINE_DEF, INPUT, ZFIELD, CORRIDOR, OUTPUT = (
         "LINE_DEF", "INPUT", "ZFIELD", "CORRIDOR", "OUTPUT")
+    KEEPNAME, KEEPSTYLE = "KEEPNAME", "KEEPSTYLE"
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionProjectAlgorithm()
@@ -10216,7 +10262,16 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
             "отсекаются коридором. Результат в тех же осях, что и чертёж разреза, "
             "кладётся поверх него.\n\nТак на разрез наносят аномалии, точки "
             "опробования, трассы, контуры - всё, что нужно увидеть в плоскости "
-            "разреза.") + _credit())
+            "разреза.\n\n"
+            "**Сохранять имя и стиль исходного слоя** - две галочки для "
+            "тех, кто уже настроил оформление в плане. Имя выхода строится "
+            "от имени источника, а оформление берётся у самого слоя, а не "
+            "из штатного стиля инструмента. Категорийный стиль ложится на "
+            "разрез как есть, и легенда остаётся прежней.\n\n"
+            "Стиль переносится, когда тип геометрии выхода совпадает с "
+            "типом источника. Линия с отметкой Z даёт на разрезе точку, и "
+            "линейное оформление на неё не встанет: в этом случае "
+            "остаётся штатный стиль, о чём сказано в журнале.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -10235,6 +10290,12 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.CORRIDOR, 0.0), minValue=0.0))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Объекты на разрезе (чертёж)")))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.KEEPNAME, self.tr("Сохранять имя исходного слоя"),
+            defaultValue=_dv(self, self.KEEPNAME, False)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.KEEPSTYLE, self.tr("Сохранять стиль исходного слоя"),
+            defaultValue=_dv(self, self.KEEPSTYLE, False)))
 
         _restore_layer_defaults(self, (self.LINE_DEF,))
 
@@ -10309,7 +10370,38 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
         feedback.pushInfo(_tr(
             "Спроецировано объектов: %d, пропущено вне коридора %d.")
             % (nfeat, nskip))
-        _set_output_name(context, dest, _tr("Объекты на разрезе"))
+        # Имя и стиль исходного слоя. Проекция сохраняет тип геометрии
+        # точек и линий, поэтому рендерер ложится один в один. Полигон
+        # проецируется полосой, то есть остаётся полигоном, и его стиль
+        # тоже подходит. Несовпадение типа возможно у линии с Z, дающей
+        # точку, и тогда остаётся штатный стиль, о чём сказано в журнал.
+        keepname = self.parameterAsBool(parameters, self.KEEPNAME, context)
+        keepstyle = self.parameterAsBool(parameters, self.KEEPSTYLE, context)
+        one = self.parameterAsVectorLayer(parameters, self.INPUT, context)
+        name = _tr("Объекты на разрезе")
+        if keepname and one is not None:
+            name = _tr("%s на разрезе") % one.name()
+        renderer = None
+        if keepstyle:
+            if one is None:
+                feedback.pushInfo(_tr(
+                    "Стиль переносится только со слоя проекта: источник им "
+                    "не является, остаётся штатный стиль."))
+            else:
+                try:
+                    if QgsWkbTypes.geometryType(one.wkbType()) \
+                            != QgsWkbTypes.geometryType(wkb):
+                        feedback.pushInfo(_tr(
+                            "Стиль исходного слоя не подходит выходу: другой "
+                            "тип геометрии. Остаётся штатный стиль."))
+                    else:
+                        r = one.renderer()
+                        renderer = r.clone() if r is not None else None
+                except Exception:  # nosec
+                    renderer = None
+        _set_output_name(context, dest, name)
+        if renderer is not None:
+            _attach_style(context, dest, None, renderer=renderer)
         _save_values(self, _saved)
         _set_group(context, GRP_SECTION, [dest], force=True, history=_provenance(self, parameters))
         return {self.OUTPUT: dest}
@@ -10577,6 +10669,8 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
     INTERVAL, IID, IFROM, ITO, ICODE = (
         "INTERVAL", "IID", "IFROM", "ITO", "ICODE")
     CLABEL = "CLABEL"
+    SURVEY, SVID, SVMD, SVAZI, SVINC = ("SURVEY", "SVID", "SVMD",
+                                        "SVAZI", "SVINC")
     CORRIDOR = "CORRIDOR"
     CLIP, CLIP_TOL = "CLIP", "CLIP_TOL"
     SHEET = "SHEET"
@@ -10598,6 +10692,24 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             "Кладёт скважины на чертежи разрезов из пары слоёв модели бурения: "
             "устья collar (hole_id, z, eoh, точки) и таблица интервалов "
             "interval (hole_id, from, to, code, глубины по стволу от устья). "
+            "Таблица интервалов тоже необязательна. Без неё на чертёж идут "
+            "стволы и подписи: положение и глубину скважин показывают и на "
+            "стадии проекта, когда геология ещё не описана. Длину ствола в "
+            "этом случае задаёт только забой eoh, и скважина без забоя "
+            "пропускается с указанием их числа.\n\n"
+            "Третья таблица, **инклинометрия**, необязательна: без неё "
+            "скважина считается вертикальной, как и прежде.\n\n"
+            "Инклинометрия задаёт ось замерами: скважина, глубина по стволу, "
+            "азимут от севера, зенитный угол от вертикали. Ось строится "
+            "методом минимальной кривизны - между соседними замерами ствол "
+            "считается дугой окружности, а не ломаной: касательный метод при "
+            "редких замерах уводит забой на десятки метров.\n\n"
+            "С инклинометрией меняются три вещи. Интервалы выносятся вдоль "
+            "оси, поэтому кровля и подошва пласта стоят на разных "
+            "расстояниях по разрезу. Ствол выходит ломаной, а не отрезком. "
+            "Отбор по коридору идёт по всей оси, а не по устью: скважина с "
+            "далёким устьем, но забоем у самой линии, иначе потерялась бы. "
+            "Демонстрационный набор с наклонными скважинами выдаёт 4.10.\n\n"
             "Такую пару выдают «Пример для разреза» и выгрузка из "
             "Геоконструктора. Поля обеих таблиц находятся сами по "
             "ожидаемым именам, выбор полей спрятан в дополнительные "
@@ -10667,9 +10779,25 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             parentLayerParameterName=self.COLLAR, defaultValue="number",
             optional=True)))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            self.INTERVAL, self.tr("Интервалы скважин (interval, таблица)"),
+            self.SURVEY, self.tr("Инклинометрия (survey, таблица)"),
+            [QgsProcessing.SourceType.TypeVector], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.SVID, self.tr("Поле идентификатора скважины, инклинометрия"),
+            parentLayerParameterName=self.SURVEY, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.SVMD, self.tr("Поле глубины замера по стволу (обычно md)"),
+            parentLayerParameterName=self.SURVEY, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.SVAZI, self.tr("Поле азимута ствола, градусы от севера"),
+            parentLayerParameterName=self.SURVEY, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.SVINC, self.tr("Поле зенитного угла, 0 = вертикаль"),
+            parentLayerParameterName=self.SURVEY, optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INTERVAL,
+            self.tr("Интервалы скважин (interval, таблица) [необязательно]"),
             types=[QgsProcessing.SourceType.TypeVector],
-            defaultValue=_dv_layer(self, self.INTERVAL), optional=False))
+            defaultValue=_dv_layer(self, self.INTERVAL), optional=True))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.IID, self.tr("Поле идентификатора скважины, интервалы (обычно hole_id)"),
             parentLayerParameterName=self.INTERVAL, defaultValue="hole_id",
@@ -10745,14 +10873,17 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         лежит вместе, а сырые числа двух систем расходятся на межсистемный
         сдвиг - и коридор отсекает всё."""
         csrc = self.parameterAsSource(parameters, self.COLLAR, context)
-        isrc = self.parameterAsSource(parameters, self.INTERVAL, context)
-        if csrc is None or isrc is None:
-            raise QgsProcessingException(self.tr(
-                "Нужны устья collar и таблица интервалов interval."))
+        # Интервалы необязательны: положение и глубину скважин на разрезе
+        # показывают и без опробования. Геология появляется позже, а
+        # чертёж со стволами нужен уже на стадии проекта.
+        isrc = self.parameterAsSource(parameters, self.INTERVAL, context) \
+            if parameters.get(self.INTERVAL) is not None else None
+        if csrc is None:
+            raise QgsProcessingException(self.tr("Нужны устья collar."))
         # поля находим сами по ожидаемым именам и синонимам, выбор в
         # дополнительных параметрах только переопределяет автопоиск
         cnames = [f.name() for f in csrc.fields()]
-        inames = [f.name() for f in isrc.fields()]
+        inames = [f.name() for f in isrc.fields()] if isrc is not None else []
 
         def _fld(key, names, wanted, where, required):
             chosen = self.parameterAsString(parameters, key, context)
@@ -10767,9 +10898,10 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         cz = _fld(self.CZ, cnames, _dh.COLLAR_Z, "collar", True)
         ceoh = _fld(self.CEOH, cnames, _dh.COLLAR_EOH, "collar", False)
         clabel = _fld(self.CLABEL, cnames, _dh.COLLAR_LABEL, "collar", False)
-        iid = _fld(self.IID, inames, _dh.INTERVAL_ID, "interval", True)
-        ifrom = _fld(self.IFROM, inames, _dh.INTERVAL_FROM, "interval", True)
-        ito = _fld(self.ITO, inames, _dh.INTERVAL_TO, "interval", True)
+        need_i = isrc is not None
+        iid = _fld(self.IID, inames, _dh.INTERVAL_ID, "interval", need_i)
+        ifrom = _fld(self.IFROM, inames, _dh.INTERVAL_FROM, "interval", need_i)
+        ito = _fld(self.ITO, inames, _dh.INTERVAL_TO, "interval", need_i)
         icode = _fld(self.ICODE, inames, _dh.INTERVAL_CODE, "interval", False)
         feedback.pushInfo(_tr("Поля: collar (%s), interval (%s).") % (
             ", ".join(x if x else "-" for x in (cid, cz, ceoh, clabel)),
@@ -10821,14 +10953,30 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         if first_pt is not None:
             feedback.pushInfo(_tr("Первое устье: %.2f, %.2f.") % first_pt)
         irows = []
-        for ft in isrc.getFeatures():
-            irows.append((ft[iid], ft[ifrom], ft[ito],
-                          ft[icode] if icode else None, ft.attributes()))
+        if isrc is not None:
+            for ft in isrc.getFeatures():
+                irows.append((ft[iid], ft[ifrom], ft[ito],
+                              ft[icode] if icode else None, ft.attributes()))
         collars = _dh.read_collars(crows, summary)
         intervals = _dh.read_intervals(irows, summary)
         holes = _dh.assemble(collars, intervals, summary)
         for ln in summary.lines(_tr):
             feedback.pushInfo(ln)
+        if isrc is None:
+            # Без интервалов скважина всё равно попадает на чертёж: ствол
+            # от устья до забоя и подпись. Глубина берётся из eoh, и
+            # скважина без забоя рисоваться не может - об этом говорим.
+            no_eoh = [hid for hid, c in collars.items()
+                      if not math.isfinite(c.eoh) or c.eoh <= 0]
+            holes = {hid: [] for hid in collars
+                     if hid not in no_eoh}
+            feedback.pushInfo(self.tr(
+                "Интервалы не заданы: на чертёж идут стволы и подписи, "
+                "скважин %d.") % len(holes))
+            if no_eoh:
+                feedback.pushWarning(self.tr(
+                    "Без интервалов длину ствола задаёт только забой eoh. "
+                    "Скважин без забоя: %d, они пропущены.") % len(no_eoh))
         if not holes:
             raise QgsProcessingException(self.tr(
                 "Ни одна скважина не собралась: проверьте hole_id и глубины."))
@@ -10913,10 +11061,14 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             used.add(nm)
             return nm
 
+        # Таблица интервалов необязательна, поэтому её поля берутся один
+        # раз и по отдельности: обращаться к слою напрямую нельзя, его
+        # может не быть вовсе.
+        ifields = list(isrc.fields()) if isrc is not None else []
         fout = QgsFields()
         fout.append(QgsField(_uniq("sec"), QVariant.String))
         fout.append(QgsField(_uniq("sec_id"), QVariant.Int))
-        for fld in isrc.fields():
+        for fld in ifields:
             used.add(fld.name())
             fout.append(QgsField(fld))
         aux = [_uniq("ztop"), _uniq("zbot"), _uniq("offset")]
@@ -10974,7 +11126,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             QgsWkbTypes.Type.Point, crs0)
 
         f3 = QgsFields()
-        for fld in isrc.fields():
+        for fld in ifields:
             f3.append(QgsField(fld))
         f3.append(QgsField("ztop", QVariant.Double))
         f3.append(QgsField("zbot", QVariant.Double))
@@ -10984,6 +11136,44 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         sink3, dest3 = self.parameterAsSink(
             parameters, self.OUTPUT_3D, context, f3,
             QgsWkbTypes.Type.LineStringZ, dsrc.sourceCrs())
+
+        # Инклинометрия: без неё скважина считается вертикальной, как и
+        # прежде. С ней ось строится минимальной кривизной, интервалы
+        # выносятся вдоль оси, а отбор по коридору идёт по всей оси.
+        surveys = None
+        summary_extra = {}
+        sv_src = self.parameterAsSource(parameters, self.SURVEY, context) \
+            if parameters.get(self.SURVEY) is not None else None
+        if sv_src is not None:
+            names = [f.name() for f in sv_src.fields()]
+            f_id = _dh.resolve_field(
+                names, self.parameterAsString(parameters, self.SVID, context),
+                ("hole_id", "id", "well", "скважина"))
+            f_md = _dh.resolve_field(
+                names, self.parameterAsString(parameters, self.SVMD, context),
+                ("md", "depth", "глубина"))
+            f_az = _dh.resolve_field(
+                names, self.parameterAsString(parameters, self.SVAZI, context),
+                ("azi", "azimuth", "азимут"))
+            f_in = _dh.resolve_field(
+                names, self.parameterAsString(parameters, self.SVINC, context),
+                ("inc", "zenith", "зенит", "угол"))
+            missing = [n for n, v in (("скважина", f_id), ("глубина", f_md),
+                                      ("азимут", f_az), ("зенит", f_in))
+                       if v is None]
+            if missing:
+                raise QgsProcessingException(self.tr(
+                    "В таблице инклинометрии не найдены поля: %s. Укажите их "
+                    "явно.") % ", ".join(missing))
+            rows = []
+            for ft in sv_src.getFeatures():
+                rows.append((ft[f_id], ft[f_md], ft[f_az], ft[f_in]))
+            surveys = _dh.read_surveys(rows, summary_extra)
+            feedback.pushInfo(self.tr(
+                "Инклинометрия: скважин с замерами %d, замеров принято %d. "
+                "Ось строится методом минимальной кривизны, интервалы "
+                "выносятся вдоль неё, отбор по коридору идёт по всей оси.")
+                % (len(surveys), sum(len(v) for v in surveys.values())))
 
         nseg = ncol = 0
         for dd in defs:
@@ -10997,7 +11187,8 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
                 if ext is not None:
                     zclip = (ext[0] - clip_tol, ext[1] + clip_tol)
             cols = _dh.columns_for_section(
-                collars, holes, verts, corridor, dd["vex"], cnt, zclip)
+                collars, holes, verts, corridor, dd["vex"], cnt, zclip,
+                surveys=surveys)
             ox, oy = dd["ox"], dd["oy"]
             if sheet_parts is not None:
                 tol_y = clip_tol * dd["vex"]
@@ -11014,11 +11205,19 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
                 c = collars[col.hole_id]
                 x = col.d + ox
                 off = round(col.offset, 3)
-                for (ytop, ybot, it) in col.segments:
-                    zt, zb = _dh.unfold(c.z, it.frm, it.to)
+                # У наклонной скважины интервал идёт вдоль оси, поэтому
+                # верх и низ стоят на разных расстояниях по разрезу. У
+                # вертикальной обе координаты совпадают с устьем, и
+                # геометрия та же, что была.
+                pairs = col.seg_xy if col.seg_xy else [
+                    ((col.d, yt), (col.d, yb), it)
+                    for (yt, yb, it) in col.segments]
+                for ((xt, ytop), (xb, ybot), it) in pairs:
+                    zt, zb = ytop / dd["vex"], ybot / dd["vex"]
                     fa = QgsFeature(fout)
                     fa.setGeometry(QgsGeometry.fromPolylineXY([
-                        QgsPointXY(x, ytop + oy), QgsPointXY(x, ybot + oy)]))
+                        QgsPointXY(xt + ox, ytop + oy),
+                        QgsPointXY(xb + ox, ybot + oy)]))
                     attrs = tag + list(it.extra) + [
                         round(zt, 3), round(zb, 3), off,
                         _colour_of(it.code)]
@@ -11027,7 +11226,8 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
                     if asink is not None:
                         fp = QgsFeature(fout)
                         fp.setGeometry(QgsGeometry.fromPointXY(
-                            QgsPointXY(x, (ytop + ybot) / 2.0 + oy)))
+                            QgsPointXY((xt + xb) / 2.0 + ox,
+                                       (ytop + ybot) / 2.0 + oy)))
                         fp.setAttributes(attrs)
                         asink.addFeature(fp)
                     nseg += 1
@@ -11035,9 +11235,11 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
                 lab = labels.get(col.hole_id, col.hole_id)
                 if ssink is not None:
                     fs = QgsFeature(fstick)
-                    fs.setGeometry(QgsGeometry.fromPolylineXY([
-                        QgsPointXY(x, col.stick[0] + oy),
-                        QgsPointXY(x, col.stick[1] + oy)]))
+                    pts = ([QgsPointXY(px + ox, py + oy)
+                            for px, py in col.path] if col.path
+                           else [QgsPointXY(x, col.stick[0] + oy),
+                                 QgsPointXY(x, col.stick[1] + oy)])
+                    fs.setGeometry(QgsGeometry.fromPolylineXY(pts))
                     fs.setAttributes(tag + [col.hole_id, lab, c.z, eoh, off])
                     ssink.addFeature(fs)
                 if lsink is not None:
@@ -11057,6 +11259,15 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
                     "скважин целиком за рамкой %d.") % (
                     cnt.get("n_clip_cut", 0), cnt.get("n_clip_out", 0),
                     cnt.get("n_holes_out", 0))
+            if cnt.get("n_incl"):
+                shift = cnt.get("max_shift", 0.0)
+                msg += " " + _tr(
+                    "Наклонных стволов %d, наибольшее смещение забоя по "
+                    "горизонтали %.1f ед. карты. На чертеже отметки "
+                    "растянуты в %.4g раз, а расстояние вдоль линии нет, "
+                    "поэтому наклон визуально сжимается во столько же: "
+                    "смотрите числа, а не глаз.") % (
+                    cnt["n_incl"], shift, dd["vex"])
             if not cnt.get("n_wells") and math.isfinite(
                     cnt.get("min_off", float("inf"))):
                 msg += " " + _tr("Ближайшее устье в %.1f ед. карты.") % (

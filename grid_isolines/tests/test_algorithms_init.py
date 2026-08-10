@@ -687,3 +687,37 @@ def test_declared_parameter_constants_appear_in_the_form():
             bad.append("%s.%s" % (cls.name, name))
     assert not bad, ("константа параметра есть, а в форме его нет: %s"
                      % ", ".join(bad))
+
+
+def test_section_holes_build_fields_without_the_interval_layer():
+    """4.02 собирает поля выхода, не трогая слой интервалов напрямую.
+
+    Таблица интервалов стала необязательной, а поля выхода по-прежнему
+    брались из неё: прогон без интервалов падал с AttributeError уже
+    после чтения устий. Компиляция такого не видит, а тесты формы до
+    этой строки не доходят.
+
+    Общий сторож по имени переменной здесь не годится: имя isrc в других
+    инструментах означает обязательный источник, и проверка врала бы на
+    исправном коде. Поэтому проверка точечная.
+    """
+    import ast as _ast
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "algorithms.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    tree = _ast.parse(src)
+    lines = src.splitlines(True)
+    body = None
+    for cls in [n for n in tree.body if isinstance(n, _ast.ClassDef)]:
+        if cls.name != "DrillholesOnSectionAlgorithm":
+            continue
+        body = "".join(lines[cls.lineno - 1:cls.end_lineno])
+    assert body, "класс 4.02 не найден"
+    # Обращения, у которых проверка стоит в той же строке, законны.
+    unguarded = [ln for ln in body.splitlines()
+                 if "isrc.fields()" in ln and "isrc is not None" not in ln]
+    assert not unguarded, (
+        "поля берутся из необязательного слоя без проверки: %s"
+        % "; ".join(x.strip() for x in unguarded))
+    assert "ifields" in body, "поля интервалов не вынесены отдельно"

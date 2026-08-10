@@ -199,6 +199,40 @@ def clip_columns_profile(cols, top_parts=None, bot_parts=None,
     return out
 
 
+# Кириллические буквы, неотличимые на экране от латинских. Идентификатор,
+# набранный в разных раскладках, выглядит одинаково, а ключом не является.
+LOOKALIKE = {
+    "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H", "О": "O",
+    "Р": "P", "С": "C", "Т": "T", "У": "Y", "Х": "X",
+    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "у": "y", "х": "x",
+}
+
+
+def _delatin(s):
+    return "".join(LOOKALIKE.get(ch, ch) for ch in s)
+
+
+def explain_id_mismatch(orphan_ids, collar_ids):
+    """Назвать причину расхождения ключей, если она распознаётся.
+
+    Счётчик осиротевших интервалов говорит, что ключи не сошлись, но не
+    говорит почему. Между тем причина почти всегда одна из трёх, и все
+    три проверяются сравнением строк.
+    """
+    for a in orphan_ids:
+        for b in collar_ids:
+            if a == b:
+                continue
+            if a.casefold() == b.casefold():
+                return "различается только регистр: «%s» и «%s»" % (a, b)
+            if _delatin(a) == _delatin(b):
+                return ("совпадают на вид, но набраны в разных раскладках: "
+                        "«%s» и «%s»" % (a, b))
+            if a.replace(" ", "") == b.replace(" ", ""):
+                return "различаются только пробелами: «%s» и «%s»" % (a, b)
+    return None
+
+
 # --- сводка чтения -------------------------------------------------------
 
 class ReadSummary:
@@ -223,6 +257,13 @@ class ReadSummary:
         self.int_beyond_eoh = 0      # принято: конец глубже забоя (как есть)
         self.int_overlap = 0         # принято: перехлёст с соседом (как есть)
         self.int_gap = 0             # принято: разрыв до соседа (как есть)
+        # Образцы несошедшихся ключей. Счётчик говорит, что интервалы
+        # осиротели, но не говорит почему, а причина почти всегда в самих
+        # значениях: хвостовой пробел, другой регистр, ноль в номере,
+        # похожие буквы кириллицы и латиницы. Без образцов это ищут
+        # глазами по таблице.
+        self.orphan_ids = []
+        self.collar_ids = []
 
     def lines(self, tr=None):
         """Строки сводки для экрана. Итог всегда, остальное если не ноль.
@@ -255,6 +296,16 @@ class ReadSummary:
         noted = [t(tpl) % n for n, tpl in parts if n]
         if noted:
             out.append(t("Принято с оговоркой: %s.") % ", ".join(noted))
+        if self.int_orphan and self.orphan_ids:
+            out.append(t(
+                "Не сошлись hole_id. В интервалах: %s. В устьях: %s. "
+                "Сравните написание: хвостовой пробел, регистр, ноль в "
+                "номере, похожие буквы кириллицы и латиницы.")
+                % (", ".join("«%s»" % s for s in self.orphan_ids),
+                   ", ".join("«%s»" % s for s in self.collar_ids)))
+            why = explain_id_mismatch(self.orphan_ids, self.collar_ids)
+            if why:
+                out.append(t("Похоже, %s.") % why)
         return out
 
 
@@ -366,10 +417,14 @@ def assemble(collars, intervals, summary, eps=1e-9):
     считаются: колонка рисуется по данным, дыры не заполняются.
     """
     holes = {}
+    summary.collar_ids = sorted(collars)[:5]
     for it in intervals:
         if it.hole_id not in collars:
             summary.int_orphan += 1
             summary.int_kept -= 1
+            if len(summary.orphan_ids) < 5 \
+                    and it.hole_id not in summary.orphan_ids:
+                summary.orphan_ids.append(it.hole_id)
             continue
         holes.setdefault(it.hole_id, []).append(it)
     for hid, its in holes.items():
@@ -403,6 +458,136 @@ def unfold(z, frm, to):
     """Глубины по стволу в отметки: (кровля, подошва) = (z - frm, z - to).
     Скважина вертикальная (инклинометрии в первом заходе нет)."""
     return z - frm, z - to
+
+
+def read_surveys(rows, summary):
+    """Таблица инклинометрии: hole_id, глубина по стволу, азимут, зенит.
+
+    Азимут отсчитывается от севера по часовой стрелке, зенитный угол от
+    вертикали вниз: ноль это вертикальная скважина, девяносто -
+    горизонтальная. Такое соглашение принято в буровой документации, и
+    отступать от него незачем.
+
+    Строки без имени скважины, с нечисловой глубиной или углом
+    пропускаются и считаются в сводку. Замеры сортируются по глубине, и
+    повторная глубина у одной скважины отбрасывается: две ориентации в
+    одной точке ствола противоречивы, и выбирать между ними наугад
+    неправильно.
+    """
+    out = {}
+    seen = {}
+    for row in rows:
+        # Строка кортежем, как и у остальных таблиц модуля:
+        # (hole_id, глубина, азимут, зенит).
+        hid = parse_id(row[0]) if len(row) > 0 else ""
+        md = parse_num(row[1]) if len(row) > 1 else None
+        azi = parse_num(row[2]) if len(row) > 2 else None
+        inc = parse_num(row[3]) if len(row) > 3 else None
+        if not hid:
+            summary["survey_no_id"] = summary.get("survey_no_id", 0) + 1
+            continue
+        if md is None or azi is None or inc is None:
+            summary["survey_bad_num"] = summary.get("survey_bad_num", 0) + 1
+            continue
+        key = (hid, round(float(md), 6))
+        if key in seen:
+            summary["survey_dup_md"] = summary.get("survey_dup_md", 0) + 1
+            continue
+        seen[key] = True
+        out.setdefault(hid, []).append((float(md), float(azi), float(inc)))
+    for hid in out:
+        out[hid].sort(key=lambda r: r[0])
+    return out
+
+
+def axis_from_survey(x0, y0, z0, stations, eoh=None):
+    """Ось скважины по инклинометрии, метод минимальной кривизны.
+
+    Между соседними замерами ствол считается дугой окружности, а не
+    ломаной: касательный метод при редких замерах уводит забой на
+    десятки метров, и это давно известная ошибка.
+
+    stations - список (глубина, азимут, зенит), отсортированный по
+    глубине. Если первый замер лежит ниже устья, участок до него
+    считается по его же ориентации. Если задан eoh и он ниже последнего
+    замера, ствол продолжается по последней ориентации.
+
+    Возвращает список (глубина, x, y, z) от устья вниз.
+    """
+    if not stations:
+        return [(0.0, float(x0), float(y0), float(z0))]
+    st = list(stations)
+    if st[0][0] > 0.0:
+        st.insert(0, (0.0, st[0][1], st[0][2]))
+    if eoh is not None and float(eoh) > st[-1][0]:
+        st.append((float(eoh), st[-1][1], st[-1][2]))
+
+    axis = [(st[0][0], float(x0), float(y0), float(z0))]
+    for k in range(1, len(st)):
+        md1, a1, i1 = st[k - 1]
+        md2, a2, i2 = st[k]
+        dmd = md2 - md1
+        if dmd <= 0.0:
+            continue
+        ra1, ri1 = math.radians(a1), math.radians(i1)
+        ra2, ri2 = math.radians(a2), math.radians(i2)
+        cosb = (math.cos(ri2 - ri1)
+                - math.sin(ri1) * math.sin(ri2) * (1.0 - math.cos(ra2 - ra1)))
+        cosb = max(-1.0, min(1.0, cosb))
+        beta = math.acos(cosb)
+        rf = 1.0 if beta < 1e-9 else (2.0 / beta) * math.tan(beta / 2.0)
+        half = dmd / 2.0 * rf
+        dn = half * (math.sin(ri1) * math.cos(ra1)
+                     + math.sin(ri2) * math.cos(ra2))
+        de = half * (math.sin(ri1) * math.sin(ra1)
+                     + math.sin(ri2) * math.sin(ra2))
+        dv = half * (math.cos(ri1) + math.cos(ri2))
+        _md, px, py, pz = axis[-1]
+        axis.append((md2, px + de, py + dn, pz - dv))
+    return axis
+
+
+def point_at_depth(axis, md):
+    """Точка оси на заданной глубине по стволу: (x, y, z).
+
+    Между узлами оси идёт линейная развёртка. Глубже последнего узла
+    ствол продолжается по направлению последнего звена: интервал,
+    выходящий за забой, рисуется как есть, а не обрезается молча.
+    """
+    if not axis:
+        return None
+    md = float(md)
+    if md <= axis[0][0]:
+        return axis[0][1], axis[0][2], axis[0][3]
+    for k in range(1, len(axis)):
+        m0, x0, y0, z0 = axis[k - 1]
+        m1, x1, y1, z1 = axis[k]
+        if md <= m1:
+            fr = 0.0 if m1 == m0 else (md - m0) / (m1 - m0)
+            return (x0 + fr * (x1 - x0), y0 + fr * (y1 - y0),
+                    z0 + fr * (z1 - z0))
+    if len(axis) == 1:
+        return axis[0][1], axis[0][2], axis[0][3]
+    m0, x0, y0, z0 = axis[-2]
+    m1, x1, y1, z1 = axis[-1]
+    seg = m1 - m0
+    if seg <= 0:
+        return x1, y1, z1
+    fr = (md - m1) / seg
+    return x1 + fr * (x1 - x0), y1 + fr * (y1 - y0), z1 + fr * (z1 - z0)
+
+
+def axis_offset_to_line(axis, vertices):
+    """Наименьшее удаление оси скважины от линии разреза.
+
+    Отбирать по устью неправильно: наклонная скважина, устье которой
+    далеко, а забой у самой линии, при отборе по устью потерялась бы.
+    """
+    best = float("inf")
+    for _md, x, y, _z in axis:
+        _d, off = project_to_polyline(vertices, x, y)
+        best = min(best, off)
+    return best
 
 
 def intervals_from_levels(z, levels, codes, min_len=0.01):
@@ -503,19 +688,26 @@ class Column:
     устья до забоя, ytop_label - высота точки подписи (устье).
     """
 
-    __slots__ = ("hole_id", "d", "offset", "segments", "stick", "ytop_label")
+    __slots__ = ("hole_id", "d", "offset", "segments", "stick", "ytop_label",
+                 "seg_xy", "path")
 
-    def __init__(self, hole_id, d, offset, segments, stick, ytop_label):
+    def __init__(self, hole_id, d, offset, segments, stick, ytop_label,
+                 seg_xy=None, path=None):
         self.hole_id = hole_id
         self.d = d
         self.offset = offset
         self.segments = segments
         self.stick = stick
         self.ytop_label = ytop_label
+        # Наклонная скважина: у каждого интервала своя позиция по оси
+        # расстояния сверху и снизу, а ствол это ломаная. У вертикальной
+        # обе координаты совпадают с d, и прежнее поведение сохраняется.
+        self.seg_xy = seg_xy
+        self.path = path
 
 
 def columns_for_section(collars, holes, vertices, corridor, vex,
-                        counters=None, zclip=None):
+                        counters=None, zclip=None, surveys=None):
     """Колонки скважин для одной линии разреза.
 
     Устье проецируется на линию, дальние скважины отсекаются коридором
@@ -547,16 +739,39 @@ def columns_for_section(collars, holes, vertices, corridor, vex,
     min_off = float("inf")
     for hid in sorted(holes):
         c = collars[hid]
-        d, off = project_to_polyline(vertices, c.x, c.y)
+        st = (surveys or {}).get(hid)
+        axis = None
+        if st:
+            axis = axis_from_survey(c.x, c.y, c.z, st,
+                                    eoh=(c.eoh if math.isfinite(c.eoh)
+                                         else None))
+        if axis and len(axis) > 1:
+            # Отбор по всей оси: наклонная скважина с далёким устьем, но
+            # забоем у самой линии, при отборе по устью потерялась бы.
+            off = axis_offset_to_line(axis, vertices)
+            d, _ = project_to_polyline(vertices, c.x, c.y)
+        else:
+            axis = None
+            d, off = project_to_polyline(vertices, c.x, c.y)
         if off < min_off:
             min_off = off
         if corridor > 0 and off > corridor:
             n_out += 1
             continue
+
+        def _at(md):
+            """Позиция по оси расстояния и отметка на глубине md."""
+            if axis is None:
+                return d, c.z - float(md)
+            px, py, pz = point_at_depth(axis, md)
+            dd, _o = project_to_polyline(vertices, px, py)
+            return dd, pz
         its = sorted(holes[hid], key=lambda i: (i.frm, i.to))
         segs = []
+        seg_xy = [] if axis is not None else None
         for it in its:
-            ztop, zbot = unfold(c.z, it.frm, it.to)
+            dtop, ztop = _at(it.frm)
+            dbot, zbot = _at(it.to)
             if zmn is not None:
                 if zbot >= zmx or ztop <= zmn:
                     n_clip_out += 1
@@ -566,6 +781,8 @@ def columns_for_section(collars, holes, vertices, corridor, vex,
                     n_cut += 1
                 ztop, zbot = t2, b2
             segs.append((ztop * vex, zbot * vex, it))
+            if seg_xy is not None:
+                seg_xy.append(((dtop, ztop * vex), (dbot, zbot * vex), it))
         depth = hole_depth(c, its)
         stop, sbot = c.z, c.z - depth
         if zmn is not None:
@@ -574,7 +791,26 @@ def columns_for_section(collars, holes, vertices, corridor, vex,
                 n_holes_out += 1
                 continue
         stick = (stop * vex, min(sbot, stop) * vex)
-        cols.append(Column(hid, d, off, segs, stick, stick[0]))
+        path = None
+        if axis is not None:
+            path = []
+            for md, px, py, pz in axis:
+                dd, _o = project_to_polyline(vertices, px, py)
+                if zmn is not None:
+                    pz = min(max(pz, zmn), zmx)
+                path.append((dd, pz * vex))
+        if axis is not None and counters is not None and len(axis) > 1:
+            # Смещение забоя по горизонтали: без него наклон на чертеже с
+            # большим преувеличением не разглядеть, и человеку не на что
+            # опереться, кроме глаза.
+            d_top, _ = project_to_polyline(vertices, axis[0][1], axis[0][2])
+            d_bot, _ = project_to_polyline(vertices, axis[-1][1], axis[-1][2])
+            shift = abs(d_bot - d_top)
+            counters["n_incl"] = counters.get("n_incl", 0) + (
+                1 if shift > 1e-6 else 0)
+            counters["max_shift"] = max(counters.get("max_shift", 0.0), shift)
+        cols.append(Column(hid, d, off, segs, stick, stick[0],
+                           seg_xy=seg_xy, path=path))
     cols.sort(key=lambda col: (col.d, col.hole_id))
     if counters is not None:
         counters["n_wells"] = counters.get("n_wells", 0) + len(cols)

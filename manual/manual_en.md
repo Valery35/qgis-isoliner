@@ -2368,6 +2368,30 @@ Boreholes are described by two tables following the minimal model of the mining 
 
 Such a pair is produced by **Create a section example** (4.10) and by a corporate export. The tool finds the fields of both tables by the contract names and common synonyms (Hole_ID, elev, depth_from, litho) itself, case does not matter. The field pickers are hidden under the advanced parameters and are needed only for non-standard layers. What was found is printed to the log in one line.
 
+### Inclined holes
+
+A third table, **inclinometry**, is optional. Without it a hole is treated as vertical: the downhole depth becomes an elevation by subtraction from the collar, and the column stands at a single point of the section.
+
+Inclinometry defines the axis by survey stations: hole, measured depth downhole, azimuth from north clockwise, zenith angle from the vertical. A zenith of zero is a vertical hole, ninety a horizontal one. This is the convention of drilling records.
+
+The axis is built by the minimum curvature method: between two stations the hole is taken as an arc of a circle. The tangential method, which computes the whole leg from the lower station, carries the bottom tens of metres away when the stations are sparse.
+
+Inclinometry changes three things. The intervals are carried along the axis, so the roof and the floor of a bed stand at different distances along the section. The hole comes out as a polyline rather than a segment. The corridor selection runs over the whole axis rather than over the collar: a hole with a distant collar but a bottom close to the line would not reach the drawing otherwise.
+
+On a drawing with vertical exaggeration the inclination looks weaker than it is. Elevations are stretched vex times while the distance along the line is not, so the visible angle is compressed by the same factor: at a vex of about sixty a hole inclined at forty-five degrees looks vertical. The tool reports the number of inclined holes and the largest horizontal displacement of the bottom, so the inclination is checked by numbers rather than by eye.
+
+### Holes without intervals
+
+The interval table is optional as well. Without it the drawing receives the holes and the labels: the position and the depth of the holes are worth showing at the design stage too, before the geology is described.
+
+The length of a hole is then set by the end-of-hole depth alone. A hole without it is skipped and their number goes to the log: inventing a depth would be wrong.
+
+### When collars and intervals do not match
+
+The most frequent fault of a data set is a mismatch of hole_id between the tables. The reader reports not only the number of orphaned intervals but the keys themselves from both sides, and when the cause is recognised it is named outright: only the case differs, the strings are typed in different keyboard layouts, they differ only by spaces. The last one matters in particular: a Cyrillic Н and a Latin H are indistinguishable on screen.
+
+When the keys differ in substance, no cause is invented. The hole numbers are then compared between the two tables by hand.
+
 ### The tolerant reader
 
 The data is read without prior cleaning. Empty and non-numeric depths are skipped, swapped from and to are exchanged, intervals beyond the end of hole are drawn as they are, overlaps are neither resolved nor hidden, gaps between neighbouring intervals are not filled, intervals without a collar are skipped. Everything skipped or accepted with a note is counted and reported to the log as a short summary. On clean data the summary is a single line.
@@ -2604,9 +2628,17 @@ The **Project objects onto the section** tool projects points, lines and polygon
 | Objects to project | Layer whose objects are projected onto the section plane. | - |
 | Elevation field | Z attribute if the object geometry has no Z. | - |
 | Corridor from the line | Width of the capture band from the section line. 0 = all objects. | 0 |
+| Keep the name of the source layer | The output name is built from the name of the source. | off |
+| Keep the style of the source layer | The presentation is taken from the layer itself. | off |
 | Objects on the section (drawing) | Output: objects in section-drawing coordinates. | - |
 
 This generalises the borehole projection to any objects: anomalies, sampling points, traces, outlines. The result is in the section axes, placed on top of the drawing.
+
+### The name and the style of the source layer
+
+Two checkboxes for those who have already set up the presentation in plan. The output name is built from the name of the source, and the presentation is taken from the layer itself. A categorised style lands on the section as it is, and the legend stays the same. The same is done in **Vector intersection with the section** (4.05).
+
+The style is carried over when the geometry type of the output matches that of the source. Points are projected as points and polygons as bands, so the presentation fits exactly. A line carrying a Z elevation gives a point on the section, and a line style will not fit it: the standard style then remains, which is reported in the log.
 
 ## 4.08 Unproject from the section
 
@@ -2641,7 +2673,7 @@ Each marker surface gives the line of its intersection with the shaft wall - whe
 
 The **Create a section example** tool prepares a complete training set for the **Cross-sections** group, so its tools can be tried without kriging real data. In the panel it stands last in the **Cross-sections** group.
 
-A single run outputs six stacked surfaces with a dip and variable thickness (five interbedded beds, the 2nd and 4th industrial and thin), three section lines across the area (a polyline with two bends, a short straight one and a slanted one), a ready pair of drilling-model layers, and a multiband grid per industrial bed. The bed-grid band convention: band 1 - the roof, band 2 - the bottom, bands 3 and further - parameters (here the content and the mineral type with a replacement zone; the content fields of the beds are independent, stochastic). One file describes the whole bed - like a block model where new parameters are added as bands. For the intersection tools it adds demo vectors: a fault without an elevation, a marker contour with Z, a replacement zone, and an overturned TIN fold from PolygonZ 3D faces.
+A single run outputs six stacked surfaces with a dip and variable thickness (five interbedded beds, the 2nd and 4th industrial and thin), three section lines across the area (a polyline with two bends, a short straight one and a slanted one), a ready pair of drilling-model layers, an inclinometry table, and a multiband grid per industrial bed. Every third hole of the set is inclined: a zenith angle from 45 to 70 degrees with a build-up downhole, the azimuth along the section lines. A hole inclined across the section would project almost into a point, leaving nothing to check the carrying of intervals along the axis against. The remaining holes are vertical, so that both behaviours are visible on one set. The bed-grid band convention: band 1 - the roof, band 2 - the bottom, bands 3 and further - parameters (here the content and the mineral type with a replacement zone; the content fields of the beds are independent, stochastic). One file describes the whole bed - like a block model where new parameters are added as bands. For the intersection tools it adds demo vectors: a fault without an elevation, a marker contour with Z, a replacement zone, and an overturned TIN fold from PolygonZ 3D faces.
 
 ### Boreholes with sampling intervals
 
