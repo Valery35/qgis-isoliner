@@ -25,7 +25,7 @@ header-includes:
 
 # A five-minute run on demo data
 
-**Step 1. Teaching data - 1.10 Example wells (demo).** Set the extent, and in the advanced section set **Fault throw** to 20. Outputs: a well point layer and a **Fault (demo)** layer, a line with a dying end.
+**Step 1. Teaching data - 1.09 Example wells (demo).** Set the extent, and in the advanced section set **Fault throw** to 20. Outputs: a well point layer and a **Fault (demo)** layer, a line with a dying end.
 
 **Step 2. Grid - 1.02 2D Kriging.** Input: the wells of step 1, field **roof**. Supply the line of step 1 to the **Faults** field. Leave everything else at its default. The log will report the number of fault segments.
 

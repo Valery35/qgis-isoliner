@@ -21,9 +21,8 @@ The tools are split into seven Processing groups — **"Grid and isolines"**, **
 - **1.06 Variogram map (anisotropy)** — the γ(h_x, h_y) surface: anisotropy shows as an ellipse. Estimates the azimuth, the anisotropy ratio and the range for kriging.
 - **1.07 Variogram cross-validation** — leave-one-out control: tuning kriging parameters by the ME/RMSE/MSDR/R metrics rather than by eye.
 - **1.08 Method cross-validation (LOO)** — comparing methods (kriging or minimum curvature) Surfer-style: a random subset, area filters, a neighbor exclusion buffer, an HTML report.
-- **1.09 Processing profiles** — named "variogram + trimming" sets saved by the variogram tools and loaded into 2D Kriging. A global store.
-- **1.10 Create sample wells (demo)** — a training point layer: roof, thickness, grade, rock type, head, a drift surface.
-- **1.11 Create a geophysical-profiles example (demo)** — two modes: resistivity survey (an apparent-resistivity anomaly spot, SP, IP) and subsidence (a trough by survey rounds).
+- **1.09 Create sample wells (demo)** — a training point layer: roof, thickness, grade, rock type, head, a drift surface.
+- **1.10 Create a geophysical-profiles example (demo)** — two modes: resistivity survey (an apparent-resistivity anomaly spot, SP, IP) and subsidence (a trough by survey rounds).
 
 ### "2. Topography" group
 

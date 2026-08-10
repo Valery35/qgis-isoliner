@@ -113,7 +113,7 @@ def gather_samples(line_pts, contours, tol):
     return out
 
 
-def profile_from_samples(line_pts, samples):
+def profile_from_samples(line_pts, samples, closed=False):
     """Отметки вершин линии по точкам встречи.
 
     samples - список (s, z). Интерполяция линейна по дуге, за крайними
@@ -138,8 +138,16 @@ def profile_from_samples(line_pts, samples):
     zu /= np.maximum(cnt, 1)
     if len(su) == 1:
         return np.full(len(line_pts), zu[0]), 1
+    if closed:
+        # У кольца дуговая координата циклическая: между последней и
+        # первой пробой идти надо через замыкание, а не держать
+        # постоянную отметку, как у открытой линии. Иначе на стыке
+        # появится ступень ровно там, где контур смыкается сам с собой.
+        length = float(cum[-1])
+        su = np.concatenate([su - length, su, su + length])
+        zu = np.concatenate([zu, zu, zu])
     zs = np.interp(cum, su, zu)
-    return zs, len(su)
+    return zs, int(len(su) // 3 if closed else len(su))
 
 
 def gather_point_samples(line_pts, points, tol):
@@ -281,9 +289,15 @@ def snap_elevations(lines, contours, tol, points=None, pt_tol=None,
         # вершина уже стоит рядом со встречей, новая не добавляется, а
         # встреча переезжает на неё - линия не распухает.
         st = tol if snap_tol is None else snap_tol
+        # Кольцо распознаётся по совпадению первой и последней вершины.
+        # У него дуговая координата циклическая, и профиль между
+        # последней и первой пробой идёт через замыкание.
+        closed = (len(pts) > 2
+                  and abs(pts[0][0] - pts[-1][0]) < 1e-9
+                  and abs(pts[0][1] - pts[-1][1]) < 1e-9)
         adds, samples = plan_vertices(pts, samples, st, min_step)
         dense, _ = densify_at(pts, adds)
-        zs, n = profile_from_samples(dense, samples)
+        zs, n = profile_from_samples(dense, samples, closed=closed)
         if zs is None:
             skipped.append({"line": ln,
                             "reason": "ни одна горизонталь не примыкает"})

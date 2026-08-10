@@ -115,6 +115,7 @@ from .hydro_fill import fill_depressions, DEFAULT_EPSILON
 from . import volumes as _vol
 from . import topo_flow, topo_gauge, topo_surface, topo_t2r, topo_smooth
 from . import topo_break, demo_pit, topo_form, topo_snapz, attitude, stack_check, demo_stack
+from . import variogram_table
 from . import palette_lfc  # чтение палитры Leapfrog, без QGIS
 from . import plast_reference  # справочник пластов, без QGIS
 
@@ -1032,32 +1033,6 @@ def _remember_layers(alg, parameters, context, saved, single=(), multi=()):
             pass
 
 
-def _last_profile_key(alg):
-    return "isoliner/last_profile/" + alg.name()
-
-
-def _remember_profile(alg, name):
-    """Запомнить последний применённый профиль по имени (между сессиями)."""
-    try:
-        QgsSettings().setValue(_last_profile_key(alg), name or "")
-    except Exception:  # nosec
-        pass
-
-
-def _recalled_profile_index(alg):
-    """Индекс последнего применённого профиля в списке [нет] + имена. По имени,
-    а не по сохранённому индексу: добавление или удаление профиля не должно
-    сдвигать выбор на чужой."""
-    if alg is None:
-        return 0
-    try:
-        name = QgsSettings().value(_last_profile_key(alg), "")
-    except Exception:
-        name = ""
-    names = _profile_names()
-    return (names.index(name) + 1) if name and name in names else 0
-
-
 # Коды кондиционности из kb2d.data_warnings в текст для Журнала.
 def _warn_data(feedback, xs, ys, vs):
     """Тихие предупреждения о плохой кондиционности входных точек. Не
@@ -1119,9 +1094,14 @@ def _report_nugget_pairs(feedback, xs, ys, vs, ev, data_var, top=5):
     if feedback is None:
         return
     from .kb2d import nugget_pairs
-    lag = np.asarray(ev.get("lag") or [], dtype=float)
-    gam = np.asarray(ev.get("gamma") or [], dtype=float)
-    npr = np.asarray(ev.get("npairs") or [], dtype=float)
+    # `x or []` на массиве NumPy срывается: `or` проверяет массив на
+    # истинность, а у массива длиннее одного элемента её нет. Пока лаги
+    # приходили списком, это работало, а с массивом расчёт прерывался.
+    def _arr(key):
+        raw = ev.get(key)
+        return np.asarray([] if raw is None else raw, dtype=float)
+
+    lag, gam, npr = _arr("lag"), _arr("gamma"), _arr("npairs")
     if not len(lag) or not len(gam):
         return
     h1, g1 = float(lag[0]), float(gam[0])
@@ -1153,11 +1133,6 @@ def _report_nugget_pairs(feedback, xs, ys, vs, ev, data_var, top=5):
 # отсев ураганных проб». Хранятся глобально в QgsSettings (кросс-проектно),
 # отдельно от per-algorithm настроек. «Вариограмма» и «Кросс-валидация» их
 # сохраняют, «2D Kriging» подставляет, отдельный инструмент «Профили» правит.
-PROFILE_NONE = _tr("(не выбран)")
-
-
-def _profiles_key():
-    return "isoliner/profiles"
 
 
 _VERSION_CACHE = None
@@ -1218,96 +1193,6 @@ def _help_version(text):
     return text + tail + "\n" + invite
 
 
-def _load_profiles():
-    """Все профили: dict {имя: {...}}."""
-    try:
-        raw = QgsSettings().value(_profiles_key(), "")
-        d = json.loads(raw) if raw else {}
-        return d if isinstance(d, dict) else {}
-    except Exception:
-        return {}
-
-
-def _save_profiles(d):
-    try:
-        QgsSettings().setValue(_profiles_key(), json.dumps(d))
-        return True
-    except Exception:
-        return False
-
-
-def _profile_names():
-    """Имена профилей по алфавиту."""
-    return sorted(_load_profiles().keys())
-
-
-def _make_profile(nugget, model_code, sill, rng, azimuth=0.0, anis=1.0,
-                  val_pct=0.0, val_min=None, val_max=None, val_cap=False):
-    """Единый формат хранения профиля."""
-    return {
-        "nugget": float(nugget), "model": int(model_code),
-        "sill": float(sill), "range": float(rng),
-        "azimuth": float(azimuth), "anis": float(anis),
-        "val_pct": float(val_pct),
-        "val_min": (None if val_min is None else float(val_min)),
-        "val_max": (None if val_max is None else float(val_max)),
-        "val_cap": bool(val_cap)}
-
-
-def _save_profile(name, profile):
-    """Сохранить/перезаписать профиль под именем."""
-    name = (name or "").strip()
-    if not name:
-        return False
-    d = _load_profiles()
-    d[name] = profile
-    return _save_profiles(d)
-
-
-def _merge_anisotropy(prof, azimuth, anis, rng=None):
-    """Вписать анизотропию в существующий профиль, сохранив модель, наггет,
-    силл и отсев. Радиус главной оси (rng) обновляется только если задан и
-    положителен: при упёртом в окно радиусе его лучше не перетирать."""
-    p = dict(prof)
-    p["azimuth"] = float(azimuth)
-    p["anis"] = float(anis)
-    if rng is not None and rng > 0:
-        p["range"] = float(rng)
-    return p
-
-
-def _get_profile(name):
-    return _load_profiles().get((name or "").strip())
-
-
-def _delete_profile(name):
-    d = _load_profiles()
-    name = (name or "").strip()
-    if name in d:
-        del d[name]
-        return _save_profiles(d)
-    return False
-
-
-def _clear_profiles():
-    return _save_profiles({})
-
-
-def _profile_summary(p):
-    """Короткое текстовое описание профиля для Журнала."""
-    try:
-        s = (_tr("наггет C0=%.4g, %s, порог C=%.4g, радиус a=%.4g") % (
-            p["nugget"], MODEL_LABELS[int(p["model"])], p["sill"], p["range"]))
-        if float(p.get("anis", 1.0)) != 1.0 or float(p.get("azimuth", 0.0)) != 0.0:
-            s += (_tr(", анизотропия %.3g по азимуту %.4g°") % (
-                p.get("anis", 1.0), p.get("azimuth", 0.0)))
-        if float(p.get("val_pct", 0.0)) != 0.0:
-            s += (_tr(", отсев %.4g%%") % p["val_pct"])
-        return s
-    except Exception:
-        return _tr("профиль")
-
-
 # ключи параметров структуры вариограммы
 def _sk(i, suffix):
     return "S%d_%s" % (i, suffix)
@@ -1324,58 +1209,6 @@ def _san(name):
 # ---------------------------------------------------------------------------
 #  Параметры вариограммы/поиска - общий набор для кригинга
 # ---------------------------------------------------------------------------
-def _apply_profile(alg, parameters, context, feedback):
-    """Если в параметре PROFILE выбран профиль - подставить его поверх полей
-    диалога (наггет, Структура 1, отсев) и обнулить лишние структуры.
-    Возвращает (возможно копию) parameters."""
-    idx = alg.parameterAsEnum(parameters, alg.PROFILE, context)
-    if idx <= 0:
-        return parameters
-    opts = [PROFILE_NONE] + _profile_names()
-    name = opts[idx] if idx < len(opts) else None
-    prof = _get_profile(name) if name else None
-    if not prof:
-        feedback.pushWarning(
-            _tr("Профиль не найден - использую значения из диалога. "
-            "Список профилей обновляется при открытии окна инструмента."))
-        return parameters
-    parameters = dict(parameters)
-    parameters[alg.NUGGET] = prof["nugget"]
-    parameters[_sk(1, "MODEL")] = int(prof["model"])
-    parameters[_sk(1, "SILL")] = prof["sill"]
-    parameters[_sk(1, "RANGE")] = prof["range"]
-    parameters[_sk(1, "AZIMUTH")] = prof.get("azimuth", 0.0)
-    parameters[_sk(1, "ANIS")] = prof.get("anis", 1.0)
-    parameters[alg.VAL_PCT] = prof.get("val_pct", 0.0)
-    parameters[alg.VAL_MIN] = prof.get("val_min")
-    parameters[alg.VAL_MAX] = prof.get("val_max")
-    parameters[alg.VAL_CAP] = bool(prof.get("val_cap", False))
-    for i in range(2, NSTRUCT + 1):
-        parameters[_sk(i, "SILL")] = 0.0
-    feedback.pushInfo(
-        _tr("Подставлен профиль «%s»: %s.") % (name, _profile_summary(prof)))
-    _remember_profile(alg, name)
-    return parameters
-
-
-def _profile_enum(key, label, pick=False, alg=None):
-    """Выпадающий список профилей с подписью-обёрткой (значения профиля
-    строкой ниже). На QGIS без старого API виджетов - обычный список. Если
-    передан alg и это не pick-список, по умолчанию подставляется последний
-    применённый профиль (запоминается между сессиями)."""
-    default = _recalled_profile_index(alg) if (alg is not None and not pick) else 0
-    p = QgsProcessingParameterEnum(
-        key, _tr(label), options=[_tr(PROFILE_NONE)] + _profile_names(),
-        defaultValue=default)
-    try:
-        from .widgets import (ProfileWrapper, ProfilePickWrapper,
-                              WRAPPER_AVAILABLE)
-        if WRAPPER_AVAILABLE:
-            cls = ProfilePickWrapper if pick else ProfileWrapper
-            p.setMetadata({"widget_wrapper": {"class": cls}})
-    except Exception:  # nosec
-        pass
-    return p
 
 
 def _add_kriging_params(alg):
@@ -1579,8 +1412,286 @@ def _read_points(source, zfield, feedback=None,
     return xs, ys, vs
 
 
+def build_model_from_fit(name, fit, field, val_pct=0.0, val_cap=False,
+                         today=None):
+    """Собрать модель из результата автоподбора. Без QGIS, для тестов."""
+    import datetime
+    model = variogram_table.Model((name or "").strip() or _tr("без имени"))
+    model.field = field or ""
+    model.nugget = float(fit["nugget"])
+    model.val_pct = float(val_pct)
+    model.val_cap = bool(val_cap)
+    model.structs = [dict(it=int(fit["model"]) + 1, cc=float(fit["sill"]),
+                          aa=float(fit["range"]), ang=0.0, anis=1.0,
+                          struct=1)]
+    model.fitted = today or datetime.date.today().isoformat()
+    model.note = _tr("автоподбор 1.05, изотропная; анизотропию проставляет "
+                     "1.06 по вариограммной карте")
+    return model
+
+
+def choose_model_sink(has_target, has_output):
+    """Куда писать модель: 'target', 'sink' или 'nowhere'.
+
+    Решение вынесено отдельно, потому что именно на нём я ошибался
+    трижды. Ранний выход стоял до всего, и когда выход-приёмник не был
+    включён, функция уходила молча: ни таблицы, ни объяснения. Человек
+    подбирал модель и не видел её нигде.
+
+    Правило простое и покрыто тестами. Задана таблица - пишем в неё и
+    нового слоя не создаём вовсе. Не задана, но включён выход - новый
+    слой. Ни того, ни другого - не пишем, но ГОВОРИМ об этом.
+    """
+    if has_target:
+        return "target"
+    if has_output:
+        return "sink"
+    return "nowhere"
+
+
+def _write_model_table(alg, parameters, context, feedback, name, fit, field):
+    """Записать подобранную модель: в заданную таблицу или новым слоем.
+
+    Таблица моделей - реестр, который инструмент и обязан вести, поэтому
+    дописывание в неё это объявленная работа, а не побочный эффект. Когда
+    таблица задана, новый слой не создаётся вовсе: приёмник просто не
+    запрашивается, и Processing его не материализует.
+    """
+    model = build_model_from_fit(
+        name, fit, field,
+        val_pct=alg.parameterAsDouble(parameters, alg.VAL_PCT, context),
+        val_cap=alg.parameterAsBool(parameters, alg.VAL_CAP, context))
+
+    has_target = bool(getattr(alg, "TARGET_TABLE", None)) \
+        and parameters.get(alg.TARGET_TABLE) is not None
+    has_output = bool(getattr(alg, "OUT_MODEL", None)) \
+        and parameters.get(alg.OUT_MODEL) is not None
+    where = choose_model_sink(has_target, has_output)
+
+    if where == "nowhere":
+        feedback.pushWarning(_tr(
+            "Модель никуда не записана. Укажите существующую таблицу в поле "
+            "«Дописать в таблицу моделей» либо включите выход «Модель "
+            "вариограммы», чтобы создать её впервые."))
+        return None
+
+    if where == "target":
+        target = alg.parameterAsVectorLayer(parameters, alg.TARGET_TABLE,
+                                            context)
+        if target is None:
+            feedback.pushWarning(_tr(
+                "Таблица моделей не открылась как слой - записать не удалось."))
+            return None
+        _upsert_model(target, model, feedback)
+        return None
+
+    from qgis.core import QgsFeature
+    fields = _model_table_fields()
+    sink, dest = alg.parameterAsSink(parameters, alg.OUT_MODEL, context,
+                                     fields)
+    if sink is None:
+        return None
+    for row in variogram_table.rows_from_model(model):
+        ft = QgsFeature(fields)
+        for fname, _kind in MODEL_TABLE_SPEC:
+            ft.setAttribute(fname, row[fname])
+        sink.addFeature(ft)
+    _set_output_name(context, dest,
+                     _tr("Модель вариограммы · %s") % model.profile)
+    feedback.pushInfo(_tr(
+        "Модель записана новой таблицей: профиль «%s», структур %d. Дальше "
+        "указывайте её в поле «Дописать в таблицу моделей», и новых слоёв "
+        "не появится.") % (model.profile, len(model.structs)))
+    return dest
+
+
+
+
+MODEL_TABLE_SPEC = (
+    ("profile", "String"), ("field", "String"), ("struct", "Int"),
+    ("model", "Int"), ("sill", "Double"), ("range", "Double"),
+    ("azimuth", "Double"), ("anis", "Double"), ("nugget", "Double"),
+    ("val_pct", "Double"), ("val_cap", "Bool"), ("fitted", "String"),
+    ("author", "String"), ("note", "String"))
+
+
+def _model_table_fields():
+    """Поля таблицы моделей вариограмм."""
+    from qgis.core import QgsFields, QgsField
+    from qgis.PyQt.QtCore import QVariant
+    kinds = {"String": QVariant.String, "Int": QVariant.Int,
+             "Double": QVariant.Double, "Bool": QVariant.Bool}
+    fields = QgsFields()
+    for name, kind in MODEL_TABLE_SPEC:
+        fields.append(QgsField(name, kinds[kind]))
+    return fields
+
+
+def _upsert_model(layer, model, feedback):
+    """Заменить в таблице строки этого профиля на новые.
+
+    Таблица моделей - не чужие данные, а реестр, который инструмент и
+    обязан вести, поэтому правка здесь объявленная работа, а не побочный
+    эффект. Строки других профилей не трогаются: замена идёт по имени.
+
+    Повторный подбор того же профиля должен ЗАМЕНЯТЬ строки, а не
+    добавлять вторые: иначе в таблице накопятся дубликаты, и разбор
+    сообщит о повторе структуры, а какая из строк свежая, будет не
+    видно.
+    """
+    from qgis.core import QgsFeature
+    if layer is None:
+        return 0, 0
+    names = [f.name() for f in layer.fields()]
+    missing = [n for n, _ in MODEL_TABLE_SPEC if n not in names]
+    if missing:
+        raise QgsProcessingException(_tr(
+            "В таблице моделей нет полей: %s. Постройте её выходом 1.05 или "
+            "добавьте недостающие колонки.") % ", ".join(missing))
+    idx = names.index("profile")
+    old = [f.id() for f in layer.getFeatures()
+           if str(f.attributes()[idx] or "").strip() == model.profile]
+    rows = variogram_table.rows_from_model(model)
+    feats = []
+    for row in rows:
+        ft = QgsFeature(layer.fields())
+        for name, _kind in MODEL_TABLE_SPEC:
+            ft.setAttribute(name, row[name])
+        feats.append(ft)
+    if not layer.isEditable():
+        layer.startEditing()
+    if old:
+        layer.deleteFeatures(old)
+    layer.addFeatures(feats)
+    if not layer.commitChanges():
+        raise QgsProcessingException(_tr(
+            "Не удалось записать в таблицу моделей: %s")
+            % "; ".join(layer.commitErrors()))
+    feedback.pushInfo(_tr(
+        "Таблица моделей обновлена: профиль «%s», строк заменено %d, "
+        "добавлено %d. Строки других профилей не тронуты.")
+        % (model.profile, len(old), len(feats)))
+    return len(old), len(feats)
+
+
+def _augment_anisotropy(alg, parameters, context, feedback, m):
+    """Дописать азимут и анизотропию в строки профиля той же таблицы.
+
+    Карта оценивает геометрию, а модель, наггет и вклад берутся из
+    омнинаправленной вариограммы 1.05. Поэтому строки не перестраиваются
+    заново: у выбранного профиля меняются только азимут, коэффициент и,
+    если радиус не упёрся в максимальный лаг, радиус главной оси.
+
+    Правится та таблица, которую подали. Это её реестровое назначение, а
+    не побочный эффект: создавать копию на каждый прогон значило бы
+    заставить человека потом гадать, какая из них свежая.
+
+    Оценка по карте индикативная, и это записывается в примечание, чтобы
+    через полгода не гадать, откуда взялись азимут и коэффициент.
+    """
+    layer = alg.parameterAsVectorLayer(parameters, alg.VG_TABLE, context) \
+        if parameters.get(alg.VG_TABLE) is not None else None
+    if layer is None:
+        feedback.pushInfo(_tr(
+            "Таблица моделей не подана - анизотропия только в отчёте."))
+        return None
+    names = [f.name() for f in layer.fields()]
+    rows = [dict(zip(names, ft.attributes())) for ft in layer.getFeatures()]
+    models, notes = variogram_table.parse_rows(rows)
+    for note in notes:
+        feedback.pushWarning(_tr("Таблица вариограмм: %s") % note)
+    if not models:
+        feedback.pushWarning(_tr(
+            "В таблице нет годных моделей - анизотропию записать некуда."))
+        return None
+    want = (alg.parameterAsString(parameters, alg.VG_NAME, context)
+            or "").strip()
+    if not want:
+        if len(models) > 1:
+            raise QgsProcessingException(_tr(
+                "В таблице несколько профилей (%s). Укажите, какой брать.")
+                % ", ".join(sorted(models)))
+        want = list(models)[0]
+    if want not in models:
+        raise QgsProcessingException(_tr(
+            "Профиль «%s» в таблице не найден. Есть: %s.")
+            % (want, ", ".join(sorted(models))))
+    if not m.get("resolved"):
+        feedback.pushWarning(_tr(
+            "Анизотропия не выражена - таблица оставлена без изменений."))
+        return None
+
+    az = float(m.get("azimuth", 0.0))
+    an = float(m.get("anis", 1.0))
+    rng = None if m.get("range_capped") else m.get("range_major")
+    model = models[want]
+    for s in model.structs:
+        s["ang"] = az
+        s["anis"] = an
+        if rng is not None:
+            s["aa"] = float(rng)
+    mark = _tr("анизотропия из 1.06 по вариограммной карте, оценка "
+               "индикативная")
+    model.note = (model.note + "; " + mark) if model.note else mark
+    _upsert_model(layer, model, feedback)
+    feedback.pushInfo(_tr(
+        "Записаны азимут=%.0f° и анизотропия=%.2f для профиля «%s». Модель, "
+        "наггет и вклад оставлены как были: их даёт омнинаправленная "
+        "вариограмма, а карта знает только геометрию.") % (az, an, want))
+    return None
+
+
+def _variogram_from_table(alg, parameters, context, feedback):
+    """Вариограмма из таблицы моделей, если она подана. Иначе None.
+
+    Таблица - обычный слой, и правится она в атрибутивной таблице QGIS.
+    Отдельного окна для списка и удаления не нужно: QGIS умеет это сам,
+    поэтому инструмент управления профилями снят.
+    """
+    if not getattr(alg, "VG_TABLE", None) \
+            or parameters.get(alg.VG_TABLE) is None:
+        return None
+    name = (alg.parameterAsString(parameters, alg.VG_NAME, context)
+            or "").strip()
+    src = alg.parameterAsSource(parameters, alg.VG_TABLE, context)
+    if src is None:
+        return None
+    names = [f.name() for f in src.fields()]
+    rows = [dict(zip(names, ft.attributes())) for ft in src.getFeatures()]
+    models, notes = variogram_table.parse_rows(rows)
+    for note in notes:
+        feedback.pushWarning(_tr("Таблица вариограмм: %s") % note)
+    if not models:
+        raise QgsProcessingException(_tr(
+            "В таблице вариограмм нет ни одной годной модели."))
+    if not name:
+        if len(models) > 1:
+            raise QgsProcessingException(_tr(
+                "В таблице несколько профилей (%s). Укажите, какой брать.")
+                % ", ".join(sorted(models)))
+        name = list(models)[0]
+    if name not in models:
+        raise QgsProcessingException(_tr(
+            "Профиль «%s» в таблице не найден. Есть: %s.")
+            % (name, ", ".join(sorted(models))))
+    m = models[name]
+    feedback.pushInfo(_tr(
+        "Вариограмма из таблицы, профиль «%s»: наггет %.4g, структур %d. "
+        "Поля вариограммы в окне при этом не читаются.")
+        % (m.profile, m.nugget, len(m.structs)))
+    return variogram_table.to_variogram(m, Variogram)
+
+
 def _build_variogram(alg, parameters, context, nugget, auto_range, feedback=None):
-    """Собирает вариограмму из нуггета и активных структур."""
+    """Собирает вариограмму из нуггета и активных структур.
+
+    Если подана таблица моделей и назван профиль, поля окна не читаются
+    вовсе: два источника одного и того же неизбежно разъезжаются, поэтому
+    таблица главнее и об этом сказано в журнал.
+    """
+    from_table = _variogram_from_table(alg, parameters, context, feedback)
+    if from_table is not None:
+        return from_table
     POWER = 4
     structures = []
     sill_total = 0.0
@@ -2410,12 +2521,13 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
     INPUT, ZFIELD = "INPUT", "ZFIELD"
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
-    CELL_SIZE, EXTENT, OUTPUT = "CELL_SIZE", "EXTENT", "OUTPUT"
     CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
+    VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
+    CELL_SIZE, EXTENT, OUTPUT = "CELL_SIZE", "EXTENT", "OUTPUT"
     OUTPUT_STDERR = "OUTPUT_STDERR"
     FAULTS = "FAULTS"
-    PROFILE = "PROFILE"
-    VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
+    VG_TABLE = "VG_TABLE"
+    VG_NAME = "VG_NAME"
 
     DETREND, DETREND_DEG = "DETREND", "DETREND_DEG"
 
@@ -2441,6 +2553,20 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
             "экспоненциальная, гауссова или степенная) с азимутом и "
             "анизотропией. Подходит для отметок пласта, мощностей, ФМС, химии "
             "и любых числовых атрибутов.\n\n"
+            "**Модели вариограмм** и **Профиль из таблицы** позволяют взять "
+            "подобранную вариограмму из обычного табличного слоя вместо "
+            "полей окна. Вариограмма это знание о пласте, а не настройка "
+            "программы: в таблице она уезжает с проектом, попадает в "
+            "репозиторий, переносится между машинами и правится в "
+            "атрибутивной таблице QGIS.\n\n"
+            "Строка на структуру: profile, field, struct, model, sill, "
+            "range, azimuth, anis, а также nugget, val_pct и val_cap, "
+            "общие на весь профиль. Имя профиля можно не указывать, если "
+            "в таблице он один. Негодная строка не роняет расчёт: она "
+            "пропускается, а причина называется в журнале.\n\n"
+            "Когда таблица подана, поля вариограммы в окне не читаются "
+            "вовсе. Два источника одного и того же неизбежно разъезжаются, "
+            "поэтому таблица главнее, и об этом сказано в журнал.\n\n"
             "**Радиус поиска** 0 означает всю выборку, **размер ячейки** 0 - "
             "одну пятидесятую меньшей стороны охвата, **радиус корреляции** "
             "0 - треть большей стороны. **Обрезка по контуру скважин** убирает "
@@ -2568,8 +2694,6 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
             "(всего N×N). 4×4 достаточно почти всегда; больше - точнее, но "
             "медленнее. Действует только при включённом блочном кригинге."))
         self.addParameter(disc)
-        self.addParameter(_profile_enum(
-            self.PROFILE, _tr("Загрузить профиль обработки"), alg=self))
         self.addParameter(QgsProcessingParameterBoolean(
             self.SMOOTH, self.tr("Сгладить грид (Гаусс)"),
             defaultValue=_dv(self, self.SMOOTH, False)))
@@ -2578,6 +2702,12 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.SMOOTH_RADIUS, 1.0),
             minValue=0.0, maxValue=10.0))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.VG_TABLE, self.tr("Модели вариограмм (таблица)"),
+            [QgsProcessing.SourceType.TypeVector], optional=True))
+        self.addParameter(QgsProcessingParameterString(
+            self.VG_NAME, self.tr("Профиль из таблицы (пусто: поля ниже)"),
+            optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.FAULTS, self.tr("Разломы (линии, барьеры влияния)"),
             [QgsProcessing.SourceType.TypeVectorLine], optional=True))
@@ -2599,7 +2729,6 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
         _saved = dict(parameters)
         _remember_layers(self, parameters, context, _saved,
                          single=(self.INPUT,))
-        parameters = _apply_profile(self, parameters, context, feedback)
         source = self.parameterAsSource(parameters, self.INPUT, context)
         zfield = self.parameterAsString(parameters, self.ZFIELD, context)
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
@@ -3249,7 +3378,7 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
     INPUT, BAND = "INPUT", "BAND"
     INTERVAL, BASE, LEVELS = "INTERVAL", "BASE", "LEVELS"
     INDEX_EVERY, MIN_LENGTH = "INDEX_EVERY", "MIN_LENGTH"
-    SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
+    SMOOTH = "SMOOTH"
     SMOOTH_LINE_ITER = "SMOOTH_LINE_ITER"
     DENSIFY = "DENSIFY"
     UPHILL = "UPHILL"
@@ -3910,10 +4039,10 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
     IDFIELD = "IDFIELD"
     WEIGHT_FIELD = "WEIGHT_FIELD"
     DETREND, DETREND_DEG = "DETREND", "DETREND_DEG"
-    PROFILE = "PROFILE"
+    VG_TABLE = "VG_TABLE"
+    VG_NAME = "VG_NAME"
     OUTPUT = "OUTPUT"
     OUTPUT_HTML = "OUTPUT_HTML"
-    SAVE_PROFILE = "SAVE_PROFILE"
 
     def tr(self, s): return _tr(s)
 
@@ -3987,11 +4116,11 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
             "обычно достаточна, степень 2 может вобрать часть реальной структуры "
             "в тренд - следите за вариограммой остатков."))
         self.addParameter(deg)
-        self.addParameter(_profile_enum(
-            self.PROFILE, _tr("Загрузить профиль обработки"), alg=self))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.VG_TABLE, self.tr("Модели вариограмм (таблица)"),
+            [QgsProcessing.SourceType.TypeVector], optional=True))
         self.addParameter(QgsProcessingParameterString(
-            self.SAVE_PROFILE,
-            self.tr("Сохранить профиль под именем (пусто = не сохранять)"),
+            self.VG_NAME, self.tr("Профиль из таблицы (пусто: поля ниже)"),
             optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Слой остатков (точки)"),
@@ -4008,7 +4137,6 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
                          single=(self.INPUT,))
         _save_values(self, _mem)
         feedback.pushInfo(_version_line())
-        parameters = _apply_profile(self, parameters, context, feedback)
         source = self.parameterAsSource(parameters, self.INPUT, context)
         layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
         src = layer.name() if layer is not None else "data"
@@ -4064,26 +4192,6 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
             radius = math.hypot(width, height) or 1e12
         rad2 = radius * radius
         vg = _build_variogram(self, parameters, context, nugget, auto_range, feedback)
-        # при заданном имени сохраняем проверенную модель как профиль
-        pname = self.parameterAsString(parameters, self.SAVE_PROFILE, context)
-        if pname and pname.strip():
-            _s1_range = self.parameterAsDouble(parameters, _sk(1, "RANGE"), context)
-            if _s1_range <= 0:
-                _s1_range = auto_range
-            _anis = self.parameterAsDouble(parameters, _sk(1, "ANIS"), context)
-            prof = _make_profile(
-                nugget,
-                self.parameterAsEnum(parameters, _sk(1, "MODEL"), context),
-                self.parameterAsDouble(parameters, _sk(1, "SILL"), context),
-                _s1_range,
-                azimuth=self.parameterAsDouble(parameters, _sk(1, "AZIMUTH"), context),
-                anis=(_anis if _anis > 0 else 1.0),
-                val_pct=pct, val_min=_opt(self.VAL_MIN),
-                val_max=_opt(self.VAL_MAX), val_cap=cap)
-            if _save_profile(pname, prof):
-                feedback.pushInfo(
-                    _tr("Профиль «%s» сохранён: проверенная модель Структуры 1 "
-                    "(с анизотропией, если задана) + отсев.") % pname.strip())
         nodata = -9999.0
 
         dvar = float(np.var(vrd))
@@ -4275,7 +4383,7 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
     HYDRO = "HYDRO"
     SEED = "SEED"
     OUTPUT = "OUTPUT"
-    FAULT, THROW = "FAULT", "THROW"
+    THROW = "THROW"
     OUTPUT_FAULT = "OUTPUT_FAULT"
     OUTPUT_DRIFT = "OUTPUT_DRIFT"
 
@@ -4287,7 +4395,7 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
         return "examplewells"
 
     def displayName(self):
-        return self.tr("1.10 Пример скважин (демо)")
+        return self.tr("1.09 Пример скважин (демо)")
 
     def group(self): return self.tr(GROUP)
 
@@ -4836,7 +4944,7 @@ class GeophysProfilesDemoAlgorithm(IsolinerAlgorithm):
     def helpUrl(self): return _help_url()
     def name(self): return "geophysprofiles"
     def displayName(self):
-        return self.tr("1.11 Пример геофизических профилей (демо)")
+        return self.tr("1.10 Пример геофизических профилей (демо)")
     def group(self): return self.tr(GROUP)
     def groupId(self): return "grid_isolines"
     def createInstance(self): return GeophysProfilesDemoAlgorithm()
@@ -5501,6 +5609,8 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
     OUTPUT, OUTPUT_HTML = "OUTPUT", "OUTPUT_HTML"
     SAVE_PROFILE = "SAVE_PROFILE"
+    OUT_MODEL = "OUT_MODEL"
+    TARGET_TABLE = "TARGET_TABLE"
 
     FIT_LABELS = [_tr("Авто (лучшая по R²)"), _tr("Сферическая"),
                   _tr("Экспоненциальная"), _tr("Гауссова")]
@@ -5536,6 +5646,20 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
             "модель и подобранная кривая, линия дисперсии данных. Слой-таблица "
             "(опц.) содержит лаг, γ(h) и количество пар для построения в QGIS."
             "\n\n"
+            "**Дописать в таблицу моделей** указывает существующую таблицу, "
+            "куда лечь результату. Строки этого профиля заменяются новыми, "
+            "строки других профилей не трогаются. Повторный подбор того же "
+            "профиля именно ЗАМЕНЯЕТ строки, а не добавляет вторые: иначе "
+            "в таблице копились бы дубликаты, и какая из строк свежая, было "
+            "бы не видно.\n\n"
+            "Таблица моделей это не чужие данные, а реестр, который "
+            "инструмент и обязан вести, поэтому правка здесь объявленная "
+            "работа, а не побочный эффект.\n\n"
+            "Если таблица не указана, результат уходит новым слоем **Модель "
+            "вариограммы**: строка на структуру, поля те же, что читает "
+            "2D Kriging. Так делается первый раз, когда дописывать ещё "
+            "некуда.\n\n"
+            "Имя профиля берётся из соответствующего поля.\n\n"
             "**Устойчивая оценка (Кресси-Хокинса)** считает полудисперсию по "
             "формуле, которая гасит выбросы. Обычная оценка Матерона возводит "
             "разность пары в квадрат, поэтому одна ураганная проба задирает "
@@ -5622,8 +5746,16 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.VAL_CAP, False))))
         self.addParameter(QgsProcessingParameterString(
             self.SAVE_PROFILE,
-            self.tr("Сохранить профиль под именем (пусто = не сохранять)"),
+            self.tr("Имя профиля для таблицы (пусто: по полю значения)"),
             optional=True))
+        self.addParameter(QgsProcessingParameterVectorLayer(
+            self.TARGET_TABLE,
+            self.tr("Дописать в таблицу моделей (пусто: новая таблица)"),
+            [QgsProcessing.SourceType.TypeVector], optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUT_MODEL, self.tr("Модель вариограммы (новая таблица)"),
+            QgsProcessing.SourceType.TypeVector, optional=True,
+            createByDefault=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Таблица вариограммы (лаг, γ, количество пар)"),
             type=QgsProcessing.SourceType.TypeVector, optional=True, createByDefault=True))
@@ -5770,6 +5902,7 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
         fit = None
         if do_fit:
             model_arg = "auto" if fit_choice == 0 else (fit_choice - 1)
+            dest_model = None
             fit = fit_variogram(ev["lag"], ev["gamma"], ev["npairs"],
                                 model=model_arg)
             if fit:
@@ -5780,22 +5913,13 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
                 _warn_fit_quality(feedback, fit)
                 pname = self.parameterAsString(
                     parameters, self.SAVE_PROFILE, context)
-                if pname and pname.strip():
-                    prof = _make_profile(
-                        fit["nugget"], fit["model"], fit["sill"], fit["range"],
-                        azimuth=0.0, anis=1.0,
-                        val_pct=self.parameterAsDouble(
-                            parameters, self.VAL_PCT, context),
-                        val_min=self._opt(parameters, self.VAL_MIN, context),
-                        val_max=self._opt(parameters, self.VAL_MAX, context),
-                        val_cap=self.parameterAsBool(
-                            parameters, self.VAL_CAP, context))
-                    if _save_profile(pname, prof):
-                        feedback.pushInfo(
-                            _tr("Профиль «%s» сохранён: изотропная модель из "
-                            "автоподбора + текущий отсев. Анизотропию можно "
-                            "задать в кросс-валидации или инструменте "
-                            "«Профили».") % pname.strip())
+                # Таблица моделей: подобрал вариограмму - получил готовый
+                # слой, дальше его только дописывают. Отдельный выход, а
+                # не правка чужого слоя: алгоритм Processing не должен
+                # менять то, что ему подали на вход.
+                dest_model = _write_model_table(
+                    self, parameters, context, feedback, pname, fit,
+                    self.parameterAsString(parameters, self.ZFIELD, context))
 
         # наложение заданной модели
         model_curves = None
@@ -5826,6 +5950,8 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
 
         # таблица-слой (без геометрии): лаг, γ, количество пар, группа
         results = {}
+        if dest_model is not None:
+            results[self.OUT_MODEL] = dest_model
         fields = QgsFields()
         fields.append(QgsField("series", QVariant.String))
         fields.append(QgsField("lag", QVariant.Double))
@@ -5876,160 +6002,6 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
 # Порядок в этом списке на панель Processing не влияет: тулбокс сортирует
 # алгоритмы внутри группы по алфавиту отображаемого имени. Список оставлен в
 # логическом порядке только для чтения кода.
-class ProfilesAlgorithm(IsolinerAlgorithm):
-    """Управление профилями обработки: показать / сохранить вручную /
-    удалить / очистить. Профиль = вариограмма (Структура 1) + наггет + отсев."""
-    ACTION = "ACTION"
-    PROFILE = "PROFILE"
-    NAME = "NAME"
-    NUGGET = "NUGGET"
-    MODEL = "MODEL"
-    SILL = "SILL"
-    RANGE = "RANGE"
-    AZIMUTH = "AZIMUTH"
-    ANIS = "ANIS"
-    VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
-    ACTION_LABELS = [_tr("Показать список"), _tr("Сохранить вручную (по полям ниже)"),
-                     _tr("Удалить выбранный"), _tr("Очистить все")]
-
-    def tr(self, s): return _tr(s)
-
-    def helpUrl(self): return _help_url()
-
-    def createInstance(self): return ProfilesAlgorithm()
-
-    def name(self): return "profiles"
-
-    def displayName(self): return self.tr("1.09 Профили обработки")
-
-    def group(self): return self.tr(GROUP)
-
-    def groupId(self): return GROUP_ID
-
-    def shortHelpString(self):
-        return _help_version(self.tr(
-            "Управление профилями обработки. Профиль - это именованный набор "
-            "«вариограмма (Структура 1: наггет, тип, порог, радиус, азимут, "
-            "оси) + отсев ураганных проб». Профили сохраняют «Вариограмма» и "
-            "«Кросс-валидация», а подставляет «2D Kriging».\n\n"
-            "Действие: Показать список (в Журнал), Сохранить вручную (по полям "
-            "в «Дополнительно»), Удалить выбранный, Очистить все.\n\n"
-            "Списки профилей в выпадающих полях обновляются при открытии окна: "
-            "сохранили профиль - переоткройте инструмент, чтобы он появился."
-            "\n\n"
-            "Поля в разделе «Дополнительно» нужны только для действия "
-            "«Сохранить вручную». Они повторяют структуру вариограммы, и "
-            "смысл у них тот же, что в 1.05.\n\n"
-            "**Модель: тип** задаёт форму кривой. Сферическая выходит на "
-            "плато на радиусе корреляции и подходит почти везде. "
-            "Экспоненциальная подходит к плато асимптотически, годится для "
-            "величин с резкими локальными изменениями. Гауссова даёт гладкое "
-            "начало кривой и берётся для плавных полей вроде отметок кровли. "
-            "Степенная плато не имеет вовсе и описывает поле без предела "
-            "изменчивости.\n\n"
-            "**Модель: анизотропия** это отношение малой оси к главной. "
-            "Единица означает изотропию, круг. Значение 0.5 означает, что "
-            "поперёк главного направления корреляция обрывается вдвое "
-            "быстрее. Главное направление задаётся азимутом. Обе величины "
-            "берутся с вариограммной карты 1.06, на глаз их не подобрать.\n\n"
-            "Профиль удобен тем, что одна подобранная вариограмма "
-            "переиспользуется во всех расчётах по одному пласту, и в отчёте "
-            "видно, каким набором параметров построена каждая карта."))
-
-    def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterEnum(
-            self.ACTION, self.tr("Действие"),
-            options=[_tr(x) for x in self.ACTION_LABELS], defaultValue=0))
-        self.addParameter(_profile_enum(
-            self.PROFILE, _tr("Профиль (для удаления / просмотра)"), pick=True))
-        self.addParameter(QgsProcessingParameterString(
-            self.NAME, self.tr("Имя профиля (для «Сохранить вручную»)"),
-            optional=True))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.NUGGET, self.tr("Модель: наггет C0"),
-            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0, minValue=0.0)))
-        self.addParameter(_advanced(QgsProcessingParameterEnum(
-            self.MODEL, self.tr("Модель: тип"),
-            options=[_tr(x) for x in MODEL_LABELS], defaultValue=0)))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.SILL, self.tr("Модель: порог/вклад C"),
-            QgsProcessingParameterNumber.Type.Double, defaultValue=1.0, minValue=0.0)))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.RANGE, self.tr("Модель: радиус корреляции a"),
-            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0, minValue=0.0)))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.AZIMUTH, self.tr("Модель: азимут, °"),
-            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0)))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.ANIS, self.tr("Модель: анизотропия (малая/главная)"),
-            QgsProcessingParameterNumber.Type.Double, defaultValue=1.0, minValue=EPS)))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.VAL_PCT, self.tr("Отсев: перцентиль обрезки, % (0 = выкл.)"),
-            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
-            minValue=0.0, maxValue=49.0)))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.VAL_MIN, self.tr("Отсев: нижняя граница (пусто = нет)"),
-            QgsProcessingParameterNumber.Type.Double, optional=True)))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.VAL_MAX, self.tr("Отсев: верхняя граница (пусто = нет)"),
-            QgsProcessingParameterNumber.Type.Double, optional=True)))
-        self.addParameter(_advanced(QgsProcessingParameterBoolean(
-            self.VAL_CAP, self.tr("Отсев: срезать к границе вместо удаления"),
-            defaultValue=False)))
-
-    def _opt(self, parameters, name, context):
-        v = parameters.get(name, None)
-        if v is None or v == "":
-            return None
-        return self.parameterAsDouble(parameters, name, context)
-
-    def _process(self, parameters, context, feedback):
-        feedback.pushInfo(_version_line())
-        action = self.parameterAsEnum(parameters, self.ACTION, context)
-        if action == 0:
-            profs = _load_profiles()
-            if not profs:
-                feedback.pushInfo(_tr("Сохранённых профилей нет."))
-            else:
-                feedback.pushInfo(_tr("Сохранённые профили (%d):") % len(profs))
-                for nm in sorted(profs):
-                    feedback.pushInfo("  - %s: %s" % (nm, _profile_summary(profs[nm])))
-        elif action == 1:
-            nm = (self.parameterAsString(parameters, self.NAME, context) or "").strip()
-            if not nm:
-                raise QgsProcessingException(
-                    _tr("Для сохранения укажите «Имя профиля»."))
-            anis = self.parameterAsDouble(parameters, self.ANIS, context)
-            prof = _make_profile(
-                self.parameterAsDouble(parameters, self.NUGGET, context),
-                self.parameterAsEnum(parameters, self.MODEL, context),
-                self.parameterAsDouble(parameters, self.SILL, context),
-                self.parameterAsDouble(parameters, self.RANGE, context),
-                azimuth=self.parameterAsDouble(parameters, self.AZIMUTH, context),
-                anis=(anis if anis > 0 else 1.0),
-                val_pct=self.parameterAsDouble(parameters, self.VAL_PCT, context),
-                val_min=self._opt(parameters, self.VAL_MIN, context),
-                val_max=self._opt(parameters, self.VAL_MAX, context),
-                val_cap=self.parameterAsBool(parameters, self.VAL_CAP, context))
-            _save_profile(nm, prof)
-            feedback.pushInfo(_tr("Профиль «%s» сохранён: %s") % (nm, _profile_summary(prof)))
-        elif action == 2:
-            idx = self.parameterAsEnum(parameters, self.PROFILE, context)
-            opts = [PROFILE_NONE] + _profile_names()
-            if idx <= 0 or idx >= len(opts):
-                raise QgsProcessingException(
-                    _tr("Выберите профиль для удаления в поле «Профиль»."))
-            nm = opts[idx]
-            _delete_profile(nm)
-            feedback.pushInfo(_tr("Профиль «%s» удалён.") % nm)
-            rest = _profile_names()
-            feedback.pushInfo(_tr("Осталось профилей: %d%s") % (
-                len(rest), (" - " + ", ".join(rest)) if rest else ""))
-        elif action == 3:
-            n = len(_load_profiles())
-            _clear_profiles()
-            feedback.pushInfo(_tr("Удалены все профили (%d).") % n)
-        return {}
 
 
 def _write_varmap_report(path, title, m, meta, advice, feedback=None):
@@ -6108,7 +6080,8 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
     WEIGHT_FIELD = "WEIGHT_FIELD"
     N_BINS, MAXLAG, MIN_PAIRS = "N_BINS", "MAXLAG", "MIN_PAIRS"
     OUTPUT_HTML, OUTPUT_RASTER = "OUTPUT_HTML", "OUTPUT_RASTER"
-    WRITE_PROFILE = "WRITE_PROFILE"
+    VG_TABLE = "VG_TABLE"
+    VG_NAME = "VG_NAME"
 
     def tr(self, s): return _tr(s)
     def helpUrl(self): return _help_url()
@@ -6134,6 +6107,19 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
             "анизотропия не оценивается (помечается «не выражена»).\n\n"
             "Опц. растр поверхности (в координатах лага, начало в 0,0) - для "
             "тех, кто хочет видеть карту на холсте.\n\n"
+            "**Модели вариограмм** и **Профиль из таблицы** принимают "
+            "таблицу, подобранную в 1.05, и дописывают в неё анизотропию: "
+            "строки выбранного профиля получают азимут и коэффициент, а при "
+            "возможности и радиус главной оси. Модель, наггет и вклад "
+            "остаются как были - их даёт омнинаправленная вариограмма, а "
+            "карта знает только геометрию.\n\n"
+            "Правится та же таблица, а не её копия: создавать копию на "
+            "каждый прогон значило бы потом гадать, какая из них свежая. "
+            "Строки других профилей не трогаются.\n\n"
+            "Оценка по карте индикативная, и это записывается в примечание "
+            "строки: через полгода не придётся гадать, откуда взялись азимут "
+            "и коэффициент. Если анизотропия не выражена, таблица остаётся "
+            "без изменений.\n\n"
             "**Бинов на полуось** задаёт подробность карты. Больше бинов - мельче ячейка карты и виднее направление, но в каждую ячейку попадает меньше пар, и картина рассыпается на шум. На редкой сети берите ближе к нижней границе.\n\n"
             "**Мин. количество пар в ячейке** отсекает ячейки, где пар слишком мало для оценки. Такие ячейки остаются пустыми, а не показывают случайное число. Если карта вышла дырявой, уменьшайте число бинов, а не этот порог.") + _credit())
 
@@ -6164,8 +6150,13 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
             self.MIN_PAIRS, self.tr("Мин. количество пар в ячейке"),
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.MIN_PAIRS, 5), minValue=1)))
-        self.addParameter(_profile_enum(
-            self.WRITE_PROFILE, _tr("Записать анизотропию в профиль"), pick=True))
+        self.addParameter(QgsProcessingParameterVectorLayer(
+            self.VG_TABLE, self.tr("Модели вариограмм (таблица)"),
+            [QgsProcessing.SourceType.TypeVector], optional=True))
+        self.addParameter(QgsProcessingParameterString(
+            self.VG_NAME, self.tr("Профиль из таблицы (пусто: единственный)"),
+            optional=True))
+
         self.addParameter(QgsProcessingParameterFileDestination(
             self.OUTPUT_HTML, self.tr("Отчёт (HTML)"),
             self.tr("HTML files (*.html)"), optional=True,
@@ -6247,37 +6238,11 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
                 "радиус меньше ячейки). Можно уменьшить макс. лаг или увеличить "
                 "количество бинов."))
 
-        # Запись анизотропии в выбранный профиль (азимут, коэффициент и радиус
-        # главной оси). Модель, наггет, силл и отсев в профиле сохраняются - их
-        # даёт омнинаправленная вариограмма, а карта лишь дописывает геометрию.
-        widx = self.parameterAsEnum(parameters, self.WRITE_PROFILE, context)
-        if widx > 0:
-            pname = ([PROFILE_NONE] + _profile_names())[widx] \
-                if widx <= len(_profile_names()) else None
-            prof = _get_profile(pname) if pname else None
-            if prof is None:
-                feedback.pushWarning(
-                    _tr("Профиль «%s» не найден - анизотропия не сохранена. "
-                    "Сначала сохраните профиль в «Вариограмме» или "
-                    "«Кросс-валидации».") % pname)
-            elif not m["resolved"]:
-                feedback.pushWarning(
-                    _tr("Анизотропия не выражена - в профиль писать нечего."))
-            else:
-                rng = None if m["range_capped"] else float(m["range_major"])
-                _save_profile(pname, _merge_anisotropy(
-                    prof, float(m["azimuth"]), float(m["anis"]), rng))
-                if rng is None:
-                    feedback.pushInfo(
-                        _tr("В профиль «%s» записаны азимут=%.0f° и анизотропия="
-                        "%.2f (радиус оставлен прежним: упёрся в макс. лаг). При "
-                        "загрузке профиля они появятся в подписи.")
-                        % (pname, m["azimuth"], m["anis"]))
-                else:
-                    feedback.pushInfo(
-                        _tr("В профиль «%s» записаны азимут=%.0f°, анизотропия="
-                        "%.2f, радиус a=%.4g. При загрузке профиля они появятся "
-                        "в подписи.") % (pname, m["azimuth"], m["anis"], rng))
+        # Анизотропия дописывается в таблицу моделей: вход читается,
+        # строки выбранного профиля получают азимут и коэффициент, и всё
+        # уходит отдельным выходом. Входной слой не правится.
+        dest_model = _augment_anisotropy(self, parameters, context, feedback,
+                                         m)
 
         results = {}
         src_name = _short(src.sourceName()) if hasattr(src, "sourceName") else zfield
@@ -6562,13 +6527,13 @@ class ExternalDriftKrigingAlgorithm(IsolinerAlgorithm):
     возвращается к оценке из растра. Математика кригинга не меняется."""
 
     INPUT, ZFIELD = "INPUT", "ZFIELD"
-    DRIFT_RASTER, DRIFT_BAND, DRIFT_DEG = "DRIFT_RASTER", "DRIFT_BAND", "DRIFT_DEG"
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
-    CELL_SIZE, EXTENT, OUTPUT = "CELL_SIZE", "EXTENT", "OUTPUT"
     CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
-    OUTPUT_STDERR = "OUTPUT_STDERR"
     VAL_PCT, VAL_MIN, VAL_MAX, VAL_CAP = "VAL_PCT", "VAL_MIN", "VAL_MAX", "VAL_CAP"
+    DRIFT_RASTER, DRIFT_BAND, DRIFT_DEG = "DRIFT_RASTER", "DRIFT_BAND", "DRIFT_DEG"
+    CELL_SIZE, EXTENT, OUTPUT = "CELL_SIZE", "EXTENT", "OUTPUT"
+    OUTPUT_STDERR = "OUTPUT_STDERR"
     SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
 
     def tr(self, s): return _tr(s)
@@ -8064,7 +8029,6 @@ class SectionAlgorithm(IsolinerAlgorithm):
 
     LINE, SURFACES = "LINE", "SURFACES"
     REFERENCE = "REFERENCE"
-    BODIES = "BODIES"
     TREE_ORDER = "TREE_ORDER"
     BATCH, NAMEFLD = "BATCH", "NAMEFLD"
     LAYOUT, NCOLS, GAP = "LAYOUT", "NCOLS", "GAP"
@@ -21134,6 +21098,21 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
             "доведены, линия остаётся немой и уходит в отдельный слой с "
             "причиной. Число опорных точек пишется в атрибут n_samples и "
             "в журнал - по нему сразу видно, годится ли комплект.\n\n"
+            "**Полигоны** профилируются по своим кольцам: контур площадки "
+            "или дороги это та же ломаная, только замкнутая. Внутренние "
+            "кольца обрабатываются наравне с внешним.\n\n"
+            "У кольца дуговая координата циклическая, и отметка между "
+            "последней и первой пробой идёт через замыкание. Держать за "
+            "крайними пробами постоянную отметку, как у открытой линии, "
+            "значило бы оставить ступень ровно там, где контур смыкается "
+            "сам с собой.\n\n"
+            "Выходят кольца линиями с отметками: именно их принимает 2.03 "
+            "как структурные, и собирать их обратно в полигон незачем.\n\n"
+            "Инструмент предупреждает, если у контура отметка почти "
+            "постоянна: разброс меньше половины сечения горизонталей похож "
+            "на спланированную площадку, у которой контур задуман "
+            "горизонтальным. Расчёт при этом не меняется, решает "
+            "человек.\n\n"
             "**Высотные отметки** подаются вторым источником, рядом с "
             "горизонталями. Топоплан из Автокада часто приходит без Z у "
             "бровок и откосов, а отметки на нём есть отдельными точками. "
@@ -21157,8 +21136,10 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
         self.addParameter(QgsProcessingParameterFeatureSource(
-            self.INPUT, self.tr("Линии без отметок (бровки, подошвы)"),
-            [QgsProcessing.SourceType.TypeVectorLine]))
+            self.INPUT,
+            self.tr("Линии и полигоны без отметок (бровки, подошвы, контуры)"),
+            [QgsProcessing.SourceType.TypeVectorLine,
+             QgsProcessing.SourceType.TypeVectorPolygon]))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.CONTOURS, self.tr("Горизонтали"),
             [QgsProcessing.SourceType.TypeVectorLine]))
@@ -21242,6 +21223,27 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
                     "допуска примыкания.") % len(rows))
 
         def polylines(geom):
+            """Ломаные объекта: и линии, и кольца полигонов.
+
+            Полигон профилируется по своим кольцам: контур площадки или
+            дороги это та же ломаная, только замкнутая. Внутренние кольца
+            обрабатываются наравне с внешним.
+            """
+            parts = []
+            try:
+                if geom.type() == QgsWkbTypes.GeometryType.PolygonGeometry:
+                    try:
+                        polys = geom.asMultiPolygon() or []
+                    except TypeError:
+                        polys = []
+                    if not polys:
+                        one = geom.asPolygon()
+                        polys = [one] if one else []
+                    for poly in polys:
+                        parts.extend([r for r in poly if r])
+                    return [[(p.x(), p.y()) for p in r] for r in parts]
+            except (AttributeError, TypeError):
+                pass
             try:
                 parts = geom.asMultiPolyline() or []
             except TypeError:
@@ -21289,7 +21291,15 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
             QgsWkbTypes.Type.LineString, src.sourceCrs())
 
         n_done = n_skip = 0
+        n_rings = n_flat = 0
         counts = []
+        # Сечение горизонталей: медиана шага между соседними отметками.
+        # Нужно, чтобы отличить контур с уклоном от спланированной
+        # площадки, у которой отметка по кольцу почти постоянна.
+        zvals = sorted({float(z) for _pts, z in
+                        [(c["pts"], c["z"]) for c in contours]})
+        diffs = [b - a for a, b in zip(zvals[:-1], zvals[1:]) if b > a]
+        interval = float(np.median(diffs)) if diffs else 0.0
         for ft in src.getFeatures():
             if feedback.isCanceled():
                 break
@@ -21311,6 +21321,13 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
                     sink.addFeature(feat)
                     n_done += 1
                     counts.append(d["n_samples"])
+                    zs = np.asarray(d["zs"], dtype=float)
+                    if len(pts) > 2 and abs(pts[0][0] - pts[-1][0]) < 1e-9 \
+                            and abs(pts[0][1] - pts[-1][1]) < 1e-9:
+                        n_rings += 1
+                        spread = float(zs.max() - zs.min())
+                        if interval > 0 and spread < 0.5 * interval:
+                            n_flat += 1
                 else:
                     feat = QgsFeature(sfields)
                     feat.setGeometry(QgsGeometry.fromPolylineXY(
@@ -21322,6 +21339,19 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
         feedback.pushInfo(self.tr(
             "Профиль получили %d линий, остались немыми %d.")
             % (n_done, n_skip))
+        if n_rings:
+            feedback.pushInfo(self.tr(
+                "Замкнутых контуров: %d. У кольца отметка идёт по кругу, "
+                "между последней и первой пробой через замыкание, поэтому "
+                "ступени на стыке не возникает. Кольца выходят линиями с "
+                "отметками: именно их принимает 2.03 как структурные.")
+                % n_rings)
+        if n_flat:
+            feedback.pushWarning(self.tr(
+                "Контуров с почти постоянной отметкой: %d (разброс меньше "
+                "половины сечения %.4g). Похоже на спланированную площадку, "
+                "у которой контур задуман горизонтальным. Проверьте, нужен "
+                "ли ей переменный профиль.") % (n_flat, interval))
         if counts:
             feedback.pushInfo(self.tr(
                 "Опорных точек на линию: медиана %d, наименьшее %d. Одна "
@@ -21587,7 +21617,6 @@ ALGORITHMS = [
     VariogramMapAlgorithm,
     CrossValidationAlgorithm,
     MethodCrossValidationAlgorithm,
-    ProfilesAlgorithm,
     ExampleWellsAlgorithm,
     GeophysProfilesDemoAlgorithm,
     CategoricalIndicatorAlgorithm,

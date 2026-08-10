@@ -50,9 +50,8 @@ so it never drifts from the plugin.
 - `1.06` Variogram map (anisotropy)
 - `1.07` Variogram cross-validation
 - `1.08` Method cross-validation (LOO)
-- `1.09` Processing profiles
-- `1.10` Create sample wells (demo)
-- `1.11` Create a geophysical-profiles example (demo)
+- `1.09` Create sample wells (demo)
+- `1.10` Create a geophysical-profiles example (demo)
 
 **2. Topography**
 
@@ -72,7 +71,7 @@ so it never drifts from the plugin.
 - `2.19` Crest and toe candidates
 - `2.20` Crests and toes into work
 - `2.21` Create a demo open pit
-- `2.22` Elevations from adjoining contours
+- `2.22` Profiling of slopes
 
 **2. Topography: diagnostics and repair**
 
@@ -131,7 +130,7 @@ so it never drifts from the plugin.
 - `7.04` Minkowski dimension (vectors)
 - `7.05` Example for fractals (demo)
 
-_Tools in total: 67_
+_Tools in total: 66_
 <!-- /TREE -->
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
@@ -166,7 +165,7 @@ Along with the surface the tool produces the **kriging error map**. Always look 
 
 To try it without your own data: **1.10 Create a borehole example (demo)** produces a ready set of points with a realistic spatial structure.
 
-**Further on, when justification is wanted.** The parameters of the model need not be guessed by eye: **1.05 Variogram** derives them from the data themselves and draws a plot that shows whether there is any spatial relation in the data at all. If the experimental points fall anyhow, no method will create one. **1.06 Variogram map** shows the anisotropy - when the similarity reaches further along one direction than across it, and that has to be taken into account. **1.08 Cross-validation (LOO)** removes each borehole in turn, predicts its value from the rest and prints the discrepancy: an honest answer to how far the map can be trusted. **1.09 Processing profiles** stores a successful set of parameters so that it need not be typed again.
+**Further on, when justification is wanted.** The parameters of the model need not be guessed by eye: **1.05 Variogram** derives them from the data themselves and draws a plot that shows whether there is any spatial relation in the data at all. If the experimental points fall anyhow, no method will create one. **1.06 Variogram map** shows the anisotropy - when the similarity reaches further along one direction than across it, and that has to be taken into account. **1.08 Cross-validation (LOO)** removes each borehole in turn, predicts its value from the rest and prints the discrepancy: an honest answer to how far the map can be trusted. A successful set of parameters is stored as a profile so that it need not be typed again.
 
 ## Open country on hand, terrain and a base map wanted
 
@@ -299,7 +298,8 @@ Main parameters:
 | Clip to well hull | The raster is clipped to the convex hull of all points - removes extrapolation in empty corners. | recommended on |
 | Hull buffer | Expand the hull outward by N map units. | 0 |
 | Clip mask | Your own polygon instead of the hull (takes priority) - handy for concave areas. | - |
-| Load processing profile | Substitutes a saved profile (nugget, variogram structure, outliers) over the dialog fields. The list refreshes when the window opens. | (none) |
+| Variogram models (table) | Table layer holding fitted models. When given, the variogram fields of the dialog are not read. | not set |
+| Profile from the table | Name of the set in the table. May be left empty when the table holds a single profile. | empty |
 
 ![For each node only wells within the search radius are taken, and no more than the set number of nearest ones. Points beyond the radius do not take part.](images/search_radius.png){width=56%}
 
@@ -464,7 +464,7 @@ What that means in practice. Near the line the weights of the neighbours are com
 
 ### How to try it on teaching data
 
-The tool **1.10 Example wells** can create a fault by itself. The **Fault throw** field sets the size of the shift: the generator draws a line across the area without bringing it to the edges and adds the throw to the value at every well on one side. Above the end of the line both sides are equal, so the teaching data contain both the break and its dying end.
+The tool **1.09 Example wells** can create a fault by itself. The **Fault throw** field sets the size of the shift: the generator draws a line across the area without bringing it to the edges and adds the throw to the value at every well on one side. Above the end of the line both sides are equal, so the teaching data contain both the break and its dying end.
 
 The line is produced as a separate output **Fault (demo)**. Supply it to **Faults** here, then the same line to 1.04, and the whole chain comes together.
 
@@ -722,7 +722,9 @@ The nugget and contributions in the tool are set in absolute units of the parame
 | Robust estimator (adv.) | Cressie-Hawkins estimator, less sensitive to outliers. | off |
 | Outliers: clip percentile (adv.) | Removal of extreme values by percentile. 0 = off. | 0 |
 | Cap to bound instead of removing (adv.) | Capping: an extreme is clipped to the threshold, not removed. | off |
-| Save profile as | Name of the "variogram + outlier removal" profile to apply in kriging. Empty = do not save. | - |
+| Profile name for the table | Name of the set under which the model is entered into the table of models. | empty |
+| Append to the table of models | An existing table for the result. The rows of this profile are replaced. | not set |
+| Variogram model (new table) | A new table. Created when there is nothing to append to yet. | created |
 | Variogram table | Output: lag, γ value, number of pairs. | - |
 | Report (HTML) | Output: pair-cloud and model plot. | - |
 
@@ -740,7 +742,7 @@ The nugget and contributions in the tool are set in absolute units of the parame
 | Show pair cloud (adv.) | Adds the source pairs (before averaging) to the chart. | off |
 | Overlay a given variogram model (adv.) | Draws a model with a manually set nugget, sill and range over the cloud - handy to compare your model with the data. | off |
 | Outliers (adv.) | Clip percentile, lower and upper value bounds, capping-to-bound mode instead of removal. At the very end of the list. | off |
-| Save profile as | If filled in - the fitted (isotropic) model and the current outlier settings are saved as a processing profile under this name. | empty |
+| Profile name for the table | Name of the set under which the fitted isotropic model and the current outlier settings are entered into the table of models. | empty |
 | Variogram table | An output table layer with the variogram points (columns below). | temporary layer |
 | Report (HTML) | A report with the cloud, the fitted curve and the data-variance line. | temporary file |
 
@@ -801,7 +803,7 @@ The second is a nugget above half of the total sill. Correlation at short distan
 
 ### The workflow with cross-validation
 
-The variogram gives a starting model, and **Variogram cross-validation** checks it. The order is as follows. First an experimental variogram is built with a maximum distance at which the curve reaches a plateau, and the fitted nugget, contribution, range and model are taken. Then these numbers are carried into cross-validation and the leave-one-out metrics are assessed. The fitted and validated model is conveniently saved as a **processing profile** (the **Save profile as** field) and substituted into **2D Kriging** via the **Load processing profile** field - see the section on the Processing profiles tool.
+The variogram gives a starting model, and **Variogram cross-validation** checks it. The order is as follows. First an experimental variogram is built with a maximum distance at which the curve reaches a plateau, and the fitted nugget, contribution, range and model are taken. Then these numbers are carried into cross-validation and the leave-one-out metrics are assessed. The fitted and validated model is entered into the table of variogram models and substituted into **2D Kriging** through the **Variogram models** and **Profile from the table** fields - see the section «The table of variogram models».
 
 The mean error ME should be near zero, meaning there is no systematic error. The root-mean-square error RMSE shows the absolute accuracy. The MSDR deserves separate attention - the ratio of the squared error to the kriging variance. If it is noticeably above one, kriging underestimates the uncertainty and the standard-error map is understated.
 
@@ -812,6 +814,52 @@ After scaling, the full sill may turn out above the data variance. On a clustere
 The finished and validated model then only needs to be carried into **2D Kriging** to compute the grid, and after that, if needed, into **Isolines from raster**.
 
 If the data are clustered unevenly, set the optional **wt** weight field from tool **1.01 Declustering**. Each pair of points is then taken with a weight equal to the product of its endpoints' weights, and clusters do not inflate the near lags. The pair count in the report shows the raw number of pairs, while γ itself is computed with weights.
+
+
+## The table of variogram models
+
+A fitted variogram is the outcome of data analysis rather than a setting of the program. It is therefore kept as a table layer: it travels with the project, goes into version control, moves between workstations and is edited in the QGIS attribute table on a par with the rest of the data.
+
+### Structure of the table
+
+One row describes one structure of a variogram. This representation does not limit the number of nested structures: a second structure is added as a row with the same profile name and `struct = 2`.
+
+| Field | Type | Contents |
+|:--|:--|:--|
+| `profile` | string | Name of the set. The model is selected by it at computation time |
+| `field` | string | Value field the model was fitted to |
+| `struct` | integer | Structure number, from one |
+| `model` | integer | Model: 1 spherical, 2 exponential, 3 gaussian, 4 power |
+| `sill` | real | Contribution C of the structure |
+| `range` | real | Correlation range a |
+| `azimuth` | real | Azimuth of the major axis, degrees |
+| `anis` | real | Anisotropy, the ratio of the minor axis to the major one |
+| `nugget` | real | Nugget C0. Common to the profile, repeated in each of its rows |
+| `val_pct` | real | Clipping percentile for outliers. Common to the profile |
+| `val_cap` | boolean | Capping to the boundary instead of removal. Common to the profile |
+| `fitted` | string | Date of fitting |
+| `author` | string | Who fitted it |
+| `note` | string | Note: how the values were obtained, what was checked |
+
+The fields `nugget`, `val_pct` and `val_cap` belong to the profile as a whole. A discrepancy between the rows of one profile is treated as a data entry error: a warning goes to the log and the value of the first row is used.
+
+The `model` column accepts both a numeric code and the name of the model, in Russian or in English. The tool writes the code.
+
+### Order of work
+
+**1.05 Experimental variogram** fits a model and enters it into the table. When no table exists yet, the tool creates one through the **Variogram model** output. Once a table exists, it is given in the **Append to the table of models** field: the rows of this profile are replaced by the new ones, the rows of other profiles remain untouched. Fitting one profile again replaces its rows, so duplicates do not accumulate.
+
+**1.06 Variogram map** writes the azimuth and the anisotropy ratio into the same table, and where possible the range of the major axis. The model, the nugget and the contribution are not changed: they are determined by the omnidirectional variogram, while the map describes only the geometry. The estimate off the map is indicative, which is recorded in the `note` field.
+
+**1.07 Variogram cross-validation** reads the model from the table for checking.
+
+**1.02 2D Kriging** and **3.01 Categorical indicator kriging** read the model at computation time. When a table is given, the variogram fields of the dialog are not used: two sources of the same values inevitably diverge, so the table takes precedence, which is reported in the log.
+
+### Parsing of rows
+
+A row with an unrecognised model, a non-positive range or a repeated structure number is skipped, and the reason together with the row number goes to the log. The computation continues over the usable rows. A profile left without a single usable structure does not reach the result.
+
+The parser tolerates manual editing: the case of column names is ignored, a decimal comma and spaces inside numbers do not interfere. Synonyms of column names are not provided, since the table is produced by the plugin itself.
 
 
 ## 1.06 Variogram map (anisotropy)
@@ -887,8 +935,8 @@ Parameters:
 | Kriging type, radius, min/max points, nugget, structures | Kriging and variogram settings. The check runs kriging with exactly these, so a good set carries into "2D Kriging" unchanged. | as in "2D Kriging" |
 | Remove polynomial trend | Regression kriging: the trend is refit at each LOO step, the gain shows in the RMSE. | off |
 | Trend degree | A plane or a quadratic surface. | 1 (plane) |
-| Load processing profile | Apply a saved model over the dialog fields. | (none) |
-| Save profile as | Save the validated model to a profile (with anisotropy). | empty = do not save |
+| Variogram models (table) | Table layer holding fitted models. | not set |
+| Profile from the table | Name of the set in the table. | empty |
 | Residuals layer (points) | Points with actual/estimate/error fields (see the field table below). | optional |
 | Cross-validation report (HTML) | Interactive report: estimate vs actual, histogram, QQ-plot, metrics. | created by default |
 
@@ -973,38 +1021,7 @@ For minimum curvature each point is re-estimated from a warm start off the full 
 If the data are clustered unevenly, set the optional **wt** weight field from tool **1.01 Declustering**. The ME, MAE, RMSE, MSDR and R metrics are then computed with weights, so a dense cluster of wells does not dominate the quality assessment. The leave-one-out estimate itself is unchanged, only the summary is weighted.
 
 
-## 1.09 Processing profiles
-
-A profile is a named set of processing settings for one parameter: the variogram (nugget C0, model type, contribution C, range a, azimuth and anisotropy axes) plus outlier removal (percentile, bounds, capping mode). Profiles are handy when a project has several seams or zones of different variability: you fit a model for a seam once and reuse it in kriging without re-entering the numbers.
-
-Profiles are stored globally in the QGIS settings, so they are available across all projects: build a seam's model once - apply it anywhere. A profile describes one variogram structure - exactly as much as kriging uses.
-
-### Where profiles come from
-
-- **Variogram** - the **Save profile as** field. The fitted model is saved. The curve is built isotropic, so the azimuth and axes are written as neutral (0 and 1) - anisotropy is set later.
-- **Cross-validation** - the **Save profile as** field. The validated model is saved together with the set anisotropy. This is the main way to get a profile with an azimuth and axes.
-- **Processing profiles** - the **Save manually** action: all profile values are entered in the fields of the **Advanced Parameters** section.
-
-### Application
-
-In the **2D Kriging** and **Cross-validation** tools the **Load processing profile** field substitutes the chosen profile over the dialog fields. What exactly is substituted is printed to the Log.
-
-### Management
-
-The **Processing profiles** tool itself manages the storage via the **Action** parameter:
-
-| Action | What it does |
-|----------|-----------|
-| Show list | Outputs all profiles with their parameters to the Log. |
-| Save manually | Saves a profile with the name from the **Profile name** field by the values of the fields in **Advanced**. |
-| Delete selected | Deletes the profile chosen in the **Profile** field. |
-| Clear all | Deletes all profiles. |
-
-Saving under an existing name overwrites the profile. The profile lists in the drop-down fields (the choice for deletion, the load in kriging) refresh when the tool window opens: after saving a profile, reopen the tool so it appears in the list.
-
-Below the profile drop-down, in the line beneath it, the parameters of the chosen profile are shown (nugget, type, contribution, range, azimuth, axes, outliers). In **2D Kriging** and **Cross-validation** a reminder is shown there as well that the computation will use the profile rather than the dialog fields. On QGIS builds without the old widget API the caption does not appear - an ordinary list remains (this does not affect the work).
-
-## 1.10 Create sample wells (demo)
+## 1.09 Create sample wells (demo)
 
 The **Create sample wells (demo)** tool builds a point layer with random coordinates and three structured fields: the absolute roof elevation (roof), the thickness (thick) and the grade of an abstract component X (%). The roof and thickness ranges are set after the model of an industrial seam (KrII). The tool is meant for learning and testing kriging, isolines and cross-validation without real data.
 
@@ -1047,7 +1064,7 @@ Result fields:
 
 The full list of output-layer fields is in the **Sample wells (demo)** appendix section ("Demo-layer fields" at the end of the manual).
 
-## 1.11 Create a geophysical-profiles example (demo)
+## 1.10 Create a geophysical-profiles example (demo)
 
 The tool creates a point layer of geophysical profiles for learning and testing without real data. Several parallel profiles with pickets are built. There are two modes.
 

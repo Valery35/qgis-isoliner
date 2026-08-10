@@ -300,3 +300,34 @@ def test_corridor_axis_is_trimmed_but_snapping_uses_the_real_fault():
     assert snap, "притяжка пропала"
     names = [a.id for a in snap[0].args if isinstance(a, ast.Name)]
     assert "faults" in names, "притяжка идёт к укороченной оси, а не к разлому"
+
+
+def test_asarray_never_takes_an_or_expression():
+    """`np.asarray(x or [])` запрещён: на массиве NumPy это срывается.
+
+    Оператор `or` проверяет левую часть на истинность, а у массива
+    длиннее одного элемента её нет: ValueError и прерванный расчёт. Пока
+    величина приходила списком, запись работала, и ошибка ждала того дня,
+    когда та же величина придёт массивом. Дождалась: 1.05 упала на
+    разборе лагов.
+
+    Правильно писать явно: `[] if x is None else x`.
+    """
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    bad = []
+    for name in sorted(os.listdir(root)):
+        if not name.endswith(".py"):
+            continue
+        with open(os.path.join(root, name), encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            is_asarray = (isinstance(fn, ast.Attribute)
+                          and fn.attr in ("asarray", "array", "asanyarray"))
+            if is_asarray and node.args and isinstance(node.args[0],
+                                                       ast.BoolOp):
+                bad.append("%s:%d" % (name, node.lineno))
+    assert not bad, ("np.asarray от выражения с or: %s" % ", ".join(bad))

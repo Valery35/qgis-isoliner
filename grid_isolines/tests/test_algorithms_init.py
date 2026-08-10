@@ -99,8 +99,8 @@ def test_all_algorithms_init():
     algorithms = importlib.import_module(pkg + ".algorithms")
     algorithms._tr = lambda s: s          # translate-заглушка возвращает строку
     assert algorithms.ALGORITHMS, "список ALGORITHMS пуст"
-    assert len(algorithms.ALGORITHMS) == 67, (
-        "ожидалось 67 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
+    assert len(algorithms.ALGORITHMS) == 66, (
+        "ожидалось 66 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
     for cls in algorithms.ALGORITHMS:
         a = cls()
         a.initAlgorithm()                 # тут и падало бы 'no attribute tr'
@@ -117,6 +117,7 @@ def test_diagnostics_live_in_their_own_group():
     делается именем группы: оно сортируется сразу за топографией. Побочный
     и желанный эффект - демо-генератор снова последний в рабочей группе.
     """
+    _install_qgis_stubs()
     import inspect
     from grid_isolines import algorithms as A
 
@@ -133,6 +134,7 @@ def test_diagnostics_live_in_their_own_group():
 
 
 def test_group_name_sorts_after_topography():
+    _install_qgis_stubs()
     from grid_isolines import algorithms as A
     assert A.GROUP_TOPODIAG > A.GROUP_TOPO, (A.GROUP_TOPO, A.GROUP_TOPODIAG)
     assert A.GROUP_TOPODIAG_ID != A.GROUP_TOPO_ID
@@ -146,6 +148,7 @@ def test_group_order_is_deterministic():
     берёт порядок поверхностей из дерева слоёв, а значит случайный
     порядок дал бы случайный разрез.
     """
+    _install_qgis_stubs()
     from grid_isolines import algorithms as A
 
     order = ["B_top", "B_bottom", "AB_top", "AB_bottom",
@@ -160,6 +163,7 @@ def test_group_order_is_deterministic():
 
 def test_unlisted_layers_go_after_the_listed_ones():
     """Слой не из списка встаёт следом, а не теряется и не лезет вверх."""
+    _install_qgis_stubs()
     from grid_isolines import algorithms as A
 
     order = ["B_top", "B_bottom"]
@@ -206,6 +210,7 @@ def test_process_uses_only_known_params():
     Сторож смотрит на код: имя, встреченное в _process, обязано
     встречаться и вне его.
     """
+    _install_qgis_stubs()
     import inspect
     import re
 
@@ -236,6 +241,7 @@ def test_process_bodies_have_no_late_definitions():
     замыкание законно читает то, что определено ниже, потому что
     вызывается позже, а у генератора своя область имён.
     """
+    _install_qgis_stubs()
     import ast
     import inspect
     import textwrap
@@ -338,6 +344,7 @@ def test_parameters_are_not_reassigned_inside_loops():
     внутри for и while: оно повторяется на каждом обороте и живёт после
     цикла.
     """
+    _install_qgis_stubs()
     import ast
     import inspect
     import textwrap
@@ -418,3 +425,265 @@ if __name__ == "__main__":
             print("FAIL %s: %s" % (_name, _exc))
     print("%d тестов, ошибок %d" % (len(_fns), _bad))
     raise SystemExit(1 if _bad else 0)
+
+
+def test_every_self_constant_exists_in_its_class():
+    """Каждое self.ИМЯ в классе алгоритма существует как константа.
+
+    Опечатка в имени константы не видна ни синтаксисом, ни импортом: она
+    вылезает только на живом прогоне, посреди расчёта, и тем обиднее, чем
+    дольше считалось до неё. Ровно так 1.05 сорвалась на self.FIELD при
+    константе ZFIELD - после подбора модели, на самой записи результата.
+
+    Проверяются только имена в верхнем регистре: это соглашение для
+    параметров и выходов, а методы и обычные атрибуты сюда не попадают.
+    """
+    import ast as _ast
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "algorithms.py"), encoding="utf-8") as fh:
+        tree = _ast.parse(fh.read())
+    classes = {n.name: n for n in tree.body if isinstance(n, _ast.ClassDef)}
+
+    def own(node):
+        got = set()
+        for st in node.body:
+            if isinstance(st, _ast.Assign):
+                for tgt in st.targets:
+                    if isinstance(tgt, _ast.Name):
+                        got.add(tgt.id)
+                    elif isinstance(tgt, _ast.Tuple):
+                        for el in tgt.elts:
+                            if isinstance(el, _ast.Name):
+                                got.add(el.id)
+        return got
+
+    def visible(node, seen=None):
+        """Свои константы плюс родительские, по цепочке наследования."""
+        seen = seen or set()
+        if node.name in seen:
+            return set()
+        seen.add(node.name)
+        got = own(node)
+        for base in node.bases:
+            name = getattr(base, "id", None)
+            if name in classes:
+                got |= visible(classes[name], seen)
+        return got
+
+    bad = []
+    for cls in classes.values():
+        declared = visible(cls)
+        if not declared:
+            continue
+        used = set()
+        for node in _ast.walk(cls):
+            if (isinstance(node, _ast.Attribute)
+                    and isinstance(node.value, _ast.Name)
+                    and node.value.id == "self"
+                    and node.attr.isupper()):
+                used.add(node.attr)
+        for name in sorted(used - declared):
+            bad.append("%s.%s" % (cls.name, name))
+    assert not bad, ("несуществующие константы: %s" % ", ".join(bad))
+
+
+def test_module_functions_have_no_late_definitions():
+    """В функциях модуля имя не читается раньше присваивания.
+
+    Сторож выше проверял только тела _process в классах, и правка в
+    обычной функции проскочила: присваивание target уехало при переписке
+    соседней функции, а чтение осталось. Компиляция такое пропускает,
+    вылезает оно на живом прогоне.
+
+    Аргументы, вложенные функции, генераторы и импорты из проверки
+    исключены: замыкание законно читает то, что определено ниже, потому
+    что вызывается позже.
+    """
+    import ast as _ast
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "algorithms.py"), encoding="utf-8") as fh:
+        tree = _ast.parse(fh.read())
+    bad = []
+    for fn in [n for n in tree.body if isinstance(n, _ast.FunctionDef)]:
+        args = {a.arg for a in fn.args.args}
+        args |= {a.arg for a in getattr(fn.args, "kwonlyargs", [])}
+        if fn.args.vararg:
+            args.add(fn.args.vararg.arg)
+        if fn.args.kwarg:
+            args.add(fn.args.kwarg.arg)
+        assigned = dict()          # имя -> САМАЯ РАННЯЯ строка присваивания
+        globals_ = set()
+        nested = set()
+        for node in _ast.walk(fn):
+            if isinstance(node, (_ast.FunctionDef, _ast.Lambda,
+                                 _ast.ListComp, _ast.SetComp,
+                                 _ast.DictComp, _ast.GeneratorExp)):
+                if node is not fn:
+                    for sub in _ast.walk(node):
+                        nested.add(id(sub))
+                continue
+            def _mark(name, line):
+                # ast.walk обходит в ширину, поэтому «первое» встреченное
+                # присваивание не обязательно первое по тексту. Берём
+                # самую раннюю строку, иначе сторож врёт на ровном месте.
+                if name not in assigned or line < assigned[name]:
+                    assigned[name] = line
+
+            if isinstance(node, _ast.Global):
+                globals_.update(node.names)
+            elif isinstance(node, _ast.Name) and isinstance(node.ctx,
+                                                            _ast.Store):
+                _mark(node.id, node.lineno)
+            elif isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                for al in node.names:
+                    nm = (al.asname or al.name).split(".")[0]
+                    _mark(nm, node.lineno)
+            elif isinstance(node, _ast.ExceptHandler) and node.name:
+                _mark(node.name, node.lineno)
+            elif isinstance(node, _ast.arg):
+                _mark(node.arg, fn.lineno)
+        for node in _ast.walk(fn):
+            if id(node) in nested:
+                continue
+            if (isinstance(node, _ast.Name)
+                    and isinstance(node.ctx, _ast.Load)
+                    and node.id in assigned
+                    and node.id not in args
+                    and node.id not in globals_
+                    and node.lineno < assigned[node.id]):
+                bad.append("%s: %s (строка %d, присваивание на %d)"
+                           % (fn.name, node.id, node.lineno,
+                              assigned[node.id]))
+    assert not bad, ("имя читается раньше присваивания:\n  "
+                     + "\n  ".join(sorted(set(bad))))
+
+
+def test_module_functions_have_no_undefined_names():
+    """В функциях модуля не читаются имена, которых нигде нет.
+
+    Это второй случай той же беды и он опаснее: не «раньше
+    присваивания», а присваивания нет вовсе. Ровно так пропало
+    объявление target при переписке соседней функции, и 1.05 упала с
+    NameError уже после подбора модели.
+
+    Сторож на порядок такое не ловит: имени нет в списке присвоенных, и
+    сравнивать не с чем.
+    """
+    import ast as _ast
+    import builtins
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "algorithms.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    tree = _ast.parse(src)
+    known = set(dir(builtins))
+    known.update(("__file__", "__name__", "__doc__", "__package__"))
+    for node in tree.body:
+        if isinstance(node, _ast.Assign):
+            for tgt in _ast.walk(node):
+                if isinstance(tgt, _ast.Name) and isinstance(tgt.ctx,
+                                                             _ast.Store):
+                    known.add(tgt.id)
+        elif isinstance(node, (_ast.FunctionDef, _ast.ClassDef)):
+            known.add(node.name)
+        elif isinstance(node, (_ast.Import, _ast.ImportFrom)):
+            for al in node.names:
+                known.add((al.asname or al.name).split(".")[0])
+
+    bad = []
+    for fn in [n for n in tree.body if isinstance(n, _ast.FunctionDef)]:
+        local = set(known)
+        for node in _ast.walk(fn):
+            if isinstance(node, _ast.Name) and isinstance(node.ctx,
+                                                          _ast.Store):
+                local.add(node.id)
+            elif isinstance(node, _ast.arg):
+                local.add(node.arg)
+            elif isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                for al in node.names:
+                    local.add((al.asname or al.name).split(".")[0])
+            elif isinstance(node, (_ast.FunctionDef, _ast.Lambda)):
+                local.add(getattr(node, "name", "<lambda>"))
+            elif isinstance(node, _ast.ExceptHandler) and node.name:
+                local.add(node.name)
+            elif isinstance(node, _ast.Global):
+                local.update(node.names)
+        for node in _ast.walk(fn):
+            if (isinstance(node, _ast.Name)
+                    and isinstance(node.ctx, _ast.Load)
+                    and node.id not in local):
+                bad.append("%s: %s (строка %d)"
+                           % (fn.name, node.id, node.lineno))
+    assert not bad, ("имя нигде не определено:\n  "
+                     + "\n  ".join(sorted(set(bad))))
+
+
+def test_declared_parameter_constants_appear_in_the_form():
+    """Константа параметра объявлена - значит и в форме она есть.
+
+    Скрипт правки упал на середине, константа TARGET_TABLE осталась, а
+    сам параметр в initAlgorithm не добавился. Код при этом рабочий:
+    чтение шло через getattr и молча возвращало None, поэтому 1.05
+    плодила новую таблицу на каждый прогон вместо дописывания в
+    существующую. Ни один сторож этого не видел.
+
+    Проверяются только константы, чьё значение совпадает с именем: это
+    соглашение для параметров Processing. Служебные константы вроде
+    списков и порогов сюда не попадают.
+    """
+    import ast as _ast
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "algorithms.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    tree = _ast.parse(src)
+    lines = src.splitlines(True)
+    # Общие функции, которые сами добавляют параметры: только их текст
+    # считается законным местом объявления через alg.ИМЯ. Искать по
+    # всему модулю нельзя - имя встретится в любой функции, которая
+    # параметр лишь читает, и сторож ослепнет.
+    adders = ""
+    for fn in [n for n in tree.body if isinstance(n, _ast.FunctionDef)]:
+        seg = "".join(lines[fn.lineno - 1:fn.end_lineno])
+        if "addParameter" in seg:
+            adders += seg
+    bad = []
+    for cls in [n for n in tree.body if isinstance(n, _ast.ClassDef)]:
+        params = set()
+        for st in cls.body:
+            if not isinstance(st, _ast.Assign):
+                continue
+            targets, values = [], []
+            for tgt in st.targets:
+                if isinstance(tgt, _ast.Name):
+                    targets, values = [tgt], [st.value]
+                elif isinstance(tgt, _ast.Tuple) \
+                        and isinstance(st.value, _ast.Tuple):
+                    targets, values = list(tgt.elts), list(st.value.elts)
+            for tgt, val in zip(targets, values):
+                if (isinstance(tgt, _ast.Name)
+                        and isinstance(val, _ast.Constant)
+                        and val.value == tgt.id):
+                    params.add(tgt.id)
+        if not params:
+            continue
+        body = "".join(lines[cls.lineno - 1:cls.end_lineno])
+        init = None
+        for fn in cls.body:
+            if isinstance(fn, _ast.FunctionDef) and fn.name == "initAlgorithm":
+                init = "".join(lines[fn.lineno - 1:fn.end_lineno])
+        if init is None:
+            continue
+        for name in sorted(params):
+            # часть параметров добавляется общей функцией через alg.ИМЯ,
+            # поэтому в initAlgorithm класса их нет по устройству
+            # Ищем по всему телу класса, а не только в initAlgorithm:
+            # часть параметров объявляется в соседних методах, и сужать
+            # до одного метода значит ловить ложное.
+            if ("self." + name) in body or ("alg." + name) in adders:
+                continue
+            bad.append("%s.%s" % (cls.name, name))
+    assert not bad, ("константа параметра есть, а в форме его нет: %s"
+                     % ", ".join(bad))
