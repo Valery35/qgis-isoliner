@@ -315,3 +315,49 @@ def _run():
 
 if __name__ == "__main__":
     _run()
+
+
+# --- чтение манифеста ------------------------------------------------------
+
+def test_manifest_read_survives_a_project_without_it():
+    """Отсутствие манифеста это обычный случай, а не ошибка.
+
+    Правило второе из трёх: инструменты читают манифест, но не требуют
+    его. Унаследованный или чужой проект работает по явному выбору.
+    """
+    from grid_isolines import manifest
+
+    class Empty(object):
+        def readEntry(self, scope, key, default=""):
+            return ("", False)
+
+    assert manifest.read(None) == {}
+    assert manifest.read(Empty()) == {}
+
+
+def test_manifest_read_parses_written_roles():
+    """Записанное манифестом читается обратно без потерь."""
+    from grid_isolines import manifest
+    roles = {"lay1": manifest.ROLE_CONTACT, "lay2": manifest.ROLE_CONTACT,
+             "lay3": manifest.ROLE_COLLAR}
+    text = manifest.dump(roles)
+
+    class Project(object):
+        def readEntry(self, scope, key, default=""):
+            return (text, True)
+
+    assert manifest.read(Project()) == roles
+
+
+def test_layers_by_role_returns_empty_without_a_tree():
+    """Недоступное дерево слоёв не роняет чтение ролей."""
+    from grid_isolines import manifest
+
+    class Project(object):
+        def readEntry(self, scope, key, default=""):
+            return ("a=contact", True)
+
+        def layerTreeRoot(self):
+            raise RuntimeError("дерева нет")
+
+    assert manifest.layers_by_role(Project(), manifest.ROLE_CONTACT) == []

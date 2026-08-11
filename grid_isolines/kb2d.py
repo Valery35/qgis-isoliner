@@ -374,7 +374,8 @@ def cross_validate_detrend(xd, yd, vrd, degree, vg, ktype, skmean,
 
 def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                rad2, nodata, xmn, ymn, cell, nx, ny, progress=None,
-               with_variance=False, ndisc=1, fault_segs=None):
+               with_variance=False, ndisc=1, fault_segs=None,
+               cell_mask=None):
     """Sweep the grid, GSLIB order (north row first). Returns float32 (ny,nx).
 
     При with_variance=True возвращает кортеж (оценка, стд.ошибка), где второй
@@ -411,6 +412,12 @@ def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
         iy = ny - row                        # 1..ny counted from south
         yloc = ymn + (iy - 1) * cell
         for ix in range(nx):
+            # Ячейка вне маски обрезки всё равно уйдёт в nodata, считать
+            # её незачем. На вытянутой по диагонали площади выпуклая
+            # оболочка занимает восьмую часть своей рамки, и без этой
+            # проверки девять десятых работы делались впустую.
+            if cell_mask is not None and not cell_mask[row, ix]:
+                continue          # массивы уже заполнены nodata
             xloc = xmn + ix * cell
             xs, ys, vs = xd, yd, vrd
             if fault_segs is not None and len(fault_segs):

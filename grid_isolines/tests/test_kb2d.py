@@ -575,3 +575,47 @@ def test_grid_matches_a_direct_solve_cell_by_cell():
                                             100.0, 1, ndmax, rad2, -9999.0)
                 assert abs(float(grid[r, c]) - float(want)) < 1e-4, (
                     "ячейка (%d, %d) разошлась с прямым пересчётом" % (r, c))
+
+
+def test_cell_mask_skips_cells_without_changing_values():
+    """Маска расчёта не меняет ни одной оценки внутри себя.
+
+    Ячейка вне маски обрезки всё равно уходит в nodata, поэтому считать
+    её незачем. Ускорение имеет смысл только при полном совпадении
+    значений: иначе это другой результат, а не тот же быстрее.
+    """
+    rng = np.random.default_rng(0)
+    vg = kb2d.Variogram(2.0, [dict(it=1, cc=20.0, aa=3000.0, ang=0.0,
+                                   anis=1.0)])
+    nx = ny = 40
+    cell = 100.0
+    ext = nx * cell
+    xd = rng.uniform(0.0, ext, 120)
+    yd = rng.uniform(0.0, ext, 120)
+    vd = rng.normal(100.0, 5.0, 120)
+    kw = dict(vg=vg, ktype=1, skmean=0.0, ndmin=1, ndmax=16,
+              rad2=(3 * ext) ** 2, nodata=-9999.0, xmn=0.0, ymn=0.0,
+              cell=cell, nx=nx, ny=ny)
+    full = kb2d.build_grid(xd, yd, vd, **kw)
+    rows = np.arange(ny)[:, None]
+    cols = np.arange(nx)[None, :]
+    band = np.abs((ny - 1 - rows) - cols) < 8
+    part = kb2d.build_grid(xd, yd, vd, cell_mask=band, **kw)
+    assert np.array_equal(full[band], part[band]), "значения внутри разошлись"
+    assert (part[~band] == -9999.0).all(), "вне маски осталось не nodata"
+    assert band.mean() < 0.5, "проверка потеряла смысл: маска почти вся рамка"
+
+
+def test_cell_mask_none_keeps_the_old_behaviour():
+    rng = np.random.default_rng(1)
+    vg = kb2d.Variogram(1.0, [dict(it=1, cc=10.0, aa=500.0, ang=0.0,
+                                   anis=1.0)])
+    xd = rng.uniform(0.0, 1000.0, 60)
+    yd = rng.uniform(0.0, 1000.0, 60)
+    vd = rng.normal(0.0, 3.0, 60)
+    kw = dict(vg=vg, ktype=1, skmean=0.0, ndmin=1, ndmax=12,
+              rad2=1e12, nodata=-9999.0, xmn=0.0, ymn=0.0, cell=50.0,
+              nx=20, ny=20)
+    a = kb2d.build_grid(xd, yd, vd, **kw)
+    b = kb2d.build_grid(xd, yd, vd, cell_mask=None, **kw)
+    assert np.array_equal(a, b)

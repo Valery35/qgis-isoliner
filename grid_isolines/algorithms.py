@@ -1212,6 +1212,19 @@ def _san(name):
 
 
 def _add_kriging_params(alg):
+    # Вариограмма из таблицы: общая для всех, кто пользуется этим набором.
+    # Держать её объявление в каждом инструменте значило бы разъехаться
+    # именами и умолчаниями.
+    alg.addParameter(QgsProcessingParameterFeatureSink(
+        alg.OUT_OUTLIERS, _tr("Ураганные пробы (отброшенные точки)"),
+        QgsProcessing.SourceType.TypeVectorPoint, optional=True,
+        createByDefault=False))
+    alg.addParameter(QgsProcessingParameterFeatureSource(
+        alg.VG_TABLE, _tr("Модели вариограмм (таблица)"),
+        [QgsProcessing.SourceType.TypeVector], optional=True))
+    alg.addParameter(QgsProcessingParameterString(
+        alg.VG_NAME, _tr("Профиль из таблицы (пусто: поля ниже)"),
+        optional=True))
     alg.addParameter(QgsProcessingParameterEnum(
         alg.KTYPE, _tr("Тип кригинга"), options=[_tr(x) for x in KTYPE_LABELS],
         defaultValue=_dv(alg, alg.KTYPE, 0)))
@@ -1311,7 +1324,8 @@ def _add_kriging_params(alg):
 
 def _read_points(source, zfield, feedback=None,
                  vmin=None, vmax=None, pct=0.0, cap=False,
-                 id_field=None, return_ids=False, request=None):
+                 id_field=None, return_ids=False, request=None,
+                 outliers_out=None):
     idx = source.fields().lookupField(zfield)
     if idx < 0:
         raise QgsProcessingException(
@@ -1370,6 +1384,15 @@ def _read_points(source, zfield, feedback=None,
                     (nch, lo, hi))
         else:
             ncut = int(np.count_nonzero(~keep))
+            # Отброшенные точки отдаются слоем, если о нём попросили.
+            # Число в журнале говорит, что отсев был, но не говорит, что
+            # именно выброшено: ошибка замера или настоящая аномалия -
+            # решать геологу, а решать не по чему.
+            if outliers_out is not None and ncut:
+                bad = ~keep
+                for x, y, v in zip(xs[bad], ys[bad], vs[bad]):
+                    why = ("ниже %.6g" % lo) if v < lo else ("выше %.6g" % hi)
+                    outliers_out.append((float(x), float(y), float(v), why))
             xs, ys, vs = xs[keep], ys[keep], vs[keep]
             if return_ids:
                 ids = ids[keep]
@@ -1833,8 +1856,14 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
     vmax = _opt(alg.VAL_MAX)
     cap = alg.parameterAsBool(parameters, alg.VAL_CAP, context)
 
+    cut_pts = [] if (getattr(alg, "OUT_OUTLIERS", None)
+                     and parameters.get(alg.OUT_OUTLIERS) is not None) else None
     xd, yd, vrd = _read_points(source, zfield, feedback,
-                               vmin=vmin, vmax=vmax, pct=pct, cap=cap)
+                               vmin=vmin, vmax=vmax, pct=pct, cap=cap,
+                               outliers_out=cut_pts)
+    if cut_pts is not None:
+        _write_outliers(alg, parameters, context, feedback, cut_pts,
+                        source.sourceCrs(), zfield)
     _warn_data(feedback, xd, yd, vrd)
     try:
         from . import trace
@@ -2015,9 +2044,12 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
                 "иначе система потеряет положительную определённость.")
                 % (len(lines), int(len(fsegs))))
 
+    cmask = _mask_cells(mask_layer, context, xmn, ymn, cell, nx, ny,
+                        feedback) if mask_layer is not None else None
     res = build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                      rad2, nodata, xmn, ymn, cell, nx, ny, progress=prog,
-                     with_variance=want_se, ndisc=ndisc, fault_segs=fsegs)
+                     with_variance=want_se, ndisc=ndisc, fault_segs=fsegs,
+                     cell_mask=cmask)
     grid, segrid = res if want_se else (res, None)
 
     # Дырки в гриде по разлому нет ни явной, ни случайной. Явную не
@@ -2152,6 +2184,116 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
         _write(stderr_path, segrid)
         feedback.setProgress(88)
     return out_path, nodata, (stderr_path if want_se else None)
+
+
+def _write_outliers(alg, parameters, context, feedback, rows, crs, zfield):
+    """Отброшенные ураганные пробы отдельным слоем.
+
+    Выход создаётся, только если о нём попросили: слой на каждый прогон
+    никому не нужен, а вот разобраться, что именно выброшено, нужно
+    часто. Отсев по перцентилю не различает ошибку замера и настоящую
+    аномалию, и решать это человеку.
+    """
+    from qgis.core import QgsFields, QgsField, QgsFeature, QgsGeometry, \
+        QgsPointXY
+    from qgis.PyQt.QtCore import QVariant
+    fields = QgsFields()
+    fields.append(QgsField(zfield or "value", QVariant.Double))
+    fields.append(QgsField("reason", QVariant.String))
+    sink, dest = alg.parameterAsSink(parameters, alg.OUT_OUTLIERS, context,
+                                     fields, QgsWkbTypes.Type.Point, crs)
+    if sink is None:
+        return
+    for x, y, v, why in rows:
+        ft = QgsFeature(fields)
+        ft.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
+        ft.setAttributes([v, why])
+        sink.addFeature(ft)
+    if rows:
+        feedback.pushInfo(_tr(
+            "Отброшенные пробы отданы слоем: %d точек с причиной. "
+            "Посмотрите их на карте: отсев по перцентилю не отличает "
+            "ошибку замера от настоящей аномалии.") % len(rows))
+    _set_output_name(context, dest, _tr("Ураганные пробы · %s")
+                     % (zfield or "?"))
+
+
+def _mask_cells(mask_layer, context, xmn, ymn, cell, nx, ny, feedback):
+    """Булева маска расчётных узлов по слою обрезки.
+
+    Ячейка вне маски всё равно уходит в nodata, поэтому считать её
+    незачем. Экономия зависит от формы площади: у скважин, разбросанных
+    по кругу, впустую считалась пятая часть ячеек, а у вытянутой по
+    диагонали площади - девять десятых, потому что выпуклая оболочка
+    занимает там восьмую часть своей рамки.
+
+    Маска расширяется на ячейку. Узел ровно на границе полигона
+    чётно-нечётное правило относит то внутрь, то наружу, и без запаса на
+    кромке появились бы пропуски.
+
+    Возвращает массив (ny, nx) или None, если маску построить не удалось:
+    тогда считается всё, как раньше.
+    """
+    try:
+        from qgis.core import QgsVectorLayer, QgsWkbTypes
+        lay = mask_layer
+        if isinstance(lay, str):
+            lay = context.getMapLayer(lay) or QgsVectorLayer(lay, "mask",
+                                                             "ogr")
+        if lay is None or not hasattr(lay, "getFeatures"):
+            return None
+        rings = []
+        for ft in lay.getFeatures():
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            try:
+                polys = g.asMultiPolygon() or []
+            except TypeError:
+                polys = []
+            if not polys:
+                one = g.asPolygon()
+                polys = [one] if one else []
+            for poly in polys:
+                for r in poly:
+                    if len(r) >= 3:
+                        rings.append([(p.x(), p.y()) for p in r])
+        if not rings:
+            return None
+        # Узлы расчёта лежат в xmn + ix*cell и ymn + (ny-1-row)*cell,
+        # поэтому начало отсчёта смещается на полячейки: скан-линия
+        # ходит по центрам, а здесь центрами являются сами узлы.
+        m = topo_t2r.polygon_mask(rings, xmn - cell / 2.0,
+                                  ymn + (ny - 0.5) * cell, cell, (ny, nx))
+        if not m.any():
+            return None
+        grown = m.copy()
+        grown[:-1, :] |= m[1:, :]
+        grown[1:, :] |= m[:-1, :]
+        grown[:, :-1] |= m[:, 1:]
+        grown[:, 1:] |= m[:, :-1]
+        share = float(grown.mean())
+        if share < 0.98:
+            feedback.pushInfo(_tr(
+                "Расчёт только внутри маски: %.0f%% ячеек из рамки, "
+                "остальные сразу nodata.") % (100.0 * share))
+        return grown
+    except Exception:  # nosec - маска не обязана строиться
+        return None
+
+
+def _layers_by_role(context, role):
+    """Слои проекта с заданной ролью манифеста, в порядке дерева слоёв.
+
+    Проект берётся из контекста Processing, а не из QgsProject.instance():
+    в пакетном прогоне и в моделях это разные объекты, и обращение к
+    глобальному дало бы чужие слои.
+    """
+    try:
+        project = context.project()
+    except Exception:  # nosec - контекст без проекта
+        return []
+    return manifest.layers_by_role(project, role)
 
 
 def _build_mask(alg, parameters, context, feedback, layer):
@@ -2519,6 +2661,7 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
 
 class Kriging2DAlgorithm(IsolinerAlgorithm):
     INPUT, ZFIELD = "INPUT", "ZFIELD"
+    OUT_OUTLIERS = "OUT_OUTLIERS"
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
     CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
@@ -2702,12 +2845,6 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.SMOOTH_RADIUS, 1.0),
             minValue=0.0, maxValue=10.0))
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            self.VG_TABLE, self.tr("Модели вариограмм (таблица)"),
-            [QgsProcessing.SourceType.TypeVector], optional=True))
-        self.addParameter(QgsProcessingParameterString(
-            self.VG_NAME, self.tr("Профиль из таблицы (пусто: поля ниже)"),
-            optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.FAULTS, self.tr("Разломы (линии, барьеры влияния)"),
             [QgsProcessing.SourceType.TypeVectorLine], optional=True))
@@ -5666,6 +5803,14 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
             "весь лаг, в который она попала. Включайте, когда точки по лагам "
             "скачут без видимой причины, а на исходных данных есть отдельные "
             "резко выделяющиеся значения.\n\n"
+            "**Ураганные пробы (отброшенные точки)** отдаёт выброшенное "
+            "отдельным слоем: координаты, значение и причина - ниже или "
+            "выше какой границы. Выход по умолчанию выключен, слой на "
+            "каждый прогон не нужен.\n\n"
+            "Смотреть их стоит: отсев по перцентилю не отличает ошибку "
+            "замера от настоящей аномалии, а решение это геологическое. "
+            "Скопление отброшенных точек в одном месте обычно означает не "
+            "брак, а неучтённое тело.\n\n"
             "**Ураганные пробы: перцентиль обрезки** отсекает хвосты "
             "распределения до расчёта. Значение 1 означает, что отбрасывается "
             "по одному проценту с каждого края. Ноль выключает. Флажок "
@@ -6527,6 +6672,8 @@ class ExternalDriftKrigingAlgorithm(IsolinerAlgorithm):
     возвращается к оценке из растра. Математика кригинга не меняется."""
 
     INPUT, ZFIELD = "INPUT", "ZFIELD"
+    OUT_OUTLIERS = "OUT_OUTLIERS"
+    VG_TABLE, VG_NAME = "VG_TABLE", "VG_NAME"
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
     CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
@@ -8272,8 +8419,20 @@ class SectionAlgorithm(IsolinerAlgorithm):
             raise QgsProcessingException(self.tr("Не задана линия разреза."))
         layers = self.parameterAsLayerList(parameters, self.SURFACES, context)
         if not layers:
+            # Манифест модели: если 5.05 разметил роли, кровли и подошвы
+            # находятся сами. Правило чтения одно на всех - манифест
+            # сокращает путь, но не становится условием работы, поэтому
+            # его отсутствие это обычный случай, а не ошибка.
+            layers = _layers_by_role(context, manifest.ROLE_CONTACT)
+            if layers:
+                feedback.pushInfo(self.tr(
+                    "Поверхности не заданы, взяты из манифеста модели по "
+                    "роли «контакт тела»: %d слоёв, порядок из дерева "
+                    "слоёв.") % len(layers))
+        if not layers:
             raise QgsProcessingException(self.tr(
-                "Нужна хотя бы одна поверхность."))
+                "Нужна хотя бы одна поверхность. Задайте их списком или "
+                "разметьте проект инструментом 5.05 «Манифест модели»."))
         # Порядок поверхностей задаёт, какая полоса чей пласт. По умолчанию
         # берём его из дерева слоёв проекта (сверху вниз), а не из порядка
         # отметок в виджете - так порядок совпадает с панелью слоёв и не
@@ -10414,6 +10573,7 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
     Z = высота / vex. Так нарисованный на разрезе объект попадает в план и в 3D."""
 
     LINE_DEF, INPUT, OUTPUT = "LINE_DEF", "INPUT", "OUTPUT"
+    AS_POINTS, SRC_FIELD = "AS_POINTS", "SRC_FIELD"
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionUnprojectAlgorithm()
@@ -10432,7 +10592,17 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
             "того же, по которому строился чертёж. Геометрия выходит с отметкой "
             "Z в реальной системе координат.\n\nТак нарисованный на разрезе "
             "объект (контур залежи, нарушение, граница) попадает обратно в план "
-            "и в 3D.") + _credit())
+            "и в 3D.\n\n"
+            "**Отдавать вершинами** превращает возвращённые линии и полигоны "
+            "в точки с отметкой. Это нужно, когда контакт, поправленный на "
+            "чертеже, идёт обратно в построение поверхности: и кригинг, и "
+            "Topo2Raster принимают наблюдения точками. В кригинге такая "
+            "точка закрепляет поверхность точно при нулевом наггете, в "
+            "Topo2Raster становится жёстким узлом.\n\n"
+            "**Пометить источник** дописывает поле src с заданным значением. "
+            "Контакт, снятый с разреза, это интерпретация, а не замер, и в "
+            "общей выборке со скважинами его надо отличать: по этому полю "
+            "ему задают меньший вес полем весов декластеризации.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -10441,6 +10611,14 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
             types=[QgsProcessing.SourceType.TypeVectorLine]))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.INPUT, self.tr("Объекты с чертежа разреза")))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.AS_POINTS,
+            self.tr("Отдавать вершинами (точки с отметкой)"),
+            defaultValue=_dv(self, self.AS_POINTS, False)))
+        self.addParameter(QgsProcessingParameterString(
+            self.SRC_FIELD,
+            self.tr("Пометить источник в поле src (пусто: не помечать)"),
+            defaultValue=_dv(self, self.SRC_FIELD, ""), optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Объекты в плане (с отметкой Z)")))
 
@@ -10466,7 +10644,19 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
         gtype = QgsWkbTypes.geometryType(isrc.wkbType())
         wkb = {0: QgsWkbTypes.Type.PointZ, 1: QgsWkbTypes.Type.LineStringZ,
                2: QgsWkbTypes.Type.PolygonZ}.get(gtype, QgsWkbTypes.Type.PointZ)
+        # Вершинами - потому что дальше эти отметки идут в построение
+        # поверхности как обычные наблюдения, а туда нужны точки.
+        as_pts = self.parameterAsBool(parameters, self.AS_POINTS, context)
+        if as_pts:
+            wkb = QgsWkbTypes.Type.PointZ
         fields = QgsFields(isrc.fields())
+        # Пометка источника: контакт, снятый с разреза, это интерпретация,
+        # а не замер. В общей выборке их надо различать, иначе рисунок
+        # получит тот же вес, что и скважина.
+        src_tag = (self.parameterAsString(parameters, self.SRC_FIELD,
+                                          context) or "").strip()
+        if src_tag:
+            fields.append(QgsField("src", QVariant.String))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields, wkb, src.sourceCrs())
 
@@ -10483,6 +10673,15 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
             pts = [back(v.x(), v.y()) for v in g.vertices()]
             if not pts:
                 continue
+            if as_pts:
+                for p in pts:
+                    fa = QgsFeature(fields)
+                    fa.setGeometry(QgsGeometry(p))
+                    fa.setAttributes(list(ft.attributes())
+                                     + ([src_tag] if src_tag else []))
+                    sink.addFeature(fa)
+                    n += 1
+                continue
             if wkb == QgsWkbTypes.Type.PointZ:
                 geom = QgsGeometry(pts[0])
             elif wkb == QgsWkbTypes.Type.LineStringZ:
@@ -10494,12 +10693,24 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
                 geom = QgsGeometry(poly)
             fa = QgsFeature(fields)
             fa.setGeometry(geom)
-            fa.setAttributes(ft.attributes())
+            fa.setAttributes(list(ft.attributes())
+                             + ([src_tag] if src_tag else []))
             sink.addFeature(fa)
             n += 1
         if n == 0:
             raise QgsProcessingException(self.tr("Нет объектов для проекции."))
         feedback.pushInfo(_tr("Возвращено в план объектов: %d.") % n)
+        if as_pts:
+            feedback.pushInfo(self.tr(
+                "Отданы вершинами: полученные точки с отметкой годятся как "
+                "наблюдения контакта. В кригинге они закрепляют поверхность "
+                "точно при нулевом наггете, в Topo2Raster идут жёсткими "
+                "узлами."))
+        if src_tag:
+            feedback.pushInfo(self.tr(
+                "Источник помечен в поле src значением «%s». Контакт с "
+                "разреза это интерпретация, а не замер: в общей выборке "
+                "ему разумно дать меньший вес полем весов.") % src_tag)
         _set_output_name(context, dest, _tr("Объекты с разреза в плане"))
         _save_values(self, _saved)
         _set_group(context, GRP_SECTION, [dest], force=True, history=_provenance(self, parameters))
@@ -10872,12 +11083,34 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         Урок этого места: канва QGIS преобразует слои сама, и на карте всё
         лежит вместе, а сырые числа двух систем расходятся на межсистемный
         сдвиг - и коридор отсекает всё."""
-        csrc = self.parameterAsSource(parameters, self.COLLAR, context)
+        def _from_manifest(param, role, what):
+            """Слой из манифеста, если параметр пуст.
+
+            Манифест сокращает путь, но не становится условием работы:
+            нет ролей - всё идёт по явному выбору, как раньше.
+            """
+            if parameters.get(param) is not None:
+                return None
+            found = _layers_by_role(context, role)
+            if not found:
+                return None
+            feedback.pushInfo(self.tr(
+                "%s не задан, взят из манифеста модели: «%s».")
+                % (what, found[0].name()))
+            return found[0]
+
+        man_collar = _from_manifest(self.COLLAR, manifest.ROLE_COLLAR,
+                                    self.tr("Слой устий"))
+        man_int = _from_manifest(self.INTERVAL, manifest.ROLE_INTERVAL,
+                                 self.tr("Слой интервалов"))
+        csrc = self.parameterAsSource(parameters, self.COLLAR, context) \
+            if man_collar is None else man_collar
         # Интервалы необязательны: положение и глубину скважин на разрезе
         # показывают и без опробования. Геология появляется позже, а
         # чертёж со стволами нужен уже на стадии проекта.
-        isrc = self.parameterAsSource(parameters, self.INTERVAL, context) \
-            if parameters.get(self.INTERVAL) is not None else None
+        isrc = man_int if man_int is not None else (
+            self.parameterAsSource(parameters, self.INTERVAL, context)
+            if parameters.get(self.INTERVAL) is not None else None)
         if csrc is None:
             raise QgsProcessingException(self.tr("Нужны устья collar."))
         # поля находим сами по ожидаемым именам и синонимам, выбор в
@@ -11142,8 +11375,17 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
         # выносятся вдоль оси, а отбор по коридору идёт по всей оси.
         surveys = None
         summary_extra = {}
-        sv_src = self.parameterAsSource(parameters, self.SURVEY, context) \
-            if parameters.get(self.SURVEY) is not None else None
+        man_sv = None
+        if parameters.get(self.SURVEY) is None:
+            found_sv = _layers_by_role(context, manifest.ROLE_SURVEY)
+            if found_sv:
+                man_sv = found_sv[0]
+                feedback.pushInfo(self.tr(
+                    "%s не задан, взят из манифеста модели: «%s».")
+                    % (self.tr("Слой инклинометрии"), man_sv.name()))
+        sv_src = man_sv if man_sv is not None else (
+            self.parameterAsSource(parameters, self.SURVEY, context)
+            if parameters.get(self.SURVEY) is not None else None)
         if sv_src is not None:
             names = [f.name() for f in sv_src.fields()]
             f_id = _dh.resolve_field(
@@ -11810,6 +12052,7 @@ class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
     случайная выборка точек, фильтры, буфер исключения соседей."""
 
     INPUT, ZFIELD, IDFIELD = "INPUT", "ZFIELD", "IDFIELD"
+    VG_TABLE, VG_NAME = "VG_TABLE", "VG_NAME"
     WEIGHT_FIELD = "WEIGHT_FIELD"
     METHOD = "METHOD"
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
@@ -11852,7 +12095,12 @@ class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
             "оценка/факт, гистограмма, метрики). Для минимальной кривизны "
             "переоценка идёт с тёплого старта от полного решения, поэтому "
             "каждая точка считается быстро, но на очень больших выборках "
-            "уменьшайте N.") + _seed_help() + _credit())
+            "уменьшайте N.\n\n"
+            "**Модели вариограмм** и **Профиль из таблицы** задают "
+            "вариограмму для кригинга в сравнении. Без таблицы кригинг "
+            "считается с умолчаниями, а они выбраны безопасными, а не "
+            "подобранными: сравнивать с ними другие методы можно, но "
+            "выводы о самом кригинге по такому прогону делать рано.") + _seed_help() + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -11876,6 +12124,12 @@ class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
             self.METHOD, self.tr("Метод"),
             options=[self.tr("Кригинг"), self.tr("Минимальная кривизна")],
             defaultValue=_dv(self, self.METHOD, 0)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.VG_TABLE, self.tr("Модели вариограмм (таблица)"),
+            [QgsProcessing.SourceType.TypeVector], optional=True))
+        self.addParameter(QgsProcessingParameterString(
+            self.VG_NAME, self.tr("Профиль из таблицы (пусто: умолчания)"),
+            optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             self.N_VALIDATE,
             self.tr("Проверяемых точек (0 = авто, min(N, 100))"),

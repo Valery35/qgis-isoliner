@@ -1544,6 +1544,12 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
     feedback.pushInfo(_tr("Назначение диапазонов поясам…"))
     out_feats = []
     n_thin = 0
+    # Грань может выпасть из покрытия молча: не встала репрезентативная
+    # точка или она легла на nodata. Считается только отсев тонких полос,
+    # поэтому настоящая дыра в покрытии не оставила бы в журнале ни следа,
+    # и искали бы её глазами по карте.
+    n_norep = n_nodata = 0
+    a_norep = a_nodata = 0.0
     n_total = max(poly_layer.featureCount(), 1)
     for i, feat in enumerate(poly_layer.getFeatures()):
         g = feat.geometry()
@@ -1553,6 +1559,8 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
         if rep is None or rep.isEmpty():
             rep = g.centroid()
         if rep is None or rep.isEmpty():
+            n_norep += 1
+            a_norep += float(g.area())
             continue
         if min_thick > 0.0 and belt_thickness(g) < min_thick:
             n_thin += 1
@@ -1560,7 +1568,9 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
         p = rep.asPoint()
         val = _sample_value(arr, valid, gt, p.x(), p.y())
         if val is None:
-            continue                       # точка вне валидной области - пропуск
+            n_nodata += 1
+            a_nodata += float(g.area())
+            continue                       # точка вне валидной области
         idx = int(np.digitize([val], lv)[0])     # 0..len(levels)
         nf = QgsFeature(mem.fields())
         gg = QgsGeometry(g)
@@ -1570,6 +1580,13 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
         out_feats.append(nf)
         if i % 200 == 0:
             feedback.setProgress(int(100.0 * i / n_total))
+    if n_norep or n_nodata:
+        feedback.pushWarning(_tr(
+            "Граней выпало из покрытия: %d без репрезентативной точки "
+            "(площадь %.4g), %d с выборкой на nodata (площадь %.4g). В "
+            "покрытии останутся дыры этой площади. Чаще всего это мелкая "
+            "грань в тройном узле у края маски или у разлома.")
+            % (n_norep, a_norep, n_nodata, a_nodata))
     if n_thin:
         feedback.pushInfo(_tr(
             "Отброшено полос тоньше %.3g: %d. Такой полигон не возникает из "

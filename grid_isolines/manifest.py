@@ -107,6 +107,48 @@ def dump(roles):
     return "\n".join("%s=%s" % (k, roles[k]) for k in sorted(roles))
 
 
+def read(project):
+    """Роли из проекта: {идентификатор слоя: роль}. Пустой словарь, если
+    манифеста нет.
+
+    Читающая сторона обязана обходиться без манифеста: правило второе из
+    трёх. Отсутствие ролей это не ошибка, а обычный случай чужого или
+    унаследованного проекта.
+    """
+    if project is None:
+        return {}
+    try:
+        text, _ok = project.readEntry(SCOPE, KEY, "")
+    except Exception:  # nosec - проекта может не быть вовсе
+        return {}
+    return parse(text)
+
+
+def layers_by_role(project, role):
+    """Слои проекта с заданной ролью, в порядке дерева слоёв.
+
+    Порядок важен для пачки пластов: кровли и подошвы идут сверху вниз,
+    и брать их в произвольном порядке значит собрать разрез вверх ногами.
+    Поэтому порядок берётся из дерева слоёв, а не из словаря ролей.
+    """
+    roles = read(project)
+    if not roles:
+        return []
+    want = {k for k, v in roles.items() if v == role}
+    if not want:
+        return []
+    out = []
+    try:
+        root = project.layerTreeRoot()
+        for node in root.findLayers():
+            lay = node.layer()
+            if lay is not None and lay.id() in want:
+                out.append(lay)
+    except Exception:  # nosec
+        return []
+    return out
+
+
 def merge(old, new):
     """Слияние: новые роли поверх старых, чужие роли не теряются.
 
