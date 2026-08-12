@@ -721,3 +721,33 @@ def test_section_holes_build_fields_without_the_interval_layer():
         "поля берутся из необязательного слоя без проверки: %s"
         % "; ".join(x.strip() for x in unguarded))
     assert "ifields" in body, "поля интервалов не вынесены отдельно"
+
+
+def test_cell_size_shows_the_live_grid_hint():
+    """У размера ячейки стоит виджет живого показа размера сетки.
+
+    Метод итерационный, и число ячеек надо видеть до запуска, а не в
+    журнале после. Виджет был написан давно, но подключён не везде:
+    1.03 и 3.06 обходились без него, хотя параметры у них называются
+    так же, и виджет находит слой и охват по именам INPUT и EXTENT.
+    """
+    import ast as _ast
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "algorithms.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    tree = _ast.parse(src)
+    lines = src.splitlines(True)
+    bad = []
+    for cls in [n for n in tree.body if isinstance(n, _ast.ClassDef)]:
+        body = "".join(lines[cls.lineno - 1:cls.end_lineno])
+        if "CELL_SIZE, self.tr" not in body and "CELL_SIZE, _tr" not in body:
+            continue
+        names = " ".join(_ast.unparse(st) for st in cls.body[:14]
+                         if isinstance(st, _ast.Assign))
+        if "INPUT" not in names or "EXTENT" not in names:
+            continue          # виджету не на что опереться
+        if "CellSizeWrapper" in body or "_add_kriging_params" in body:
+            continue
+        bad.append(cls.name)
+    assert not bad, ("размер ячейки без живой подсказки: %s" % ", ".join(bad))

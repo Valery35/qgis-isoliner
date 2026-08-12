@@ -854,3 +854,62 @@ def _run():
 
 if __name__ == "__main__":
     sys.exit(_run())
+
+
+# --- рамка и отметки на осях -----------------------------------------------
+
+def _flat_surface(z=150.0):
+    gt = (0.0, 10.0, 0.0, 1000.0, 0.0, -10.0)
+    return np.full((100, 100), float(z)), gt, "кровля"
+
+
+def test_frame_top_extends_the_drawing_upwards():
+    """Верх рамки задаётся отметкой, как и низ.
+
+    Отчёт В. Швалева: при построении продольного разреза не хватало
+    верхней отметки. Чертёж часто продолжают вверх, чтобы вошли устья
+    скважин или уровни воды, которых нет среди самих поверхностей.
+    """
+    verts = [(0.0, 500.0), (1000.0, 500.0)]
+    plain = sc.build_section(verts, [_flat_surface()], step=20.0, vex=1.0)
+    tall = sc.build_section(verts, [_flat_surface()], step=20.0, vex=1.0,
+                            ztop=170.0)
+    assert tall.frame_zmax > plain.frame_zmax + 15.0
+    assert abs(tall.frame_zmin - plain.frame_zmin) < 2.0, "низ поехал"
+
+
+def test_frame_bottom_and_top_together():
+    verts = [(0.0, 500.0), (1000.0, 500.0)]
+    both = sc.build_section(verts, [_flat_surface()], step=20.0, vex=1.0,
+                            zbase=100.0, ztop=170.0)
+    assert both.frame_zmin < 101.0 and both.frame_zmax > 169.0
+
+
+def test_ticks_by_step_gives_exactly_the_expected_numbers():
+    """Ручной шаг даёт те отметки, которые названы.
+
+    Предложение В. Швалева: «от 150 до 170 шаг 2». Автоматический выбор
+    округляет по-своему, и при рамке, заданной числами, подписи хочется
+    в тех же числах.
+    """
+    got = sc.ticks_by_step(150.0, 170.0, 2.0)
+    assert got == [150.0, 152.0, 154.0, 156.0, 158.0, 160.0, 162.0, 164.0,
+                   166.0, 168.0, 170.0]
+
+
+def test_ticks_by_step_honours_the_first_value():
+    got = sc.ticks_by_step(150.0, 160.0, 2.0, first=151.0)
+    assert got == [151.0, 153.0, 155.0, 157.0, 159.0]
+
+
+def test_ticks_by_step_stays_inside_the_frame():
+    """Подпись вне чертежа бесполезна, поэтому за рамку не выходим."""
+    got = sc.ticks_by_step(150.0, 152.0, 10.0)
+    assert got == [150.0]
+    assert all(150.0 <= v <= 152.0 for v in got)
+
+
+def test_ticks_by_step_refuses_a_nonpositive_step():
+    assert sc.ticks_by_step(150.0, 170.0, 0.0) == []
+    assert sc.ticks_by_step(150.0, 170.0, -2.0) == []
+    assert sc.ticks_by_step(170.0, 150.0, 2.0) == []

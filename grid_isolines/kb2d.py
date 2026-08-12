@@ -67,12 +67,37 @@ class Variogram:
         self.nst = len(structures)
         self.pmx = 9999.0
         self.rotmat = []
+        # Кэш поворотов: пересобирать матрицу на каждую ячейку сетки
+        # дорого, а различных азимутов с шагом в десятую градуса 1800.
+        self._rot_cache = {}
         self.maxcov = self.c0
         for i in range(self.nst):
             az = (90.0 - self.ang[i]) * DTOR
             ca, sa = math.cos(az), math.sin(az)
             self.rotmat.append((ca, sa, -sa, ca))
             self.maxcov += self.pmx if self.it[i] == 4 else self.cc[i]
+
+    def rotated(self, azimuth):
+        """Копия вариограммы с другим азимутом главной оси.
+
+        Пересобирается только матрица поворота: модель, наггет, вклад и
+        коэффициент сжатия остаются как были. Коэффициент один на участок
+        решено сознательно - второй меняющийся параметр дал бы возможность
+        подогнать карту под ожидание, а кросс-валидация этого не покажет.
+        """
+        key = round(float(azimuth), 1)
+        cached = self._rot_cache.get(key)
+        if cached is not None:
+            return cached
+        other = Variogram.__new__(Variogram)
+        other.__dict__.update(self.__dict__)
+        other.ang = [float(azimuth)] * self.nst
+        az = (90.0 - float(azimuth)) * DTOR
+        ca, sa = math.cos(az), math.sin(az)
+        other.rotmat = [(ca, sa, -sa, ca)] * self.nst
+        other._rot_cache = self._rot_cache
+        self._rot_cache[key] = other
+        return other
 
     def cova2(self, dx, dy):
         """Covariance for a separation vector (dx, dy)."""
@@ -372,10 +397,42 @@ def cross_validate_detrend(xd, yd, vrd, degree, vg, ktype, skmean,
     return est, var
 
 
+def axial_mean(angles, weights=None):
+    """Среднее простирание по осевым углам, в градусах от севера.
+
+    Простирание это ОСЬ, а не направление: период 180 градусов, и 170
+    отличается от 10 на двадцать градусов, а не на сто шестьдесят.
+    Обычное среднее здесь даёт перпендикуляр к истине, и ошибка тихая:
+    карта вытягивается поперёк структуры и выглядит закономерной.
+
+    Считается через удвоенный угол: складываются единичные векторы 2a, а
+    результат делится пополам. Веса, если заданы, дают более уверенным
+    точкам больший вклад.
+
+    Возвращает (азимут в [0, 180), сила вытянутости в [0, 1]). Сила это
+    длина среднего вектора: близко к единице - направления согласны,
+    близко к нулю - разнобой, и назначать направление незачем.
+    """
+    a = np.asarray(angles, dtype=np.float64)
+    if a.size == 0:
+        return 0.0, 0.0
+    w = np.ones_like(a) if weights is None else np.asarray(weights, float)
+    w = np.where(np.isfinite(w) & (w > 0), w, 0.0)
+    if not w.any():
+        return 0.0, 0.0
+    r = np.radians(a) * 2.0
+    cs = float(np.sum(w * np.cos(r)))
+    sn = float(np.sum(w * np.sin(r)))
+    tot = float(np.sum(w))
+    strength = math.hypot(cs, sn) / tot if tot > 0 else 0.0
+    mean = math.degrees(math.atan2(sn, cs)) / 2.0
+    return mean % 180.0, strength
+
+
 def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                rad2, nodata, xmn, ymn, cell, nx, ny, progress=None,
                with_variance=False, ndisc=1, fault_segs=None,
-               cell_mask=None):
+               cell_mask=None, azi=None, azi_min_strength=0.3):
     """Sweep the grid, GSLIB order (north row first). Returns float32 (ny,nx).
 
     При with_variance=True возвращает кортеж (оценка, стд.ошибка), где второй
@@ -420,6 +477,7 @@ def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                 continue          # массивы уже заполнены nodata
             xloc = xmn + ix * cell
             xs, ys, vs = xd, yd, vrd
+            azs = azi if azi is not None else ()
             if fault_segs is not None and len(fault_segs):
                 # Замер за разломом в выборку не идёт. Сперва отсев по
                 # радиусу, и только потом видимость: проверять все точки
@@ -434,8 +492,28 @@ def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                     done += 1
                     continue
                 xs, ys, vs = xd[idx], yd[idx], vrd[idx]
+                if azi is not None:
+                    azs = azi[idx]
+            # Локальная анизотропия: направление берётся по замерам
+            # окрестности, и вся система решается по ОДНОЙ модели. Разные
+            # модели для разных пар сделали бы матрицу не положительно
+            # определённой, и решение развалилось бы.
+            vg_here = vg
+            if azi is not None and len(azs):
+                if rad2 > 0:
+                    sel = np.nonzero((xs - xloc) ** 2 + (ys - yloc) ** 2
+                                     <= rad2)[0]
+                else:
+                    sel = np.arange(len(xs))
+                if sel.size:
+                    # Вес по значению: точка с высоким содержанием весит
+                    # больше, и порог класса не нужен вовсе. Порог сдвинут -
+                    # сдвинулось бы и направление, а это произвол.
+                    a_loc, strength = axial_mean(azs[sel])
+                    if strength >= azi_min_strength:
+                        vg_here = vg.rotated(a_loc)
             e, v = _solve_point(
-                xloc, yloc, xs, ys, vs, vg, ktype, skmean,
+                xloc, yloc, xs, ys, vs, vg_here, ktype, skmean,
                 ndmin, ndmax, rad2, nodata, bdx=bdx, bdy=bdy, cbb=cbb)
             grid[row, ix] = e
             if with_variance and e != nodata:

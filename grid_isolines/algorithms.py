@@ -1215,6 +1215,11 @@ def _add_kriging_params(alg):
     # Вариограмма из таблицы: общая для всех, кто пользуется этим набором.
     # Держать её объявление в каждом инструменте значило бы разъехаться
     # именами и умолчаниями.
+    alg.addParameter(_advanced(QgsProcessingParameterField(
+        alg.AZI_FIELD,
+        _tr("Поле простирания в точках, градусы от севера (локальная анизотропия)"),
+        parentLayerParameterName=alg.INPUT, optional=True,
+        type=QgsProcessingParameterField.DataType.Numeric)))
     alg.addParameter(QgsProcessingParameterFeatureSink(
         alg.OUT_OUTLIERS, _tr("Ураганные пробы (отброшенные точки)"),
         QgsProcessing.SourceType.TypeVectorPoint, optional=True,
@@ -2044,12 +2049,44 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
                 "иначе система потеряет положительную определённость.")
                 % (len(lines), int(len(fsegs))))
 
+    # Локальная анизотропия: простирание берётся из поля точек. Оно
+    # усредняется осевым способом по соседям ячейки, и вся система
+    # решается по одной модели - иначе матрица перестала бы быть
+    # положительно определённой.
+    azi_arr = None
+    azi_fld = (alg.parameterAsString(parameters, alg.AZI_FIELD, context)
+               or "").strip() if getattr(alg, "AZI_FIELD", None) else ""
+    if azi_fld:
+        vals = []
+        idx_a = source.fields().lookupField(azi_fld)
+        if idx_a < 0:
+            raise QgsProcessingException(_tr(
+                "Поле простирания «%s» в слое не найдено.") % azi_fld)
+        for ft in source.getFeatures():
+            v = ft[idx_a]
+            vals.append(float(v) if v is not None else float("nan"))
+        azi_arr = np.array(vals, dtype=float)
+        if len(azi_arr) != len(xd):
+            feedback.pushWarning(_tr(
+                "Простирание прочитано по %d объектам, а замеров %d: поле "
+                "не применяется. Так бывает после отсева ураганных проб.")
+                % (len(azi_arr), len(xd)))
+            azi_arr = None
+        else:
+            ok = int(np.count_nonzero(np.isfinite(azi_arr)))
+            feedback.pushInfo(_tr(
+                "Локальная анизотропия по полю «%s»: значений %d из %d. "
+                "Простирание усредняется осевым способом по соседям "
+                "ячейки, коэффициент сжатия остаётся общим для участка.")
+                % (azi_fld, ok, len(azi_arr)))
+            azi_arr = np.where(np.isfinite(azi_arr), azi_arr, 0.0)
+
     cmask = _mask_cells(mask_layer, context, xmn, ymn, cell, nx, ny,
                         feedback) if mask_layer is not None else None
     res = build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                      rad2, nodata, xmn, ymn, cell, nx, ny, progress=prog,
                      with_variance=want_se, ndisc=ndisc, fault_segs=fsegs,
-                     cell_mask=cmask)
+                     cell_mask=cmask, azi=azi_arr)
     grid, segrid = res if want_se else (res, None)
 
     # Дырки в гриде по разлому нет ни явной, ни случайной. Явную не
@@ -2662,6 +2699,7 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
 class Kriging2DAlgorithm(IsolinerAlgorithm):
     INPUT, ZFIELD = "INPUT", "ZFIELD"
     OUT_OUTLIERS = "OUT_OUTLIERS"
+    AZI_FIELD = "AZI_FIELD"
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
     CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
@@ -2710,6 +2748,38 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
             "Когда таблица подана, поля вариограммы в окне не читаются "
             "вовсе. Два источника одного и того же неизбежно разъезжаются, "
             "поэтому таблица главнее, и об этом сказано в журнал.\n\n"
+            "**Ураганные пробы (отброшенные точки)** отдаёт выброшенное "
+            "отдельным слоем: координаты, значение и причина - ниже или "
+            "выше какой границы. Выход по умолчанию выключен, слой на "
+            "каждый прогон не нужен.\n\n"
+            "Смотреть их стоит: отсев по перцентилю не отличает ошибку "
+            "замера от настоящей аномалии, а решение это геологическое. "
+            "Скопление отброшенных точек в одном месте обычно означает не "
+            "брак, а неучтённое тело.\n\n"
+            "**Поле простирания в точках** включает локальную анизотропию: "
+            "у каждой пробы своё направление вытянутости, и карта следует "
+            "структуре, а не одному азимуту на весь участок. Это нужно там, "
+            "где рудные зоны или ореолы изгибаются.\n\n"
+            "Простирание задаётся в градусах от севера и понимается как "
+            "ось: 170 и 10 отличаются на двадцать градусов, а не на сто "
+            "шестьдесят. Усреднение по соседям идёт осевым способом, через "
+            "удвоенный угол. Обычное среднее дало бы здесь перпендикуляр к "
+            "истине, и ошибка была бы тихой: карта вытянулась бы поперёк "
+            "структуры и выглядела бы закономерной.\n\n"
+            "В каждой ячейке направление усредняется по тем же замерам, "
+            "которые идут в расчёт, и вся система решается по одной модели. "
+            "Разные модели для разных пар замеров сделали бы матрицу не "
+            "положительно определённой, и решение развалилось бы.\n\n"
+            "Коэффициент сжатия остаётся общим для участка: меняется только "
+            "направление. Второй меняющийся параметр дал бы возможность "
+            "подогнать карту под ожидание, а кросс-валидация этого не "
+            "покажет.\n\n"
+            "Там, где направления соседей расходятся, локальный поворот не "
+            "применяется и работает общая модель. Выдумывать направление "
+            "там, где его нет в данных, неправильно.\n\n"
+            "Результат обязательно проверяйте кросс-валидацией на "
+            "удержанной выборке: при неверном простирании кригинг послушно "
+            "вытянет аномалии вдоль ошибки.\n\n"
             "**Радиус поиска** 0 означает всю выборку, **размер ячейки** 0 - "
             "одну пятидесятую меньшей стороны охвата, **радиус корреляции** "
             "0 - треть большей стороны. **Обрезка по контуру скважин** убирает "
@@ -5803,14 +5873,6 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
             "весь лаг, в который она попала. Включайте, когда точки по лагам "
             "скачут без видимой причины, а на исходных данных есть отдельные "
             "резко выделяющиеся значения.\n\n"
-            "**Ураганные пробы (отброшенные точки)** отдаёт выброшенное "
-            "отдельным слоем: координаты, значение и причина - ниже или "
-            "выше какой границы. Выход по умолчанию выключен, слой на "
-            "каждый прогон не нужен.\n\n"
-            "Смотреть их стоит: отсев по перцентилю не отличает ошибку "
-            "замера от настоящей аномалии, а решение это геологическое. "
-            "Скопление отброшенных точек в одном месте обычно означает не "
-            "брак, а неучтённое тело.\n\n"
             "**Ураганные пробы: перцентиль обрезки** отсекает хвосты "
             "распределения до расчёта. Значение 1 означает, что отбрасывается "
             "по одному проценту с каждого края. Ноль выключает. Флажок "
@@ -6673,6 +6735,7 @@ class ExternalDriftKrigingAlgorithm(IsolinerAlgorithm):
 
     INPUT, ZFIELD = "INPUT", "ZFIELD"
     OUT_OUTLIERS = "OUT_OUTLIERS"
+    AZI_FIELD = "AZI_FIELD"
     VG_TABLE, VG_NAME = "VG_TABLE", "VG_NAME"
     KTYPE, SKMEAN, NUGGET = "KTYPE", "SKMEAN", "NUGGET"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
@@ -8230,6 +8293,8 @@ class SectionAlgorithm(IsolinerAlgorithm):
     OUTPUT_AXES, NAXES = "OUTPUT_AXES", "NAXES"
     OUTPUT_SURF = "OUTPUT_SURF"
     ZBASE = "ZBASE"
+    ZTOP = "ZTOP"
+    TICK_STEP = "TICK_STEP"
     OUTPUT_TABLE = "OUTPUT_TABLE"
 
     def tr(self, s): return _tr(s)
@@ -8294,7 +8359,20 @@ class SectionAlgorithm(IsolinerAlgorithm):
             "Тот же справочник подаётся в 4.02, и тогда полосы пластов "
             "и колонки скважин совпадают по цвету. Готовый стиль можно "
             "сохранить в .qml и дальше править штатными средствами "
-            "QGIS.") + _sampling_help() + _credit())
+            "QGIS.\n\n"
+            "**Низ и верх рамки** задают её отметками, а не по данным. "
+            "Чертёж часто продолжают вверх, чтобы вошли устья скважин, "
+            "отметки уровня воды или подписи, которых нет среди самих "
+            "поверхностей, и вниз - чтобы рамка была одинаковой на серии "
+            "разрезов. Указанный верх ниже низа отвергается: рамка "
+            "вывернулась бы наизнанку.\n\n"
+            "**Шаг отметок на осях** переводит подписи в ручной режим. По "
+            "умолчанию отметки выбираются округлёнными числами по их "
+            "количеству, и это удобно, пока рамка сама по данным. Когда "
+            "рамка задана числами, подписи хочется теми же числами: шаг "
+            "два от ста пятидесяти до ста семидесяти даёт ровно те "
+            "отметки, которые ожидаешь увидеть. Ноль возвращает "
+            "автоматический выбор.") + _sampling_help() + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -8395,6 +8473,14 @@ class SectionAlgorithm(IsolinerAlgorithm):
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.ZBASE, self.tr("Низ рамки, отметка (пусто: по данным)"),
             QgsProcessingParameterNumber.Type.Double, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.ZTOP, self.tr("Верх рамки, отметка (пусто: по данным)"),
+            QgsProcessingParameterNumber.Type.Double, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.TICK_STEP,
+            self.tr("Шаг отметок на осях (0 = по количеству выше)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.TICK_STEP, 0.0), minValue=0.0)))
 
         _restore_layer_defaults(self, (self.LINE, self.SURFACES))
 
@@ -8551,10 +8637,33 @@ class SectionAlgorithm(IsolinerAlgorithm):
                 if zbase < sm.zmin:
                     sm.zmin = zbase
                     sm.dz = sm.zmax - sm.zmin
+        # Верх рамки задаётся так же, как низ: чертёж часто продолжают
+        # вверх, чтобы вошли устья скважин, отметки уровня воды или
+        # подписи, которых нет среди самих поверхностей.
+        ztop = None
+        if parameters.get(self.ZTOP) is not None:
+            ztop = self.parameterAsDouble(parameters, self.ZTOP, context)
+            low = min(sm.zmin for sm in samples)
+            if ztop <= low:
+                raise QgsProcessingException(self.tr(
+                    "Верх рамки %.4g не выше низа %.4g: рамка вывернулась бы "
+                    "наизнанку.") % (ztop, low))
+            for sm in samples:
+                if ztop > sm.zmax:
+                    sm.zmax = ztop
+                    sm.dz = sm.zmax - sm.zmin
+
+        tick_step = self.parameterAsDouble(parameters, self.TICK_STEP,
+                                           context)
+        if tick_step > 0:
+            feedback.pushInfo(self.tr(
+                "Отметки на осях с шагом %.4g, а не по количеству: подписи "
+                "выйдут теми же числами, какими задана рамка.") % tick_step)
 
         vex = _sc.common_vex(samples, vmode, vscale)
         secs = [_sc.build_section(None, surfs, vex=vex, naxes=naxes,
-                                  samples=sm, zbase=zbase)
+                                  samples=sm, zbase=zbase, ztop=ztop,
+                                  tick_step=tick_step)
                 for sm in samples]
         if len(surfs) == 1:
             feedback.pushInfo(self.tr(
@@ -10403,6 +10512,7 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
     LINE_DEF, INPUT, ZFIELD, CORRIDOR, OUTPUT = (
         "LINE_DEF", "INPUT", "ZFIELD", "CORRIDOR", "OUTPUT")
     KEEPNAME, KEEPSTYLE = "KEEPNAME", "KEEPSTYLE"
+    ALL_SECTIONS = "ALL_SECTIONS"
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionProjectAlgorithm()
@@ -10422,6 +10532,14 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
             "кладётся поверх него.\n\nТак на разрез наносят аномалии, точки "
             "опробования, трассы, контуры - всё, что нужно увидеть в плоскости "
             "разреза.\n\n"
+            "Инструмент работает по ВСЕМ разрезам определения, а не по "
+            "первому. Каждый объект выносится на тот чертёж, к линии "
+            "которого он попал в коридор, и в атрибутах остаются имя "
+            "разреза и его номер - по ним результат делится на чертежи.\n\n"
+            "**Выносить на все разрезы** снимает отбор по коридору: объект "
+            "ложится на каждый чертёж. Это нужно для линий самих створов и "
+            "для объектов, общих на всю площадь, - по расстоянию они "
+            "попадали бы только на свой разрез.\n\n"
             "**Сохранять имя и стиль исходного слоя** - две галочки для "
             "тех, кто уже настроил оформление в плане. Имя выхода строится "
             "от имени источника, а оформление берётся у самого слоя, а не "
@@ -10450,6 +10568,10 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Объекты на разрезе (чертёж)")))
         self.addParameter(QgsProcessingParameterBoolean(
+            self.ALL_SECTIONS,
+            self.tr("Выносить на все разрезы (без отбора по коридору)"),
+            defaultValue=_dv(self, self.ALL_SECTIONS, False)))
+        self.addParameter(QgsProcessingParameterBoolean(
             self.KEEPNAME, self.tr("Сохранять имя исходного слоя"),
             defaultValue=_dv(self, self.KEEPNAME, False)))
         self.addParameter(QgsProcessingParameterBoolean(
@@ -10458,43 +10580,19 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
 
         _restore_layer_defaults(self, (self.LINE_DEF,))
 
-    def _process(self, parameters, context, feedback):
-        feedback.pushInfo(_version_line())
-        _saved = dict(parameters)
-        _remember_layers(self, parameters, context, _saved,
-                         single=(self.LINE_DEF,))
-        src = self.parameterAsSource(parameters, self.LINE_DEF, context)
-        isrc = self.parameterAsSource(parameters, self.INPUT, context)
-        if src is None or isrc is None:
-            raise QgsProcessingException(self.tr("Нужны определение и объекты."))
-        zfield = self.parameterAsString(parameters, self.ZFIELD, context)
-        corridor = self.parameterAsDouble(parameters, self.CORRIDOR, context)
-        line, vex, _st = _read_section_def(src)
-        if line is None:
-            raise QgsProcessingException(self.tr("В определении нет линии."))
-        feedback.pushInfo(_tr("Множитель vex из определения: %.4g.") % vex)
-
-        gtype = QgsWkbTypes.geometryType(isrc.wkbType())
-        wkb = {0: QgsWkbTypes.Type.Point, 1: QgsWkbTypes.Type.LineString,
-               2: QgsWkbTypes.Type.Polygon}.get(gtype, QgsWkbTypes.Type.Point)
-        fields = QgsFields(isrc.fields())
-        fields.append(QgsField("offset", QVariant.Double))
-        sink, dest = self.parameterAsSink(
-            parameters, self.OUTPUT, context, fields, wkb,
-            _section_draw_crs())
-
-        def proj_xy(x, y, z):
-            dd = float(line.lineLocatePoint(
-                QgsGeometry.fromPointXY(QgsPointXY(x, y))))
-            return QgsPointXY(dd, z * vex)
-
-        nfeat = nskip = 0
+    def _project_one(self, isrc, line, proj_xy, corridor, zfield, wkb,
+                     fields, sink, sec_name, sec_id, all_secs):
+        """Вынести объекты на один разрез. Возвращает (вынесено, пропущено)."""
+        n = nskip = 0
         for ft in isrc.getFeatures():
             g = ft.geometry()
             if g is None or g.isEmpty():
                 continue
             off = float(line.distance(g))
-            if corridor > 0 and off > corridor:
+            # Галочка «на все разрезы» снимает отбор по коридору: линии
+            # створов и общие для площади объекты нужны на каждом чертеже,
+            # а по расстоянию они попадают только на свой.
+            if not all_secs and corridor > 0 and off > corridor:
                 nskip += 1
                 continue
             zc = None
@@ -10506,7 +10604,7 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
             verts = []
             for v in g.vertices():
                 z = zc if zc is not None else v.z()
-                if z != z:        # nan
+                if z != z:                     # nan
                     z = 0.0
                 verts.append(proj_xy(v.x(), v.y(), z))
             if not verts:
@@ -10520,20 +10618,84 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
                 geom = QgsGeometry.fromPolygonXY([ring])
             fa = QgsFeature(fields)
             fa.setGeometry(geom)
-            fa.setAttributes(ft.attributes() + [round(off, 3)])
+            fa.setAttributes(list(ft.attributes())
+                             + [sec_name, sec_id, round(off, 4)])
             sink.addFeature(fa)
-            nfeat += 1
+            n += 1
+        return n, nskip
+
+    def _process(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.LINE_DEF,))
+        src = self.parameterAsSource(parameters, self.LINE_DEF, context)
+        isrc = self.parameterAsSource(parameters, self.INPUT, context)
+        if src is None or isrc is None:
+            raise QgsProcessingException(self.tr("Нужны определение и объекты."))
+        zfield = self.parameterAsString(parameters, self.ZFIELD, context)
+        corridor = self.parameterAsDouble(parameters, self.CORRIDOR, context)
+        # По всем разрезам определения, а не по первому. Прежде объекты
+        # выносились только на первый створ, хотя определение может нести
+        # десяток линий, и на остальных чертежах их не было вовсе.
+        defs = _read_section_defs(src)
+        if not defs:
+            raise QgsProcessingException(self.tr("В определении нет линии."))
+        all_secs = self.parameterAsBool(parameters, self.ALL_SECTIONS, context)
+        feedback.pushInfo(self.tr(
+            "Разрезов в определении: %d. Множитель vex первого: %.4g.")
+            % (len(defs), defs[0]["vex"]))
+        if all_secs:
+            feedback.pushInfo(self.tr(
+                "Коридор не применяется: объект выносится на каждый разрез. "
+                "Так удобно для линий створов и общих для площади объектов."))
+
+        gtype = QgsWkbTypes.geometryType(isrc.wkbType())
+        wkb = {0: QgsWkbTypes.Type.Point, 1: QgsWkbTypes.Type.LineString,
+               2: QgsWkbTypes.Type.Polygon}.get(gtype, QgsWkbTypes.Type.Point)
+        fields = QgsFields(isrc.fields())
+        names = [f.name() for f in fields]
+
+        def _uniq(base):
+            nm, k = base, 2
+            while nm in names:
+                nm, k = "%s_%d" % (base, k), k + 1
+            names.append(nm)
+            return nm
+
+        fields.append(QgsField(_uniq("sec"), QVariant.String))
+        fields.append(QgsField(_uniq("sec_id"), QVariant.Int))
+        fields.append(QgsField(_uniq("offset"), QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields, wkb,
+            _section_draw_crs())
+
+        nfeat = nskip = 0
+        for dd in defs:
+            line, vex = dd["line"], dd["vex"]
+            ox, oy = dd.get("ox", 0.0) or 0.0, dd.get("oy", 0.0) or 0.0
+
+            def proj_xy(x, y, z, _l=line, _v=vex, _ox=ox, _oy=oy):
+                d = float(_l.lineLocatePoint(
+                    QgsGeometry.fromPointXY(QgsPointXY(x, y))))
+                return QgsPointXY(d + _ox, z * _v + _oy)
+
+            n, ns = self._project_one(
+                isrc, line, proj_xy, corridor, zfield, wkb, fields, sink,
+                dd.get("sec") or "", int(dd.get("sec_id") or 0), all_secs)
+            nfeat += n
+            nskip += ns
+            if len(defs) > 1:
+                feedback.pushInfo(self.tr(
+                    "Разрез «%s»: вынесено %d, вне коридора %d.")
+                    % (dd.get("sec") or "?", n, ns))
         if nfeat == 0:
             raise QgsProcessingException(self.tr(
                 "Ни один объект не спроецирован (коридор или геометрия)."))
         feedback.pushInfo(_tr(
             "Спроецировано объектов: %d, пропущено вне коридора %d.")
             % (nfeat, nskip))
-        # Имя и стиль исходного слоя. Проекция сохраняет тип геометрии
-        # точек и линий, поэтому рендерер ложится один в один. Полигон
-        # проецируется полосой, то есть остаётся полигоном, и его стиль
-        # тоже подходит. Несовпадение типа возможно у линии с Z, дающей
-        # точку, и тогда остаётся штатный стиль, о чём сказано в журнал.
+
         keepname = self.parameterAsBool(parameters, self.KEEPNAME, context)
         keepstyle = self.parameterAsBool(parameters, self.KEEPSTYLE, context)
         one = self.parameterAsVectorLayer(parameters, self.INPUT, context)
@@ -10562,7 +10724,8 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
         if renderer is not None:
             _attach_style(context, dest, None, renderer=renderer)
         _save_values(self, _saved)
-        _set_group(context, GRP_SECTION, [dest], force=True, history=_provenance(self, parameters))
+        _set_group(context, GRP_SECTION, [dest], force=True,
+                   history=_provenance(self, parameters))
         return {self.OUTPUT: dest}
 
 
@@ -11630,10 +11793,17 @@ class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
             self.tr("Поле весов декластеризации (из 1.01)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
-        self.addParameter(QgsProcessingParameterNumber(
+        cs = QgsProcessingParameterNumber(
             self.CELL_SIZE, self.tr("Размер ячейки (0 = авто, min(охват)/50)"),
             QgsProcessingParameterNumber.Type.Double,
-            defaultValue=_dv(self, self.CELL_SIZE, 0.0), minValue=0.0))
+            defaultValue=_dv(self, self.CELL_SIZE, 0.0), minValue=0.0)
+        try:  # живой показ размера грида рядом с полем, как в 1.02
+            from .widgets import CellSizeWrapper, WRAPPER_AVAILABLE
+            if WRAPPER_AVAILABLE:
+                cs.setMetadata({"widget_wrapper": {"class": CellSizeWrapper}})
+        except Exception:  # nosec
+            pass
+        self.addParameter(cs)
         self.addParameter(QgsProcessingParameterNumber(
             self.NREAL, self.tr("Количество реализаций"),
             QgsProcessingParameterNumber.Type.Integer,
@@ -11901,10 +12071,17 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.ZFIELD, None)))
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Охват (0 = по точкам)"), optional=True))
-        self.addParameter(QgsProcessingParameterNumber(
+        cs = QgsProcessingParameterNumber(
             self.CELL_SIZE, self.tr("Размер ячейки (0 = авто, min(охват)/50)"),
             QgsProcessingParameterNumber.Type.Double,
-            defaultValue=_dv(self, self.CELL_SIZE, 0.0), minValue=0.0))
+            defaultValue=_dv(self, self.CELL_SIZE, 0.0), minValue=0.0)
+        try:  # живой показ размера грида рядом с полем, как в 1.02
+            from .widgets import CellSizeWrapper, WRAPPER_AVAILABLE
+            if WRAPPER_AVAILABLE:
+                cs.setMetadata({"widget_wrapper": {"class": CellSizeWrapper}})
+        except Exception:  # nosec
+            pass
+        self.addParameter(cs)
         self.addParameter(QgsProcessingParameterNumber(
             self.TENSION, self.tr("Натяжение (0 - мин. кривизна, 1 - мембрана)"),
             QgsProcessingParameterNumber.Type.Double,
@@ -11968,6 +12145,19 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
             cell = (min(width, height) / 50.0) or 1.0
         nx = max(int(math.ceil(width / cell)), 2)
         ny = max(int(math.ceil(height / cell)), 2)
+        # Размер сетки в первую же строку журнала: метод итерационный, и
+        # при мелкой ячейке счёт растянется надолго. Человеку надо видеть
+        # число ячеек до того, как он ушёл ждать, а не после.
+        total_cells = nx * ny
+        feedback.pushInfo(self.tr(
+            "Сетка: %d на %d, всего %s ячеек при размере ячейки %.4g.")
+            % (nx, ny, "{:,}".format(total_cells).replace(",", " "), cell))
+        if total_cells > 4_000_000:
+            feedback.pushWarning(self.tr(
+                "Ячеек больше четырёх миллионов. Метод итерационный, счёт "
+                "будет долгим: увеличьте размер ячейки или ограничьте "
+                "охват. Вдвое более крупная ячейка это вчетверо меньше "
+                "работы."))
 
         tension = self.parameterAsDouble(parameters, self.TENSION, context)
         btens = self.parameterAsDouble(

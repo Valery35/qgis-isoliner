@@ -619,3 +619,124 @@ def test_cell_mask_none_keeps_the_old_behaviour():
     a = kb2d.build_grid(xd, yd, vd, **kw)
     b = kb2d.build_grid(xd, yd, vd, cell_mask=None, **kw)
     assert np.array_equal(a, b)
+
+
+# --- локальная анизотропия -------------------------------------------------
+
+def test_axial_mean_treats_strike_as_an_axis():
+    """Простирание это ось: период 180 градусов, а не 360.
+
+    Азимуты 170 и 10 отличаются на двадцать градусов, а не на сто
+    шестьдесят, и среднее у них ноль. Обычное среднее даёт девяносто, то
+    есть перпендикуляр к истине, и ошибка тихая: карта вытянется поперёк
+    структуры и будет выглядеть закономерной.
+    """
+    m, _s = kb2d.axial_mean([170.0, 10.0])
+    assert min(abs(m - 0.0), abs(m - 180.0)) < 1e-6, "получилось %.1f" % m
+    m, _s = kb2d.axial_mean([350.0, 10.0])
+    assert min(abs(m - 0.0), abs(m - 180.0)) < 1e-6
+    m, _s = kb2d.axial_mean([80.0, 85.0, 90.0])
+    assert abs(m - 85.0) < 1e-6
+
+
+def test_axial_mean_reports_strength():
+    """Сила вытянутости отличает согласие от разнобоя."""
+    _m, strong = kb2d.axial_mean([80.0, 82.0, 84.0])
+    assert strong > 0.99
+    _m, weak = kb2d.axial_mean([0.0, 45.0, 90.0, 135.0])
+    assert weak < 0.05, "разнобой не распознан: %.3f" % weak
+    _m, none = kb2d.axial_mean([])
+    assert none == 0.0
+
+
+def test_rotated_keeps_everything_but_the_azimuth():
+    """Поворот меняет только направление главной оси."""
+    vg = kb2d.Variogram(0.5, [dict(it=1, cc=10.0, aa=300.0, ang=0.0,
+                                   anis=0.3)])
+    r = vg.rotated(90.0)
+    assert r.anis == vg.anis and r.cc == vg.cc and r.c0 == vg.c0
+    # ковариация вдоль главной оси одна и та же, только ось другая
+    assert abs(vg.cova2(0.0, 100.0) - r.cova2(100.0, 0.0)) < 1e-9
+    assert vg.cova2(100.0, 0.0) < 1e-6, "проверка потеряла смысл"
+    assert vg.rotated(90.0) is r, "кэш поворотов не работает"
+
+
+def test_local_azimuth_follows_a_curved_band():
+    """Оценка следует изогнутой полосе лучше, чем при одном азимуте.
+
+    Предложение В. Швалева. Модельная задача: аномальная полоса,
+    изогнутая по синусоиде, азимут задан в точках. Проверка числом, а не
+    на глаз: корреляция с истинным полем.
+    """
+    rng = np.random.default_rng(0)
+    n = 400
+    xs = rng.uniform(0.0, 2000.0, n)
+    ys = rng.uniform(0.0, 1200.0, n)
+
+    def axis(x):
+        return 500.0 + 300.0 * np.sin(x / 400.0)
+
+    val = np.exp(-((ys - axis(xs)) / 120.0) ** 2) * 100.0 \
+        + rng.normal(0.0, 4.0, n)
+    slope = 300.0 / 400.0 * np.cos(xs / 400.0)
+    azi = np.degrees(np.arctan2(1.0, slope)) % 180.0
+    vg = kb2d.Variogram(5.0, [dict(it=1, cc=600.0, aa=700.0, ang=0.0,
+                                   anis=0.25)])
+    kw = dict(ktype=1, skmean=0.0, ndmin=4, ndmax=24, rad2=600.0 ** 2,
+              nodata=-9999.0, xmn=0.0, ymn=0.0, cell=20.0, nx=100, ny=60)
+    plain = kb2d.build_grid(xs, ys, val, vg=vg, **kw)
+    local = kb2d.build_grid(xs, ys, val, vg=vg, azi=azi, **kw)
+    gx, gy = np.meshgrid(np.arange(100) * 20.0, (59 - np.arange(60)) * 20.0)
+    truth = np.exp(-((gy - axis(gx)) / 120.0) ** 2) * 100.0
+
+    def score(g):
+        m = g != -9999.0
+        return float(np.corrcoef(g[m], truth[m])[0, 1])
+
+    assert score(local) > score(plain) + 0.03, (
+        "локальная %.3f против глобальной %.3f" % (score(local),
+                                                   score(plain)))
+    assert score(local) > 0.97
+
+
+def test_azimuth_changes_nothing_without_anisotropy():
+    """При круговой модели поворот не может ничего изменить.
+
+    Контрольная проверка: если результат при anis=1 поехал, значит
+    поворот применяется не туда.
+    """
+    rng = np.random.default_rng(3)
+    xs = rng.uniform(0.0, 1000.0, 200)
+    ys = rng.uniform(0.0, 1000.0, 200)
+    v = rng.normal(50.0, 8.0, 200)
+    vg = kb2d.Variogram(1.0, [dict(it=1, cc=60.0, aa=400.0, ang=0.0,
+                                   anis=1.0)])
+    kw = dict(ktype=1, skmean=50.0, ndmin=1, ndmax=16, rad2=800.0 ** 2,
+              nodata=-9999.0, xmn=0.0, ymn=0.0, cell=25.0, nx=40, ny=40)
+    plain = kb2d.build_grid(xs, ys, v, vg=vg, **kw)
+    assert np.array_equal(plain, kb2d.build_grid(xs, ys, v, vg=vg, azi=None,
+                                                 **kw))
+    same = np.full(200, 45.0)
+    assert np.allclose(plain, kb2d.build_grid(xs, ys, v, vg=vg, azi=same,
+                                              **kw))
+
+
+def test_scattered_azimuths_fall_back_to_the_global_model():
+    """Разнобой направлений оставляет глобальную модель.
+
+    Выдумывать направление там, где его нет в данных, неправильно:
+    карта вытянется по случайности.
+    """
+    rng = np.random.default_rng(5)
+    xs = rng.uniform(0.0, 1000.0, 150)
+    ys = rng.uniform(0.0, 1000.0, 150)
+    v = rng.normal(10.0, 2.0, 150)
+    vg = kb2d.Variogram(0.5, [dict(it=1, cc=8.0, aa=400.0, ang=0.0,
+                                   anis=0.3)])
+    kw = dict(ktype=1, skmean=10.0, ndmin=1, ndmax=16, rad2=700.0 ** 2,
+              nodata=-9999.0, xmn=0.0, ymn=0.0, cell=25.0, nx=40, ny=40)
+    plain = kb2d.build_grid(xs, ys, v, vg=vg, **kw)
+    noise = rng.uniform(0.0, 180.0, 150)
+    assert np.allclose(plain, kb2d.build_grid(xs, ys, v, vg=vg, azi=noise,
+                                              **kw)), \
+        "при разнобое направление всё же применилось"

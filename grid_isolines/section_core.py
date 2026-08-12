@@ -202,6 +202,31 @@ def scale_caption_parts(mode, value, vex):
 
 # --- отметки осей --------------------------------------------------------
 
+def ticks_by_step(lo, hi, step, first=None):
+    """Отметки с заданным шагом, от first (или от округлённого lo).
+
+    Ручной режим рядом с автоматическим: когда рамка задана числами, и
+    подписи хочется в тех же числах, а не в округлённых по своему
+    разумению. Отметки за пределами рамки не выдаются: подпись вне
+    чертежа бесполезна.
+    """
+    step = float(step)
+    if step <= 0 or not (hi > lo):
+        return []
+    start = float(first) if first is not None else math.ceil(lo / step) * step
+    out = []
+    v = start
+    # Предел на случай крошечного шага при большом размахе: миллион
+    # подписей не нужен никому, а цикл должен кончиться.
+    for _ in range(100000):
+        if v > hi + 1e-9:
+            break
+        if v >= lo - 1e-9:
+            out.append(round(v, 6))
+        v += step
+    return out
+
+
 def nice_ticks(lo, hi, n):
     """Хорошо округлённые отметки между lo и hi. Шаг выбирается из ряда
     1, 2, 2.5, 5, 10 (×10^k) так, чтобы количество отметок было ближе всего к n."""
@@ -412,7 +437,8 @@ def common_vex(samples, mode, value):
 def build_section(vertices, surfaces, step=0.0, vmode=VMODE_ASPECT,
                   vscale=10.0, bilinear=True, naxes=5, pad_frac=0.05,
                   vex=None, with_table=True, table_labels=("d", "Аз"),
-                  samples=None, zbase=None):
+                  samples=None, zbase=None, ztop=None,
+                  tick_step=0.0, tick_first=None):
     """Построить разрез по линии и стопке поверхностей сверху вниз.
 
     vertices: список (x, y) вершин линии.
@@ -421,6 +447,10 @@ def build_section(vertices, surfaces, step=0.0, vmode=VMODE_ASPECT,
         законный случай: пластов нет, остаётся линия рельефа с рамкой, осями
         и определением разреза. Геологический разрез обычно с этого и
         начинается, а пласты появляются позже.
+    ztop: отметка верха рамки. Пусто - рамка по данным. Задаётся так же,
+        как zbase, и по той же причине: чертёж часто продолжают вверх,
+        чтобы вошли устья скважин или отметки уровня воды, которых нет
+        среди самих поверхностей.
     zbase: отметка низа рамки. Пусто - рамка по данным. С одной поверхностью
         рамка иначе обжимает рельеф и рисовать под ним негде.
     step: шаг выборки в единицах карты, 0 или меньше - по минимальной ячейке.
@@ -448,6 +478,11 @@ def build_section(vertices, surfaces, step=0.0, vmode=VMODE_ASPECT,
         zb = float(zbase)
         if zb < zmn:
             zmn = zb
+            dz = zmx - zmn
+    if ztop is not None:
+        zt = float(ztop)
+        if zt > zmx:
+            zmx = zt
             dz = zmx - zmn
 
     if vex is None:
@@ -491,7 +526,8 @@ def build_section(vertices, surfaces, step=0.0, vmode=VMODE_ASPECT,
                         "y": round(vertices[i][1], 2),
                         "az": round(az, 2)})
 
-    ticks = nice_ticks(zmn, zmx, naxes or 5)
+    ticks = (ticks_by_step(zmn, zmx, tick_step, tick_first)
+             if tick_step else nice_ticks(zmn, zmx, naxes or 5))
     table = table_cells(vd, seg_az, ybot, ytop, length, table_labels) \
         if with_table else []
 

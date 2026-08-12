@@ -303,6 +303,26 @@ Main parameters:
 
 ![For each node only wells within the search radius are taken, and no more than the set number of nearest ones. Points beyond the radius do not take part.](images/search_radius.png){width=56%}
 
+### Local anisotropy
+
+Normally the anisotropy is set by a single azimuth over the whole area. Where ore zones or geochemical haloes curve, that is not enough: the direction of elongation varies across the ground.
+
+A strike field in the points switches on the local mode. Every sample carries its own value in degrees from north, and in every cell the kriging averages it over the same measurements it takes into the computation. The whole system is then solved with one model: different models for different pairs of measurements would make the matrix not positive definite.
+
+The strike is understood as an axis rather than a direction. Its period is a hundred and eighty degrees, so 170 and 10 differ by twenty degrees rather than by a hundred and sixty, and the averaging goes through the doubled angle. A plain mean would give the perpendicular to the truth here, and the error would be a quiet one: the map would stretch across the structure and look perfectly regular.
+
+The anisotropy ratio stays common to the area: only the direction varies. A second varying parameter would make it possible to fit the map to expectation, and cross-validation would not show it.
+
+Where the directions of the neighbours disagree, no local rotation is applied and the global model works. Inventing a direction where the data hold none is wrong.
+
+Check the result by cross-validation on a held-out sample. Local anisotropy makes the map look like the geological idea, and therein lie both its strength and its danger: with a wrong strike the kriging will stretch the anomalies along the error.
+
+### Outliers as a separate layer
+
+The points discarded by trimming can be obtained as an output: the coordinates, the value and the reason - below or above which bound. The output is off by default.
+
+They are worth looking at. Percentile trimming does not tell a measurement error from a genuine anomaly, and that decision is a geological one: a cluster of discarded points in one place usually means an unaccounted body rather than bad data.
+
 ### Automatic values
 
 Cell size = min(extent width, height) / 50.
@@ -374,6 +394,10 @@ This is how the scheme looks on real data. A variogram is built from the wells: 
 ### Outlier removal
 
 Outliers are anomalously high (or erroneous) values that distort the estimate: a few grade "bonanzas" can pull the whole grade map onto themselves, while clear errors (e.g. a negative thickness) spoil the surface. The **2D Kriging** tool lets you bound such samples right during the computation, without editing the source data. The parameters are in the **Advanced** section.
+
+The discarded points can be obtained as a separate layer: the **Outliers** output gives the coordinates, the value and the reason - below or above which bound. The output is off by default.
+
+They are worth looking at. Percentile trimming does not tell a measurement error from a genuine anomaly, and that decision is a geological one: a cluster of discarded points in one place usually means an unaccounted body rather than bad data.
 
 Removal and capping are a crude practical tool against clear errors. For grades and chemistry be careful: extreme values are often not noise but signal (e.g. contamination spots), and blindly clipping the distribution tails is not worth it. For strongly skewed data it is more correct not to clip the samples but to transform them to something close to normal (logarithm, Box-Cox) or to use indicator kriging - that is beyond removal, but that is exactly how heavy tails are handled in the geostatistics of ores and contamination.
 
@@ -497,6 +521,8 @@ Free nodes start from the nearest data value, so convergence is fast on dense da
 | Grid (minimum curvature) | Output raster. | - |
 
 The output is an ordinary grid ready for **1.04 Isolines from raster**. The log prints the grid size, the number of data nodes, the number of iterations and the final residual. If the iteration cap is reached while the residual is still above the threshold, the tool warns about it.
+
+Next to the cell size field the size of the grid is shown: how many cells the given resolution produces. It is recomputed as you type. The method is iterative, and the number of cells has to be seen before the run rather than in the log after it: a cell twice as large means four times less work. Above four million cells the tool warns separately.
 
 ### Faults
 
@@ -2236,6 +2262,12 @@ The terrain comes out as the **Surface lines on the drawing** layer. Give it you
 
 Set the frame bottom by elevation in the advanced parameters for such a section. Without it the frame hugs the data with a small margin and there is no room to draw below the terrain. The elevation is taken into account before the vertical scale is computed, so in the aspect ratio mode the drawing comes out at the scale of exactly the frame you will see. An elevation above the data is ignored: this is the bottom of the frame, not a clip from above.
 
+The top of the frame is set the same way and for the same reason: a drawing is often extended upwards so that collars, water levels or labels fit in, things that are not among the surfaces themselves. A top below the bottom is rejected - the frame would be inside out.
+
+Along with the frame it is worth setting the **step of the elevation ticks**. By default the labels are chosen as rounded numbers by their count, which is convenient while the frame follows the data. Once the frame is set in numbers, the labels are wanted in the same numbers: a step of two with a frame from a hundred and fifty to a hundred and seventy gives exactly the ticks one expects. Zero returns the automatic choice.
+
+The pair is useful across a series of sections: the same frame and the same labels let the drawings be laid side by side on a sheet without adjustment.
+
 ### The layer tree sets the order of the surfaces
 
 This is the main thing to know about the tool. The order of the surfaces is not a detail of presentation but input data on a par with the grids themselves. It is what decides which band belongs to which bed.
@@ -2344,6 +2376,8 @@ All the section layers carry two common fields: **sec** with the section name an
 | Raster sampling (Adv.) | Bilinear or nearest. | bilinear |
 | Bed reference (table) | Colour, body and order from data. | empty |
 | Frame bottom, elevation (Adv.) | Lowers the frame so there is room to draw. Empty - from the data. | empty |
+| Frame top, elevation (Adv.) | Raises the frame: collars, water levels, labels. Empty - from the data. | empty |
+| Step of the elevation ticks (Adv.) | Labels with a given step instead of rounded by count. 0 - automatic. | 0 |
 | Surface lines on the drawing | The output line layer, one line per surface. | created |
 | Section drawing (distance × elevation) | The output polygon layer for a layout. Not created with a single surface. | created |
 | 3D fence (PolygonZ) | The output layer of vertical walls in real coordinates. Not created with a single surface. | created |
@@ -2634,6 +2668,12 @@ The **Project objects onto the section** tool projects points, lines and polygon
 
 This generalises the borehole projection to any objects: anomalies, sampling points, traces, outlines. The result is in the section axes, placed on top of the drawing.
 
+### Every section of the definition
+
+The tool works over all sections of the definition rather than the first one. Every object is projected onto the drawing whose line it fell within the corridor of, and the name of the section and its number stay in the attributes - the result is split into drawings by them. The drawings are spread apart by the offset from the definition, as in 4.01.
+
+The **Project onto every section** checkbox removes the corridor selection and an object lands on every drawing. This is needed for the section lines themselves and for objects common to the whole area: by distance they would reach only their own section.
+
 ### The name and the style of the source layer
 
 Two checkboxes for those who have already set up the presentation in plan. The output name is built from the name of the source, and the presentation is taken from the layer itself. A categorised style lands on the section as it is, and the legend stays the same. The same is done in **Vector intersection with the section** (4.05).
@@ -2651,6 +2691,24 @@ The **Unproject from the section** tool does the reverse: objects drawn on the s
 | Objects in plan (with Z elevation) | Output: objects in plan coordinates with restored elevation. | - |
 
 So an object drawn by hand on the section - an ore outline, a fault, a boundary - gets back into the plan and into 3D with a Z elevation.
+
+### The model manifest instead of a list of layers
+
+The **Model manifest** tool (5.05) records in the project properties what role every layer plays: the datum surface, a contact of a body, the collars, the intervals, the axis surveys, the reference. The section and the boreholes read this markup.
+
+If no surfaces are given in 4.01, every layer with the role of a body contact is taken, in the order of the layer tree. If the collars, the intervals or the inclinometry are not given in 4.02, each of these inputs is looked up by its own role. Whatever is taken from the manifest is named in the log, so that the substitution does not go unnoticed.
+
+There is one rule and it outranks convenience: the manifest shortens the path but does not become a condition of work. If there are no roles, because the project is foreign or inherited, everything works by explicit choice as before.
+
+
+### The round trip: correcting a contact on the section
+
+The cycle closes as follows. A geologist sees on the drawing that the contact of a bed is drawn wrongly and draws it correctly as a line in the section axes. The tool returns that line to plan with a Z elevation at every vertex.
+
+The **Return as vertices** checkbox turns the result into points. This is needed because the elevations then go into the building of a surface, and there observations are taken as points: in kriging such a point pins the surface exactly at a zero nugget, in Topo2Raster it becomes a hard node.
+
+The **src** field marks the origin. A contact taken off a section is an interpretation rather than a measurement, and in a common sample with boreholes it has to be told apart. By this field the point is given a smaller weight through the declustering weight field, and a drawing stops weighing as much as a borehole.
+
 
 ## 4.09 Shaft wall unwrap (beta)
 
