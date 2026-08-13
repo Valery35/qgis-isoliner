@@ -560,6 +560,76 @@ def test_module_functions_have_no_late_definitions():
                      + "\n  ".join(sorted(set(bad))))
 
 
+def test_methods_have_no_undefined_names():
+    """В методах классов не читаются имена, которых нигде нет.
+
+    Прежний сторож проверял только функции модуля, и обращение к
+    несуществующей переменной ВНУТРИ метода проскакивало: так в 3.06
+    осталось чтение nodata, которого в методе не было вовсе. Расчёт упал
+    бы при первом же прогоне с маской обрезки.
+
+    Проверка грубая намеренно: собираются все имена, присвоенные где
+    угодно в методе, поэтому порядок не учитывается - его ловит соседний
+    сторож. Здесь важно одно: имя должно существовать.
+    """
+    import ast as _ast
+    import builtins
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "algorithms.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    tree = _ast.parse(src)
+    known = set(dir(builtins))
+    known.update(("__file__", "__name__", "__doc__", "__package__", "self",
+                  "cls"))
+    for node in tree.body:
+        if isinstance(node, _ast.Assign):
+            for tgt in _ast.walk(node):
+                if isinstance(tgt, _ast.Name) and isinstance(tgt.ctx,
+                                                             _ast.Store):
+                    known.add(tgt.id)
+        elif isinstance(node, (_ast.FunctionDef, _ast.ClassDef)):
+            known.add(node.name)
+        elif isinstance(node, (_ast.Import, _ast.ImportFrom)):
+            for al in node.names:
+                known.add((al.asname or al.name).split(".")[0])
+
+    bad = []
+    for cls in [n for n in tree.body if isinstance(n, _ast.ClassDef)]:
+        class_names = set(known)
+        for st in cls.body:
+            if isinstance(st, _ast.Assign):
+                for tgt in _ast.walk(st):
+                    if isinstance(tgt, _ast.Name) and isinstance(tgt.ctx,
+                                                                 _ast.Store):
+                        class_names.add(tgt.id)
+        for fn in [n for n in cls.body if isinstance(n, _ast.FunctionDef)]:
+            local = set(class_names)
+            for node in _ast.walk(fn):
+                if isinstance(node, _ast.Name) and isinstance(node.ctx,
+                                                              _ast.Store):
+                    local.add(node.id)
+                elif isinstance(node, _ast.arg):
+                    local.add(node.arg)
+                elif isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                    for al in node.names:
+                        local.add((al.asname or al.name).split(".")[0])
+                elif isinstance(node, (_ast.FunctionDef, _ast.Lambda)):
+                    local.add(getattr(node, "name", "<lambda>"))
+                elif isinstance(node, _ast.ExceptHandler) and node.name:
+                    local.add(node.name)
+                elif isinstance(node, _ast.Global):
+                    local.update(node.names)
+            for node in _ast.walk(fn):
+                if (isinstance(node, _ast.Name)
+                        and isinstance(node.ctx, _ast.Load)
+                        and node.id not in local):
+                    bad.append("%s.%s: %s (строка %d)"
+                               % (cls.name, fn.name, node.id, node.lineno))
+    assert not bad, ("имя нигде не определено:\n  "
+                     + "\n  ".join(sorted(set(bad))))
+
+
 def test_module_functions_have_no_undefined_names():
     """В функциях модуля не читаются имена, которых нигде нет.
 

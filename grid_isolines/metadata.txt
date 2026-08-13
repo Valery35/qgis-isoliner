@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.6.38
+version=5.6.39
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,19 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.6.38
+changelog=5.6.39
+    - 3.06 «Гауссова симуляция» упала бы при обрезке по маске: в коде
+      читалась переменная nodata, которой в этом методе не было вовсе.
+      Замечание В. Хронусова по разбору кода.
+    - Заодно выяснилось, что 3.06 не объявляла значение пустоты и писала
+      растр без пометки: обрезка не имела бы смысла, потому что GDAL
+      нечем было бы заполнить вырезанное. Теперь пустота объявлена и
+      проставляется при записи, а нечисловые значения в неё
+      переводятся.
+    - Поставлен сторож на методы классов: имя, которого нигде нет, не
+      должно читаться. Прежний сторож проверял только функции модуля, и
+      ошибка внутри метода проскакивала.
+    5.6.38
     - В руководство добавлен абзац о скорости кригинга на густых данных.
       Строка про выпуск дописана в оба README, PDF пересобраны.
     5.6.37

@@ -12139,13 +12139,20 @@ class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
         drv = gdal.GetDriverByName("GTiff")
         opt = ["COMPRESS=LZW", "TILED=YES"]
 
+        # Значение пустоты объявляется явно. Прежде его не было вовсе:
+        # растр писался без пометки, и обрезка по маске не имела бы
+        # смысла - GDAL нечем было бы заполнить вырезанное.
+        nodata = -9999.0
+
         def _write(path, arr):
             ds = drv.Create(path, nx, ny, 1, gdal.GDT_Float32, options=opt)
             ds.SetGeoTransform(geotr)
             if wkt:
                 ds.SetProjection(wkt)
             b = ds.GetRasterBand(1)
-            b.WriteArray(arr); b.FlushCache()
+            b.SetNoDataValue(nodata)
+            b.WriteArray(np.where(np.isfinite(arr), arr, nodata))
+            b.FlushCache()
             ds = None
 
         res = {}
