@@ -913,3 +913,104 @@ def test_ticks_by_step_refuses_a_nonpositive_step():
     assert sc.ticks_by_step(150.0, 170.0, 0.0) == []
     assert sc.ticks_by_step(150.0, 170.0, -2.0) == []
     assert sc.ticks_by_step(170.0, 150.0, 2.0) == []
+
+
+# --- выбор разреза при обратном ходе ----------------------------------------
+
+def _load_pick():
+    """Достаём выбор разреза из algorithms без импорта QGIS."""
+    import ast
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "algorithms.py"), encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    body = [n for n in tree.body
+            if isinstance(n, ast.FunctionDef) and n.name == "pick_section_for"]
+    assert body, "pick_section_for не найдена"
+    ns = {"math": math}
+    exec(compile(ast.Module(body=body, type_ignores=[]), "<p>", "exec"), ns)
+    return ns["pick_section_for"]
+
+
+PICK = _load_pick()
+
+
+class _FakeLine(object):
+    def __init__(self, length):
+        self._length = float(length)
+
+    def length(self):
+        return self._length
+
+
+def _pit_walls():
+    """Четыре борта раскопа в ряд, как их раскладывает 4.01."""
+    return [
+        {"line": _FakeLine(20.0), "ox": 0.0, "oy": 0.0, "vex": 2.0,
+         "zmin": 0.0, "zmax": 3.0, "sec": "Б1"},
+        {"line": _FakeLine(15.0), "ox": 30.0, "oy": 0.0, "vex": 2.0,
+         "zmin": 0.0, "zmax": 3.0, "sec": "Б2"},
+        {"line": _FakeLine(20.0), "ox": 60.0, "oy": 0.0, "vex": 2.0,
+         "zmin": 0.0, "zmax": 3.0, "sec": "Б3"},
+        {"line": _FakeLine(15.0), "ox": 90.0, "oy": 0.0, "vex": 2.0,
+         "zmin": 0.0, "zmax": 3.0, "sec": "Б4"},
+    ]
+
+
+def test_object_returns_to_its_own_wall():
+    """Объект возвращается на линию своего разреза, а не первого.
+
+    Отчёт В. Швалева: у раскопа четыре борта, по каждому свой чертёж, и
+    нарисованные на них слои садились все на первый борт. Расстояние
+    вдоль оси отсчитано от начала своего разреза, и на чужой линии оно
+    указывает не туда.
+    """
+    walls = _pit_walls()
+    for x, want in ((5.0, "Б1"), (35.0, "Б2"), (65.0, "Б3"), (95.0, "Б4")):
+        got = walls[PICK(walls, x, 2.0)]["sec"]
+        assert got == want, "точка x=%.1f ушла на %s вместо %s" % (x, got,
+                                                                   want)
+
+
+def test_two_column_layout_is_told_apart_by_both_axes():
+    """Раскладка в две колонки различается и по вертикали."""
+    walls = [
+        {"line": _FakeLine(20.0), "ox": 0.0, "oy": 0.0, "vex": 2.0,
+         "zmin": 0.0, "zmax": 3.0, "sec": "Б1"},
+        {"line": _FakeLine(20.0), "ox": 30.0, "oy": 0.0, "vex": 2.0,
+         "zmin": 0.0, "zmax": 3.0, "sec": "Б2"},
+        {"line": _FakeLine(20.0), "ox": 0.0, "oy": -20.0, "vex": 2.0,
+         "zmin": 0.0, "zmax": 3.0, "sec": "Б3"},
+        {"line": _FakeLine(20.0), "ox": 30.0, "oy": -20.0, "vex": 2.0,
+         "zmin": 0.0, "zmax": 3.0, "sec": "Б4"},
+    ]
+    for (x, y), want in (((5.0, 3.0), "Б1"), ((35.0, 3.0), "Б2"),
+                         ((5.0, -17.0), "Б3"), ((35.0, -17.0), "Б4")):
+        assert walls[PICK(walls, x, y)]["sec"] == want
+
+
+def test_object_drawn_past_the_frame_takes_the_nearest_section():
+    """Вынос за рамку не теряется, а идёт к ближайшему чертежу."""
+    walls = _pit_walls()
+    assert walls[PICK(walls, 100.0, 5.0)]["sec"] == "Б4"
+    assert walls[PICK(walls, -5.0, 2.0)]["sec"] == "Б1"
+
+
+def test_definition_without_frame_fields_is_told_apart_horizontally():
+    """Слои от прежних версий без zmin и zmax различаются по горизонтали."""
+    walls = [
+        {"line": _FakeLine(20.0), "ox": 0.0, "oy": 0.0, "vex": 1.0,
+         "zmin": float("nan"), "zmax": float("nan"), "sec": "A"},
+        {"line": _FakeLine(20.0), "ox": 30.0, "oy": 0.0, "vex": 1.0,
+         "zmin": float("nan"), "zmax": float("nan"), "sec": "B"},
+    ]
+    assert walls[PICK(walls, 35.0, 999.0)]["sec"] == "B"
+    assert walls[PICK(walls, 5.0, -999.0)]["sec"] == "A"
+
+
+def test_single_section_keeps_the_old_behaviour():
+    """С одним разрезом выбор всегда падает на него."""
+    one = [{"line": _FakeLine(20.0), "ox": 0.0, "oy": 0.0, "vex": 1.0,
+            "zmin": 0.0, "zmax": 3.0, "sec": "Один"}]
+    for x in (-100.0, 0.0, 10.0, 500.0):
+        assert PICK(one, x, 0.0) == 0

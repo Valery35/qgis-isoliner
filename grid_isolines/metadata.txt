@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.6.31
+version=5.6.32
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,28 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.6.31
+changelog=5.6.32
+    - 4.08 «Спроецировать с разреза» работает по всем разрезам
+      определения, а не по первому. Объект возвращается на линию того
+      разреза, в чьей полосе чертежа он нарисован. Отчёт В. Швалева:
+      у раскопа четыре борта, по каждому свой чертёж, и нарисованные на
+      них слои садились все на первую стенку.
+    - Расстояние вдоль оси отсчитано от начала своего разреза, поэтому на
+      чужой линии оно указывало не туда. Разрез выбирается по положению
+      объекта на холсте: полосы чертежей не пересекаются, и различаются
+      они по обеим координатам, так что раскладка в несколько колонок
+      тоже работает.
+    - Объект, нарисованный с выносом за рамку, не теряется: берётся
+      ближайший чертёж. Определения от прежних версий без полей рамки
+      различаются по горизонтали.
+    - Тип геометрии сохраняется, как и прежде. Про полигон теперь сказано
+      прямо: он возвращается вертикальной площадью, в 3D это площадь, а в
+      плане полоса с нулевой площадью, и для расчётов по ней берут
+      вершины.
+    - В руководства добавлен раздел про раскоп: сбор контактов со всех
+      стенок, добавление снятых внутри точек кровли и разный вес
+      интерпретации и замера по полю src.
+    5.6.31
     - Руководства приведены в соответствие с инструментами. Описаны:
       локальная анизотропия и выход ураганных проб в 1.02, живой показ
       размера сетки в 1.03, работа по всем разрезам определения и

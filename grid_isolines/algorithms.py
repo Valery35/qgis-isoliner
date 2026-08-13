@@ -9380,6 +9380,44 @@ def _read_section_defs(src, default_vex=1.0):
     return out
 
 
+def pick_section_for(defs, x, y):
+    """Какому разрезу принадлежит точка чертежа (x, y).
+
+    Чертежи лежат на одном холсте, разнесённые смещением ox, oy из
+    определения. Каждый занимает свою полосу: по горизонтали от ox на
+    длину линии, по вертикали от oy на высоту рамки. Полосы не
+    пересекаются, поэтому принадлежность определяется однозначно.
+
+    Обратный ход обязан выбирать разрез по положению, а не брать первый:
+    объект, нарисованный на четвёртом чертеже, имеет расстояние,
+    отсчитанное от начала СВОЕГО разреза, и на чужую линию сядет не туда.
+
+    Возвращает индекс разреза. Если точка не попала ни в одну полосу,
+    берётся ближайшая по расстоянию до её прямоугольника - объект мог
+    быть нарисован с выносом за рамку.
+    """
+    best_i, best_d = 0, float("inf")
+    for i, d in enumerate(defs):
+        ox = float(d.get("ox") or 0.0)
+        oy = float(d.get("oy") or 0.0)
+        length = float(d["line"].length())
+        vex = float(d.get("vex") or 1.0) or 1.0
+        zmn, zmx = d.get("zmin"), d.get("zmax")
+        if zmn is None or zmx is None or zmn != zmn or zmx != zmx:
+            y0, y1 = -float("inf"), float("inf")
+        else:
+            y0, y1 = oy + float(zmn) * vex, oy + float(zmx) * vex
+        dx = 0.0 if ox <= x <= ox + length else min(abs(x - ox),
+                                                    abs(x - ox - length))
+        dy = 0.0 if y0 <= y <= y1 else min(abs(y - y0), abs(y - y1))
+        dist = math.hypot(dx, dy)
+        if dist < best_d:
+            best_i, best_d = i, dist
+        if dist == 0.0:
+            break
+    return best_i
+
+
 def _def_extent(d):
     """Размах рамки из определения или None, если полей не было."""
     zmn, zmx = d.get("zmin"), d.get("zmax")
@@ -10756,6 +10794,18 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
             "Z в реальной системе координат.\n\nТак нарисованный на разрезе "
             "объект (контур залежи, нарушение, граница) попадает обратно в план "
             "и в 3D.\n\n"
+            "Инструмент работает по ВСЕМ разрезам определения. Чертежи "
+            "лежат на одном холсте, разнесённые смещением, и объект "
+            "возвращается на линию того разреза, в чьей полосе он "
+            "нарисован. Расстояние вдоль оси отсчитано от начала своего "
+            "разреза, и на чужой линии оно указало бы не туда.\n\n"
+            "Так замыкается работа с раскопом или карьером: по каждой "
+            "стенке строится свой разрез, на нём геолог рисует слои по "
+            "ортофото, и всё возвращается в план каждое на свою стенку.\n\n"
+            "Тип геометрии сохраняется. Полигон возвращается вертикальной "
+            "площадью: в 3D это площадь, а в плане полоса на линии разреза "
+            "с нулевой площадью, поэтому для расчётов по нему берите "
+            "вершины.\n\n"
             "**Отдавать вершинами** превращает возвращённые линии и полигоны "
             "в точки с отметкой. Это нужно, когда контакт, поправленный на "
             "чертеже, идёт обратно в построение поверхности: и кригинг, и "
@@ -10796,13 +10846,24 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
         isrc = self.parameterAsSource(parameters, self.INPUT, context)
         if src is None or isrc is None:
             raise QgsProcessingException(self.tr("Нужны определение и объекты."))
-        line, vex, _st = _read_section_def(src)
-        if line is None:
+        # Все разрезы определения, а не первый. Чертежи лежат на одном
+        # холсте, разнесённые смещением, и объект возвращается на СВОЮ
+        # линию: расстояние вдоль оси отсчитано от начала своего разреза,
+        # и на чужой линии оно указывало бы не туда.
+        defs = _read_section_defs(src)
+        if not defs:
             raise QgsProcessingException(self.tr("В определении нет линии."))
-        if vex == 0:
-            vex = 1.0
-        feedback.pushInfo(_tr("Множитель vex из определения: %.4g.") % vex)
-        length = float(line.length())
+        for d in defs:
+            if not d.get("vex"):
+                d["vex"] = 1.0
+        if len(defs) > 1:
+            feedback.pushInfo(self.tr(
+                "Разрезов в определении: %d. Объект возвращается на линию "
+                "того разреза, в чьей полосе чертежа он нарисован.")
+                % len(defs))
+        else:
+            feedback.pushInfo(_tr("Множитель vex из определения: %.4g.")
+                              % defs[0]["vex"])
 
         gtype = QgsWkbTypes.geometryType(isrc.wkbType())
         wkb = {0: QgsWkbTypes.Type.PointZ, 1: QgsWkbTypes.Type.LineStringZ,
@@ -10823,17 +10884,30 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields, wkb, src.sourceCrs())
 
-        def back(px, py):
-            dd = min(max(px, 0.0), length)
+        def back(px, py, d):
+            line = d["line"]
+            vex = float(d["vex"]) or 1.0
+            ox = float(d.get("ox") or 0.0)
+            oy = float(d.get("oy") or 0.0)
+            dd = min(max(px - ox, 0.0), float(line.length()))
             p = line.interpolate(dd).asPoint()
-            return QgsPoint(p.x(), p.y(), py / vex)
+            return QgsPoint(p.x(), p.y(), (py - oy) / vex)
 
         n = 0
+        used = {}
         for ft in isrc.getFeatures():
             g = ft.geometry()
             if g is None or g.isEmpty():
                 continue
-            pts = [back(v.x(), v.y()) for v in g.vertices()]
+            # Разрез выбирается по первой вершине: объект целиком лежит на
+            # одном чертеже, полосы не пересекаются.
+            v0 = next(g.vertices(), None)
+            if v0 is None:
+                continue
+            di = pick_section_for(defs, v0.x(), v0.y())
+            d = defs[di]
+            used[d["sec"]] = used.get(d["sec"], 0) + 1
+            pts = [back(v.x(), v.y(), d) for v in g.vertices()]
             if not pts:
                 continue
             if as_pts:
@@ -10863,6 +10937,15 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
         if n == 0:
             raise QgsProcessingException(self.tr("Нет объектов для проекции."))
         feedback.pushInfo(_tr("Возвращено в план объектов: %d.") % n)
+        if len(defs) > 1:
+            for sec in sorted(used):
+                feedback.pushInfo(self.tr("  разрез «%s»: %d")
+                                  % (sec, used[sec]))
+        if wkb == QgsWkbTypes.Type.PolygonZ:
+            feedback.pushInfo(self.tr(
+                "Полигоны вернулись вертикальными площадями: в 3D это "
+                "площадь, а в плане полоса на линии разреза с нулевой "
+                "площадью. Для расчётов по ним берите вершины."))
         if as_pts:
             feedback.pushInfo(self.tr(
                 "Отданы вершинами: полученные точки с отметкой годятся как "

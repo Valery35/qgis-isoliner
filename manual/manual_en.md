@@ -2710,6 +2710,17 @@ The **Return as vertices** checkbox turns the result into points. This is needed
 The **src** field marks the origin. A contact taken off a section is an interpretation rather than a measurement, and in a common sample with boreholes it has to be told apart. By this field the point is given a smaller weight through the declustering weight field, and a drawing stops weighing as much as a borehole.
 
 
+### A pit: every wall at once
+
+At a pit or a quarry a section is built along every wall. The drawings lie side by side on one canvas, spread apart by the offset from the definition. The geologist draws the layers on every drawing from the orthophoto of the wall.
+
+The round trip returns the drawings to plan, and every object lands on the line of its own section: the tool picks the section by the band of the canvas the object was drawn in. The distance along the axis is measured from the start of its own section, and on another line it would point to the wrong place.
+
+The geometry type is preserved. Points return as points, lines as lines, polygons as vertical faces. A vertical face looks right in 3D, but in plan it is a band on the section line with zero area, so computations over it are done on the vertices.
+
+The contacts from all the walls are then gathered into one sample, the layer-top points surveyed inside the pit are added to them, and a surface is built over the whole. A contact off a section is an interpretation from a photograph while a surveyed point is an instrumental measurement, so the origin is worth tagging in the **src** field and given a different weight in the kriging.
+
+
 ## 4.09 Shaft wall unwrap (beta)
 
 The **Shaft wall unwrap** tool builds a cylindrical section. Around the shaft axis at a given radius a circle is taken with an angular step (1 degree by default), and the surface grids are sampled along it. The unwrap lies in axes of arc length along the circle and elevation.
