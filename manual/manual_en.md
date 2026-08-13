@@ -253,6 +253,16 @@ The tools are grouped into three Processing groups. The "Grid and isolines" grou
 
 # 1. Grid and isolines
 
+## The elevation from the geometry
+
+The value field Z is optional in kriging, minimum curvature, the variogram, the variogram map, both cross-validations and declustering. When no field is given, the elevation is taken from the third coordinate of the point.
+
+Data often arrive exactly like that: PointZ features from a survey or an export where the value is already in the geometry, and there is no point in creating a column for it.
+
+When the points carry both a Z in the geometry and a value field, the two may mean different things: the Z is usually the survey elevation while the field is the quantity being interpolated. For thicknesses and grades the field is given explicitly.
+
+A layer with no Z and no field is rejected with a message rather than failing in the middle of the run.
+
 ## 1.01 Declustering (weights)
 
 The tool prepares data before interpolation. When samples are clustered unevenly, some blocks drilled denser than others, the naive global statistics shift toward the over-sampled areas. If rich zones were drilled denser, the mean and histogram are overstated, and that directly affects reserve calculation. Cell declustering (a port of GSLIB **declus**) gives each sample a weight inversely proportional to the local density: less in a cluster, more on its own. A representative declustered mean is computed from the weighted data.
@@ -262,7 +272,7 @@ A grid of cells is laid over the area, a sample weight is proportional to one di
 | Parameter | Purpose | Default |
 | --- | --- | --- |
 | Points with values | Samples. | - |
-| Value field (Z) | Numeric field. | - |
+| Value field Z (empty: from the geometry) | Numeric field. | - |
 | Cell size | Auto (sweep) or manual. | Auto |
 | Cell size for manual mode | Cell side in manual mode. | 0 |
 | Sweep objective (Adv.) | Minimum or maximum mean. | Minimum |
@@ -287,7 +297,7 @@ Main parameters:
 |---|---|---|
 | Point layer | Source points (wells) for interpolation. | - |
 | Selected features only | Compute only over the layer's selected points. | off |
-| Value field (Z) | The numeric attribute that is interpolated: roof elevation, thickness, geomechanical property, chemistry, etc. | remembered between runs |
+| Value field Z (empty: from the geometry) | The numeric attribute that is interpolated: roof elevation, thickness, geomechanical property, chemistry, etc. | remembered between runs |
 | Value transform | ln for log-normal quantities (K, T, grades with a long tail): ln(Z) is kriged and the estimate is returned via exp. | none |
 | Kriging type | Ordinary (OK) - estimates the mean locally itself. Simple (SK) - uses the specified **Mean**. | OK |
 | Search radius | Radius of the search window for neighbouring points around a node. 0 = whole sample. | 0 (whole sample) |
@@ -508,7 +518,7 @@ Free nodes start from the nearest data value, so convergence is fast on dense da
 | Parameter | Purpose | Default |
 | --- | --- | --- |
 | Point layer | Samples with a value. | - |
-| Value field (Z) | Numeric field to interpolate. | - |
+| Value field Z (empty: from the geometry) | Numeric field to interpolate. | - |
 | Extent | Result rectangle. | from layer |
 | Cell size | 0 = auto, min(extent)/50. | 0 |
 | Tension | 0 = minimum curvature, 1 = membrane. | 0 |
@@ -523,6 +533,8 @@ Free nodes start from the nearest data value, so convergence is fast on dense da
 The output is an ordinary grid ready for **1.04 Isolines from raster**. The log prints the grid size, the number of data nodes, the number of iterations and the final residual. If the iteration cap is reached while the residual is still above the threshold, the tool warns about it.
 
 Next to the cell size field the size of the grid is shown: how many cells the given resolution produces. It is recomputed as you type. The method is iterative, and the number of cells has to be seen before the run rather than in the log after it: a cell twice as large means four times less work. Above four million cells the tool warns separately.
+
+Clipping by a mask works as in kriging: a polygon from the project or the convex hull of the points with a buffer. Beyond the area of the data the method continues the surface anyway, and that field is better removed at once.
 
 ### Faults
 
@@ -956,7 +968,7 @@ Parameters:
 | Parameter | What it sets | Default / advice |
 |---|---|---|
 | Points with values | Source points (wells). | - |
-| Value field Z | The numeric attribute being checked. | - |
+| Value field Z (empty: from the geometry) | The numeric attribute being checked. | - |
 | Well-number field | An ID field for labels in the report and residuals layer. | optional |
 | Kriging type, radius, min/max points, nugget, structures | Kriging and variogram settings. The check runs kriging with exactly these, so a good set carries into "2D Kriging" unchanged. | as in "2D Kriging" |
 | Remove polynomial trend | Regression kriging: the trend is refit at each LOO step, the gain shows in the RMSE. | off |
@@ -1029,7 +1041,7 @@ Three Surfer-style options are available. A **random subset** of N points speeds
 | Parameter | Purpose | Default |
 | --- | --- | --- |
 | Points with values | Samples. | - |
-| Value field (Z) | Numeric field. | - |
+| Value field Z (empty: from the geometry) | Numeric field. | - |
 | Well id field | For labels in the report. | - |
 | Method | Kriging or minimum curvature. | Kriging |
 | Points to validate | 0 = auto, min(N, 100). | 0 |
@@ -1888,6 +1900,8 @@ Parameters:
 | Probability level boundaries (lines) | Level lines carrying the class and the level. | optional |
 | Probability bands (polygons) | Bands between the levels with a ready colouring. | optional |
 
+Clipping by a mask is the same as in 1.02: a polygon from the project or the convex hull of the points with a buffer. The mask is applied to all three outputs - the probabilities, the zones and the confidence.
+
 ### How it is computed
 
 Coding the classes as numbers 1, 2, 3 and interpolating that code is not allowed. Categories have no order, class 3 is not "farther" than class 1, and a mean between them is meaningless. So the tool takes the indicator route. For each class an indicator is built: one where the borehole is of that class, zero everywhere else. Each indicator is kriged separately by ordinary kriging, like an ordinary field, and yields a surface from zero to one, which is the class probability. The indicator variogram is fitted automatically with a spherical model from the experimental one.
@@ -1948,7 +1962,7 @@ Parameters:
 | Parameter | What it sets | Default / advice |
 |---|---|---|
 | Point layer | Source points. | - |
-| Value field (Z) | The attribute being interpolated. | - |
+| Value field Z (empty: from the geometry) | The attribute being interpolated. | - |
 | External drift raster | A secondary surface s known everywhere. Same CRS as the points, covers the area. | - |
 | Drift raster band (Adv.) | The band of a multiband drift raster. | 1 |
 | Drift degree | A linear (a0+a1·s) or quadratic relation. | 1 (linear) |
@@ -2124,6 +2138,8 @@ Kriging gives a single smoothed surface and an estimation variance. Sequential G
 ![An SGS ensemble of realizations and the mean and uncertainty derived from it.](images/sgsim.png)
 
 How it works. The values are mapped to normal scores and the simulation runs in Gaussian space. The grid nodes are visited in random order; at each node simple kriging on the neighbours and already-simulated points gives a local mean and variance, a value is drawn from that normal distribution and immediately becomes conditioning for the next nodes. Boreholes are snapped to the nearest nodes and frozen across all realizations. At the end each realization is back-transformed to the original units. The normal-score variogram is fitted automatically with a sill close to one.
+
+Clipping by a mask is the same as in 1.02 and is applied to every realisation. On a large ensemble this takes noticeable time: if it gets in the way, clip the stack separately after the run.
 
 ### Parameters
 

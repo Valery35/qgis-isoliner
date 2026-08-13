@@ -751,3 +751,61 @@ def test_cell_size_shows_the_live_grid_hint():
             continue
         bad.append(cls.name)
     assert not bad, ("размер ячейки без живой подсказки: %s" % ", ".join(bad))
+
+
+def test_grid_tools_offer_a_clipping_mask():
+    """Инструмент, строящий растр по точкам, обязан уметь обрезку.
+
+    За пределами области данных любой такой метод экстраполирует, и
+    лишнее поле надо убирать. Кригинг умел это с самого начала, а
+    минимальная кривизна, индикаторный кригинг и гауссова симуляция нет,
+    хотя задача у них та же.
+
+    Кросс-валидация исключена: она не отдаёт растр площади, а считает
+    невязки в точках.
+    """
+    import ast as _ast
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "algorithms.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    tree = _ast.parse(src)
+    lines = src.splitlines(True)
+    skip = {"MethodCrossValidationAlgorithm", "DeclusteringAlgorithm"}
+    bad = []
+    for cls in [n for n in tree.body if isinstance(n, _ast.ClassDef)]:
+        if cls.name in skip:
+            continue
+        body = "".join(lines[cls.lineno - 1:cls.end_lineno])
+        if "CELL_SIZE" not in body or "_read_points(" not in body:
+            continue
+        if "add_mask_params" in body or "_add_kriging_params" in body:
+            continue
+        bad.append(cls.name)
+    assert not bad, ("растр по точкам без маски обрезки: %s" % ", ".join(bad))
+
+
+def test_value_field_is_optional_where_z_can_come_from_geometry():
+    """Поле значения необязательно там, где точки читаются общей функцией.
+
+    Данные часто приходят точками PointZ, где отметка уже в геометрии, и
+    заводить ради неё отдельный столбец незачем.
+    """
+    import ast as _ast
+    import os
+    import re
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "algorithms.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    tree = _ast.parse(src)
+    lines = src.splitlines(True)
+    bad = []
+    for cls in [n for n in tree.body if isinstance(n, _ast.ClassDef)]:
+        body = "".join(lines[cls.lineno - 1:cls.end_lineno])
+        if "_read_points(" not in body or "self.ZFIELD, self.tr" not in body:
+            continue
+        m = re.search(r'self\.ZFIELD, self\.tr\("[^"]+"\).*?\)\)', body,
+                      re.S)
+        if m and "optional=True" not in m.group(0):
+            bad.append(cls.name)
+    assert not bad, ("поле значения обязательно: %s" % ", ".join(bad))

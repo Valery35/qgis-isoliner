@@ -1331,11 +1331,22 @@ def _read_points(source, zfield, feedback=None,
                  vmin=None, vmax=None, pct=0.0, cap=False,
                  id_field=None, return_ids=False, request=None,
                  outliers_out=None):
-    idx = source.fields().lookupField(zfield)
-    if idx < 0:
-        raise QgsProcessingException(
-            _tr("Поле «%s» не найдено в слое. Выберите поле значения Z.")
-            % zfield)
+    # Поле значения необязательно: если оно не задано, отметка берётся из
+    # Z геометрии. Данные часто приходят именно так - точки PointZ из
+    # съёмки или выгрузки, где значение уже в третьей координате, и
+    # заводить ради него отдельный столбец незачем.
+    use_geom_z = not (zfield or "").strip()
+    idx = -1
+    if not use_geom_z:
+        idx = source.fields().lookupField(zfield)
+        if idx < 0:
+            raise QgsProcessingException(
+                _tr("Поле «%s» не найдено в слое. Выберите поле значения Z.")
+                % zfield)
+    elif not QgsWkbTypes.hasZ(source.wkbType()):
+        raise QgsProcessingException(_tr(
+            "Поле значения не задано, а геометрия слоя без Z. Укажите поле "
+            "или подайте слой с отметкой в геометрии."))
     id_idx = source.fields().lookupField(id_field) if id_field else -1
     xs, ys, vs = [], [], []
     ids = [] if return_ids else None
@@ -1348,23 +1359,30 @@ def _read_points(source, zfield, feedback=None,
         if g is None or g.isEmpty():
             skipped_geom += 1
             continue
-        v = f[idx]
-        if v is None:
-            skipped_value += 1
-            continue
-        try:
-            v = float(v)
-        except (TypeError, ValueError):
-            skipped_value += 1
-            continue
+        if use_geom_z:
+            cg = g.constGet()
+            v = cg.z() if cg is not None else None
+            if v is None or v != v:      # nan
+                skipped_value += 1
+                continue
+        else:
+            v = f[idx]
+            if v is None:
+                skipped_value += 1
+                continue
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                skipped_value += 1
+                continue
         p = g.asPoint()
-        xs.append(p.x()); ys.append(p.y()); vs.append(v)
+        xs.append(p.x()); ys.append(p.y()); vs.append(float(v))
         if return_ids:
             ids.append(f[id_idx] if id_idx >= 0 else f.id())
     if feedback is not None and (skipped_value or skipped_geom):
         feedback.pushInfo(
             _tr("Пропущено точек: %d без значения «%s»%s. Прочитано: %d.") %
-            (skipped_value, zfield,
+            (skipped_value, zfield or _tr("Z геометрии"),
              (_tr(" и %d без геометрии") % skipped_geom) if skipped_geom else "",
              len(xs)))
     if len(xs) < 2:
@@ -2223,6 +2241,50 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
     return out_path, nodata, (stderr_path if want_se else None)
 
 
+def clip_raster_by_mask(path, mask_layer, nodata, context, feedback):
+    """Обрезать готовый растр по полигональной маске, на месте.
+
+    Кригинг обрезает во время записи, а инструментам с собственным
+    выводом растра проще обрезать результат: пишется временный файл,
+    затем клипуется в конечный путь. Маска не задана - ничего не
+    делается.
+    """
+    if mask_layer is None or not path:
+        return path
+    import shutil
+    from qgis import processing
+    tmp = os.path.join(QgsProcessingUtils.tempFolder(),
+                       "clip_%s.tif" % uuid.uuid4().hex)
+    shutil.move(path, tmp)
+    feedback.pushInfo(_tr("Обрезка по маске…"))
+    processing.run("gdal:cliprasterbymasklayer", {
+        "INPUT": tmp, "MASK": mask_layer, "NODATA": nodata,
+        "CROP_TO_CUTLINE": False, "KEEP_RESOLUTION": True,
+        "OUTPUT": path,
+    }, context=context, feedback=feedback, is_child_algorithm=True)
+    return path
+
+
+def add_mask_params(alg):
+    """Маска обрезки: полигон из проекта либо выпуклая оболочка точек.
+
+    Тот же набор, что у кригинга, и с теми же именами: инструмент,
+    строящий растр по разбросанным точкам, за пределами области данных
+    всё равно экстраполирует, и обрезать это надо везде одинаково.
+    """
+    alg.addParameter(QgsProcessingParameterBoolean(
+        alg.CLIP_HULL, _tr("Обрезать по контуру скважин (выпуклая оболочка)"),
+        defaultValue=_dv(alg, alg.CLIP_HULL, False)))
+    alg.addParameter(QgsProcessingParameterNumber(
+        alg.HULL_BUFFER, _tr("Буфер оболочки, ед. карты"),
+        QgsProcessingParameterNumber.Type.Double,
+        defaultValue=_dv(alg, alg.HULL_BUFFER, 0.0), minValue=0.0))
+    alg.addParameter(QgsProcessingParameterVectorLayer(
+        alg.MASK,
+        _tr("Маска обрезки (полигон из проекта) - приоритетнее оболочки"),
+        [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
+
+
 def _write_outliers(alg, parameters, context, feedback, rows, crs, zfield):
     """Отброшенные ураганные пробы отдельным слоем.
 
@@ -2566,10 +2628,10 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
             self.INPUT, self.tr("Точки со значениями"),
             [QgsProcessing.SourceType.TypeVectorPoint]))
         self.addParameter(QgsProcessingParameterField(
-            self.ZFIELD, self.tr("Поле значения (Z)"),
+            self.ZFIELD, self.tr("Поле значения Z (пусто: из геометрии)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric,
-            defaultValue=_dv(self, self.ZFIELD, None)))
+            defaultValue=_dv(self, self.ZFIELD, None), optional=True))
         self.addParameter(QgsProcessingParameterEnum(
             self.MODE, self.tr("Размер ячейки"),
             options=[self.tr("Авто (свип по размеру)"),
@@ -2970,6 +3032,7 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
     вероятностей (полоса на класс), карта зон (самый вероятный класс) и
     уверенность. Кодом класса не кригует - у категорий нет порядка."""
     INPUT, CLASS_FIELD = "INPUT", "CLASS_FIELD"
+    CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
     WEIGHT_FIELD = "WEIGHT_FIELD"
     RADIUS, MIN_POINTS, MAX_POINTS = "RADIUS", "MIN_POINTS", "MAX_POINTS"
     FAULTS = "FAULTS"
@@ -3093,6 +3156,8 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
         except Exception:  # nosec
             pass
         self.addParameter(cs)
+        add_mask_params(self)
+
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Охват растра (по умолчанию - по слою)"),
             optional=True))
@@ -3572,6 +3637,12 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             "%d=%s" % (i, classes[i]) for i in range(K)))
         feedback.pushInfo(_tr(
             "Полосы растра вероятностей подписаны именами классов."))
+        mask_layer = _build_mask(self, parameters, context, feedback,
+                                 self.parameterAsVectorLayer(
+                                     parameters, self.INPUT, context))
+        if mask_layer is not None:
+            for _p in results.values():
+                clip_raster_by_mask(_p, mask_layer, nodata, context, feedback)
         _save_values(self, _saved)
         feedback.setProgress(100)
         _set_group(context, GRP_INDICATOR, list(results.values()), history=_provenance(self, parameters))
@@ -4298,8 +4369,8 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
             self.INPUT, self.tr("Точки со значениями"),
             types=[QgsProcessing.SourceType.TypeVectorPoint]))
         self.addParameter(QgsProcessingParameterField(
-            self.ZFIELD, self.tr("Поле значения Z"), parentLayerParameterName=self.INPUT,
-            type=QgsProcessingParameterField.DataType.Numeric))
+            self.ZFIELD, self.tr("Поле значения Z (пусто: из геометрии)"), parentLayerParameterName=self.INPUT,
+            type=QgsProcessingParameterField.DataType.Numeric, optional=True))
         self.addParameter(QgsProcessingParameterField(
             self.IDFIELD, self.tr("Поле номера скважины"),
             parentLayerParameterName=self.INPUT, optional=True))
@@ -5894,9 +5965,9 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
             self.INPUT, self.tr("Точки со значениями"),
             types=[QgsProcessing.SourceType.TypeVectorPoint]))
         self.addParameter(QgsProcessingParameterField(
-            self.ZFIELD, self.tr("Поле значения Z"),
+            self.ZFIELD, self.tr("Поле значения Z (пусто: из геометрии)"),
             parentLayerParameterName=self.INPUT,
-            type=QgsProcessingParameterField.DataType.Numeric))
+            type=QgsProcessingParameterField.DataType.Numeric, optional=True))
         self.addParameter(QgsProcessingParameterField(
             self.GROUP_FIELD,
             self.tr("Поле группировки (напр. вид разведки)"),
@@ -6336,9 +6407,9 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
             self.INPUT, self.tr("Точки со значениями"),
             types=[QgsProcessing.SourceType.TypeVectorPoint]))
         self.addParameter(QgsProcessingParameterField(
-            self.ZFIELD, self.tr("Поле значения Z"),
+            self.ZFIELD, self.tr("Поле значения Z (пусто: из геометрии)"),
             parentLayerParameterName=self.INPUT,
-            type=QgsProcessingParameterField.DataType.Numeric))
+            type=QgsProcessingParameterField.DataType.Numeric, optional=True))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
             self.tr("Поле весов декластеризации (из 1.01)"),
@@ -11811,6 +11882,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
 
 class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
     INPUT, FIELD = "INPUT", "FIELD"
+    CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
     WEIGHT_FIELD = "WEIGHT_FIELD"
     CELL_SIZE, EXTENT = "CELL_SIZE", "EXTENT"
     NREAL, MODEL = "NREAL", "MODEL"
@@ -11887,6 +11959,8 @@ class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
         except Exception:  # nosec
             pass
         self.addParameter(cs)
+        add_mask_params(self)
+
         self.addParameter(QgsProcessingParameterNumber(
             self.NREAL, self.tr("Количество реализаций"),
             QgsProcessingParameterNumber.Type.Integer,
@@ -12072,6 +12146,12 @@ class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
             _set_output_name(context, path, _tr("SGS вероятность превышения"))
             res[self.OUT_PROB] = path
 
+        mask_layer = _build_mask(self, parameters, context, feedback,
+                                 self.parameterAsVectorLayer(
+                                     parameters, self.INPUT, context))
+        if mask_layer is not None:
+            for _k, _p in res.items():
+                clip_raster_by_mask(_p, mask_layer, nodata, context, feedback)
         _save_values(self, _saved)
         feedback.setProgress(100)
         _set_group(context, GRP_SIM, list(res.values()),
@@ -12085,6 +12165,7 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
     (Briggs, 1974). Часто применяется для карт геофизических полей."""
 
     INPUT, ZFIELD = "INPUT", "ZFIELD"
+    CLIP_HULL, HULL_BUFFER, MASK = "CLIP_HULL", "HULL_BUFFER", "MASK"
     EXTENT, CELL_SIZE = "EXTENT", "CELL_SIZE"
     MAX_RESIDUAL, MAX_ITER, RELAX = "MAX_RESIDUAL", "MAX_ITER", "RELAX"
     TENSION, BOUNDARY_TENSION, ANISO = "TENSION", "BOUNDARY_TENSION", "ANISO"
@@ -12148,10 +12229,10 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
             self.INPUT, self.tr("Точечный слой"),
             [QgsProcessing.SourceType.TypeVectorPoint]))
         self.addParameter(QgsProcessingParameterField(
-            self.ZFIELD, self.tr("Поле значения (Z)"),
+            self.ZFIELD, self.tr("Поле значения Z (пусто: из геометрии)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric,
-            defaultValue=_dv(self, self.ZFIELD, None)))
+            defaultValue=_dv(self, self.ZFIELD, None), optional=True))
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Охват (0 = по точкам)"), optional=True))
         cs = QgsProcessingParameterNumber(
@@ -12165,6 +12246,8 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
         except Exception:  # nosec
             pass
         self.addParameter(cs)
+        add_mask_params(self)
+
         self.addParameter(QgsProcessingParameterNumber(
             self.TENSION, self.tr("Натяжение (0 - мин. кривизна, 1 - мембрана)"),
             QgsProcessingParameterNumber.Type.Double,
@@ -12315,6 +12398,12 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
             parameters, self.OUTPUT, context)
         _write_grid_tiff(out_path, grid.astype("float32"), geotr, wkt,
                          nodata, nx, ny, band_names=[zfield])
+        # Обрезка по маске: за пределами области данных метод всё равно
+        # экстраполирует, и лишнее поле лучше убрать сразу.
+        mask_layer = _build_mask(self, parameters, context, feedback,
+                                 self.parameterAsVectorLayer(
+                                     parameters, self.INPUT, context))
+        clip_raster_by_mask(out_path, mask_layer, nodata, context, feedback)
         _save_values(self, _saved)
         return {self.OUTPUT: out_path}
 
@@ -12381,10 +12470,10 @@ class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
             self.INPUT, self.tr("Точки со значениями"),
             [QgsProcessing.SourceType.TypeVectorPoint]))
         self.addParameter(QgsProcessingParameterField(
-            self.ZFIELD, self.tr("Поле значения (Z)"),
+            self.ZFIELD, self.tr("Поле значения Z (пусто: из геометрии)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric,
-            defaultValue=_dv(self, self.ZFIELD, None)))
+            defaultValue=_dv(self, self.ZFIELD, None), optional=True))
         self.addParameter(QgsProcessingParameterField(
             self.IDFIELD, self.tr("Поле номера скважины"),
             parentLayerParameterName=self.INPUT, optional=True))
