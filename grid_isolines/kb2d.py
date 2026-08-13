@@ -53,6 +53,23 @@ class Variogram:
         self.it = [int(s["it"]) for s in structures]
         self.cc = [float(s["cc"]) for s in structures]
         self.aa = [max(float(s["aa"]), EPS) for s in structures]
+        # У степенной модели «радиус» это показатель степени ω, а не
+        # расстояние: cov = pmx - cc·h^ω, и осмысленна она лишь при
+        # 0 < ω < 2. Радиус в метрах, попавший сюда по недосмотру, даёт
+        # h^3000 - переполнение и мусор вместо оценки.
+        #
+        # Проверка стоит в ядре, а не только в обвязке инструмента:
+        # вариограмма приходит ещё из таблицы моделей и из чужого кода,
+        # и защита обязана быть там, где живёт формула.
+        self.power_clamped = []
+        raw_aa = [float(s["aa"]) for s in structures]
+        for i, code in enumerate(self.it):
+            # Сравнивается ИСХОДНОЕ значение: self.aa уже поджато к EPS
+            # выше, и ноль превратился бы в крошечное положительное
+            # число, проскочив проверку.
+            if code == 4 and not (0.05 <= raw_aa[i] < 2.0):
+                self.power_clamped.append((i + 1, raw_aa[i]))
+                self.aa[i] = min(max(raw_aa[i], 0.05), 1.999)
         self.ang = [float(s["ang"]) for s in structures]
         self.anis = [max(float(s["anis"]), EPS) for s in structures]
         # Гауссова модель численно неустойчива при нулевом наггете -
@@ -216,8 +233,70 @@ def clip_outliers(values, vmin=None, vmax=None, pct=0.0, cap=False):
     return v, (v >= lo) & (v <= hi), lo, hi
 
 
+class InverseCache:
+    """Кэш обращённых матриц кригинга по набору соседей.
+
+    Матрица системы зависит только от того, КАКИЕ замеры попали в
+    окрестность, а правая часть - от положения ячейки. Наборы у соседних
+    ячеек часто совпадают, поэтому обращение считается один раз на
+    набор, а дальше оценка это одно матрично-векторное умножение.
+
+    Ключ - набор, отсортированный по индексу пробы, а не по расстоянию.
+    Порядок по расстоянию у каждой ячейки свой, и как ключ он бесполезен:
+    замер показал 9973 различных набора на 10000 ячеек против 4032 при
+    сортировке по индексу.
+
+    Локальный азимут в ключ не входит: он усредняется по тем же соседям,
+    поэтому одинаковый набор даёт одинаковую вариограмму. Проверено
+    замером - число записей с анизотропией и без совпадает.
+
+    Потолок нужен на густой сети, где наборы почти не повторяются: там
+    кэш растёт, а пользы не приносит. По достижении предела пополнение
+    прекращается, а расчёт продолжается как раньше.
+    """
+
+    __slots__ = ("data", "budget", "spent", "hits", "miss", "full")
+
+    def __init__(self, budget_mb=64.0):
+        self.data = {}
+        # Предел по ПАМЯТИ, а не по числу записей: при сорока восьми
+        # соседях одна матрица весит вчетверо больше, чем при двадцати
+        # четырёх, и потолок в тысячах записей означал бы то сорок
+        # мегабайт, то сто шестьдесят пять.
+        self.budget = float(budget_mb) * 1e6
+        self.spent = 0.0
+        self.hits = 0
+        self.miss = 0
+        self.full = False
+
+    def get(self, key):
+        got = self.data.get(key)
+        if got is None:
+            self.miss += 1
+        else:
+            self.hits += 1
+        return got
+
+    def put(self, key, value):
+        if self.full:
+            return
+        size = float(value.nbytes)
+        if self.spent + size > self.budget:
+            # Место кончилось: пополнение прекращается, расчёт идёт как
+            # прежде. Выбрасывать накопленное незачем - оно уже окупилось.
+            self.full = True
+            return
+        self.data[key] = value
+        self.spent += size
+
+    def rate(self):
+        total = self.hits + self.miss
+        return (self.hits / total) if total else 0.0
+
+
 def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
-                 ndmin, ndmax, rad2, nodata, bdx=None, bdy=None, cbb=None):
+                 ndmin, ndmax, rad2, nodata, bdx=None, bdy=None, cbb=None,
+                 cache=None, gid=None, vg_key=b""):
     """Кригинг в одной точке (или в блоке). Возвращает (оценка, дисперсия).
 
     Точечный кригинг (bdx=None или один узел дискретизации) воспроизводит пробу
@@ -241,12 +320,39 @@ def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
     # горстка. На густой сети это заметно: при десяти тысячах замеров
     # сортировка всей выборки для каждой ячейки съедала больше половины
     # времени.
+    # Ничья на границе отбора: на регулярной сети профилей два пикета
+    # часто стоят ровно на одинаковом расстоянии от узла, а место в
+    # выборке одно. Кого взять, решал порядок перебора, и он разный при
+    # разных путях отбора - отсюда расхождение оценки на сотую долю
+    # процента ячеек.
+    #
+    # Правило одно для обоих путей: при равных расстояниях берётся замер
+    # с меньшим ГЛОБАЛЬНЫМ номером. Решать это надо ДО усечения до
+    # ndmax, а не после: ничья и происходит на самой границе.
     if h2.size > ndmax:
+        # Полная сортировка не нужна: argpartition раскладывает за
+        # линейное время. Но граница отбора может рассекать группу
+        # равных расстояний, поэтому ничья решается отдельно и только
+        # среди тех, кто стоит ровно на пороговом расстоянии.
         cut = np.argpartition(h2, ndmax)[:ndmax]
-        order = cut[np.argsort(h2[cut])]
+        thr = float(h2[cut].max())
+        tie = np.nonzero(h2 == thr)[0]
+        if tie.size > 1:
+            keep = cut[h2[cut] < thr]
+            need = ndmax - keep.size
+            num = tie if gid is None else gid[tie]
+            tie = tie[np.argsort(num, kind="stable")][:need]
+            cut = np.concatenate([keep, tie])
+        order = cut[np.argsort(h2[cut], kind="stable")]
     else:
-        order = np.argsort(h2)
+        order = np.argsort(h2, kind="stable")
     sel = order[h2[order] <= rad2][:ndmax]
+    # Для кэша набор упорядочивается по индексу пробы: порядок по
+    # расстоянию у каждой ячейки свой и ключом быть не может. Значения
+    # берутся в том же порядке, поэтому оценка не меняется - меняется
+    # только нумерация уравнений внутри системы.
+    if cache is not None and len(sel):
+        sel = np.sort(sel)
     na = len(sel)
     if na < ndmin:
         return nodata, nodata
@@ -261,8 +367,15 @@ def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
         cbb = c0pt                           # точка по умолчанию
 
     # точечный кригинг: совпадение узла с пробой -> значение пробы, дисперсия 0
-    if not block and h2sel[0] < EPS:
-        return float(vra[0]), 0.0
+    # Узел совпал с пробой - возвращаем её значение. Ищется МИНИМУМ, а не
+    # первый элемент: при включённом кэше набор отсортирован по индексу
+    # пробы, и ближайшая уже не стоит первой. Раньше проверка смотрела
+    # h2sel[0] и после сортировки пропускала совпадение, отчего у самых
+    # проб оценка уезжала на десятки единиц.
+    if not block:
+        imin = int(np.argmin(h2sel))
+        if h2sel[imin] < EPS:
+            return float(vra[imin]), 0.0
 
     # правые ковариации: точка-точка либо среднее точка-блок
     if block:
@@ -293,27 +406,50 @@ def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
     jitter = c0pt * 1e-9                       # микро-регуляризация диагонали
 
     neq = na + ktype                         # +1 row for OK unbiasedness
-    A = np.empty((neq, neq))
+    # При попадании в кэш матрица не нужна вовсе: она уже обращена.
+    # Строить её и потом выбрасывать значило бы отдать назад весь
+    # выигрыш - сборка ковариаций дороже самого решения.
+    cached_inv = None
+    key = None
+    if cache is not None:
+        # Ключ строится из ГЛОБАЛЬНЫХ номеров проб. Локальные индексы
+        # годятся, только пока в решатель идёт весь набор: с разломами
+        # туда попадают лишь видимые замеры, и пятый видимый у разных
+        # ячеек - разная проба. Один ключ отвечал бы разным наборам, и
+        # матрица бралась бы чужая.
+        key = (sel if gid is None else gid[sel]).tobytes() + vg_key
+        cached_inv = cache.get(key)
+    A = None if cached_inv is not None else np.empty((neq, neq))
     r = np.empty(neq)
     # Матрица ковариаций строится разом, а не двойным циклом с вызовом
     # cova2 на каждую пару. При двадцати четырёх соседях это было 276
     # питоновских вызовов на КАЖДУЮ ячейку сетки, и именно они, а не
     # решение системы, съедали время: замер показывал полмиллисекунды на
     # ячейку и почти полную независимость от числа замеров.
-    A[:na, :na] = vg.cova2_array(xa[:, None] - xa[None, :],
-                                 ya[:, None] - ya[None, :])
-    np.fill_diagonal(A[:na, :na], c0pt + jitter)
+    if A is not None:
+        A[:na, :na] = vg.cova2_array(xa[:, None] - xa[None, :],
+                                     ya[:, None] - ya[None, :])
+        np.fill_diagonal(A[:na, :na], c0pt + jitter)
     r[:na] = rhs
     if ktype == 1:                           # ordinary kriging
-        A[na, :na] = vg.maxcov
-        A[:na, na] = vg.maxcov
-        A[na, na] = 0.0
+        if A is not None:
+            A[na, :na] = vg.maxcov
+            A[:na, na] = vg.maxcov
+            A[na, na] = 0.0
         r[na] = vg.maxcov
 
     est = None
     var = None
     try:
-        s = np.linalg.solve(A, r)
+        if cache is None:
+            s = np.linalg.solve(A, r)
+        else:
+            # Обращение вместо решения: считается один раз на набор, а
+            # дальше каждая ячейка стоит одно умножение.
+            if cached_inv is None:
+                cached_inv = np.linalg.inv(A)
+                cache.put(key, cached_inv)
+            s = cached_inv @ r
         if np.all(np.isfinite(s)):
             w = s[:na]
             e = float(np.dot(w, vra))
@@ -429,10 +565,69 @@ def axial_mean(angles, weights=None):
     return mean % 180.0, strength
 
 
+class BinGrid:
+    """Сетка бинов для отбора соседей на густых данных.
+
+    Без неё расстояние считается до КАЖДОГО замера на каждую ячейку, а
+    потом argpartition перебирает весь массив. При радиусе поиска в 3 км
+    и ста шестидесяти тысячах пикетов в радиус попадает пять процентов
+    точек, остальные девяносто пять перебираются впустую: замер показал
+    1200 микросекунд на ячейку против 90 на редкой сети.
+
+    Бин равен радиусу поиска, поэтому кандидаты всегда лежат в девяти
+    соседних бинах: дальше радиуса точка всё равно отсеется. Сетка
+    строится один раз за прогон - сотая доля секунды против сотни секунд
+    расчёта.
+
+    Отбор ТОЧНЫЙ: бины лишь сокращают перебор, а окончательное решение
+    принимает то же сравнение с радиусом, что и раньше. Оценка не
+    меняется ни в одной ячейке.
+    """
+
+    __slots__ = ("x0", "y0", "size", "nbx", "nby", "order", "starts", "ends")
+
+    def __init__(self, xd, yd, size):
+        self.size = float(size)
+        self.x0 = float(np.min(xd))
+        self.y0 = float(np.min(yd))
+        ix = ((xd - self.x0) // self.size).astype(np.int64)
+        iy = ((yd - self.y0) // self.size).astype(np.int64)
+        self.nbx = int(ix.max()) + 1
+        self.nby = int(iy.max()) + 1
+        key = iy * self.nbx + ix
+        self.order = np.argsort(key, kind="stable")
+        skey = key[self.order]
+        cells = np.arange(self.nbx * self.nby)
+        self.starts = np.searchsorted(skey, cells)
+        self.ends = np.searchsorted(skey, cells, side="right")
+
+    def candidates(self, xloc, yloc):
+        """Индексы замеров в девяти бинах вокруг точки."""
+        bx = int((xloc - self.x0) // self.size)
+        by = int((yloc - self.y0) // self.size)
+        parts = []
+        for jy in range(max(by - 1, 0), min(by + 2, self.nby)):
+            base = jy * self.nbx
+            lo = max(bx - 1, 0)
+            hi = min(bx + 2, self.nbx)
+            if lo >= hi:
+                continue
+            # Бины одной строки лежат в отсортированном ключе подряд,
+            # поэтому берётся один срез на строку, а не три.
+            s = self.starts[base + lo]
+            e = self.ends[base + hi - 1]
+            if e > s:
+                parts.append(self.order[s:e])
+        if not parts:
+            return np.empty(0, dtype=np.int64)
+        return parts[0] if len(parts) == 1 else np.concatenate(parts)
+
+
 def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                rad2, nodata, xmn, ymn, cell, nx, ny, progress=None,
                with_variance=False, ndisc=1, fault_segs=None,
-               cell_mask=None, azi=None, azi_min_strength=0.3):
+               cell_mask=None, azi=None, azi_min_strength=0.3,
+               use_cache=True, stats=None):
     """Sweep the grid, GSLIB order (north row first). Returns float32 (ny,nx).
 
     При with_variance=True возвращает кортеж (оценка, стд.ошибка), где второй
@@ -456,6 +651,19 @@ def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
     Приближение названо прямо: по видимости отбираются только соседи, а
     ковариации между самими замерами остаются евклидовыми. Занулять их
     нельзя, система потеряет положительную определённость."""
+    # Кэш обращённых матриц: один на прогон. Отключается при блочном
+    # кригинге - там правая часть усредняется по точкам блока, но матрица
+    # та же, так что кэш работает и там; отключать нечего.
+    cache = InverseCache() if use_cache else None
+    # Сетка бинов оправдана только на густых данных с ограниченным
+    # радиусом: на редкой сети перебор и так дёшев, а лишний слой съел бы
+    # выигрыш. Порог выбран по замеру - ниже тысячи точек разницы нет.
+    bins = None
+    if rad2 > 0 and len(xd) >= 1000:
+        try:
+            bins = BinGrid(xd, yd, math.sqrt(rad2))
+        except Exception:  # nosec - вырожденные данные: работаем как раньше
+            bins = None
     grid = np.full((ny, nx), nodata, dtype=np.float32)
     sgrid = np.full((ny, nx), nodata, dtype=np.float32) if with_variance else None
     bdx = bdy = None
@@ -477,28 +685,45 @@ def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                 continue          # массивы уже заполнены nodata
             xloc = xmn + ix * cell
             xs, ys, vs = xd, yd, vrd
+            gid = None                # индексы уже глобальные
             azs = azi if azi is not None else ()
+            if bins is not None:
+                # Сетка бинов: кандидаты вместо всей выборки. Отбор
+                # остаётся точным - радиус проверяется дальше, как и
+                # прежде, бины лишь сокращают перебор.
+                cand = bins.candidates(xloc, yloc)
+                if cand.size < ndmin:
+                    done += 1
+                    continue
+                xs, ys, vs = xd[cand], yd[cand], vrd[cand]
+                gid = cand
+                if azi is not None:
+                    azs = azi[cand]
             if fault_segs is not None and len(fault_segs):
                 # Замер за разломом в выборку не идёт. Сперва отсев по
                 # радиусу, и только потом видимость: проверять все точки
                 # площади для каждой ячейки незачем.
-                near = np.nonzero((xd - xloc) ** 2 + (yd - yloc) ** 2
+                near = np.nonzero((xs - xloc) ** 2 + (ys - yloc) ** 2
                                   <= rad2)[0] if rad2 > 0 else \
-                    np.arange(len(xd))
-                idx = near[visible_mask(xloc, yloc, xd[near], yd[near],
+                    np.arange(len(xs))
+                idx = near[visible_mask(xloc, yloc, xs[near], ys[near],
                                         fault_segs)]
                 if idx.size < ndmin:
                     grid[row, ix] = nodata
                     done += 1
                     continue
-                xs, ys, vs = xd[idx], yd[idx], vrd[idx]
+                # Индексы локальны внутри xs: если до этого работала
+                # сетка бинов, глобальный номер берётся через gid.
+                gid = idx if gid is None else gid[idx]
+                xs, ys, vs = xs[idx], ys[idx], vs[idx]
                 if azi is not None:
-                    azs = azi[idx]
+                    azs = azs[idx] if len(azs) else azs
             # Локальная анизотропия: направление берётся по замерам
             # окрестности, и вся система решается по ОДНОЙ модели. Разные
             # модели для разных пар сделали бы матрицу не положительно
             # определённой, и решение развалилось бы.
             vg_here = vg
+            vg_key = b""
             if azi is not None and len(azs):
                 if rad2 > 0:
                     sel = np.nonzero((xs - xloc) ** 2 + (ys - yloc) ** 2
@@ -512,15 +737,27 @@ def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                     a_loc, strength = axial_mean(azs[sel])
                     if strength >= azi_min_strength:
                         vg_here = vg.rotated(a_loc)
+                        # Азимут в ключ. Без разломов он следует из
+                        # набора соседей, а с разломами - нет: у двух
+                        # ячеек набор после отбора по расстоянию может
+                        # совпасть при разной видимости, и азимут тогда
+                        # разный. Восемь байт на запись дешевле, чем
+                        # полагаться на такое совпадение.
+                        vg_key = np.float64(round(a_loc, 3)).tobytes()
             e, v = _solve_point(
                 xloc, yloc, xs, ys, vs, vg_here, ktype, skmean,
-                ndmin, ndmax, rad2, nodata, bdx=bdx, bdy=bdy, cbb=cbb)
+                ndmin, ndmax, rad2, nodata, bdx=bdx, bdy=bdy, cbb=cbb,
+                cache=cache, gid=gid, vg_key=vg_key)
             grid[row, ix] = e
             if with_variance and e != nodata:
                 sgrid[row, ix] = math.sqrt(max(v, 0.0))
             done += 1
         if progress is not None:
             progress(done, total)
+    if cache is not None and cache.hits and stats is not None:
+        stats["cache_rate"] = cache.rate()
+        stats["cache_mb"] = cache.spent / 1e6
+        stats["cache_full"] = cache.full
     return (grid, sgrid) if with_variance else grid
 
 

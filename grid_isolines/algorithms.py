@@ -1777,6 +1777,17 @@ def _build_variogram(alg, parameters, context, nugget, auto_range, feedback=None
             _tr("Задан только наггет (структурный вклад C = 0): кригинг выродится "
             "в локальное среднее, поверхность будет почти плоской."))
     vg = Variogram(nugget, structures)
+    # Ядро приводит показатель степенной модели к разумному диапазону
+    # само - оно ловит и то, что пришло из таблицы моделей мимо этой
+    # обвязки. Сказать об этом обязано то место, где есть журнал.
+    if feedback is not None and getattr(vg, "power_clamped", None):
+        for num, was in vg.power_clamped:
+            feedback.pushWarning(_tr(
+                "Структура %d: у степенной модели поле «радиус a» это "
+                "показатель ω (0 < ω < 2), а не расстояние. Задано %.4g, "
+                "взято %.3f. При показателе в метрах ковариация "
+                "переполняется, и оценка выходит мусором.")
+                % (num, was, vg.aa[num - 1]))
     if feedback and vg.nugget_raised_from is not None:
         feedback.pushInfo(
             _tr("Гауссова модель: наггет повышен с %.4g до %.4g для устойчивости "
@@ -2099,13 +2110,21 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
                 % (azi_fld, ok, len(azi_arr)))
             azi_arr = np.where(np.isfinite(azi_arr), azi_arr, 0.0)
 
+    kstats = {}
     cmask = _mask_cells(mask_layer, context, xmn, ymn, cell, nx, ny,
                         feedback) if mask_layer is not None else None
     res = build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
                      rad2, nodata, xmn, ymn, cell, nx, ny, progress=prog,
                      with_variance=want_se, ndisc=ndisc, fault_segs=fsegs,
-                     cell_mask=cmask, azi=azi_arr)
+                     cell_mask=cmask, azi=azi_arr, stats=kstats)
     grid, segrid = res if want_se else (res, None)
+    if kstats.get("cache_rate"):
+        feedback.pushInfo(_tr(
+            "Кэш систем: попаданий %.0f%%, память %.0f МБ%s. Матрица "
+            "зависит только от набора соседей, и у соседних ячеек он часто "
+            "тот же самый.")
+            % (100.0 * kstats["cache_rate"], kstats.get("cache_mb", 0.0),
+               _tr(", предел исчерпан") if kstats.get("cache_full") else ""))
 
     # Дырки в гриде по разлому нет ни явной, ни случайной. Явную не
     # делаем: разрыв живёт в векторной части, изолинии режутся линией

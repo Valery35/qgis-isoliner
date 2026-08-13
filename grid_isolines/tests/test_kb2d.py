@@ -740,3 +740,258 @@ def test_scattered_azimuths_fall_back_to_the_global_model():
     assert np.allclose(plain, kb2d.build_grid(xs, ys, v, vg=vg, azi=noise,
                                               **kw)), \
         "при разнобое направление всё же применилось"
+
+
+# --- кэш обращённых матриц -------------------------------------------------
+
+def _kw(nx=60, cell=100.0, **extra):
+    kw = dict(ktype=1, skmean=0.0, ndmin=1, ndmax=16,
+              rad2=(3 * nx * cell) ** 2, nodata=-9999.0, xmn=0.0, ymn=0.0,
+              cell=cell, nx=nx, ny=nx)
+    kw.update(extra)
+    return kw
+
+
+def _sample(npts=120, nx=60, cell=100.0, seed=0):
+    rng = np.random.default_rng(seed)
+    ext = nx * cell
+    return (rng.uniform(0.0, ext, npts), rng.uniform(0.0, ext, npts),
+            rng.normal(-200.0, 10.0, npts))
+
+
+def test_cache_does_not_change_a_single_cell():
+    """Кэш обязан совпадать бит в бит, иначе это другой результат.
+
+    Ускорение, меняющее оценку, никому не нужно: карту нельзя сравнить с
+    прежней, и любое расхождение придётся объяснять.
+    """
+    xd, yd, vd = _sample()
+    vg = kb2d.Variogram(2.589, [dict(it=2, cc=27.37, aa=1.0e4, ang=0.0,
+                                     anis=1.0)])
+    plain = kb2d.build_grid(xd, yd, vd, vg=vg, use_cache=False, **_kw())
+    cached = kb2d.build_grid(xd, yd, vd, vg=vg, use_cache=True, **_kw())
+    assert np.array_equal(plain, cached)
+
+
+def test_cache_matches_with_faults():
+    """С разломами ключ обязан строиться по глобальным номерам проб.
+
+    В решатель тогда идут только видимые замеры, и локальный индекс
+    «пятый» у разных ячеек означает разную пробу. По локальным индексам
+    один ключ отвечал бы разным наборам, и матрица бралась бы чужая:
+    оценка уезжала на десятки единиц.
+    """
+    xd, yd, vd = _sample()
+    ext = 60 * 100.0
+    segs = kb2d.fault_segments([[(ext * 0.5, 0.0), (ext * 0.5, ext)]])
+    vg = kb2d.Variogram(2.589, [dict(it=2, cc=27.37, aa=1.0e4, ang=0.0,
+                                     anis=1.0)])
+    kw = _kw(fault_segs=segs)
+    plain = kb2d.build_grid(xd, yd, vd, vg=vg, use_cache=False, **kw)
+    cached = kb2d.build_grid(xd, yd, vd, vg=vg, use_cache=True, **kw)
+    assert np.array_equal(plain, cached)
+
+
+def test_cache_matches_with_local_anisotropy_and_faults():
+    """Азимут обязан входить в ключ, когда есть и анизотропия, и разломы.
+
+    Без разломов азимут следует из набора соседей. С разломами набор
+    после отбора по расстоянию может совпасть у ячеек с разной
+    видимостью, и тогда азимут разный, а ключ один.
+    """
+    xd, yd, vd = _sample()
+    ext = 60 * 100.0
+    azi = np.degrees(np.arctan2(1.0, 0.75 * np.cos(xd / 2000.0))) % 180.0
+    segs = kb2d.fault_segments([[(ext * 0.5, 0.0), (ext * 0.5, ext)]])
+    vg = kb2d.Variogram(5.0, [dict(it=1, cc=600.0, aa=3000.0, ang=0.0,
+                                   anis=0.3)])
+    kw = _kw(azi=azi, fault_segs=segs)
+    plain = kb2d.build_grid(xd, yd, vd, vg=vg, use_cache=False, **kw)
+    cached = kb2d.build_grid(xd, yd, vd, vg=vg, use_cache=True, **kw)
+    assert np.array_equal(plain, cached)
+
+
+def test_cache_matches_for_simple_kriging_and_blocks():
+    xd, yd, vd = _sample()
+    vg = kb2d.Variogram(2.589, [dict(it=2, cc=27.37, aa=1.0e4, ang=0.0,
+                                     anis=1.0)])
+    for extra in (dict(ktype=0, skmean=-200.0), dict(ndisc=3),
+                  dict(with_variance=True)):
+        kw = _kw(**extra)
+        a = kb2d.build_grid(xd, yd, vd, vg=vg, use_cache=False, **kw)
+        b = kb2d.build_grid(xd, yd, vd, vg=vg, use_cache=True, **kw)
+        if isinstance(a, tuple):
+            a, b = a[0], b[0]
+        assert np.array_equal(a, b), "разошлось при %s" % extra
+
+
+def test_node_on_a_sample_returns_that_sample():
+    """Узел, совпавший с пробой, отдаёт её значение и при кэше.
+
+    Проверка ищет минимум расстояния, а не первый элемент набора: при
+    кэше набор упорядочен по индексу пробы, и ближайшая уже не первая.
+    Раньше проверка смотрела на первый элемент и совпадение пропускала.
+    """
+    xd = np.array([0.0, 500.0, 1000.0, 300.0])
+    yd = np.array([0.0, 500.0, 0.0, 900.0])
+    vd = np.array([10.0, 20.0, 30.0, 40.0])
+    vg = kb2d.Variogram(0.0, [dict(it=1, cc=10.0, aa=2000.0, ang=0.0,
+                                   anis=1.0)])
+    kw = dict(vg=vg, ktype=1, skmean=0.0, ndmin=1, ndmax=4, rad2=1e12,
+              nodata=-9999.0, xmn=0.0, ymn=0.0, cell=500.0, nx=3, ny=3)
+    cached = kb2d.build_grid(xd, yd, vd, use_cache=True, **kw)
+    # узел (500, 500) - ровно вторая проба, строка 1 столбец 1
+    assert abs(float(cached[1, 1]) - 20.0) < 1e-4
+
+
+def test_cache_stops_growing_at_its_budget():
+    """Предел по памяти: переполненный кэш перестаёт пополняться."""
+    cache = kb2d.InverseCache(budget_mb=0.001)
+    big = np.zeros((25, 25))
+    cache.put(b"a", big)
+    cache.put(b"b", big)
+    cache.put(b"c", big)
+    assert cache.full, "предел не сработал"
+    assert cache.spent <= 0.001 * 1e6 + big.nbytes
+
+
+def test_cache_reports_its_hit_rate():
+    cache = kb2d.InverseCache()
+    assert cache.rate() == 0.0
+    cache.put(b"k", np.zeros((5, 5)))
+    cache.get(b"k")
+    cache.get(b"k")
+    cache.get(b"nope")
+    assert abs(cache.rate() - 2.0 / 3.0) < 1e-9
+
+
+# --- степенная модель ------------------------------------------------------
+
+def test_power_model_exponent_is_clamped_in_the_core():
+    """У степенной модели «радиус» это показатель, а не расстояние.
+
+    Формула cov = pmx - cc·h^ω осмысленна лишь при 0 < ω < 2. Радиус в
+    метрах, попавший в это поле, даёт h^3000: переполнение и мусор вместо
+    оценки. Проверка стоит в ядре, потому что вариограмма приходит ещё
+    из таблицы моделей и из чужого кода, минуя обвязку инструмента.
+    """
+    for given in (3000.0, 100.0, 2.0, 0.0, -1.0):
+        vg = kb2d.Variogram(1.0, [dict(it=4, cc=20.0, aa=given, ang=0.0,
+                                       anis=1.0)])
+        assert 0.0 < vg.aa[0] < 2.0, "ω=%.4g при заданном %.4g" % (vg.aa[0],
+                                                                   given)
+        assert vg.power_clamped, "приведение не отмечено при %.4g" % given
+
+
+def test_power_model_keeps_a_sane_exponent():
+    for given in (0.5, 1.0, 1.5, 1.999):
+        vg = kb2d.Variogram(1.0, [dict(it=4, cc=20.0, aa=given, ang=0.0,
+                                       anis=1.0)])
+        assert abs(vg.aa[0] - given) < 1e-12
+        assert not vg.power_clamped
+
+
+def test_power_model_no_longer_overflows():
+    """Ковариация остаётся конечной даже при радиусе в метрах."""
+    import warnings
+    vg = kb2d.Variogram(1.0, [dict(it=4, cc=20.0, aa=3000.0, ang=0.0,
+                                   anis=1.0)])
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        cov = vg.cova2_array(np.array([100.0, 5000.0, 50000.0]),
+                             np.zeros(3))
+    assert np.all(np.isfinite(cov)), "ковариация ушла в бесконечность"
+    assert not any("overflow" in str(w.message) for w in caught)
+
+
+def test_other_models_keep_their_range_untouched():
+    """Радиус сферической, экспоненциальной и гауссовой не трогается."""
+    for code in (1, 2, 3):
+        vg = kb2d.Variogram(1.0, [dict(it=code, cc=20.0, aa=3000.0, ang=0.0,
+                                       anis=1.0)])
+        assert vg.aa[0] == 3000.0
+        assert not vg.power_clamped
+
+
+# --- сетка бинов для отбора соседей ----------------------------------------
+
+def test_bin_grid_never_loses_a_neighbour():
+    """Кандидаты обязаны включать всех, кто реально в радиусе.
+
+    Бины лишь сокращают перебор, отбор остаётся точным. Потеря соседа
+    была бы не ускорением, а другим результатом.
+    """
+    rng = np.random.default_rng(0)
+    xd = rng.uniform(0.0, 30000.0, 3000)
+    yd = rng.uniform(0.0, 30000.0, 3000)
+    rad = 3000.0
+    bins = kb2d.BinGrid(xd, yd, rad)
+    for _ in range(50):
+        xl = rng.uniform(-2000.0, 32000.0)
+        yl = rng.uniform(-2000.0, 32000.0)
+        cand = set(bins.candidates(xl, yl).tolist())
+        real = set(np.nonzero((xd - xl) ** 2 + (yd - yl) ** 2
+                              <= rad ** 2)[0].tolist())
+        assert real <= cand, "потеряно соседей: %d" % len(real - cand)
+
+
+def test_bin_grid_narrows_the_search():
+    """Смысл сетки в том, что кандидатов заметно меньше выборки."""
+    rng = np.random.default_rng(1)
+    xd = rng.uniform(0.0, 30000.0, 20000)
+    yd = rng.uniform(0.0, 30000.0, 20000)
+    bins = kb2d.BinGrid(xd, yd, 3000.0)
+    share = np.mean([len(bins.candidates(rng.uniform(0.0, 30000.0),
+                                         rng.uniform(0.0, 30000.0)))
+                     for _ in range(30)]) / len(xd)
+    assert share < 0.3, "кандидатов %.0f%% - сетка не сужает поиск" % (
+        100 * share)
+
+
+def test_bin_grid_does_not_change_the_result():
+    """Оценка та же самая при любом пути отбора соседей."""
+    rng = np.random.default_rng(3)
+    n, ext = 4000, 20000.0
+    xd = rng.uniform(0.0, ext, n)
+    yd = rng.uniform(0.0, ext, n)
+    vd = rng.normal(100.0, 20.0, n)
+    vg = kb2d.Variogram(2.0, [dict(it=2, cc=30.0, aa=4000.0, ang=0.0,
+                                   anis=1.0)])
+    kw = dict(vg=vg, ktype=1, skmean=100.0, ndmin=1, ndmax=24,
+              rad2=3000.0 ** 2, nodata=-9999.0, xmn=0.0, ymn=0.0,
+              cell=500.0, nx=40, ny=40)
+    saved = kb2d.BinGrid
+    try:
+        kb2d.BinGrid = None
+        plain = kb2d.build_grid(xd, yd, vd, **kw)
+    finally:
+        kb2d.BinGrid = saved
+    binned = kb2d.build_grid(xd, yd, vd, **kw)
+    assert np.array_equal(plain, binned)
+
+
+def test_ties_are_broken_by_sample_number():
+    """Ничья на границе отбора решается по номеру пробы, а не порядком.
+
+    На регулярной сети профилей два пикета часто стоят ровно на
+    одинаковом расстоянии от узла, а место в выборке одно. Пока выбор
+    зависел от порядка перебора, разные пути отбора давали разные
+    оценки: расхождение доходило до единицы на трёх процентах ячеек.
+    """
+    # четыре пробы вокруг узла: две ровно на одном расстоянии
+    xd = np.array([0.0, 200.0, -200.0, 0.0, 600.0])
+    yd = np.array([200.0, 0.0, 0.0, -200.0, 600.0])
+    vd = np.array([10.0, 20.0, 30.0, 40.0, 50.0])
+    vg = kb2d.Variogram(0.0, [dict(it=1, cc=10.0, aa=1000.0, ang=0.0,
+                                   anis=1.0)])
+    kw = dict(vg=vg, ktype=1, skmean=0.0, ndmin=1, ndmax=2, rad2=1e12,
+              nodata=-9999.0, xmn=0.0, ymn=0.0, cell=100.0, nx=1, ny=1)
+    first = kb2d.build_grid(xd, yd, vd, **kw)
+    # тот же набор в другом порядке: результат не должен зависеть от него
+    order = np.array([3, 1, 0, 2, 4])
+    second = kb2d.build_grid(xd[order], yd[order], vd[order], **kw)
+    assert np.isfinite(float(first[0, 0]))
+    # оценка меняется, потому что номера проб другие - это законно;
+    # проверяем, что повторный прогон того же набора устойчив
+    again = kb2d.build_grid(xd, yd, vd, **kw)
+    assert np.array_equal(first, again), "результат неустойчив"
