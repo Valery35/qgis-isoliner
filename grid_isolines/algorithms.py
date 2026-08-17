@@ -2476,6 +2476,10 @@ def _add_isoline_params(alg):
         alg.MIN_LENGTH, _tr("Мин. длина линии, ед. карты (0 = без фильтра)"),
         QgsProcessingParameterNumber.Type.Double,
         defaultValue=_dv(alg, alg.MIN_LENGTH, 0.0), minValue=0.0))
+    alg.addParameter(_advanced(QgsProcessingParameterNumber(
+        alg.THIN, _tr("Прореживание контуров, доля ячейки (0 = выкл.)"),
+        QgsProcessingParameterNumber.Type.Double,
+        defaultValue=_dv(alg, alg.THIN, 0.25), minValue=0.0, maxValue=2.0)))
     alg.addParameter(QgsProcessingParameterEnum(
         alg.DENSIFY, _tr("Бикубическое сглаживание изолиний (сгущение грида)"),
         options=[_tr("выкл."), "×2", "×3", "×4"],
@@ -3676,6 +3680,7 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
     INPUT, BAND = "INPUT", "BAND"
     INTERVAL, BASE, LEVELS = "INTERVAL", "BASE", "LEVELS"
     INDEX_EVERY, MIN_LENGTH = "INDEX_EVERY", "MIN_LENGTH"
+    THIN = "THIN"
     SMOOTH = "SMOOTH"
     SMOOTH_LINE_ITER = "SMOOTH_LINE_ITER"
     DENSIFY = "DENSIFY"
@@ -3716,6 +3721,17 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
             "сглаживания, сильнее скругления линий (Chaikin). Работает и для "
             "линий, и для контурных полигонов: границы поясов совпадают с "
             "изолиниями.\n\n"
+            "**Прореживание контуров** задаётся долей ячейки исходного "
+            "грида, по умолчанию четверть. Контур из грида несёт вершину "
+            "почти на каждом пересечении ячейки, и кольцо в двадцать тысяч "
+            "вершин это не геология, а неупрощённый растр. При допуске "
+            "в четверть ячейки разница на глаз незаметна, а вес слоя и "
+            "время дальнейшего разбора падают заметно. Ноль возвращает "
+            "прежнее поведение, вершина на каждом пересечении.\n\n"
+            "Прореживание идёт по линиям, до сборки поясов, поэтому общая "
+            "граница соседних поясов остаётся общей. Прореживать готовые "
+            "полигоны по отдельности нельзя: у соседей разошлись бы стыки "
+            "и между поясами появились бы щели.\n\n"
             "По умолчанию строит и "
             "контурные полигоны (пояса между изолиниями) во временный слой - их "
             "границы СОВПАДАЮТ с изолиниями, покрытие сплошное. Чтобы их не "
@@ -3847,6 +3863,7 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
         levels = self.parameterAsString(parameters, self.LEVELS, context)
         index_every = self.parameterAsInt(parameters, self.INDEX_EVERY, context)
         min_len = self.parameterAsDouble(parameters, self.MIN_LENGTH, context)
+        thin = self.parameterAsDouble(parameters, self.THIN, context)
         sm_line = self.parameterAsInt(parameters, self.SMOOTH_LINE_ITER, context)
         densify = (1, 2, 3, 4)[self.parameterAsInt(
             parameters, self.DENSIFY, context)]
@@ -3922,7 +3939,7 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
                 min_len, False, 0.0, densify, sm_line, field_name, True, nodata,
                 out_dest, poly_dest, context, feedback, slope_ref=slope_ref,
                 uphill_ref=uphill_ref, min_thick=min_thick, faults=faults_id,
-                corridor=corridor, with_z=add_z,
+                corridor=corridor, with_z=add_z, thin=thin,
                 hatch_flip={0: 0, 1: 1, 2: -1}[self.parameterAsEnum(
                     parameters, self.HATCH, context)])
             out, poly = res["lines"], res["polygons"]
@@ -3958,7 +3975,7 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
                                                 context),
                 conf_frac=self.parameterAsDouble(parameters, self.CONF_FRAC,
                                                  context),
-                faults=faults_id, corridor=corridor,
+                faults=faults_id, corridor=corridor, thin=thin,
                 hatch_flip={0: 0, 1: 1, 2: -1}[self.parameterAsEnum(
                     parameters, self.HATCH, context)])
             if add_z:

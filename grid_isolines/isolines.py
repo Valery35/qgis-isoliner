@@ -1099,15 +1099,36 @@ def _drop_fid(processing, layer_id, context, feedback):
     }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
 
 
+def _pixel_size(raster):
+    """Размер ячейки растра в единицах карты, ноль при неудаче."""
+    try:
+        from osgeo import gdal
+        ds = gdal.Open(raster)
+        if ds is None:
+            return 0.0
+        gt = ds.GetGeoTransform()
+        return abs(float(gt[1])) or 0.0
+    except Exception:
+        return 0.0
+
+
 def _contour_lines(processing, raster, band, interval, base, levels,
                    min_length, line_iter, field_name, ignore_nodata, nodata,
-                   context, feedback, confidence=0, conf_frac=0.01):
+                   context, feedback, confidence=0, conf_frac=0.01,
+                   thin=0.0):
     """Изолинии-линии (без флага is_index). Сглаживание поля (растра) делается
     до контуринга (см. _prep_raster) - это убирает пересечения. Дополнительно
     линии можно слегка СКРУГЛИТЬ (Chaikin, line_iter итераций): поле уже
     гладкое, контуры разнесены, поэтому скругление не создаёт пересечений, но
     убирает «октагоны» от грубого грида. Общее ядро для линий и для границ
-    полигонов: геометрия гарантированно совпадает."""
+    полигонов: геометрия гарантированно совпадает.
+
+    thin - прореживание контура, доля ячейки. Контур из грида несёт вершину
+    почти на каждом пересечении ячейки, и кольцо в двадцать тысяч вершин это
+    не геология, а неупрощённый растр. Прореживание стоит здесь и только
+    здесь: линии и границы поясов выходят из одного набора, поэтому общая
+    граница соседних поясов остаётся общей сама собой. Прореживать готовые
+    полигоны по отдельности нельзя, у соседей разошлись бы стыки."""
     params = {
         "INPUT": raster, "BAND": band, "FIELD_NAME": field_name,
         "CREATE_3D": False, "IGNORE_NODATA": bool(ignore_nodata),
@@ -1142,6 +1163,17 @@ def _contour_lines(processing, raster, band, interval, base, levels,
             "INPUT": cur, "EXPRESSION": "$length >= %g" % float(min_length),
             "OUTPUT": "TEMPORARY_OUTPUT",
         }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+
+    if thin and thin > 0:
+        tol = float(thin) * (_pixel_size(raster) or 0.0)
+        if tol > 0:
+            feedback.pushInfo(
+                _tr("Прореживание контуров (допуск %.4g)…") % tol)
+            cur = processing.run("native:simplifygeometries", {
+                "INPUT": cur, "METHOD": 0, "TOLERANCE": tol,
+                "OUTPUT": "TEMPORARY_OUTPUT",
+            }, context=context, feedback=feedback,
+                is_child_algorithm=True)["OUTPUT"]
 
     if line_iter and line_iter > 0:
         feedback.pushInfo(_tr("Скругление линий (Chaikin, %d итер.)…") % line_iter)
@@ -1317,7 +1349,7 @@ def isolines_from_raster(raster, band, interval, base, levels_text,
                          densify, line_iter, field_name, ignore_nodata, nodata,
                          final_output, context, feedback, slope_ref=None,
                          uphill_ref=None, confidence=0, conf_frac=0.01,
-                         hatch_flip=0, faults=None, corridor=0.0):
+                         hatch_flip=0, faults=None, corridor=0.0, thin=0.0):
     """Изолинии-линии. levels_text (если задан) имеет приоритет над шагом.
     Сглаживание - на уровне поля; line_iter - лёгкое скругление линий."""
     from qgis import processing
@@ -1328,7 +1360,7 @@ def isolines_from_raster(raster, band, interval, base, levels_text,
     li = int(line_iter)
     cur = _contour_lines(processing, rp, rb, interval, base, levels,
                          min_length, li, field_name, ignore_nodata, nodata,
-                         context, feedback, confidence, conf_frac)
+                         context, feedback, confidence, conf_frac, thin)
     # Разлом режет изолинии и тогда, когда пояса не строятся: разрыв
     # принадлежит линиям, а не полигонам.
     cur = _split_by_faults(processing, cur, faults, corridor, context, feedback)
@@ -1683,7 +1715,7 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
                           lines_output, polygons_output, context, feedback,
                           slope_ref=None, uphill_ref=None,
                           hatch_flip=0, min_thick=0.0, faults=None,
-                          corridor=0.0, with_z=False):
+                          corridor=0.0, with_z=False, thin=0.0):
     """Изолинии И контурные пояса из ОДНОГО набора линий.
 
     Сглаживание выполняется один раз на уровне поля (растра); этот же
@@ -1724,7 +1756,7 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
     li = int(line_iter)
     iso = _contour_lines(processing, rp, rb, interval, base, levels,
                          min_length, li, field_name, ignore_nodata, nodata,
-                         context, feedback)
+                         context, feedback, thin=thin)
     # Разлом режет изолинии по векторной части, а не по гриду: ячейка не
     # передаёт диагональ, и вырезанный из грида барьер шёл бы ступеньками.
     # Здесь линия точная, разрез идёт ровно по ней.
