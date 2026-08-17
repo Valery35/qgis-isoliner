@@ -67,6 +67,7 @@ so it never drifts from the plugin.
 - `2.10` Demo relief
 - `2.15` Gauge point report
 - `2.16` Catchment of a line or an outline (ditches, open pits)
+- `2.17` Report on an existing catchment
 - `2.18` Cut and fill (earthwork volumes)
 - `2.19` Crest and toe candidates
 - `2.20` Crests and toes into work
@@ -130,7 +131,7 @@ so it never drifts from the plugin.
 - `7.04` Minkowski dimension (vectors)
 - `7.05` Example for fractals (demo)
 
-_Tools in total: 66_
+_Tools in total: 67_
 <!-- /TREE -->
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
@@ -583,6 +584,28 @@ Output fields:
 | Isolines | is_index | integer | 1 on index isolines (every Nth), otherwise 0 - for thickening. |
 | Contour polygons | ELEV_MIN | number | Lower level of the band. |
 | Contour polygons | ELEV_MAX | number | Upper level of the band. |
+
+### Z elevations on the belts
+
+The Z elevation checkbox works on the belt polygons as well. A belt lies between two levels and its rings follow them: the outer one at one level, the inner one at the neighbouring level. The vertices take the elevations of those levels, a flat belt becomes a sloping face and the whole stack a stepped surface.
+
+The elevation of a vertex is sampled from the raster and snapped to the level of a contour if that is within a third of the interval. The snapping is needed because smoothing moves a vertex off the exact position of the contour, while the elevation has to be exactly the level: otherwise neighbouring belts diverge in height along their shared edge and instead of a continuous surface a set of disjointed patches comes out.
+
+The snapping goes only to the two levels of the belt itself. A vertex on the outline of the area or on a fault line lies on no contour, its elevation is the terrain, and pulling it to a foreign level is wrong - the surface would get a step on level ground.
+
+A belt some of whose vertices fell outside the raster stays flat as a whole: a polygon with a hole in its elevations drops to zero in 3D.
+
+
+### Straight edges on the belt drawing
+
+Not every line of the output is a contour. The belt polygons are assembled from three sources at once: the contours themselves, the outline of the area with data, and the fault lines. The first are smooth, the other two are straight.
+
+The outline of the area follows the edges of the raster cells and therefore gives a stepped or strictly straight border. It appears at the edge of the area and around patches without data, where a node did not gather the required number of neighbours.
+
+A fault line cuts the belts along itself. At a dying end of a fault the break does not vanish at once: on one side of the last segment the barrier still acts, on the other it no longer does, and the sets of neighbours of adjacent cells diverge. Hence both a crowding of contours and a small belt with a straight edge along the line are normal near the end of a fault.
+
+This is a property of the model rather than a failure of the computation. If such a stub gets in the way, extend the fault line beyond the area: more often than not a fault is drawn shorter on the map than it really is, and extending it is better than smoothing the break.
+
 
 ### The surface between structural lines
 
@@ -1398,6 +1421,8 @@ A utility generator: synthetic terrain from a tilted plain, hills and a winding 
 
 The tool exists for the manual examples, tests and offline work. Live data comes from 2.01. The **Compact int16** checkbox outputs the raster in whole meters for shipping demo fragments.
 
+The fields of the source feature are carried into the output: pick the ones you need in the advanced parameters and the catchment will carry the river name, the gauge number or whatever else is there. Without them only a number remains in the output, and whose catchment it is has to be looked up in the source layer. If a name clashes, the incoming field gets the src_ prefix.
+
 ### A pair of surfaces for volumes
 
 Two outputs, off by default, give a ready pair for tool **2.18 Cut and fill**: a design pad and work area polygons. The pad is horizontal, and outside the work area the natural relief remains.
@@ -1583,6 +1608,8 @@ It does not bring back what is not in the data. If a narrow cut was shaved off w
 
 The tool computes watershed morphometry from a **gauge** - a closure point on a stream. This is a classic task of engineering hydrology and site surveys: basin characteristics from a given point. Tools 2.05 - 2.07 give flow, the river network and basins over the territory as a whole, while 2.15 answers the question about one specific gauge.
 
+The fields of the source feature are carried into the output: pick the ones you need in the advanced parameters and the catchment will carry the river name, the gauge number or whatever else is there. Without them only a number remains in the output, and whose catchment it is has to be looked up in the source layer. If a name clashes, the incoming field gets the src_ prefix.
+
 ### How it works
 
 Every gauge point is snapped to the cell of highest accumulation within the snapping radius, so the gauge can be placed by eye next to the thalweg instead of hitting a stream cell with the mouse. The full watershed is collected from the snapped cell, zonal statistics are computed over it, and the main stream is traced upstream cell by cell towards the highest accumulation until a cell without inflows.
@@ -1630,9 +1657,29 @@ The tool computes basin morphometry and nothing else. Discharges, runoff moduli,
 
 Catchments are built from the topology of the relief. On terrain without clear flow boundaries - flat floodplains, hydraulic transfers and backwater - the result should be verified by hydrodynamic modelling.
 
+
+### Computation to SP 33-101-2003
+
+Hydrologists compute runoff by a normative method, and two of its quantities are defined by formulas that do not match the physical ones. The **contour interval** parameter switches their computation on, zero switches it off.
+
+**The mean slope of the hillsides Isk** is computed by
+
+Isk = h · Σli / (2A),
+
+where h is the contour interval, Σli the total length of the contours within the catchment and A its area. No contours are built for this: the length is counted from the crossings of a level between neighbouring cells and goes into the **sp_iso_km** field.
+
+Isk is not the physical slope. On a plane the formula gives half the tangent, because the two in the denominator accounts for the two-sidedness of the hillsides: the water runs to the stream from both flanks of the valley. The quantity makes sense only within the SP method, so it sits in a separate field beside the physical slope rather than instead of it.
+
+**The weighted mean slope of the stream** is computed as the product of the partial slopes of the reaches between the inflection points of the profile, each raised to the share of its length. On a straight profile it equals the plain fall over length, on a broken one it comes out lower: a river with a steep head and a gentle lower course is not described by a single ratio.
+
+For comparison the physical quantities stay in the output as well: **slope_deg** is the mean slope of the cells by Horn's method, **stream_ppm** the fall of the stream divided by its length.
+
+
 ## 2.16 Catchment of a line or an outline (ditches, open pits)
 
 The tool computes the catchment area of an intake: a hillside ditch, a chute, a road gutter or the outline of an open pit. The question is how much area the intake intercepts when the intake itself is not on the DEM yet.
+
+The fields of the source feature are carried into the output: pick the ones you need in the advanced parameters and the catchment will carry the river name, the gauge number or whatever else is there. Without them only a number remains in the output, and whose catchment it is has to be looked up in the source layer. If a name clashes, the incoming field gets the src_ prefix.
 
 ### How it works
 
@@ -1693,6 +1740,52 @@ Burning changes the hydrology deliberately, so it is off by default and the resu
 The tool answers the question about area, not about discharge. Discharges, runoff moduli and the capacity of the ditch belong to computational hydrology by the codes of practice and are out of scope. Units are assumed metric.
 
 Catchments are built from the topology of the relief. On terrain without clear flow boundaries - flat floodplains, hydraulic transfers and backwater - the result should be verified by hydrodynamic modelling.
+
+## 2.17 Report on an existing catchment
+
+The tool computes the morphometry over **existing** catchment polygons: the area, the mean and extreme elevations, the mean slope of the basin, the length of the main stream and the fall.
+
+It is needed where a catchment already exists: drawn by hand, taken from somebody else's project, computed by another program. The boundaries are not recomputed - the figures are for the polygon that was supplied, otherwise the answer would be about a different catchment.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Input DEM | The elevation raster the characteristics are computed over. | - |
+| Catchment polygons | The existing outlines to compute over. | - |
+| Outlet points | Gauges. Empty - the point is taken by the highest accumulation inside the polygon. | empty |
+| Compute the stream length and the fall | Requires tracing over the DEM and costs noticeably more than the rest. | on |
+| Snapping radius (adv.) | Moves a gauge to the cell with the highest accumulation nearby. | 0 |
+| Fill the depressions (adv.) | Without filling the water stops in the local pits of the DEM. | on |
+| Catchments with characteristics | Output: the same polygons with the computed fields appended. | - |
+
+### The outlet
+
+The stream length and the fall are measured from the point the water flows to. When a catchment is built that point is known from the gauge, an existing polygon has none.
+
+If points are given they are used: a gauge is looked for inside every polygon. If not, the cell with the highest accumulation inside the outline is taken.
+
+The highest accumulation rather than the lowest elevation. The lowest point may lie in a pit inside the area or on an edge that caught a neighbouring valley, and the stream would then run the wrong way. The **outlet** field records which way it went for every polygon.
+
+The stream is cut by the boundary of the polygon: the length is measured inside the given catchment rather than along the whole trace, which may run beyond it.
+
+The fields of the source polygons are kept, the computed ones are appended. If a name clashes, a suffix is added to the computed field.
+
+
+### Computation to SP 33-101-2003
+
+Hydrologists compute runoff by a normative method, and two of its quantities are defined by formulas that do not match the physical ones. The **contour interval** parameter switches their computation on, zero switches it off.
+
+**The mean slope of the hillsides Isk** is computed by
+
+Isk = h · Σli / (2A),
+
+where h is the contour interval, Σli the total length of the contours within the catchment and A its area. No contours are built for this: the length is counted from the crossings of a level between neighbouring cells and goes into the **sp_iso_km** field.
+
+Isk is not the physical slope. On a plane the formula gives half the tangent, because the two in the denominator accounts for the two-sidedness of the hillsides: the water runs to the stream from both flanks of the valley. The quantity makes sense only within the SP method, so it sits in a separate field beside the physical slope rather than instead of it.
+
+**The weighted mean slope of the stream** is computed as the product of the partial slopes of the reaches between the inflection points of the profile, each raised to the share of its length. On a straight profile it equals the plain fall over length, on a broken one it comes out lower: a river with a steep head and a gentle lower course is not described by a single ratio.
+
+For comparison the physical quantities stay in the output as well: **slope_deg** is the mean slope of the cells by Horn's method, **stream_ppm** the fall of the stream divided by its length.
+
 
 ## 2.18 Cut and fill (earthwork volumes)
 
@@ -3076,6 +3169,20 @@ The slope enters the discharge under a square root, so an error in it tells dire
 A table of the curve by parts and in total with the area, width, perimeter, radius, velocity and discharge at every level. The section profiles, the levels, the footer and the ground elevations as separate layers in drawing coordinates.
 
 An HTML report for every section: the profile with the levels and the division boundaries drawn on it, a graph of discharge against level with the probability lines, a table of levels and the table of the curve. The pictures are embedded into the page itself, so the report stays one file that can be forwarded.
+
+
+### The rating curve plot
+
+The curve is given as a vector drawing: the line, the axes, the scales with ticks and labels, the dashed marks of the exceedance levels. The very plot that goes into a report, only this one can be edited like any other layer.
+
+The plot goes as a separate layer and in its own axes: discharge or area along the horizontal, elevation along the vertical. It cannot share a layer with the profile of the gauge line - metres of distance and cubic metres per second are not comparable, no common scale for them exists. Both are put on a sheet through the layout.
+
+The step of the elevation scale is set to a metre for a normative drawing, the step of the discharge scale at zero means round numbers by the range. The gauge lines are laid out in a row, each in its own block.
+
+The exceedance levels arrive as discharges, and the elevation for a mark is obtained by the reverse pass over the same curve: the mark lies on it exactly rather than beside it. A level outside the range of the curve is skipped.
+
+The **kind** field in the attributes tells the parts of the drawing apart: curve, axis, tick, mark, label. The presentation is set up by it.
+
 
 ## 6.02 Flood extent polygon
 

@@ -55,6 +55,108 @@ def basin_mask(downstream, shape, seed_idx):
     return label == 1
 
 
+def contour_length_in_mask(z, mask, cellsize, interval, nodata_mask=None):
+    """Суммарная длина горизонталей внутри маски, метры.
+
+    Нужна для формулы среднего уклона склонов по СП 33-101-2003:
+    Iск = h·Σli / (2A). Строить сами горизонтали ради этого незачем:
+    длина считается подсчётом переходов через уровень между соседними
+    ячейками. Каждый переход даёт отрезок изолинии длиной около размера
+    ячейки, поперёк ребра.
+
+    Считаются переходы по горизонтали и по вертикали отдельно, потому
+    что отрезок изолинии пересекает ребро поперёк: на вертикальном ребре
+    он горизонтален и наоборот.
+    """
+    m = np.asarray(mask, dtype=bool)
+    if nodata_mask is not None:
+        m = m & ~np.asarray(nodata_mask, dtype=bool)
+    if not m.any() or interval <= 0:
+        return 0.0
+    zz = np.asarray(z, dtype=np.float64)
+    lev = np.where(m & np.isfinite(zz), np.floor(zz / float(interval)), np.nan)
+    total = 0.0
+    # переход по горизонтали: соседи слева-справа в одной строке
+    a = lev[:, :-1]
+    b = lev[:, 1:]
+    both = m[:, :-1] & m[:, 1:]
+    good = both & np.isfinite(a) & np.isfinite(b)
+    total += float(np.count_nonzero(good & (a != b)))
+    # переход по вертикали
+    a = lev[:-1, :]
+    b = lev[1:, :]
+    both = m[:-1, :] & m[1:, :]
+    good = both & np.isfinite(a) & np.isfinite(b)
+    total += float(np.count_nonzero(good & (a != b)))
+    return total * float(cellsize)
+
+
+def sp_slope_ppm(iso_len_m, area_m2, interval):
+    """Средний уклон склонов Iск по СП 33-101-2003, промилле.
+
+    Iск = h·Σli / (2A), где h - сечение горизонталей, Σli - суммарная
+    длина горизонталей в пределах водосбора, A - его площадь.
+
+    Формула эмпирическая и даёт НЕ физический уклон: на плоскости она
+    возвращает половину тангенса. Двойка в знаменателе учитывает
+    двусторонность склонов - вода стекает к водотоку с обоих бортов
+    долины. Величина осмысленна только внутри методики СП, поэтому
+    хранится отдельным полем, рядом с физическим уклоном, а не вместо
+    него.
+    """
+    if area_m2 <= 0 or interval <= 0:
+        return None
+    return float(interval) * float(iso_len_m) / (2.0 * float(area_m2)) * 1000.0
+
+
+def sp_stream_ppm(z_path, cellsize, path_len_m=None):
+    """Средневзвешенный уклон водотока по СП, промилле.
+
+    Ī = произведение частных уклонов участков в степени li/L: уклон
+    ломаного профиля, приведённый к одному эквивалентному. Считается по
+    участкам между точками перегиба продольного профиля.
+
+    Отличие от простого падения на длину тем больше, чем сильнее выражен
+    перегиб: у реки с крутым верховьем и пологим низовьем простое
+    отношение занижает верх и завышает низ.
+
+    z_path - отметки вдоль водотока от истока к створу.
+    """
+    zs = np.asarray([v for v in z_path if v == v], dtype=np.float64)
+    if zs.size < 2:
+        return None
+    n = zs.size
+    total = float(path_len_m) if path_len_m else float(cellsize) * (n - 1)
+    if total <= 0:
+        return None
+    # Точки перегиба: там, где меняется знак второй разности профиля.
+    # Между ними профиль считается прямым, как и предписывает методика.
+    idx = [0]
+    if n > 2:
+        d2 = np.diff(zs, 2)
+        for i in range(len(d2) - 1):
+            if d2[i] * d2[i + 1] < 0:
+                idx.append(i + 1)
+    idx.append(n - 1)
+    idx = sorted(set(idx))
+    seg = total / (n - 1)
+    log_sum = 0.0
+    for a_i, b_i in zip(idx[:-1], idx[1:]):
+        li = seg * (b_i - a_i)
+        if li <= 0:
+            continue
+        drop = abs(float(zs[b_i] - zs[a_i]))
+        ii = drop / li
+        # Ровный участок обнулил бы всё произведение, поэтому он
+        # исключается: методика говорит о среднем по НАКЛОННЫМ участкам.
+        if ii <= 0:
+            continue
+        log_sum += (li / total) * math.log(ii)
+    if log_sum == 0.0:
+        return None
+    return math.exp(log_sum) * 1000.0
+
+
 def zonal_stats(values, mask, nodata_mask=None):
     """Среднее, минимум и максимум по маске: (mean, vmin, vmax).
 
@@ -119,12 +221,15 @@ REPORT_KEYS = (
     "stream_km",      # длина главного водотока от створа до истока, км
     "stream_fall_m",  # падение водотока, м
     "stream_ppm",     # средний уклон водотока, промилле
-    "cells",          # ячеек в бассейне (служебно, для контроля)
+    "sp_slope_ppm",   # средний уклон склонов Iск по СП 33-101, промилле
+    "sp_iso_km",      # суммарная длина горизонталей в водосборе, км
+    "sp_stream_ppm",  # средневзвешенный уклон водотока по СП, промилле
+    "cells",          # ячеек в бассейне (служебно, замыкает список)
 )
 
 
 def gauge_report(z, downstream, acc, shape, seed_idx, cellsize,
-                 slope=None, nodata_mask=None):
+                 slope=None, nodata_mask=None, iso_interval=0.0):
     """Морфометрия бассейна от створа: словарь по REPORT_KEYS.
 
     z - отметки, downstream и acc - решётка стока, seed_idx - плоский
@@ -145,6 +250,12 @@ def gauge_report(z, downstream, acc, shape, seed_idx, cellsize,
         z, mask, nodata_mask)
     if slope is not None:
         rep["slope_mean"], _, _ = zonal_stats(slope, mask, nodata_mask)
+    if iso_interval:
+        iso_len = contour_length_in_mask(z, mask, cellsize, iso_interval,
+                                         nodata_mask)
+        rep["sp_iso_km"] = iso_len / 1000.0
+        rep["sp_slope_ppm"] = sp_slope_ppm(
+            iso_len, int(mask.sum()) * float(cellsize) ** 2, iso_interval)
     zf = np.asarray(z, dtype=np.float64).ravel()
     zg = zf[int(seed_idx)]
     rep["z_gauge"] = float(zg) if math.isfinite(zg) else None
@@ -158,6 +269,112 @@ def gauge_report(z, downstream, acc, shape, seed_idx, cellsize,
             fall = float(z1 - z0)
             rep["stream_fall_m"] = fall
             rep["stream_ppm"] = fall / length * 1000.0
+        rep["sp_stream_ppm"] = sp_stream_ppm(
+            np.asarray(z, dtype=np.float64).ravel()[path][::-1], cellsize,
+            length)
+    return rep
+
+
+def outlet_in_mask(z, mask, acc=None, nodata_mask=None):
+    """Точка замыкания готового водосбора: куда стекает вода.
+
+    У построенного водосбора створ известен, а у готового полигона его
+    нет: полигон мог быть нарисован руками или прийти из чужой системы.
+
+    Берётся ячейка с наибольшей аккумуляцией, а при её отсутствии самая
+    низкая. Именно наибольшая аккумуляция, а не просто минимум отметки:
+    низшая точка может оказаться в яме внутри площади или на краю,
+    задевшем соседнюю долину, и тогда водоток потянется не туда.
+
+    Возвращает плоский индекс или None, если в маске нет годных ячеек.
+    """
+    m = np.asarray(mask, dtype=bool)
+    if nodata_mask is not None:
+        m = m & ~np.asarray(nodata_mask, dtype=bool)
+    if not m.any():
+        return None
+    flat = m.ravel()
+    idx = np.nonzero(flat)[0]
+    if acc is not None:
+        a = np.asarray(acc, dtype=np.float64).ravel()[idx]
+        good = np.isfinite(a)
+        if good.any():
+            return int(idx[good][int(np.argmax(a[good]))])
+    zf = np.asarray(z, dtype=np.float64).ravel()[idx]
+    good = np.isfinite(zf)
+    if not good.any():
+        return None
+    return int(idx[good][int(np.argmin(zf[good]))])
+
+
+def mask_report(z, mask, cellsize, downstream=None, acc=None,
+                seed_idx=None, slope=None, nodata_mask=None,
+                iso_interval=0.0):
+    """Морфометрия ГОТОВОГО водосбора: словарь по REPORT_KEYS.
+
+    Отличие от gauge_report в том, что маска приходит извне, а не
+    строится по решётке стока: считаем по тому полигону, который дал
+    человек, а не по тому, который построили бы сами. В этом весь смысл
+    отдельного расчёта - границы чужие, и менять их нельзя.
+
+    Длина водотока и падение требуют решётки стока и точки замыкания.
+    Нет их - соответствующие поля остаются пустыми, а площадь и отметки
+    считаются всё равно: половина ответа лучше отказа.
+    """
+    m = np.asarray(mask, dtype=bool)
+    if nodata_mask is not None:
+        m = m & ~np.asarray(nodata_mask, dtype=bool)
+    rep = dict.fromkeys(REPORT_KEYS)
+    n_cells = int(m.sum())
+    rep["cells"] = n_cells
+    rep["area_km2"] = n_cells * float(cellsize) ** 2 / 1e6
+    if n_cells == 0:
+        return rep
+    rep["z_mean"], rep["z_min"], rep["z_max"] = zonal_stats(z, m, nodata_mask)
+    if slope is not None:
+        rep["slope_mean"], _, _ = zonal_stats(slope, m, nodata_mask)
+
+    if iso_interval:
+        iso_len = contour_length_in_mask(z, m, cellsize, iso_interval,
+                                         nodata_mask)
+        rep["sp_iso_km"] = iso_len / 1000.0
+        rep["sp_slope_ppm"] = sp_slope_ppm(
+            iso_len, n_cells * float(cellsize) ** 2, iso_interval)
+
+    if seed_idx is None:
+        seed_idx = outlet_in_mask(z, m, acc, nodata_mask)
+    if seed_idx is None or downstream is None or acc is None:
+        return rep
+
+    zf = np.asarray(z, dtype=np.float64).ravel()
+    zg = zf[int(seed_idx)]
+    rep["z_gauge"] = float(zg) if math.isfinite(zg) else None
+    length, path = trace_main_stream(downstream, acc, m.shape, seed_idx,
+                                     cellsize)
+    # Водоток обрезается границей полигона: считаем длину внутри ЗАДАННОГО
+    # водосбора, а не всю трассу, которая может уйти за его пределы.
+    if path:
+        inside = m.ravel()
+        keep = []
+        for i in path:
+            if not inside[i]:
+                break
+            keep.append(i)
+        if len(keep) > 1:
+            length = length * (len(keep) - 1) / max(len(path) - 1, 1)
+            path = keep
+        elif len(keep) < 2:
+            path = []
+    if path and len(path) > 1 and length > 0:
+        z0, z1 = zf[path[0]], zf[path[-1]]
+        rep["stream_km"] = length / 1000.0
+        if math.isfinite(z0) and math.isfinite(z1):
+            fall = float(z1 - z0)
+            rep["stream_fall_m"] = fall
+            rep["stream_ppm"] = fall / length * 1000.0
+        # Профиль от истока к створу: методика СП идёт сверху вниз.
+        rep["sp_stream_ppm"] = sp_stream_ppm(zf[path][::-1], cellsize,
+                                             length)
     return rep
 
 

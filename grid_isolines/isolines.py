@@ -1437,6 +1437,59 @@ def _sample_value(arr, valid, gt, x, y, max_r=4):
     return None
 
 
+def _polygon_with_z(geom, arr, gt, lo, hi, valid=None):
+    """Полигон с отметками: каждое кольцо на своём уровне.
+
+    Кольцо пояса целиком лежит на одной изолинии, поэтому отметка у него
+    одна на всё кольцо. Внешнее на одном уровне, внутреннее на соседнем,
+    и полигон между ними становится наклонной гранью.
+
+    Выборка идёт БЛИЖАЙШЕЙ ячейкой, а не билинейно: билинейная даёт
+    пусто на самом краю растра, а контур области идёт ровно по краю, и
+    отметок не оставалось бы вовсе.
+    """
+    import numpy as np
+    from qgis.core import (QgsGeometry, QgsPoint, QgsLineString, QgsPolygon,
+                           QgsMultiPolygon)
+    from . import section_core as _sc
+    try:
+        polys_src = geom.asMultiPolygon() or []
+    except TypeError:
+        polys_src = []
+    if not polys_src:
+        one = geom.asPolygon()
+        polys_src = [one] if one else []
+    if not polys_src or (lo is None and hi is None):
+        return geom
+    out = QgsMultiPolygon()
+    for poly in polys_src:
+        qp = QgsPolygon()
+        for k, ring in enumerate(poly):
+            if len(ring) < 4:
+                continue
+            xs = np.array([p.x() for p in ring], dtype=np.float64)
+            ys = np.array([p.y() for p in ring], dtype=np.float64)
+            # Отметка на КАЖДУЮ вершину, а не одна на кольцо: у пояса
+            # чаще всего одно кольцо, и оно идёт частью по нижней
+            # изолинии, частью по верхней. Один уровень на кольцо сделал
+            # бы плоскими девять поясов из десяти.
+            zs = _sc.vertex_levels(xs, ys, arr, gt, lo, hi)
+            if zs is None:
+                return geom
+            ls = QgsLineString([QgsPoint(float(x), float(y), float(z))
+                                for x, y, z in zip(xs, ys, zs)])
+            if k == 0:
+                qp.setExteriorRing(ls)
+            else:
+                qp.addInteriorRing(ls)
+        if qp.exteriorRing() is None:
+            continue
+        out.addGeometry(qp)
+    if out.numGeometries() == 0:
+        return geom
+    return QgsGeometry(out)
+
+
 def _polygonize_belts(processing, lines_layer, area_lines, crs, context,
                       feedback, faults=None):
     """Строит замкнутые пояса из набора линий + контура области.
@@ -1508,7 +1561,8 @@ def belt_thickness(geom):
 
 
 def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
-                    final_output, context, feedback, min_thick=0.0):
+                    final_output, context, feedback, min_thick=0.0,
+                    with_z=False):
     """Каждому поясу присваивает диапазон уровней выборкой растра в
     репрезентативной точке (point-on-surface) и сохраняет слой."""
     from qgis.core import (
@@ -1534,8 +1588,11 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
     fields = QgsFields()
     fields.append(QgsField("ELEV_MIN", QVariant.Double, len=20, prec=6))
     fields.append(QgsField("ELEV_MAX", QVariant.Double, len=20, prec=6))
+    # Слой с отметками объявляется MultiPolygonZ: иначе провайдер молча
+    # срежет третью координату, и юбки выйдут плоскими.
     mem = QgsVectorLayer(
-        "MultiPolygon?crs=%s" % (crs.authid() or crs.toWkt()),
+        "%s?crs=%s" % ("MultiPolygonZ" if with_z else "MultiPolygon",
+                       crs.authid() or crs.toWkt()),
         _tr("пояса"), "memory")
     dp = mem.dataProvider()
     dp.addAttributes(fields.toList())
@@ -1574,6 +1631,14 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
         idx = int(np.digitize([val], lv)[0])     # 0..len(levels)
         nf = QgsFeature(mem.fields())
         gg = QgsGeometry(g)
+        if with_z:
+            # Пояс лежит между двумя уровнями, и его кольца идут по ним:
+            # внешнее по одному, внутреннее по другому. Отметки вершин
+            # делают из плоского пояса наклонную грань, а из набора
+            # поясов - ступенчатую поверхность.
+            lo = float(lv[idx - 1]) if idx > 0 else None
+            hi = float(lv[idx]) if idx < len(lv) else None
+            gg = _polygon_with_z(gg, arr, gt, lo, hi)
         gg.convertToMultiType()
         nf.setGeometry(gg)
         nf.setAttributes([float(mins[idx]), float(maxs[idx])])
@@ -1618,7 +1683,7 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
                           lines_output, polygons_output, context, feedback,
                           slope_ref=None, uphill_ref=None,
                           hatch_flip=0, min_thick=0.0, faults=None,
-                          corridor=0.0):
+                          corridor=0.0, with_z=False):
     """Изолинии И контурные пояса из ОДНОГО набора линий.
 
     Сглаживание выполняется один раз на уровне поля (растра); этот же
@@ -1700,7 +1765,7 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
                                   context, feedback, faults=faults)
     polys_out = _belts_to_layer(processing, polys_src, arr, valid, gt, levels,
                                 crs, polygons_output, context, feedback,
-                                min_thick=min_thick)
+                                min_thick=min_thick, with_z=with_z)
 
     return {"lines": lines_out, "polygons": polys_out}
 

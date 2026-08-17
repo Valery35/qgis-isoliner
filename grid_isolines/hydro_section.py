@@ -114,9 +114,14 @@ def rating_curve(fragments, slope, levels=None, step=0.1, top=None):
     профиля до top (по умолчанию до высшей точки) с шагом step.
 
     Возвращает dict массивов одинаковой длины: level, затем по каждому
-    фрагменту area/width/perimeter/radius/q с суффиксом имени, и
-    суммарные area_total, q_total. Скорость не хранится: она выходит из
-    q и area делением и считается потребителем.
+    фрагменту area/width/perimeter/radius/q/v с суффиксом имени, и
+    суммарные area_total, q_total, v_total.
+
+    Скорость это средняя по живому сечению, Q делить на A. У участка она
+    своя, и разница между руслом и поймой на графике видна сразу: пойма
+    добавляет площадь, но почти не добавляет расхода, и общая скорость
+    на переломе падает. Там, где площади нет, скорость ноль, а не
+    бесконечность.
     """
     zmin = min(float(np.min(f.z)) for f in fragments)
     zmax = max(float(np.max(f.z)) for f in fragments)
@@ -146,10 +151,124 @@ def rating_curve(fragments, slope, levels=None, step=0.1, top=None):
         out["perimeter_" + f.name] = p
         out["radius_" + f.name] = r
         out["q_" + f.name] = q
+        out["v_" + f.name] = np.where(a > 1e-12, q / np.where(a > 1e-12,
+                                                             a, 1.0), 0.0)
         a_tot += a
         q_tot += q
     out["area_total"] = a_tot
     out["q_total"] = q_tot
+    out["v_total"] = np.where(a_tot > 1e-12,
+                              q_tot / np.where(a_tot > 1e-12, a_tot, 1.0), 0.0)
+    return out
+
+
+def curve_plot(curve, xkey, ykey="level", width=1.0, height=1.0,
+               x_from_zero=True):
+    """Кривая в координатах чертежа: точки линии и параметры осей.
+
+    График строится в СВОИХ осях: по горизонтали расход или площадь, по
+    вертикали отметка. Смешивать их с координатами профиля нельзя -
+    метры расстояния и кубометры в секунду несопоставимы, и общий
+    масштаб для них не существует. Поэтому график живёт отдельным
+    слоем, а на лист оба кладутся макетом.
+
+    Возвращает словарь: pts - точки линии, xmin/xmax/ymin/ymax -
+    диапазоны исходных величин, sx/sy - множители перевода в чертёж.
+    Обратный перевод нужен подписям осей, поэтому множители отдаются
+    наружу, а не прячутся внутри.
+    """
+    xs = np.asarray(curve[xkey], dtype=np.float64)
+    ys = np.asarray(curve[ykey], dtype=np.float64)
+    good = np.isfinite(xs) & np.isfinite(ys)
+    xs, ys = xs[good], ys[good]
+    if xs.size < 2:
+        return None
+    xmin = 0.0 if x_from_zero else float(xs.min())
+    xmax = float(xs.max())
+    ymin, ymax = float(ys.min()), float(ys.max())
+    dx = xmax - xmin
+    dy = ymax - ymin
+    sx = float(width) / dx if dx > 0 else 1.0
+    sy = float(height) / dy if dy > 0 else 1.0
+    pts = [((float(x) - xmin) * sx, (float(y) - ymin) * sy)
+           for x, y in zip(xs, ys)]
+    return {"pts": pts, "xmin": xmin, "xmax": xmax, "ymin": ymin,
+            "ymax": ymax, "sx": sx, "sy": sy, "width": float(width),
+            "height": float(height)}
+
+
+def plot_ticks(lo, hi, scale, step=0.0, count=5):
+    """Засечки оси: список (значение, координата чертежа).
+
+    Шаг задан - идут ровно по нему, от округлённого вниз начала. Это то,
+    чего просит нормативный чертёж: шкала высот через метр, шкала
+    расходов округлыми значениями. Шаг ноль - выбираются красивые числа
+    по их количеству.
+    """
+    if not (hi > lo):
+        return []
+    if step and step > 0:
+        vals = []
+        v = math.ceil(lo / step) * step
+        for _ in range(10000):
+            if v > hi + 1e-9:
+                break
+            vals.append(round(v, 6))
+            v += step
+    else:
+        vals = _nice_values(lo, hi, count)
+    return [(v, (v - lo) * scale) for v in vals]
+
+
+def _nice_values(lo, hi, n):
+    """Округлённые значения между lo и hi: ряд 1, 2, 2.5, 5, 10."""
+    if not (hi > lo) or n < 2:
+        return []
+    raw = (hi - lo) / (n - 1)
+    mag = 10.0 ** math.floor(math.log10(raw)) if raw > 0 else 1.0
+    best, bestd = mag, None
+    for f in (1, 2, 2.5, 5, 10):
+        s = f * mag
+        cnt = int(math.floor((hi - math.ceil(lo / s) * s) / s + 1e-9)) + 1
+        d = abs(cnt - n)
+        if bestd is None or d < bestd:
+            best, bestd = s, d
+    out = []
+    v = math.ceil(lo / best) * best
+    while v <= hi + 1e-9:
+        out.append(round(v, 6))
+        v += best
+    return out
+
+
+def curve_marks(plot, levels, curve, xkey):
+    """Засечки уровней обеспеченности: пунктир от кривой к обеим осям.
+
+    Для каждой заданной отметки берётся её место на кривой и строятся
+    два отрезка - к оси отметок и к оси расходов. Именно так подписаны
+    уровни на нормативных графиках: видно и отметку, и отвечающий ей
+    расход.
+
+    Отметка вне диапазона кривой пропускается: рисовать засечку в
+    пустоте незачем.
+    """
+    if not plot:
+        return []
+    xs = np.asarray(curve[xkey], dtype=np.float64)
+    ys = np.asarray(curve["level"], dtype=np.float64)
+    good = np.isfinite(xs) & np.isfinite(ys)
+    xs, ys = xs[good], ys[good]
+    out = []
+    for name, lev in levels:
+        lev = float(lev)
+        if not (ys.min() - 1e-9 <= lev <= ys.max() + 1e-9):
+            continue
+        xv = float(np.interp(lev, ys, xs))
+        px = (xv - plot["xmin"]) * plot["sx"]
+        py = (lev - plot["ymin"]) * plot["sy"]
+        out.append({"name": name, "level": lev, "value": xv,
+                    "to_y": [(0.0, py), (px, py)],
+                    "to_x": [(px, 0.0), (px, py)]})
     return out
 
 
@@ -327,3 +446,127 @@ def wet_spans(d, z, level, min_width=1e-9):
     if start is not None:
         spans.append((start, float(d[-1])))
     return [(a, b) for a, b in spans if b - a > min_width]
+
+
+# --- чертёж гидроствора: перегибы, пикеты, подвал ---------------------------
+
+def break_indices(d, z, tol=0.02, keep=()):
+    """Индексы точек, от которых на чертёж опускаются вертикали.
+
+    Вертикаль идёт от профиля вниз через весь подвал и делит его строки
+    на ячейки, поэтому ставить её на каждую промерную точку нельзя: на
+    двух сотнях точек подвал превращается в частокол. Берутся перегибы -
+    вершины, где уклон профиля меняется больше допуска, - плюс концы
+    створа и границы участков, которые нужны всегда.
+
+    Допуск ноль означает все вершины: так строят чертёж по редкому
+    промеру, где каждая точка значима.
+    """
+    d = np.asarray(d, float)
+    z = np.asarray(z, float)
+    n = d.size
+    if n < 2:
+        return list(range(n))
+    must = {0, n - 1}
+    for x in keep or ():
+        must.add(int(np.argmin(np.abs(d - float(x)))))
+    if tol <= 0.0:
+        return sorted(set(range(n)) | must)
+    out = set(must)
+    for i in range(1, n - 1):
+        dx0 = d[i] - d[i - 1]
+        dx1 = d[i + 1] - d[i]
+        s0 = (z[i] - z[i - 1]) / dx0 if abs(dx0) > 1e-12 else np.inf
+        s1 = (z[i + 1] - z[i]) / dx1 if abs(dx1) > 1e-12 else np.inf
+        if not np.isfinite(s0) or not np.isfinite(s1):
+            out.add(i)
+        elif abs(s1 - s0) > tol:
+            out.add(i)
+    return sorted(out)
+
+
+def picket_parts(dist, start=0.0, step=100.0):
+    """Пикет как пара (номер, остаток) для подписи вида 45+70.
+
+    Пикетаж почти всегда идёт от начала трассы, а не от начала створа,
+    поэтому начальное значение задаётся отдельно. Шаг пикета сто метров,
+    но он вынесен параметром: на изысканиях встречаются и другие.
+    """
+    step = float(step)
+    if step <= 0.0:
+        return 0, float(start) + float(dist)
+    v = float(start) + float(dist)
+    n = int(math.floor(v / step))
+    rem = v - n * step
+    if step - rem < 5e-3:            # 99.999 это уже следующий пикет
+        n, rem = n + 1, 0.0
+    return n, rem
+
+
+def footer_layout(d, rows, breaks, y_top, row_h, title_gap=0.0):
+    """Разметка подвала чертежа: линейки, вертикали и ячейки с текстом.
+
+    Строки бывают двух видов. Точечная несёт значение под каждой
+    вертикалью - расстояние, отметка, пикет. Полосовая несёт значение на
+    отрезке профиля - участок русла со своей шероховатостью или полоса
+    растительности, которая идёт через несколько участков сразу.
+    Механика у них общая, различается только источник.
+
+    Ячейка это отрезок во всю свою ширину, а не точка. У полосовой
+    строки он идёт от края до края отрезка, у точечной - между
+    серединами промежутков до соседних вертикалей. Подпись тогда
+    вешается стилем по линии и встаёт по центру ячейки сама.
+
+    У ячейки, кроме подписи, бывает своё число: подпись идёт на чертёж,
+    а число нужно оформлению и выборкам. Точечная строка берёт его из
+    `nums` рядом со списком подписей, полосовая - четвёртым элементом
+    отрезка. Где числа нет, там None: у названия участка и у полосы
+    растительности числа не бывает.
+
+    Возвращает словарь: rules линейки строк, verticals вертикали от
+    профиля до низа подвала, cells ячейки с текстом и его точкой,
+    titles заголовки строк слева, bottom отметка низа.
+    """
+    d = np.asarray(d, float)
+    if d.size < 2 or not rows:
+        return {"rules": [], "verticals": [], "cells": [], "titles": [],
+                "bottom": float(y_top)}
+    x0, x1 = float(d[0]), float(d[-1])
+    row_h = float(row_h)
+    y_top = float(y_top)
+    bottom = y_top - row_h * len(rows)
+    rules = [[(x0, y_top - k * row_h), (x1, y_top - k * row_h)]
+             for k in range(len(rows) + 1)]
+    xs = [float(d[i]) for i in breaks] if breaks is not None else []
+    verticals = [[(x, y_top), (x, bottom)] for x in xs]
+    cells, titles = [], []
+    for k, row in enumerate(rows):
+        ytop = y_top - k * row_h
+        ymid = ytop - row_h / 2.0
+        titles.append({"key": row.get("key"), "text": row.get("title") or "",
+                       "x": x0 - float(title_gap), "y": ymid})
+        if row.get("kind") == "point":
+            vals = row.get("values") or []
+            nums = row.get("nums") or []
+            for j, (i, x) in enumerate(zip(breaks or [], xs)):
+                if i >= len(vals) or vals[i] is None:
+                    continue
+                a = (xs[j - 1] + x) / 2.0 if j else x
+                b = (xs[j + 1] + x) / 2.0 if j + 1 < len(xs) else x
+                cells.append({"key": row.get("key"), "row": k,
+                              "text": str(vals[i]), "x": x, "y": ymid,
+                              "align": "center", "span": (a, b),
+                              "num": nums[i] if i < len(nums) else None})
+        else:
+            for item in row.get("values") or []:
+                a, b, text = item[0], item[1], item[2]
+                num = item[3] if len(item) > 3 else None
+                a, b = max(float(a), x0), min(float(b), x1)
+                if b - a <= 1e-9 or text in (None, ""):
+                    continue
+                cells.append({"key": row.get("key"), "row": k,
+                              "text": str(text), "x": (a + b) / 2.0,
+                              "y": ymid, "align": "center",
+                              "span": (a, b), "num": num})
+    return {"rules": rules, "verticals": verticals, "cells": cells,
+            "titles": titles, "bottom": bottom}

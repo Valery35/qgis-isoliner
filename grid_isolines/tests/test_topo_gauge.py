@@ -484,3 +484,180 @@ def _run():
 
 if __name__ == "__main__":
     sys.exit(_run())
+
+
+# --- отчёт по готовому водосбору -------------------------------------------
+
+def _slope_dem(ny=40, nx=40):
+    """Наклонная плоскость с ложбиной: сток строго на юг."""
+    Y, X = np.mgrid[0:ny, 0:nx]
+    z = (200.0 - Y * 1.0 + np.abs(X - nx // 2) * 0.4).astype(float)
+    downstream = np.full(ny * nx, -1, dtype=np.int64)
+    for r in range(ny - 1):
+        for c in range(nx):
+            downstream[r * nx + c] = (r + 1) * nx + c
+    acc = np.cumsum(np.ones((ny, nx)), axis=0)
+    return z, downstream, acc
+
+
+def test_mask_report_counts_the_given_polygon():
+    """Площадь считается по ЗАДАННОЙ маске, а не по построенной заново.
+
+    В этом весь смысл отдельного расчёта: водосбор пришёл извне, границы
+    чужие, и менять их нельзя - иначе ответ будет про другой водосбор.
+    """
+    z, downstream, acc = _slope_dem()
+    mask = np.zeros(z.shape, dtype=bool)
+    mask[5:35, 10:30] = True
+    rep = tg.mask_report(z, mask, 100.0, downstream=downstream, acc=acc)
+    assert rep["cells"] == 30 * 20
+    assert abs(rep["area_km2"] - 30 * 20 * 100.0 ** 2 / 1e6) < 1e-9
+
+
+def test_mask_report_works_without_a_flow_grid():
+    """Без решётки стока площадь и отметки считаются, длина нет.
+
+    Половина ответа лучше отказа: галочка длины водотока снимается ради
+    скорости, и остальное обязано посчитаться.
+    """
+    z, _d, _a = _slope_dem()
+    mask = np.zeros(z.shape, dtype=bool)
+    mask[5:35, 10:30] = True
+    rep = tg.mask_report(z, mask, 100.0)
+    assert rep["area_km2"] > 0 and rep["z_mean"] is not None
+    assert rep["stream_km"] is None and rep["stream_fall_m"] is None
+
+
+def test_outlet_prefers_accumulation_over_the_lowest_point():
+    """Замыкание берётся по аккумуляции, а не по наименьшей отметке.
+
+    Низшая точка может лежать в яме внутри площади или на краю,
+    задевшем соседнюю долину, и водоток потянулся бы не туда.
+    """
+    z, _d, acc = _slope_dem()
+    mask = np.zeros(z.shape, dtype=bool)
+    mask[5:35, 10:30] = True
+    # яма в середине: самая низкая точка, но аккумуляции там нет
+    z[20, 20] = -500.0
+    by_acc = tg.outlet_in_mask(z, mask, acc)
+    by_low = tg.outlet_in_mask(z, mask, None)
+    assert by_low == 20 * z.shape[1] + 20, "проверка потеряла смысл"
+    assert by_acc != by_low, "яма перебила аккумуляцию"
+
+
+def test_outlet_returns_none_for_an_empty_mask():
+    z, _d, acc = _slope_dem()
+    empty = np.zeros(z.shape, dtype=bool)
+    assert tg.outlet_in_mask(z, empty, acc) is None
+
+
+def test_stream_is_cut_by_the_polygon_boundary():
+    """Длина водотока считается внутри полигона, а не по всей трассе.
+
+    Трасса от замыкания может уйти далеко за границу заданного
+    водосбора, и её полная длина отвечала бы на другой вопрос.
+    """
+    z, downstream, acc = _slope_dem()
+    small = np.zeros(z.shape, dtype=bool)
+    small[5:15, 10:30] = True
+    big = np.zeros(z.shape, dtype=bool)
+    big[5:35, 10:30] = True
+    r_small = tg.mask_report(z, small, 100.0, downstream=downstream, acc=acc)
+    r_big = tg.mask_report(z, big, 100.0, downstream=downstream, acc=acc)
+    assert r_small["stream_km"] is not None and r_big["stream_km"] is not None
+    assert r_small["stream_km"] < r_big["stream_km"]
+
+
+def test_empty_mask_gives_zero_area_not_a_crash():
+    z, downstream, acc = _slope_dem()
+    rep = tg.mask_report(z, np.zeros(z.shape, dtype=bool), 100.0,
+                         downstream=downstream, acc=acc)
+    assert rep["cells"] == 0 and rep["area_km2"] == 0.0
+
+
+# --- расчёт по СП 33-101 ---------------------------------------------------
+
+def test_sp_slope_equals_half_the_tangent_on_a_plane():
+    """Iск по СП на плоскости даёт половину тангенса уклона.
+
+    Формула Iск = h·Σli/(2A) эмпирическая и НЕ возвращает физический
+    уклон: двойка в знаменателе учитывает двусторонность склонов - вода
+    стекает к водотоку с обоих бортов долины. Проверка держит это
+    свойство: если оно уйдёт, значит формулу переписали не ту.
+    """
+    ny = nx = 200
+    cell = 10.0
+    s = math.tan(math.radians(5.0))
+    y, _x = np.mgrid[0:ny, 0:nx]
+    z = (y * cell * s).astype(float)
+    mask = np.ones(z.shape, dtype=bool)
+    area = ny * nx * cell * cell
+    for interval in (1.0, 10.0):
+        iso = tg.contour_length_in_mask(z, mask, cell, interval)
+        got = tg.sp_slope_ppm(iso, area, interval)
+        assert abs(got - s * 500.0) < s * 500.0 * 0.05, (
+            "сечение %.0f: %.1f вместо %.1f" % (interval, got, s * 500.0))
+
+
+def test_sp_slope_is_not_the_physical_slope():
+    """Явная проверка того, что величины разные.
+
+    Их легко перепутать, а разница вдвое: в нормативный отчёт нужна одна,
+    в физический анализ другая.
+    """
+    ny = nx = 100
+    cell = 10.0
+    s = math.tan(math.radians(10.0))
+    y, _x = np.mgrid[0:ny, 0:nx]
+    z = (y * cell * s).astype(float)
+    mask = np.ones(z.shape, dtype=bool)
+    iso = tg.contour_length_in_mask(z, mask, cell, 5.0)
+    sp = tg.sp_slope_ppm(iso, ny * nx * cell * cell, 5.0)
+    assert abs(sp - s * 1000.0) > s * 300.0, "СП совпал с тангенсом"
+
+
+def test_contour_length_grows_when_the_interval_shrinks():
+    """Мельче сечение - длиннее суммарная линия горизонталей."""
+    ny = nx = 80
+    cell = 10.0
+    y, _x = np.mgrid[0:ny, 0:nx]
+    z = (y * 2.0).astype(float)
+    mask = np.ones(z.shape, dtype=bool)
+    fine = tg.contour_length_in_mask(z, mask, cell, 2.0)
+    coarse = tg.contour_length_in_mask(z, mask, cell, 20.0)
+    assert fine > coarse * 5
+
+
+def test_sp_stream_matches_simple_slope_on_a_straight_profile():
+    """На ровном профиле средневзвешенный уклон равен простому."""
+    z = np.linspace(0.0, 100.0, 21)
+    got = tg.sp_stream_ppm(z, 100.0)
+    assert abs(got - 50.0) < 0.01
+
+
+def test_sp_stream_is_lower_on_a_broken_profile():
+    """У ломаного профиля СП даёт меньше простого отношения.
+
+    Среднее геометрическое частных уклонов всегда не больше среднего
+    арифметического, и в этом смысл методики: река с крутым верховьем и
+    пологим низовьем не описывается одним отношением падения к длине.
+    """
+    z = np.concatenate([np.linspace(0.0, 80.0, 8),
+                        np.linspace(80.0, 100.0, 14)[1:]])
+    simple = (z[-1] - z[0]) / (100.0 * (len(z) - 1)) * 1000.0
+    got = tg.sp_stream_ppm(z, 100.0)
+    assert got < simple * 0.9, "%.2f против %.2f" % (got, simple)
+
+
+def test_sp_fields_are_absent_without_an_interval():
+    """Нулевое сечение - расчёт по СП не выполняется вовсе."""
+    ny = nx = 40
+    y, _x = np.mgrid[0:ny, 0:nx]
+    z = (200.0 - y * 1.0).astype(float)
+    mask = np.zeros(z.shape, dtype=bool)
+    mask[5:35, 5:35] = True
+    rep = tg.mask_report(z, mask, 100.0)
+    assert rep.get("sp_slope_ppm") is None
+    assert rep.get("sp_iso_km") is None
+    with_iso = tg.mask_report(z, mask, 100.0, iso_interval=10.0)
+    assert with_iso.get("sp_slope_ppm") is not None

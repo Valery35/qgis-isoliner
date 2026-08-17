@@ -1014,3 +1014,105 @@ def test_single_section_keeps_the_old_behaviour():
             "zmin": 0.0, "zmax": 3.0, "sec": "Один"}]
     for x in (-100.0, 0.0, 10.0, 500.0):
         assert PICK(one, x, 0.0) == 0
+
+
+# --- отметки вершин пояса ---------------------------------------------------
+
+def _belt_grid(ny=50, nx=50, cell=10.0):
+    """Наклонная плоскость: отметка растёт к северу, метр на ячейку."""
+    gt = (0.0, cell, 0.0, ny * cell, 0.0, -cell)
+    y, _x = np.mgrid[0:ny, 0:nx]
+    arr = ((ny - 1 - y) * cell * 0.1).astype(float)
+    return arr, gt
+
+
+def test_each_vertex_takes_its_own_bound():
+    """Отметка нужна КАЖДОЙ вершине, а не одна на кольцо.
+
+    У пояса чаще всего одно кольцо, и идёт оно частью по нижней
+    изолинии, частью по верхней: замер на живых данных дал 1104
+    односкольцевых пояса из 1174. Один уровень на кольцо сделал бы
+    плоскими девять поясов из десяти - так и вышло в первой попытке.
+    """
+    arr, gt = _belt_grid()
+    zs = sc.vertex_levels([250.0, 250.0], [100.0, 300.0], arr, gt,
+                          20.0, 30.0)
+    assert abs(float(zs[0]) - 20.0) < 1e-9
+    assert abs(float(zs[1]) - 30.0) < 1e-9
+
+
+def test_vertex_at_the_raster_edge_still_gets_an_elevation():
+    """Край растра обязан давать отметку, а не пусто.
+
+    Контур области идёт ровно по краю, и билинейная выборка там пуста:
+    именно из-за неё пояса выходили с нулями в вершинах.
+    """
+    arr, gt = _belt_grid()
+    zs = sc.vertex_levels([0.0, 0.0], [205.0, 0.0], arr, gt, 20.0, 30.0)
+    assert np.all(np.isfinite(zs))
+
+
+def test_only_one_bound_gives_a_flat_belt():
+    """У крайних поясов граница одна, и весь пояс лежит на ней."""
+    arr, gt = _belt_grid()
+    zs = sc.vertex_levels([250.0, 250.0], [100.0, 300.0], arr, gt,
+                          240.0, None)
+    assert np.allclose(zs, 240.0)
+
+
+def test_without_bounds_there_is_nothing_to_write():
+    arr, gt = _belt_grid()
+    assert sc.vertex_levels([250.0], [100.0], arr, gt, None, None) is None
+
+
+def test_belt_gets_both_levels_on_a_slope():
+    """На склоне пояс обязан иметь обе отметки, иначе он плоский."""
+    arr, gt = _belt_grid()
+    xs = [250.0] * 21
+    ys = list(np.linspace(150.0, 350.0, 21))
+    zs = sc.vertex_levels(xs, ys, arr, gt, 20.0, 30.0)
+    assert len(set(np.round(zs, 6))) == 2, "пояс вышел плоским"
+
+
+def test_nearest_sampling_works_at_the_raster_edge():
+    """Опорный факт: ближайшей ячейкой край читается, билинейно нет."""
+    arr, gt = _belt_grid()
+    x, y = np.array([0.0]), np.array([200.0])
+    assert not np.isfinite(sc.sample_grid_points(arr, gt, x, y,
+                                                 bilinear=True)[0])
+    assert np.isfinite(sc.sample_grid_points(arr, gt, x, y,
+                                             bilinear=False)[0])
+
+
+def test_narrow_belt_is_not_flattened_by_coarse_sampling():
+    """Пояс уже ячейки обязан получить обе отметки.
+
+    Выборка ближайшей ячейкой возвращает значение центра, одно на всю
+    ячейку: у пояса между близкими изолиниями ВСЕ вершины получали одну
+    отметку, и он выходил плоским. На живых данных так вышло у мелких
+    поясов - медиана площади плоских 929 кв. м против 320 тысяч у
+    объёмных.
+    """
+    cell = 10.0
+    ny = nx = 60
+    gt = (0.0, cell, 0.0, ny * cell, 0.0, -cell)
+    y, _x = np.mgrid[0:ny, 0:nx]
+    # крутой склон: 20 м на ячейку, изолинии 100 и 110 в полуячейке
+    arr = (100.0 + (30 - y) * 20.0).astype(float)
+    xs = np.array([300.0, 300.0])
+    ys = np.array([295.0, 300.0])
+    coarse = sc.sample_grid_points(arr, gt, xs, ys, bilinear=False)
+    assert coarse[0] == coarse[1], "проверка потеряла смысл"
+    zs = sc.vertex_levels(xs, ys, arr, gt, 100.0, 110.0)
+    assert len(set(np.round(zs, 6))) == 2, "узкий пояс вышел плоским"
+
+
+def test_edge_falls_back_to_the_nearest_cell():
+    """На краю растра билинейная выборка пуста, и работает ближайшая.
+
+    Обе нужны: одна билинейная оставила бы нули у контура области, одна
+    ближайшая сплющила бы узкие пояса.
+    """
+    arr, gt = _belt_grid()
+    zs = sc.vertex_levels([0.0, 250.0], [200.0, 200.0], arr, gt, 20.0, 30.0)
+    assert np.all(np.isfinite(zs))

@@ -212,3 +212,32 @@ def observed_levels(secs):
     z0 = float(secs[0]["z_bed"])
     return [{"level": round(z0 + CH_DEPTH + 0.4, 2), "label": "X/2021"},
             {"level": round(z0 + CH_DEPTH - 0.6, 2), "label": "VII/2024"}]
+
+
+def bands_table(secs):
+    """Учебные полосы характеристик: растительность и грунт по створу.
+
+    Полоса идёт сплошь через несколько участков сразу и потому живёт
+    отрезками, а не полем створа. В демо она привязана к тем же границам,
+    что и русло: пойма зарастает, русло песчаное с галечником по дну.
+    Это данные для подвала чертежа, и на них видно, как строка полосы
+    ложится поверх строк по участкам.
+    """
+    out = []
+    left0 = 0.0
+    ch0, ch1 = FP_WIDTH, FP_WIDTH + CH_WIDTH
+    right1 = 2.0 * FP_WIDTH + CH_WIDTH
+    for j, _s in enumerate(secs):
+        name = "%s %d" % ("Створ", j + 1)
+        rows = (("Растительность", left0, left0 + FP_WIDTH * 0.6, "лес"),
+                ("Растительность", left0 + FP_WIDTH * 0.6, ch0, "выгон"),
+                ("Растительность", ch0, ch1, "нет"),
+                ("Растительность", ch1, right1, "луг"),
+                ("Грунт", left0, ch0, "суглинок"),
+                ("Грунт", ch0, ch1, "песок с галечником"),
+                ("Грунт", ch1, right1, "суглинок"))
+        for row, a, b, text in rows:
+            out.append({"sec": name, "dist_from": round(float(a), 2),
+                        "dist_to": round(float(b), 2), "row": row,
+                        "text": text})
+    return out

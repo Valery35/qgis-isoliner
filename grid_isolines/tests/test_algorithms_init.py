@@ -99,8 +99,8 @@ def test_all_algorithms_init():
     algorithms = importlib.import_module(pkg + ".algorithms")
     algorithms._tr = lambda s: s          # translate-заглушка возвращает строку
     assert algorithms.ALGORITHMS, "список ALGORITHMS пуст"
-    assert len(algorithms.ALGORITHMS) == 66, (
-        "ожидалось 66 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
+    assert len(algorithms.ALGORITHMS) == 67, (
+        "ожидалось 67 алгоритмов, а их %d" % len(algorithms.ALGORITHMS))
     for cls in algorithms.ALGORITHMS:
         a = cls()
         a.initAlgorithm()                 # тут и падало бы 'no attribute tr'
@@ -879,3 +879,293 @@ def test_value_field_is_optional_where_z_can_come_from_geometry():
         if m and "optional=True" not in m.group(0):
             bad.append(cls.name)
     assert not bad, ("поле значения обязательно: %s" % ", ".join(bad))
+
+
+def test_catchment_tools_can_carry_source_fields():
+    """Инструменты, строящие водосбор по объектам, умеют переносить их поля.
+
+    Без этого в выходе остаётся только номер, и чей это водосбор,
+    приходится искать в исходном слое по нему. Отчёт В. Швалева: сделал
+    в 2.16, а 2.07 и 2.15 остались без переноса, хотя задача у них та же.
+    """
+    import ast as _ast
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "algorithms.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    tree = _ast.parse(src)
+    lines = src.splitlines(True)
+    want = {"BasinsAlgorithm", "GaugeReportAlgorithm",
+            "DitchCatchmentAlgorithm"}
+    seen, bad = set(), []
+    for cls in [n for n in tree.body if isinstance(n, _ast.ClassDef)]:
+        if cls.name not in want:
+            continue
+        seen.add(cls.name)
+        body = "".join(lines[cls.lineno - 1:cls.end_lineno])
+        if "KEEP_FIELDS" not in body:
+            bad.append("%s: нет параметра" % cls.name)
+        elif "add_source_fields" not in body:
+            bad.append("%s: поля не собираются" % cls.name)
+        elif "source_attrs" not in body:
+            bad.append("%s: значения не пишутся" % cls.name)
+    assert seen == want, "классы не найдены: %s" % (want - seen)
+    assert not bad, "; ".join(bad)
+
+
+def test_no_undefined_names_across_the_package():
+    """Ни в одном модуле пакета не читается имя, которого нигде нет.
+
+    Прежние сторожа смотрели только algorithms.py, и ошибка в соседнем
+    модуле проходила мимо: в isolines.py numpy импортируется внутри
+    функций, а не на уровне модуля, и новая функция обратилась к np,
+    которого в её области видимости не было. Расчёт падал на живых
+    данных, а тесты молчали - в них этот путь не заходит.
+    """
+    import ast as _ast
+    import builtins
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    bad = []
+    for name in sorted(os.listdir(root)):
+        if not name.endswith(".py"):
+            continue
+        with open(os.path.join(root, name), encoding="utf-8") as fh:
+            tree = _ast.parse(fh.read())
+        known = set(dir(builtins))
+        known.update(("__file__", "__name__", "__doc__", "__package__"))
+        for node in tree.body:
+            if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                for al in node.names:
+                    known.add((al.asname or al.name).split(".")[0])
+            elif isinstance(node, (_ast.FunctionDef, _ast.ClassDef)):
+                known.add(node.name)
+            elif isinstance(node, _ast.Assign):
+                for tgt in _ast.walk(node):
+                    if isinstance(tgt, _ast.Name) and isinstance(tgt.ctx,
+                                                                 _ast.Store):
+                        known.add(tgt.id)
+            elif isinstance(node, (_ast.If, _ast.Try)):
+                for sub in _ast.walk(node):
+                    if isinstance(sub, (_ast.Import, _ast.ImportFrom)):
+                        for al in sub.names:
+                            known.add((al.asname or al.name).split(".")[0])
+                    elif isinstance(sub, _ast.Name) and isinstance(
+                            sub.ctx, _ast.Store):
+                        known.add(sub.id)
+
+        scopes = [n for n in tree.body if isinstance(n, _ast.FunctionDef)]
+        for cls in [n for n in tree.body if isinstance(n, _ast.ClassDef)]:
+            for st in cls.body:
+                if isinstance(st, _ast.Assign):
+                    for tgt in _ast.walk(st):
+                        if isinstance(tgt, _ast.Name) and isinstance(
+                                tgt.ctx, _ast.Store):
+                            known.add(tgt.id)
+            scopes.extend(n for n in cls.body
+                          if isinstance(n, _ast.FunctionDef))
+
+        for fn in scopes:
+            local = set(known)
+            for node in _ast.walk(fn):
+                if isinstance(node, _ast.Name) and isinstance(node.ctx,
+                                                              _ast.Store):
+                    local.add(node.id)
+                elif isinstance(node, _ast.arg):
+                    local.add(node.arg)
+                elif isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                    for al in node.names:
+                        local.add((al.asname or al.name).split(".")[0])
+                elif isinstance(node, (_ast.FunctionDef, _ast.Lambda,
+                                       _ast.ClassDef)):
+                    # Класс, объявленный ВНУТРИ функции, - обычное дело
+                    # для диалогов: они создаются на месте, чтобы не
+                    # тянуть Qt в модуль верхнего уровня.
+                    local.add(getattr(node, "name", "<lambda>"))
+                elif isinstance(node, _ast.ExceptHandler) and node.name:
+                    local.add(node.name)
+                elif isinstance(node, _ast.Global):
+                    local.update(node.names)
+            for node in _ast.walk(fn):
+                if (isinstance(node, _ast.Name)
+                        and isinstance(node.ctx, _ast.Load)
+                        and node.id not in local):
+                    bad.append("%s: %s (строка %d)"
+                               % (name, node.id, node.lineno))
+    assert not bad, ("имя нигде не определено:\n  "
+                     + "\n  ".join(sorted(set(bad))))
+
+
+def test_footer_rows_are_configurable_and_titled():
+    """Строки подвала разбираются списком и у каждой есть заголовок.
+
+    Ключи задаёт пользователь строкой, порядок в ней это порядок строк на
+    чертеже. Незнакомый ключ обязан отсеиваться с предупреждением, а не
+    уходить в разметку и рвать её на месте.
+    """
+    from grid_isolines import algorithms as A
+    alg = [c for c in A.ALGORITHMS if c().name() == "rating_curve"][0]()
+
+    class _Feedback(object):
+        def __init__(self):
+            self.warnings = []
+
+        def pushWarning(self, text):
+            self.warnings.append(text)
+
+        def pushInfo(self, text):
+            pass
+
+    fb = _Feedback()
+    keys = alg._foot_keys("q, dist,  ерунда , elev, dist", fb)
+    assert keys == ["q", "dist", "elev"], keys
+    assert fb.warnings and "ерунда" in fb.warnings[0]
+    assert alg._foot_keys("лес", _Feedback(), extra={"лес"}) == ["лес"]
+    for key in tuple(alg._FOOT_POINT) + tuple(alg._FOOT_SPAN):
+        assert alg._foot_title(key) != key, key
+
+
+def test_section_drawing_is_one_layer_by_default():
+    """Чертёж створа выдаётся одним слоем, разбор на части по запросу.
+
+    Оформление вешается стилем на поле kind, и слоёв для этого нужен
+    один. Отдельные слои профиля, уровней и отметок земли остались, но
+    сами не создаются, иначе в проекте снова полдюжины слоёв на створ.
+    """
+    import inspect
+
+    from grid_isolines import algorithms as A
+    cls = [c for c in A.ALGORITHMS if c().name() == "rating_curve"][0]
+    src = inspect.getsource(cls)
+    for key, want in (("self.OUTPUT_DRAW", "createByDefault=True"),
+                      ("self.OUTPUT_PROFILE", "createByDefault=False"),
+                      ("self.OUTPUT_LEVELS,", "createByDefault=False"),
+                      ("self.OUTPUT_GROUND", "createByDefault=False")):
+        k = src.index(key)
+        assert want in src[k:k + 400], key
+
+
+def test_scale_ratio_is_applied_to_every_part_of_the_drawing():
+    """Отношение масштабов растягивает весь чертёж, а не один профиль.
+
+    Профиль, линии уровней, отметки земли и подвал живут в одних осях.
+    Стоит растянуть что-то одно, и они разойдутся, поэтому множитель
+    обязан стоять в каждом из этих мест. Отсчёт идёт от низа створа.
+    """
+    import inspect
+
+    from grid_isolines import algorithms as A
+    cls = [c for c in A.ALGORITHMS if c().name() == "rating_curve"][0]
+    src = inspect.getsource(cls)
+    k = src.index("def _process")
+    body = src[k:]
+    assert body.count("zbase = float(np.min(z))") == 1, "нет основания отсчёта"
+    # профиль, два вида уровней, отметки земли
+    assert body.count("- zbase) * vex") == 4, body.count("- zbase) * vex")
+    # подвал растягивается высотой строки и отступом
+    assert "foot_h * vex" in body and "foot_gap * vex" in body
+    # график живёт в своих осях, отношение на него не действует
+    plot = inspect.getsource(cls._write_plot)
+    assert "vex" not in plot
+
+
+def test_distance_row_cell_length_equals_the_distance():
+    """У строки расстояний длина ячейки равна самому расстоянию.
+
+    Тогда подпись считается стилем из геометрии, и наше форматирование
+    ей не мешает. Накопленное расстояние остаётся в отдельной строке.
+    """
+    import numpy as np
+
+    from grid_isolines import algorithms as A
+    alg = [c for c in A.ALGORITHMS if c().name() == "rating_curve"][0]()
+    d = np.array([0.0, 37.0, 60.0, 100.0])
+    z = np.array([160.0, 157.0, 156.0, 159.0])
+    n_rows, items = alg._footer_items(
+        "Створ 1", 1.0, d, z, [0, 1, 2, 3], ["dist_gap", "dist"],
+        [], {}, None, 2.0, 1.0, 0.0, 0.0, 100.0)
+    assert n_rows == 2
+    gaps = [it for it in items
+            if it["kind"] == "foot_cell" and it["row"] == "dist_gap"]
+    assert len(gaps) == 3
+    lens = [round(it["pts"][1][0] - it["pts"][0][0], 6) for it in gaps]
+    assert lens == [37.0, 23.0, 40.0]
+    assert [it["value"] for it in gaps] == [37.0, 23.0, 40.0]
+    # накопленное расстояние живёт своей строкой и длине не равно
+    cum = [it["text"] for it in items
+           if it["kind"] == "foot_cell" and it["row"] == "dist"]
+    assert cum == ["0.0", "37.0", "60.0", "100.0"]
+
+
+def test_part_line_carries_its_own_hydraulics():
+    """Линия участка несёт характеристики, которые о ней пишут в бланке.
+
+    Тогда подвал собирается оформлением: подпись берётся с самой линии,
+    а не ищется в ячейках. Поля обязаны совпадать с теми, что объявлены
+    у общего слоя чертежа, иначе атрибуты сдвинутся по одному.
+    """
+    import inspect
+
+    from grid_isolines import algorithms as A
+    cls = [c for c in A.ALGORITHMS if c().name() == "rating_curve"][0]
+    src = inspect.getsource(cls)
+    k = src.index("_XTRA = (")
+    xtra = src[k:src.index(")", k)]
+    for key in ("level", "width", "depth_avg", "area", "perim", "radius",
+                "n", "v", "q", "q_pct", "slope"):
+        assert '"%s"' % key in xtra, key
+        assert '("%s", QVariant.Double)' % key in src, key
+    # характеристики считаются до записи профиля, иначе они пусты
+    assert src.index("stats[f.name] = {") < src.index('draw(nm, km, "profile"')
+
+
+def test_part_line_carries_the_footer_row():
+    """Линия участка несёт свою строку подвала в атрибутах.
+
+    Тогда подвал собирается оформлением по самим объектам, без разбора
+    ячеек. Грунт и покрытие расчётом не берутся, поэтому поля под них
+    есть, но пустые: их заносят руками или подают таблицей полос.
+    """
+    import inspect
+
+    from grid_isolines import algorithms as A
+    cls = [c for c in A.ALGORITHMS if c().name() == "rating_curve"][0]
+    src = inspect.getsource(cls)
+    k = src.index("def _process")
+    body = src[k:]
+    for fld in ("level", "width", "depth_avg", "area", "perim", "radius",
+                "n", "v", "q", "q_pct", "slope", "part_no", "soil",
+                "cover"):
+        assert '"%s"' % fld in body, fld
+    # характеристики попадают на профиль, а не только в ячейки подвала
+    j = body.index('draw(nm, km, "profile"')
+    assert "xtra=xtra" in body[j:j + 200]
+    # грунт и покрытие берутся с полос, а не из расчёта
+    assert "_SOIL_ROWS" in body and "_COVER_ROWS" in body
+    assert "soil" not in body[body.index("stats[f.name] = {"):
+                              body.index("stats[f.name] = {") + 400]
+
+
+def test_part_line_carries_the_whole_footer_row():
+    """Линия участка несёт о себе всё, что пишут о ней в бланке.
+
+    Тогда подвал собирается стилем по атрибутам, а геометрию подвала
+    можно не строить вовсе. Грунт и покрытие расчётом не берутся и
+    остаются пустыми под руку.
+    """
+    from grid_isolines import algorithms as A
+    alg = [c for c in A.ALGORITHMS if c().name() == "rating_curve"][0]()
+    alg.initAlgorithm()
+    import inspect
+    src = inspect.getsource(alg.__class__)
+    k = src.index("def _process")
+    body = src[k:]
+    for fld in ("level", "width", "depth_avg", "area", "perim", "radius",
+                "n", "v", "q", "q_pct", "slope", "part_no", "soil",
+                "cover"):
+        assert '"%s"' % fld in body, fld
+    # характеристики считаются раньше, чем пишется линия участка
+    assert body.index("stats[f.name]") < body.index('draw(nm, km, "profile"')
+    # геометрия подвала по умолчанию не строится
+    j = src.index("self.FOOT_GEOM,")
+    assert "self.FOOT_GEOM, False" in src[j:j + 400]
