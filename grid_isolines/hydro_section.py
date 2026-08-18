@@ -570,3 +570,49 @@ def footer_layout(d, rows, breaks, y_top, row_h, title_gap=0.0):
                               "span": (a, b), "num": num})
     return {"rules": rules, "verticals": verticals, "cells": cells,
             "titles": titles, "bottom": bottom}
+
+
+def elevation_scale(zlo, zhi, x0, vex=1.0, count=8, tick=1.0, step=0.0):
+    """Вертикальная шкала отметок сбоку от профиля.
+
+    Стилем шкалу тоже нарисовать можно, но правильно расставить деления
+    трудно, поэтому она приходит готовой геометрией. Ось идёт от нижней
+    отметки к верхней, деления встают на округлых значениях ряда
+    1, 2, 2.5, 5, 10, подпись несёт саму отметку.
+
+    Отсчёт растяжения тот же, что у профиля: от низа створа. Ось и
+    деления возвращаются в координатах чертежа, отметка деления - в
+    метрах, как её и подписывают.
+
+    Возвращает (ось, деления), где ось это пара точек, а деление -
+    словарь с отрезком, отметкой и подписью.
+    """
+    zlo, zhi = float(zlo), float(zhi)
+    if not (zhi > zlo):
+        return [], []
+
+    def vy(v):
+        return zlo + (float(v) - zlo) * float(vex)
+
+    vals = ([round(v, 6) for v in _nice_values(zlo, zhi, int(count))]
+            if step <= 0 else [])
+    if step > 0:
+        v = math.ceil(zlo / step) * step
+        while v <= zhi + 1e-9:
+            vals.append(round(v, 6))
+            v += step
+    # По делению сверху и снизу за пределами створа: от нижнего строят
+    # подвал, верхнее закрывает шкалу над бровкой. Без них шкала
+    # обрывается на первой круглой отметке внутри профиля
+    if len(vals) >= 2:
+        d = round(vals[1] - vals[0], 9)
+        vals = [round(vals[0] - d, 6)] + vals + [round(vals[-1] + d, 6)]
+    lo_v = min(vals) if vals else zlo
+    hi_v = max(vals) if vals else zhi
+    axis = [(float(x0), vy(min(zlo, lo_v))), (float(x0), vy(max(zhi, hi_v)))]
+    ticks = []
+    for v in vals:
+        ticks.append({"z": v, "text": ("%g" % v),
+                      "pts": [(float(x0) - float(tick), vy(v)),
+                              (float(x0), vy(v))]})
+    return axis, ticks

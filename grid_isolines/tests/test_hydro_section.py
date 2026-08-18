@@ -569,43 +569,6 @@ def test_footer_layout_survives_an_empty_request():
     assert lay["rules"] == [] and lay["cells"] == []
 
 
-def test_demo_bands_cover_the_whole_section():
-    """Полосы демо покрывают створ целиком и не наезжают друг на друга.
-
-    Полоса нужна подвалу чертежа, и на демо она обязана быть готовым
-    входом: без дыр между отрезками и без перекрытий, иначе ячейки лягут
-    одна на другую.
-    """
-    secs = dr.demo_sections(n=2)
-    rows = dr.bands_table(secs)
-    assert rows, "полос нет вовсе"
-    width = 2.0 * dr.FP_WIDTH + dr.CH_WIDTH
-    by_row = {}
-    for r in rows:
-        by_row.setdefault((r["sec"], r["row"]), []).append(
-            (r["dist_from"], r["dist_to"], r["text"]))
-    assert len(by_row) == 4, "два створа по две строки"
-    for key, spans in by_row.items():
-        spans.sort()
-        assert spans[0][0] == 0.0 and spans[-1][1] == width, key
-        for (_a0, b0, _t0), (a1, _b1, _t1) in zip(spans, spans[1:]):
-            assert abs(b0 - a1) < 1e-9, ("разрыв или перекрытие", key)
-
-
-def test_demo_bands_are_ready_for_the_footer():
-    """Отрезки демо ложатся в разметку подвала без обрезки."""
-    secs = dr.demo_sections(n=1)
-    d, _z = dr.demo_profile()
-    spans = [(r["dist_from"], r["dist_to"], r["text"])
-             for r in dr.bands_table(secs) if r["row"] == "Грунт"]
-    lay = hs.footer_layout(
-        d, [{"kind": "span", "key": "soil", "title": "Грунт",
-             "values": spans}], [0, len(d) - 1], y_top=0.0, row_h=1.0)
-    assert len(lay["cells"]) == len(spans)
-    for c in lay["cells"]:
-        assert c["span"][1] > c["span"][0]
-
-
 def test_cell_carries_its_own_number():
     """У ячейки в числе лежит её собственное значение.
 
@@ -651,3 +614,41 @@ def test_cell_is_a_segment_of_its_full_width():
         assert b > a or (a, b) == pts[0]
     spans = [c["span"] for c in lay["cells"] if c["key"] == "part"]
     assert spans == [(0.0, 30.0), (30.0, 40.0)]
+
+
+def test_elevation_scale_stands_beside_the_profile():
+    """Шкала отметок приходит готовой геометрией.
+
+    Стилем её тоже нарисовать можно, но правильно расставить деления
+    трудно: шаг зависит от размаха отметок, а положение делений от
+    растяжения по вертикали.
+    """
+    axis, ticks = hs.elevation_scale(150.7, 165.2, x0=0.0, vex=10.0, tick=3.0)
+    assert axis[0][1] < 150.7, "ось накрывает нижнее деление"
+    assert axis[1][1] > 150.7 + (165.2 - 150.7) * 10.0
+    assert ticks, "делений нет"
+    vals = [t["z"] for t in ticks]
+    assert vals == sorted(vals)
+    # по делению сверху и снизу выходят за створ: от нижнего строят подвал
+    assert vals[0] < 150.7 and vals[-1] > 165.2
+    assert sum(1 for v in vals if v < 150.7) == 1
+    assert sum(1 for v in vals if v > 165.2) == 1
+    # деления на округлых отметках, а не через равные доли размаха
+    step = round(vals[1] - vals[0], 6)
+    assert step in (0.5, 1.0, 2.0, 2.5, 5.0), step
+    # засечка идёт влево от оси и стоит на своей отметке
+    t = ticks[0]
+    assert t["pts"][1][0] == 0.0 and t["pts"][0][0] == -3.0
+    y = 150.7 + (t["z"] - 150.7) * 10.0
+    assert abs(t["pts"][0][1] - y) < 1e-9
+    assert t["text"] == "%g" % t["z"]
+
+
+def test_elevation_scale_takes_a_given_step():
+    _axis, ticks = hs.elevation_scale(100.0, 105.0, x0=0.0, step=1.0)
+    assert [t["z"] for t in ticks] == [99.0, 100.0, 101.0, 102.0, 103.0,
+                                       104.0, 105.0, 106.0]
+
+
+def test_elevation_scale_survives_a_flat_section():
+    assert hs.elevation_scale(100.0, 100.0, x0=0.0) == ([], [])

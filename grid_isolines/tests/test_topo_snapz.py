@@ -308,3 +308,118 @@ def test_open_line_still_holds_its_ends():
     zs, _ = sz.profile_from_samples(line, [(20.0, 150.0), (80.0, 152.0)],
                                     closed=False)
     assert abs(zs[0] - 150.0) < 1e-9 and abs(zs[-1] - 152.0) < 1e-9
+
+
+# --- сетка сегментов: та же выборка, но без перебора всех пар ----------------
+
+def _slow_gather(line_pts, contours, tol):
+    """Прежний перебор всех пар: эталон для сверки."""
+    line_pts = np.asarray(line_pts, dtype=float)
+    cum = sz._cum_length(line_pts)
+    out = []
+    for ct in contours:
+        z = ct.get("z")
+        if z is None:
+            continue
+        cpts = np.asarray(ct["pts"], dtype=float)
+        if len(cpts) < 1:
+            continue
+        if (cpts[:, 0].max() < line_pts[:, 0].min() - tol
+                or cpts[:, 0].min() > line_pts[:, 0].max() + tol
+                or cpts[:, 1].max() < line_pts[:, 1].min() - tol
+                or cpts[:, 1].min() > line_pts[:, 1].max() + tol):
+            continue
+        hit = False
+        for j in range(len(cpts) - 1):
+            for i in range(len(line_pts) - 1):
+                r = sz._seg_intersect(line_pts[i], line_pts[i + 1],
+                                      cpts[j], cpts[j + 1])
+                if r is not None:
+                    t, _u = r
+                    seg = np.hypot(*(line_pts[i + 1] - line_pts[i]))
+                    out.append((cum[i] + t * seg, float(z)))
+                    hit = True
+        if not hit:
+            for end in (cpts[0], cpts[-1]):
+                d, s = sz._point_to_polyline(end, line_pts, cum)
+                if d <= tol:
+                    out.append((s, float(z)))
+    return out
+
+
+def test_grid_gives_the_same_samples_as_the_full_search():
+    """Сетка ускоряет, но не меняет результат.
+
+    На топоплане контур дороги в тысячи вершин против трёх сотен
+    горизонталей давал сотни миллионов пар отрезков, и профилирование
+    одного кольца занимало семь минут. Сетка оставляет только соседей.
+    Выборка встреч от этого меняться не имеет права.
+    """
+    rng = np.random.default_rng(3)
+    for _case in range(25):
+        n = int(rng.integers(3, 60))
+        line = np.c_[np.cumsum(rng.normal(0, 3, n)),
+                     np.cumsum(rng.normal(0, 3, n))]
+        cs = []
+        for k in range(int(rng.integers(1, 12))):
+            m = int(rng.integers(2, 30))
+            cs.append({"pts": np.c_[np.cumsum(rng.normal(0, 4, m)),
+                                    np.cumsum(rng.normal(0, 4, m))],
+                       "z": float(k)})
+        want = sorted((round(s, 9), z) for s, z in _slow_gather(line, cs, 0.5))
+        got = sorted((round(s, 9), z)
+                     for s, z in sz.gather_samples(line, cs, 0.5))
+        assert got == want
+
+
+def test_grid_finds_a_crossing_far_from_the_line_start():
+    """Встреча в конце длинной линии не теряется: ячейка своя у каждой.
+
+    Горизонталь пересекает линию ровно в её вершине, и встречу дают оба
+    смежных сегмента. Это поведение прежнего ядра: дубль с той же дуговой
+    координатой и той же отметкой профилю не мешает.
+    """
+    line = np.c_[np.linspace(0, 1000, 501), np.zeros(501)]
+    cs = [{"pts": np.array([[990.0, -5.0], [990.0, 5.0]]), "z": 12.0}]
+    got = sz.gather_samples(line, cs, 0.5)
+    assert got, "встреча у конца линии потеряна"
+    assert all(abs(s - 990.0) < 1e-6 and z == 12.0 for s, z in got)
+
+
+def test_grid_survives_a_single_vertex_line():
+    assert sz.gather_samples(np.array([[0.0, 0.0]]), [], 0.5) == []
+
+
+def test_source_gap_notices_a_quarrel_between_sources():
+    """Спор источников считается числом, а не решается за пользователя.
+
+    Высотные отметки и горизонтали ложатся на одну и ту же линию. Если
+    они описывают одно и то же, значения совпадают. Расхождение в метры
+    означает либо обрезки изолиний у контура, либо разные объекты:
+    точки описывают полотно, горизонтали землю вокруг.
+    """
+    sc = [(0.0, 100.0), (10.0, 110.0), (20.0, 120.0)]
+    sp = [(5.0, 105.0), (15.0, 115.0)]
+    n, med, worst = sz.source_gap(sc, sp)
+    assert (n, med, worst) == (2, 0.0, 0.0), "согласные источники не спорят"
+    sp_bad = [(5.0, 100.0), (15.0, 109.0)]
+    n, med, worst = sz.source_gap(sc, sp_bad)
+    assert n == 2 and abs(med - 5.5) < 1e-9 and abs(worst - 6.0) < 1e-9
+
+
+def test_source_gap_ignores_points_outside_the_contour_range():
+    sc = [(10.0, 100.0), (20.0, 110.0)]
+    assert sz.source_gap(sc, [(0.0, 50.0)]) == (0, 0.0, 0.0)
+    assert sz.source_gap([], [(1.0, 2.0)]) == (0, 0.0, 0.0)
+
+
+def test_snap_elevations_reports_the_gap():
+    """Расхождение доезжает до вызывающего в результате прохода."""
+    line = np.c_[np.linspace(0.0, 100.0, 11), np.zeros(11)]
+    contours = [{"pts": np.array([[x, -5.0], [x, 5.0]]), "z": 100.0 + x / 10.0}
+                for x in (10.0, 50.0, 90.0)]
+    points = np.array([[50.0, 0.0, 90.0]])       # на 15 м ниже земли
+    done, _skip = sz.snap_elevations([{"pts": line}], contours, 0.5,
+                                     points=points, pt_tol=0.5)
+    n, _med, worst = done[0]["src_gap"]
+    assert n == 1 and worst > 10.0

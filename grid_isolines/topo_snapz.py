@@ -65,6 +65,73 @@ def _point_to_polyline(pt, pts, cum):
     return best_d, best_s
 
 
+class _SegGrid(object):
+    """Сетка сегментов линии: какие сегменты лежат в какой ячейке.
+
+    Прежде каждый сегмент горизонтали сверялся с каждым сегментом линии,
+    и на топоплане это давало сотни миллионов пар: контур дороги в
+    тысячи вершин против трёх сотен горизонталей. Сетка оставляет только
+    соседей, а дальше сравнение идёт массивами.
+    """
+
+    def __init__(self, pts, tol):
+        self.a = pts[:-1]
+        self.b = pts[1:]
+        lo = np.minimum(self.a, self.b) - tol
+        hi = np.maximum(self.a, self.b) + tol
+        self.lo, self.hi = lo, hi
+        span = np.maximum(pts.max(axis=0) - pts.min(axis=0), 1e-9)
+        seg = float(np.median(np.hypot(*(self.b - self.a).T))) or 0.0
+        self.cell = max(seg, float(span.max()) / 256.0, 1e-9)
+        self.org = pts.min(axis=0) - tol
+        self.grid = {}
+        i0 = np.floor((lo - self.org) / self.cell).astype(np.int64)
+        i1 = np.floor((hi - self.org) / self.cell).astype(np.int64)
+        for k in range(len(self.a)):
+            for cx in range(i0[k, 0], i1[k, 0] + 1):
+                for cy in range(i0[k, 1], i1[k, 1] + 1):
+                    self.grid.setdefault((cx, cy), []).append(k)
+
+    def query(self, p, q, tol):
+        """Индексы сегментов линии рядом с отрезком p-q."""
+        lo = np.minimum(p, q) - tol
+        hi = np.maximum(p, q) + tol
+        i0 = np.floor((lo - self.org) / self.cell).astype(np.int64)
+        i1 = np.floor((hi - self.org) / self.cell).astype(np.int64)
+        out = set()
+        for cx in range(i0[0], i1[0] + 1):
+            for cy in range(i0[1], i1[1] + 1):
+                cell = self.grid.get((cx, cy))
+                if cell:
+                    out.update(cell)
+        return np.fromiter(sorted(out), dtype=np.int64, count=len(out))
+
+
+def _cross_hits(grid, p, q, tol):
+    """Пересечения отрезка p-q с сегментами линии: (индекс, доля t).
+
+    Та же арифметика, что в `_seg_intersect`, только сразу по всем
+    соседним сегментам массивами.
+    """
+    idx = grid.query(p, q, tol)
+    if not len(idx):
+        return idx, idx
+    a, b = grid.a[idx], grid.b[idx]
+    d1 = b - a
+    d2 = q - p
+    den = d1[:, 0] * d2[1] - d1[:, 1] * d2[0]
+    ok = np.abs(den) >= 1e-12
+    if not ok.any():
+        return idx[:0], den[:0]
+    den = np.where(ok, den, 1.0)
+    dp = p - a
+    t = (dp[:, 0] * d2[1] - dp[:, 1] * d2[0]) / den
+    u = (dp[:, 0] * d1[:, 1] - dp[:, 1] * d1[:, 0]) / den
+    ok &= (t >= -1e-9) & (t <= 1.0 + 1e-9)
+    ok &= (u >= -1e-9) & (u <= 1.0 + 1e-9)
+    return idx[ok], np.clip(t[ok], 0.0, 1.0)
+
+
 def gather_samples(line_pts, contours, tol):
     """Точки встречи линии формы с горизонталями.
 
@@ -80,6 +147,8 @@ def gather_samples(line_pts, contours, tol):
     """
     line_pts = np.asarray(line_pts, dtype=np.float64)
     cum = _cum_length(line_pts)
+    seg_len = np.hypot(*(line_pts[1:] - line_pts[:-1]).T)
+    grid = _SegGrid(line_pts, tol) if len(line_pts) > 1 else None
     out = []
     for ct in contours:
         z = ct.get("z")
@@ -96,14 +165,10 @@ def gather_samples(line_pts, contours, tol):
             continue
         hit = False
         for j in range(len(cpts) - 1):
-            for i in range(len(line_pts) - 1):
-                r = _seg_intersect(line_pts[i], line_pts[i + 1],
-                                   cpts[j], cpts[j + 1])
-                if r is not None:
-                    t, _u = r
-                    seg = np.hypot(*(line_pts[i + 1] - line_pts[i]))
-                    out.append((cum[i] + t * seg, float(z)))
-                    hit = True
+            idx, ts = _cross_hits(grid, cpts[j], cpts[j + 1], tol)
+            for i, t in zip(idx, ts):
+                out.append((cum[i] + t * seg_len[i], float(z)))
+                hit = True
         if not hit:
             # концы горизонтали: узловая точка примыкания
             for end in (cpts[0], cpts[-1]):
@@ -257,6 +322,32 @@ def densify_at(line_pts, s_values, eps=1e-9):
     return np.asarray(out, dtype=np.float64), np.asarray(scum, dtype=np.float64)
 
 
+def source_gap(samples_c, samples_p):
+    """Расхождение между высотными отметками и горизонталями.
+
+    Оба источника ложатся на одну и ту же линию, и если они описывают
+    одно и то же, их значения совпадают. Расхождение в метры означает
+    либо разные объекты на одной линии (полотно и земля вокруг), либо
+    грязь в исходных данных: обрезки изолиний, оставшиеся между
+    контурами, дают отметку не того места.
+
+    Считается по каждой точечной пробе: отметка горизонталей в той же
+    дуговой координате берётся линейной интерполяцией. Возвращает
+    (сколько сравнивалось, медиана, наибольшее).
+    """
+    if not samples_c or not samples_p:
+        return 0, 0.0, 0.0
+    sc = np.asarray([s for s, _z in sorted(samples_c)], dtype=float)
+    zc = np.asarray([z for _s, z in sorted(samples_c)], dtype=float)
+    sp = np.asarray([s for s, _z in samples_p], dtype=float)
+    zp = np.asarray([z for _s, z in samples_p], dtype=float)
+    inside = (sp >= sc[0]) & (sp <= sc[-1])
+    if not inside.any():
+        return 0, 0.0, 0.0
+    d = np.abs(zp[inside] - np.interp(sp[inside], sc, zc))
+    return int(d.size), float(np.median(d)), float(d.max())
+
+
 def snap_elevations(lines, contours, tol, points=None, pt_tol=None,
                     snap_tol=None, min_step=0.0):
     """Полный проход: линии форм получают профиль с горизонталей.
@@ -276,9 +367,12 @@ def snap_elevations(lines, contours, tol, points=None, pt_tol=None,
             skipped.append({"line": ln, "reason": "меньше двух вершин"})
             continue
         samples = gather_samples(pts, contours, tol)
+        gap = (0, 0.0, 0.0)
         if points is not None and len(points):
-            samples = samples + gather_point_samples(
+            pt_samples = gather_point_samples(
                 pts, points, tol if pt_tol is None else pt_tol)
+            gap = source_gap(samples, pt_samples)
+            samples = samples + pt_samples
             samples.sort()
         if not samples:
             skipped.append({"line": ln,
@@ -306,5 +400,6 @@ def snap_elevations(lines, contours, tol, points=None, pt_tol=None,
         item["pts"] = dense
         item["zs"] = zs
         item["n_samples"] = n
+        item["src_gap"] = gap
         done.append(item)
     return done, skipped

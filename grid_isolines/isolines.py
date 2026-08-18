@@ -1594,11 +1594,21 @@ def belt_thickness(geom):
 
 def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
                     final_output, context, feedback, min_thick=0.0,
-                    with_z=False):
+                    with_z=False, solids_output=None):
     """Каждому поясу присваивает диапазон уровней выборкой растра в
-    репрезентативной точке (point-on-surface) и сохраняет слой."""
+    репрезентативной точке (point-on-surface) и сохраняет слой.
+
+    `solids_output` включает второй выход: тот же пояс замкнутой
+    оболочкой, крышка снизу на ELEV_MIN, крышка сверху на ELEV_MAX,
+    стенки по всем кольцам, включая дыры. Оболочка нужна объёму, обрезке
+    сцены с закрытым срезом и обмену с программами, которые понимают
+    только замкнутые тела. Считается из тех же колец и тех же диапазонов,
+    поэтому второй проход по данным не нужен.
+    """
     from qgis.core import (
-        QgsVectorLayer, QgsFeature, QgsFields, QgsField, QgsGeometry)
+        QgsVectorLayer, QgsFeature, QgsFields, QgsField, QgsGeometry,
+        QgsPoint, QgsLineString, QgsPolygon, QgsMultiPolygon)
+    from . import solids as _solids
     from qgis.PyQt.QtCore import QVariant
     import numpy as np
 
@@ -1629,6 +1639,34 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
     dp = mem.dataProvider()
     dp.addAttributes(fields.toList())
     mem.updateFields()
+
+    smem = sdp = None
+    if solids_output is not None:
+        sfields = QgsFields()
+        sfields.append(QgsField("ELEV_MIN", QVariant.Double, len=20, prec=6))
+        sfields.append(QgsField("ELEV_MAX", QVariant.Double, len=20, prec=6))
+        # поле shell отличает тело от пояса без догадок по геометрии
+        sfields.append(QgsField("shell", QVariant.Int))
+        smem = QgsVectorLayer(
+            "MultiPolygonZ?crs=%s" % (crs.authid() or crs.toWkt()),
+            _tr("тела"), "memory")
+        sdp = smem.dataProvider()
+        sdp.addAttributes(sfields.toList())
+        smem.updateFields()
+    solid_feats = []
+    n_open = 0
+
+    def rings_of(geom):
+        """Кольца объекта в плане: [[внешнее, дыра, ...], ...]."""
+        try:
+            polys = geom.asMultiPolygon() or []
+        except TypeError:
+            polys = []
+        if not polys:
+            one = geom.asPolygon()
+            polys = [one] if one else []
+        return [[[(p.x(), p.y()) for p in r] for r in poly if r]
+                for poly in polys]
 
     feedback.pushInfo(_tr("Назначение диапазонов поясам…"))
     out_feats = []
@@ -1675,6 +1713,33 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
         nf.setGeometry(gg)
         nf.setAttributes([float(mins[idx]), float(maxs[idx])])
         out_feats.append(nf)
+        if sdp is not None:
+            z_lo, z_hi = float(mins[idx]), float(maxs[idx])
+            mp = QgsMultiPolygon()
+            n_parts = 0
+            for rings in rings_of(g):
+                parts = _solids.shell_faces(rings, z_lo, z_hi)
+                if not parts:
+                    continue
+                _nf2, _ne, loose, many = _solids.edge_report(parts)
+                if loose or many:
+                    n_open += 1
+                for part in parts:
+                    pg = QgsPolygon()
+                    for k2, ring in enumerate(part):
+                        ls = QgsLineString(
+                            [QgsPoint(x, y, z) for x, y, z in ring])
+                        if k2 == 0:
+                            pg.setExteriorRing(ls)
+                        else:
+                            pg.addInteriorRing(ls)
+                    mp.addGeometry(pg)
+                    n_parts += 1
+            if n_parts:
+                sf = QgsFeature(smem.fields())
+                sf.setGeometry(QgsGeometry(mp))
+                sf.setAttributes([z_lo, z_hi, 1])
+                solid_feats.append(sf)
         if i % 200 == 0:
             feedback.setProgress(int(100.0 * i / n_total))
     if n_norep or n_nodata:
@@ -1705,7 +1770,27 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
         raise QgsProcessingException(_tr("Ни один пояс не получил значения."))
     dp.addFeatures(out_feats)
     mem.updateExtents()
-    return _save(processing, mem, final_output, context, feedback)
+    belts = _save(processing, mem, final_output, context, feedback)
+    if sdp is None:
+        return belts
+    if n_open:
+        feedback.pushWarning(_tr(
+            "Незамкнутых оболочек: %d. Проверьте слой тел скриптом "
+            "tools/check_solids.py.") % n_open)
+    if not solid_feats:
+        feedback.pushWarning(_tr(
+            "Тел не построено: у поясов нулевая мощность или пустые "
+            "кольца."))
+        return {"belts": belts, "solids": None}
+    sdp.addFeatures(solid_feats)
+    smem.updateExtents()
+    feedback.pushInfo(_tr(
+        "Тел построено: %d. Каждое замкнуто: крышка снизу на ELEV_MIN, "
+        "сверху на ELEV_MAX, стенки по всем кольцам, включая дыры.")
+        % len(solid_feats))
+    return {"belts": belts,
+            "solids": _save(processing, smem, solids_output, context,
+                            feedback)}
 
 
 
@@ -1715,7 +1800,8 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
                           lines_output, polygons_output, context, feedback,
                           slope_ref=None, uphill_ref=None,
                           hatch_flip=0, min_thick=0.0, faults=None,
-                          corridor=0.0, with_z=False, thin=0.0):
+                          corridor=0.0, with_z=False, thin=0.0,
+                          solids_output=None):
     """Изолинии И контурные пояса из ОДНОГО набора линий.
 
     Сглаживание выполняется один раз на уровне поля (растра); этот же
@@ -1797,9 +1883,13 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
                                   context, feedback, faults=faults)
     polys_out = _belts_to_layer(processing, polys_src, arr, valid, gt, levels,
                                 crs, polygons_output, context, feedback,
-                                min_thick=min_thick, with_z=with_z)
+                                min_thick=min_thick, with_z=with_z,
+                                solids_output=solids_output)
+    solids_out = None
+    if isinstance(polys_out, dict):
+        polys_out, solids_out = polys_out["belts"], polys_out["solids"]
 
-    return {"lines": lines_out, "polygons": polys_out}
+    return {"lines": lines_out, "polygons": polys_out, "solids": solids_out}
 
 
 def add_z_from_field(layer_path, field_name, context, feedback=None):

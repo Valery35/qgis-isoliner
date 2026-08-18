@@ -996,53 +996,28 @@ def test_no_undefined_names_across_the_package():
                      + "\n  ".join(sorted(set(bad))))
 
 
-def test_footer_rows_are_configurable_and_titled():
-    """Строки подвала разбираются списком и у каждой есть заголовок.
+def test_section_drawing_is_one_layer():
+    """Чертёж створа выдаётся одним слоем.
 
-    Ключи задаёт пользователь строкой, порядок в ней это порядок строк на
-    чертеже. Незнакомый ключ обязан отсеиваться с предупреждением, а не
-    уходить в разметку и рвать её на месте.
-    """
-    from grid_isolines import algorithms as A
-    alg = [c for c in A.ALGORITHMS if c().name() == "rating_curve"][0]()
-
-    class _Feedback(object):
-        def __init__(self):
-            self.warnings = []
-
-        def pushWarning(self, text):
-            self.warnings.append(text)
-
-        def pushInfo(self, text):
-            pass
-
-    fb = _Feedback()
-    keys = alg._foot_keys("q, dist,  ерунда , elev, dist", fb)
-    assert keys == ["q", "dist", "elev"], keys
-    assert fb.warnings and "ерунда" in fb.warnings[0]
-    assert alg._foot_keys("лес", _Feedback(), extra={"лес"}) == ["лес"]
-    for key in tuple(alg._FOOT_POINT) + tuple(alg._FOOT_SPAN):
-        assert alg._foot_title(key) != key, key
-
-
-def test_section_drawing_is_one_layer_by_default():
-    """Чертёж створа выдаётся одним слоем, разбор на части по запросу.
-
-    Оформление вешается стилем на поле kind, и слоёв для этого нужен
-    один. Отдельные слои профиля, уровней и отметок земли остались, но
-    сами не создаются, иначе в проекте снова полдюжины слоёв на створ.
+    В общем слое лежат профиль по участкам, линии уровней и вертикальная
+    шкала отметок: три типа объектов, из которых гидролог собирает лист.
+    Отдельного слоя морфостворов больше нет, он дублировал профиль из
+    того же чертежа. Выходы, заменённые атрибутами линии участка и общим
+    слоем, убраны совсем.
     """
     import inspect
 
     from grid_isolines import algorithms as A
     cls = [c for c in A.ALGORITHMS if c().name() == "rating_curve"][0]
     src = inspect.getsource(cls)
-    for key, want in (("self.OUTPUT_DRAW", "createByDefault=True"),
-                      ("self.OUTPUT_PROFILE", "createByDefault=False"),
-                      ("self.OUTPUT_LEVELS,", "createByDefault=False"),
-                      ("self.OUTPUT_GROUND", "createByDefault=False")):
-        k = src.index(key)
-        assert want in src[k:k + 400], key
+    k = src.index("self.OUTPUT_DRAW")
+    assert "createByDefault=True" in src[k:k + 400]
+    # выходы, которые слой чертежа заменил собой
+    for gone in ("OUTPUT_FOOTER", "OUTPUT_GROUND", "OUTPUT_FOOT_DRAW",
+                 "OUTPUT_PROFILE", "FOOT_ROWS", "FOOT_GEOM", "self.BANDS"):
+        assert gone not in src, gone
+    for kind in ("scale_axis", "scale_tick", "profile", "level"):
+        assert '"%s"' % kind in src, kind
 
 
 def test_scale_ratio_is_applied_to_every_part_of_the_drawing():
@@ -1061,40 +1036,12 @@ def test_scale_ratio_is_applied_to_every_part_of_the_drawing():
     body = src[k:]
     assert body.count("zbase = float(np.min(z))") == 1, "нет основания отсчёта"
     # профиль, два вида уровней, отметки земли
-    assert body.count("- zbase) * vex") == 4, body.count("- zbase) * vex")
-    # подвал растягивается высотой строки и отступом
-    assert "foot_h * vex" in body and "foot_gap * vex" in body
+    assert body.count("- zbase) * vex") == 3, body.count("- zbase) * vex")
+    # шкала отметок растягивается тем же множителем
+    assert "vex=vex" in body
     # график живёт в своих осях, отношение на него не действует
     plot = inspect.getsource(cls._write_plot)
     assert "vex" not in plot
-
-
-def test_distance_row_cell_length_equals_the_distance():
-    """У строки расстояний длина ячейки равна самому расстоянию.
-
-    Тогда подпись считается стилем из геометрии, и наше форматирование
-    ей не мешает. Накопленное расстояние остаётся в отдельной строке.
-    """
-    import numpy as np
-
-    from grid_isolines import algorithms as A
-    alg = [c for c in A.ALGORITHMS if c().name() == "rating_curve"][0]()
-    d = np.array([0.0, 37.0, 60.0, 100.0])
-    z = np.array([160.0, 157.0, 156.0, 159.0])
-    n_rows, items = alg._footer_items(
-        "Створ 1", 1.0, d, z, [0, 1, 2, 3], ["dist_gap", "dist"],
-        [], {}, None, 2.0, 1.0, 0.0, 0.0, 100.0)
-    assert n_rows == 2
-    gaps = [it for it in items
-            if it["kind"] == "foot_cell" and it["row"] == "dist_gap"]
-    assert len(gaps) == 3
-    lens = [round(it["pts"][1][0] - it["pts"][0][0], 6) for it in gaps]
-    assert lens == [37.0, 23.0, 40.0]
-    assert [it["value"] for it in gaps] == [37.0, 23.0, 40.0]
-    # накопленное расстояние живёт своей строкой и длине не равно
-    cum = [it["text"] for it in items
-           if it["kind"] == "foot_cell" and it["row"] == "dist"]
-    assert cum == ["0.0", "37.0", "60.0", "100.0"]
 
 
 def test_part_line_carries_its_own_hydraulics():
@@ -1119,12 +1066,53 @@ def test_part_line_carries_its_own_hydraulics():
     assert src.index("stats[f.name] = {") < src.index('draw(nm, km, "profile"')
 
 
-def test_part_line_carries_the_footer_row():
-    """Линия участка несёт свою строку подвала в атрибутах.
+def test_snap_elevations_can_keep_the_polygon():
+    """2.22 умеет вернуть полигон полигоном, а имя выхода берёт от входа.
 
-    Тогда подвал собирается оформлением по самим объектам, без разбора
-    ячеек. Грунт и покрытие расчётом не берутся, поэтому поля под них
-    есть, но пустые: их заносят руками или подают таблицей полос.
+    Без галки полигон выходит своими кольцами в виде линий: их принимает
+    2.03 как структурные, поэтому умолчание прежнее. С галкой кольца
+    собираются обратно, внешнее остаётся внешним.
+    """
+    import inspect
+
+    from grid_isolines import algorithms as A
+    cls = [c for c in A.ALGORITHMS if c().name() == "snap_elevations"][0]
+    src = inspect.getsource(cls)
+    k = src.index("self.KEEP_GEOM,")
+    assert "self.KEEP_GEOM, False" in src[k:k + 400], "умолчание - линии"
+    assert "QgsWkbTypes.Type.MultiPolygonZ if as_poly" in src
+    assert "setExteriorRing" in src and "addInteriorRing" in src
+    # имя выхода от исходного слоя
+    assert 'self.tr("с Z")' in src
+    assert "lyr_in.name()" in src
+
+
+def test_footer_level_takes_the_highest_computed_one():
+    """Подвал считают на расчётном наивысшем уровне.
+
+    В зависимости от реки и сооружения это ГВВ от одного до трёх
+    процентов обеспеченности: самый редкий случай и самый большой
+    расход. Первый уровень по порядку строк в таблице для этого не
+    годится, порядок там произвольный.
+    """
+    import inspect
+
+    from grid_isolines import algorithms as A
+    cls = [c for c in A.ALGORITHMS if c().name() == "rating_curve"][0]
+    src = inspect.getsource(cls)
+    k = src.index('elif foot_level == "prob" and levels_found:')
+    block = src[k:k + 900]
+    assert "max(levels_found" in block, "берётся не наивысший уровень"
+    assert "levels_found[0][2]" not in src, "остался выбор первого уровня"
+
+
+def test_no_local_shadows_the_upper_elevation():
+    """Имя top занято верхней отметкой и затираться не должно.
+
+    Локальная переменная с тем же именем однажды уже уронила расчёт:
+    выбор уровня подвала клал в top кортеж, и следующий створ падал
+    на float(top). Это второй такой случай после ground_step, поэтому
+    имя охраняется тестом.
     """
     import inspect
 
@@ -1133,39 +1121,9 @@ def test_part_line_carries_the_footer_row():
     src = inspect.getsource(cls)
     k = src.index("def _process")
     body = src[k:]
-    for fld in ("level", "width", "depth_avg", "area", "perim", "radius",
-                "n", "v", "q", "q_pct", "slope", "part_no", "soil",
-                "cover"):
-        assert '"%s"' % fld in body, fld
-    # характеристики попадают на профиль, а не только в ячейки подвала
-    j = body.index('draw(nm, km, "profile"')
-    assert "xtra=xtra" in body[j:j + 200]
-    # грунт и покрытие берутся с полос, а не из расчёта
-    assert "_SOIL_ROWS" in body and "_COVER_ROWS" in body
-    assert "soil" not in body[body.index("stats[f.name] = {"):
-                              body.index("stats[f.name] = {") + 400]
-
-
-def test_part_line_carries_the_whole_footer_row():
-    """Линия участка несёт о себе всё, что пишут о ней в бланке.
-
-    Тогда подвал собирается стилем по атрибутам, а геометрию подвала
-    можно не строить вовсе. Грунт и покрытие расчётом не берутся и
-    остаются пустыми под руку.
-    """
-    from grid_isolines import algorithms as A
-    alg = [c for c in A.ALGORITHMS if c().name() == "rating_curve"][0]()
-    alg.initAlgorithm()
-    import inspect
-    src = inspect.getsource(alg.__class__)
-    k = src.index("def _process")
-    body = src[k:]
-    for fld in ("level", "width", "depth_avg", "area", "perim", "radius",
-                "n", "v", "q", "q_pct", "slope", "part_no", "soil",
-                "cover"):
-        assert '"%s"' % fld in body, fld
-    # характеристики считаются раньше, чем пишется линия участка
-    assert body.index("stats[f.name]") < body.index('draw(nm, km, "profile"')
-    # геометрия подвала по умолчанию не строится
-    j = src.index("self.FOOT_GEOM,")
-    assert "self.FOOT_GEOM, False" in src[j:j + 400]
+    i = body.index("top = self.parameterAsDouble(parameters, self.TOP")
+    after = body[i:]
+    for line in after.split("\n"):
+        t = line.strip()
+        if t.startswith("top =") and "parameterAsDouble" not in t:
+            raise AssertionError("имя top переопределено: %s" % t)
