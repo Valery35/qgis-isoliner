@@ -7,6 +7,16 @@
 A Processing-provider plugin for interpolating point data, building isolines and working with terrain.
 The tools are split into seven Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"**, **"Geological model"** (beta), **"River hydrology"** and **"Fractal analysis"** — sixty-seven in all:
 
+**Two companion plugins work alongside it.**
+[Isoliner3D](https://github.com/Valery35/qgis-isoliner3d) shows the
+surfaces, the bed bodies and the boreholes in a separate 3D scene and
+computes reserves over a block model.
+[Topoliner](https://github.com/Valery35/topoliner) puts the topology of
+polygon and line layers in order: nodes, dangles, overshoots, and
+simplification that keeps the shared boundaries. The usual order is
+Topoliner on the source outlines first, then Isoliner on the
+interpolation, then Isoliner3D on the display.
+
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
 **Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) with your QGIS version, what you were doing, and data or a project to reproduce — it makes the bug easier to repeat and faster to fix.

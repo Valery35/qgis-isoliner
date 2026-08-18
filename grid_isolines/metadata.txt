@@ -3,10 +3,10 @@ name=Isoliner - грид и изолинии
 qgisMinimumVersion=3.16
 qgisMaximumVersion=4.99
 description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in QGIS. Кригинг 2D (GSLIB KB2D) и построение изолиний/контурных полигонов в QGIS.
-about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Developed with the support of Inform++ LLC (www.informpp.ru).
+about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
-    Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.6.70
+    Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
+version=5.6.71
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,11 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.6.70
+changelog=5.6.71
+    - В описание плагина для каталога и в оба README добавлены ссылки на
+      Isoliner3D и Topoliner: показ поверхностей и тел в 3D-сцене и
+      чистка топологии контуров перед интерполяцией.
+    5.6.70
     - Выбор источника отметок в 2.22 убран, а вместо него инструмент
       считает расхождение и пишет о нём в журнал: сколько проб сравнил,
       медиану и наибольшее расхождение. На присланных данных выходит
@@ -93,22 +97,5 @@ changelog=5.6.70
       170 тысяч сегментов) время упало с семи минут до полутора секунд.
       Выборка встреч не изменилась: сверено на случайных наборах против
       прежнего перебора всех пар.
-    5.6.61
-    - Форма 6.01 разгружена. Убраны строки подвала, полосы характеристик,
-      высота строки, отступ подвала, допуск перегиба, начальный пикет и
-      длина пикета, а с ними и вывод подвала геометрией: подвал рисуется
-      оформлением по атрибутам линии участка.
-    - Убраны выходы «Уровни обеспеченности (чертёж)», «Подвал чертежа
-      (таблица)» и «Отметки земли и расстояния (чертёж)». Уровни лежат в
-      общем слое чертежа, подвал в атрибутах линии участка, отметка земли
-      в координате Z вершин профиля.
-    - Выход профилей назван морфостворами, как их и называют гидрологи.
-    - В общий слой чертежа добавлена вертикальная шкала отметок:
-      scale_axis и scale_tick. Деления встают на округлых отметках, шаг
-      подбирается по размаху створа, подпись лежит в text, сама отметка в
-      value и в координате Z. Стилем шкалу тоже нарисовать можно, но
-      правильно расставить деления трудно.
-    - Из демо-реки 6.04 убрана таблица полос характеристик: её больше
-      некуда подавать.
     Более ранние версии: файл CHANGELOG.md в репозитории,
     https://github.com/Valery35/qgis-isoliner/blob/main/CHANGELOG.md
