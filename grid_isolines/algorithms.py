@@ -23352,6 +23352,375 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
         return results
 
 
+
+class DownhillTraceAlgorithm(IsolinerAlgorithm):
+    """2.23 Линии стока: куда стечёт вода из заданных ячеек."""
+
+    INPUT = "INPUT"
+    SEEDS = "SEEDS"
+    FILL = "FILL"
+    EPSILON = "EPSILON"
+    STOP_POLY = "STOP_POLY"
+    ACC_STOP = "ACC_STOP"
+    FLAT_SLOPE, FLAT_LEN = "FLAT_SLOPE", "FLAT_LEN"
+    HEAD_SLOPE, HEAD_LEN = "HEAD_SLOPE", "HEAD_LEN"
+    MERGE_STOP = "MERGE_STOP"
+    SMOOTH = "SMOOTH"
+    KEEP_FIELDS = "KEEP_FIELDS"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return DownhillTraceAlgorithm()
+    def name(self): return "downhill_trace"
+    def displayName(self):
+        return self.tr("2.23 Линии стока от точек, линий и контуров")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPO)
+    def groupId(self): return GROUP_TOPO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Куда стечёт вода из заданного места. От каждой стартовой "
+            "ячейки инструмент идёт вниз по склону по направлениям стока "
+            "D8 и рисует пройденный путь линией.\n\n"
+            "Стартом служит любая геометрия. Точка даёт одну ячейку, линия "
+            "ячейки под собой, полигон все ячейки внутри контура. Канава в "
+            "восемь ячеек даёт восемь линий, контур отвала - столько, "
+            "сколько ячеек он накрывает. Ответ на вопрос «куда пойдёт "
+            "загрязнённая вода с отвала» читается прямо с карты.\n\n"
+            "Трасса обрывается в четырёх случаях, и каждый пишется в поле "
+            "reason: **сток** - ниже некуда, **край листа** - рельеф "
+            "кончился, **приёмник** - пришли в заданный водоём или "
+            "водоток, **слияние** - трасса влилась в уже пройденную.\n\n"
+            "**Слияние трасс** стоит включать на площадных источниках. "
+            "Ниже по склону трассы сходятся в одно русло, и без обрыва по "
+            "нему пройдёт каждая: тысяча ячеек отвала даст тысячу копий "
+            "одного русла. С обрывом выходит дерево, где каждая ячейка "
+            "пройдена один раз, а связность сохраняется - трасса доводится "
+            "до места слияния.\n\n"
+            "**Зона зарождения** отбирает трассы по крутизне: остаются "
+            "только те, у которых есть участок круче заданного угла и не "
+            "короче заданной длины. Так ищут сход лавины: она срывается "
+            "там, где склон держит крутизну на протяжении, а не в одной "
+            "ячейке. Обычные пороги 25 градусов и сотня метров. Длина "
+            "найденного участка пишется в поле steep_m. Ноль отключает "
+            "отбор.\n\n"
+            "Пороги задаются углом, а не отношением: лавинные и "
+            "геотехнические критерии пишут в градусах, и растр уклона у "
+            "топографа тоже в градусах.\n\n"
+            "**Выполаживание** обрывает трассу там, где поток теряет силу: "
+            "у подножия склона, на террасе, на пойме. Уклон меряется "
+            "осреднённо по последним метрам пути, и длина этого участка "
+            "задаётся рядом: короткая полка внутри крутого склона среднее "
+            "не уронит и пропускается, настоящее выполаживание уронит. "
+            "Режется по началу участка - это и есть место, где поток "
+            "растекается. Ноль отключает.\n\n"
+            "**Приёмник** задаётся двумя способами и они складываются. "
+            "Слоем полигонов или линий: пруд, река, канава. И порогом "
+            "накопления: трасса останавливается, придя в ячейку, куда "
+            "стекает больше заданного числа ячеек, то есть в водоток. "
+            "Порог тот же, что в **2.13 Водотоки**. Ноль отключает.\n\n"
+            "Трасса D8 идёт по восьми направлениям и потому выглядит "
+            "лесенкой под 45 градусов. Это свойство метода, а не ошибка. "
+            "**Сглаживание** скругляет ломаную для чертежа, отметки при "
+            "этом не меняются.\n\n"
+            "Поля выхода: src_id номер исходного объекта, cells число "
+            "ячеек, length_m длина пути, drop_m перепад, slope средний "
+            "уклон, z_start и z_end отметки концов, reason причина "
+            "остановки. Поля исходного объекта переносятся по выбору.\n\n"
+            "Единицы метрические: ЦМР в метрах в метровой системе "
+            "координат. Линия стока показывает путь по топологии рельефа "
+            "и не учитывает ни впитывание, ни подпор, ни трубы.")
+            + _fill_help() + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.INPUT, self.tr("Входная ЦМР")))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.SEEDS, self.tr("Откуда стекает: точки, линии или контуры"),
+            [QgsProcessing.SourceType.TypeVectorPoint,
+             QgsProcessing.SourceType.TypeVectorLine,
+             QgsProcessing.SourceType.TypeVectorPolygon]))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.STOP_POLY,
+            self.tr("Приёмники: водоёмы, реки, канавы (необяз.)"),
+            [QgsProcessing.SourceType.TypeVectorLine,
+             QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.ACC_STOP,
+            self.tr("Останавливаться на водотоке: порог, ячеек (0 = нет)"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.ACC_STOP, 0), minValue=0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.FLAT_SLOPE,
+            self.tr("Останавливаться на выполаживании: уклон, градусы "
+                    "(0 = нет)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.FLAT_SLOPE, 0.0), minValue=0.0,
+            maxValue=89.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.FLAT_LEN,
+            self.tr("Длина пологого участка, м (короче - пропускается)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.FLAT_LEN, 50.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.HEAD_SLOPE,
+            self.tr("Зона зарождения: уклон, градусы (0 = не проверять)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.HEAD_SLOPE, 0.0), minValue=0.0,
+            maxValue=89.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.HEAD_LEN, self.tr("Длина зоны зарождения, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.HEAD_LEN, 100.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.MERGE_STOP, self.tr("Обрывать трассу при слиянии"),
+            defaultValue=_dv(self, self.MERGE_STOP, False)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SMOOTH, self.tr("Сглаживание трассы, итераций (0 = выкл.)"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.SMOOTH, 0), minValue=0, maxValue=5)))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.KEEP_FIELDS,
+            self.tr("Перенести поля исходного объекта"),
+            parentLayerParameterName=self.SEEDS, allowMultiple=True,
+            optional=True)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.FILL, self.tr("Заполнить впадины (Планшон-Дарбу)"),
+            defaultValue=_dv(self, self.FILL, True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.EPSILON, self.tr("Наклон заполнения, м на ячейку"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.EPSILON, 1e-3), minValue=0.0)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Линии стока"),
+            QgsProcessing.SourceType.TypeVectorLine))
+
+    def _seed_cells(self, src, layer, context, gt, shape, mask, feedback):
+        """Стартовые ячейки по каждому объекту: (fid, [ячейки], атрибуты)."""
+        ny, nx = shape
+        origin_x, origin_y = gt[0], gt[3]
+        cell = abs(gt[1])
+        transform = QgsCoordinateTransform(src.sourceCrs(), layer.crs(),
+                                           context.transformContext())
+        out = []
+        for feat in src.getFeatures():
+            g = feat.geometry()
+            if g is None or g.isEmpty():
+                continue
+            gt_type = QgsWkbTypes.geometryType(g.wkbType())
+            cells = []
+            if gt_type == QgsWkbTypes.GeometryType.PolygonGeometry:
+                rings = self._polygon_rings_in(g, transform)
+                cells = topo_gauge.cells_in_polygon(
+                    rings, origin_x, origin_y, cell, (ny, nx))
+            elif gt_type == QgsWkbTypes.GeometryType.LineGeometry:
+                for verts in self._line_vertices_in(g, transform):
+                    cells += topo_gauge.cells_along_polyline(
+                        verts, origin_x, origin_y, cell, (ny, nx))
+            else:
+                try:
+                    gg = QgsGeometry(g)
+                    gg.transform(transform)
+                except QgsCsException:
+                    continue
+                pts = (gg.asMultiPoint() if gg.isMultipart()
+                       else [gg.asPoint()])
+                for p in pts:
+                    c = int((p.x() - origin_x) // cell)
+                    r = int((origin_y - p.y()) // cell)
+                    if 0 <= r < ny and 0 <= c < nx:
+                        cells.append(r * nx + c)
+            cells = list(dict.fromkeys(cells))
+            if mask is not None and cells:
+                flat = mask.ravel()
+                cells = [i for i in cells if not flat[i]]
+            if cells:
+                out.append((feat.id(), cells, feat.attributes()))
+        return out
+
+    _polygon_rings_in = DitchCatchmentAlgorithm._polygon_rings_in
+    _line_vertices_in = DitchCatchmentAlgorithm._line_vertices_in
+
+    def _process(self, parameters, context, feedback):
+        _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT, self.SEEDS, self.STOP_POLY))
+        layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
+        seeds = self.parameterAsSource(parameters, self.SEEDS, context)
+        if seeds is None:
+            raise QgsProcessingException(self.tr("Нужен слой стартов."))
+        stops = self.parameterAsSource(parameters, self.STOP_POLY, context)
+        acc_stop = self.parameterAsInt(parameters, self.ACC_STOP, context)
+        merge_stop = self.parameterAsBoolean(parameters, self.MERGE_STOP,
+                                             context)
+        flat_slope = self.parameterAsDouble(parameters, self.FLAT_SLOPE,
+                                            context)
+        flat_len = self.parameterAsDouble(parameters, self.FLAT_LEN, context)
+        head_deg = self.parameterAsDouble(parameters, self.HEAD_SLOPE,
+                                          context)
+        head_len = self.parameterAsDouble(parameters, self.HEAD_LEN, context)
+        # пороги задаются углом: лавинные критерии пишут в градусах, и
+        # растр уклона у топографа тоже в градусах
+        flat_slope = (topo_flow.slope_from_degrees(flat_slope)
+                      if flat_slope > 0 else 0.0)
+        head_slope = (topo_flow.slope_from_degrees(head_deg)
+                      if head_deg > 0 else 0.0)
+        smooth = self.parameterAsInt(parameters, self.SMOOTH, context)
+        keep = self.parameterAsFields(parameters, self.KEEP_FIELDS, context)
+        do_fill = self.parameterAsBoolean(parameters, self.FILL, context)
+        epsilon = self.parameterAsDouble(parameters, self.EPSILON, context)
+
+        z, mask, gt, _proj, cell = _topo_read_dem(layer, self.tr)
+        ny, nx = z.shape
+        if do_fill:
+            feedback.pushInfo(self.tr("Заполнение впадин…"))
+            # функция отдаёт тройку: грид, сколько ячеек поднято и
+            # насколько. Брать её целиком за грид нельзя, numpy валится
+            # на неоднородной форме
+            z, n_raised, max_raise = fill_depressions(
+                z, nodata_mask=mask, epsilon=max(epsilon, 1e-6),
+                feedback=feedback)
+            feedback.pushInfo(self.tr(
+                "Поднято ячеек: %d, максимальный подъём: %.2f м")
+                % (n_raised, max_raise))
+        else:
+            feedback.pushInfo(self.tr(
+                "Впадины не заполняются: трасса встанет в первой же яме. "
+                "Это нужно, когда грид уже заполнен другим инструментом."))
+        _idx, downstream = topo_flow.d8_directions(z, nodata_mask=mask)
+
+        starts = self._seed_cells(seeds, layer, context, gt, (ny, nx),
+                                  mask, feedback)
+        if not starts:
+            raise QgsProcessingException(self.tr(
+                "Ни один объект не лёг на грид: проверьте охват ЦМР и "
+                "систему координат слоя стартов."))
+        n_cells = sum(len(s[1]) for s in starts)
+        feedback.pushInfo(self.tr("Объектов принято: %d, стартовых ячеек: %d")
+                          % (len(starts), n_cells))
+
+        stop = set()
+        if stops is not None:
+            rings_cells = self._seed_cells(stops, layer, context, gt,
+                                           (ny, nx), mask, feedback)
+            for _fid, cells, _a in rings_cells:
+                stop.update(cells)
+        if acc_stop > 0:
+            acc = topo_flow.flow_accumulation(downstream, (ny, nx),
+                                              nodata_mask=mask)
+            river = set(int(i) for i in
+                        np.flatnonzero(acc.ravel() >= acc_stop))
+            stop |= river
+            feedback.pushInfo(self.tr(
+                "Приёмник: ячеек водоёмов и водотоков %d, из них по порогу "
+                "накопления %d.") % (len(stop), len(river)))
+        elif stop:
+            feedback.pushInfo(self.tr("Приёмник: ячеек %d.") % len(stop))
+
+        fields = QgsFields()
+        for nm, tp in (("src_id", QVariant.Int), ("cells", QVariant.Int),
+                       ("steep_m", QVariant.Double),
+                       ("length_m", QVariant.Double),
+                       ("drop_m", QVariant.Double),
+                       ("slope", QVariant.Double),
+                       ("z_start", QVariant.Double),
+                       ("z_end", QVariant.Double),
+                       ("reason", QVariant.String)):
+            fields.append(QgsField(nm, tp))
+        own = set(f.name().lower() for f in fields)
+        src_fields = seeds.fields()
+        keep_idx = []
+        for name in keep or []:
+            i = src_fields.lookupField(name)
+            if i < 0:
+                continue
+            f = QgsField(src_fields.at(i))
+            if f.name().lower() in own:
+                f.setName("src_" + f.name())
+            fields.append(f)
+            keep_idx.append(i)
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.LineString, layer.crs())
+
+        seen = set() if merge_stop else None
+        n_made = n_no_head = 0
+        reasons = {}
+        total = max(len(starts), 1)
+        for k, (fid, cells, attrs) in enumerate(starts):
+            if feedback.isCanceled():
+                break
+            paths = topo_flow.trace_downhill(downstream, cells, (ny, nx),
+                                             stop=stop or None, seen=seen)
+            for path in paths:
+                if len(path) < 2:
+                    continue
+                if head_slope > 0:
+                    steep_m, _hi, _hj = topo_flow.steep_run(
+                        path, z, (ny, nx), cell, head_slope)
+                    if steep_m < head_len:
+                        n_no_head += 1
+                        continue
+                else:
+                    steep_m = 0.0
+                cut = False
+                if flat_slope > 0 and flat_len > 0:
+                    short, cut = topo_flow.cut_on_flattening(
+                        path, z, (ny, nx), cell, flat_slope, flat_len)
+                    if cut and len(short) >= 2:
+                        # хвост за местом выполаживания вычёркиваем и из
+                        # пройденного: иначе соседняя трасса оборвётся о
+                        # то, чего в выходе нет
+                        if seen is not None:
+                            seen.difference_update(set(path) - set(short))
+                        path = short
+                    else:
+                        cut = False
+                m = topo_flow.path_metrics(path, z, (ny, nx), cell)
+                why = (self.tr("выполаживание") if cut
+                       else topo_flow.path_reason(
+                           path, downstream, (ny, nx),
+                           stop=stop or None, seen=seen))
+                reasons[why] = reasons.get(why, 0) + 1
+                pts = []
+                for i in path:
+                    r, c = divmod(int(i), nx)
+                    pts.append(QgsPointXY(gt[0] + (c + 0.5) * cell,
+                                          gt[3] - (r + 0.5) * cell))
+                geom = QgsGeometry.fromPolylineXY(pts)
+                if smooth > 0:
+                    geom = geom.smooth(iterations=smooth)
+                ft = QgsFeature(fields)
+                ft.setGeometry(geom)
+                row = [int(fid), m["cells"], round(steep_m, 1),
+                       round(m["length"], 3),
+                       round(m["drop"], 3), round(m["slope"], 6),
+                       round(m["z_start"], 3), round(m["z_end"], 3),
+                       self.tr(why)]
+                row += [attrs[i] for i in keep_idx]
+                ft.setAttributes(row)
+                sink.addFeature(ft)
+                n_made += 1
+            feedback.setProgress(100.0 * (k + 1) / total)
+
+        if n_no_head:
+            feedback.pushInfo(self.tr(
+                "Отброшено трасс без зоны зарождения: %d. У них нет "
+                "участка круче %.0f градусов длиной от %.0f м.")
+                % (n_no_head, head_deg, head_len))
+        if not n_made:
+            feedback.pushWarning(self.tr(
+                "Ни одной трассы: все старты попали в сток или в приёмник."))
+        feedback.pushInfo(self.tr("Линий стока построено: %d.") % n_made)
+        for why in sorted(reasons):
+            feedback.pushInfo("   %s: %d" % (self.tr(why), reasons[why]))
+        _set_output_name(context, dest, self.tr("Линии стока"))
+        _save_values(self, _saved)
+        return {self.OUTPUT: dest}
+
+
 ALGORITHMS = [
     RatingCurveAlgorithm,
     FloodExtentAlgorithm,
@@ -23390,6 +23759,7 @@ ALGORITHMS = [
     BreaklineCandidatesAlgorithm,
     BreaklinePairsAlgorithm,
     SnapElevationsAlgorithm,
+    DownhillTraceAlgorithm,
     TopoDemoPitAlgorithm,
     SlopeAspectAlgorithm,
     GaugeReportAlgorithm,
