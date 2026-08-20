@@ -744,6 +744,7 @@ TRANSLATIONS = {
     'кривая': 'curve',
     'ось Q': 'Q axis',
     'Развёрнуто линий по склону: %d. Линия с отметками идёт сверху вниз, поэтому стрелку можно ставить стилем.': 'Lines turned along the slope: %d. A line with elevations runs downhill, so the arrow can be put by a style.',
+
     'Длина зоны зарождения, м': 'Length of the start zone, m',
     'Зона зарождения: уклон, градусы (0 = не проверять)': 'Start zone: slope, degrees (0 = do not check)',
     'Останавливаться на выполаживании: уклон, градусы (0 = нет)': 'Stop at a flattening: slope, degrees (0 = no)',
