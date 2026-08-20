@@ -403,3 +403,37 @@ def snap_elevations(lines, contours, tol, points=None, pt_tol=None,
         item["src_gap"] = gap
         done.append(item)
     return done, skipped
+
+
+def orient_downhill(pts, zs, tol=1e-9):
+    """Развернуть линию так, чтобы она шла сверху вниз по склону.
+
+    Правило для всех линий с отметками: первая вершина выше последней.
+    Тогда стрелка в стиле показывает падение, и рисовать направление
+    отдельным слоем не нужно.
+
+    Концы бывают на одной отметке: у горизонтальной бровки, у кольца, у
+    линии на террасе. Тогда сравниваются половины: если начало в среднем
+    выше конца, линия и так идёт вниз. Сумму падений по ходу для этого
+    брать нельзя, она телескопически равна разности концов и при равных
+    концах всегда ноль. Если и половины равны, порядок остаётся прежним:
+    выдумывать направление там, где его нет, хуже, чем оставить как
+    есть.
+
+    Возвращает (точки, отметки, развернули ли).
+    """
+    pts = list(pts)
+    zs = list(zs)
+    if len(zs) < 2:
+        return pts, zs, False
+    head, tail = float(zs[0]), float(zs[-1])
+    if head - tail > tol:
+        return pts, zs, False
+    if tail - head > tol:
+        return pts[::-1], zs[::-1], True
+    half = len(zs) // 2
+    first = sum(float(v) for v in zs[:half]) / max(half, 1)
+    last = sum(float(v) for v in zs[len(zs) - half:]) / max(half, 1)
+    if last - first > tol:
+        return pts[::-1], zs[::-1], True
+    return pts, zs, False

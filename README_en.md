@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
 A Processing-provider plugin for interpolating point data, building isolines and working with terrain.
-The tools are split into seven Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"**, **"Geological model"** (beta), **"River hydrology"** and **"Fractal analysis"** — sixty-seven in all:
+The tools are split into seven Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"**, **"Geological model"** (beta), **"River hydrology"** and **"Fractal analysis"** — sixty-eight in all:
 
 **Two companion plugins work alongside it.**
 [Isoliner3D](https://github.com/Valery35/qgis-isoliner3d) shows the
@@ -57,6 +57,7 @@ interpolation, then Isoliner3D on the display.
 - **2.20 Crests and toes into work** - elevations off the DEM, crest-toe forms by descending the slope, ready Top and Bottom inputs.
 - **2.21 Create a demo open pit** - a pit with benches, a ramp, a dump and a ditch plus the true structural lines as a reference.
 - **2.22 Elevations from adjoining contours** — elevations for structural lines from the contours they adjoin: an input for mute crests and toes without a DEM.
+- **2.23 Flow lines from points, lines and outlines** — where the water will run from a given place: downhill along D8 from every starting cell, stopping at a water body, at a watercourse by the accumulation threshold, at the edge of the sheet or at a merge with a trace already walked. It answers where the water from a dump or a site will go.
 
 ### "3. Additional analysis tools" group
 

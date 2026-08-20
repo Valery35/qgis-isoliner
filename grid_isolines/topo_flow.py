@@ -265,3 +265,207 @@ def basins(downstream, shape, seeds=None, nodata_mask=None,
     if nodata_mask is not None:
         out[nodata_mask.ravel()] = 0
     return out.reshape(shape)
+
+
+# --- линии стока: ход вниз по D8 от заданных ячеек ---------------------------
+
+def trace_downhill(downstream, starts, shape, stop=None, seen=None,
+                   max_steps=None):
+    """Ход вниз по течению от каждой стартовой ячейки.
+
+    Возвращает список списков плоских индексов, от старта и вниз. Путь
+    обрывается в четырёх случаях, и каждый из них естественный: сток
+    (ниже некуда), выход за край листа, приход в ячейку из `stop`
+    (водоём или водоток, куда трасса вливается) и попадание в уже
+    пройденную ячейку, когда передан `seen`.
+
+    `seen` это множество или булев массив на всю решётку: с ним трассы
+    сливаются в дерево, и каждая ячейка проходится один раз. Без него
+    каждая линия идёт целиком от своего старта, и по общему руслу пройдёт
+    столько линий, сколько ячеек выше по склону. На отвале в тысячу
+    ячеек это тысяча копий одного русла.
+
+    Зацикливание у D8 после заполнения впадин невозможно, но `max_steps`
+    всё равно ограничивает ход: указатели приходят и от чужих
+    инструментов.
+    """
+    n = int(shape[0]) * int(shape[1])
+    limit = int(max_steps) if max_steps else n + 1
+    stop_set = stop
+    if stop is not None and not isinstance(stop, (set, frozenset)):
+        stop_set = set(int(i) for i in np.flatnonzero(np.asarray(stop).ravel()))
+    if seen is not None and not isinstance(seen, (set, frozenset)):
+        seen = set(int(i) for i in np.flatnonzero(np.asarray(seen).ravel()))
+    out = []
+    for s0 in starts:
+        cur = int(s0)
+        if cur < 0 or cur >= n:
+            out.append([])
+            continue
+        path = [cur]
+        local = {cur}
+        while len(path) < limit:
+            if seen is not None and cur in seen and cur != int(s0):
+                break
+            if stop_set is not None and cur in stop_set and cur != int(s0):
+                break
+            nxt = int(downstream[cur])
+            if nxt < 0 or nxt >= n:
+                break                      # сток или выход за край листа
+            if nxt in local:
+                break                      # петля: грид пришёл не от нас
+            path.append(nxt)
+            local.add(nxt)
+            cur = nxt
+            if stop_set is not None and cur in stop_set:
+                break
+            if seen is not None and cur in seen:
+                break
+        if seen is not None:
+            seen.update(path)
+        out.append(path)
+    return out
+
+
+def path_metrics(path, z, shape, cell_x, cell_y=None):
+    """Длина, перепад и средний уклон трассы.
+
+    Длина считается по осям ячейки, поэтому годится и для растра с
+    неквадратной ячейкой. Перепад берётся от старта к концу: у трассы
+    вниз по склону он не бывает отрицательным, и отрицательное значение
+    означает, что грид не заполнен и трасса вышла из впадины вверх.
+    """
+    ny, nx = int(shape[0]), int(shape[1])
+    cy = float(cell_x if cell_y is None else cell_y)
+    cx = float(cell_x)
+    zf = np.asarray(z, dtype=np.float64).ravel()
+    if len(path) < 2:
+        z0 = float(zf[path[0]]) if path else float("nan")
+        return {"length": 0.0, "drop": 0.0, "slope": 0.0,
+                "z_start": z0, "z_end": z0, "cells": len(path)}
+    idx = np.asarray(path, dtype=np.int64)
+    r, c = np.divmod(idx, nx)
+    dl = np.hypot(np.diff(c) * cx, np.diff(r) * cy)
+    length = float(np.sum(dl))
+    z0, z1 = float(zf[idx[0]]), float(zf[idx[-1]])
+    drop = z0 - z1
+    return {"length": length, "drop": drop,
+            "slope": (drop / length) if length > 0 else 0.0,
+            "z_start": z0, "z_end": z1, "cells": int(idx.size)}
+
+
+def path_reason(path, downstream, shape, stop=None, seen=None):
+    """Чем закончилась трасса: сток, край листа, приёмник или слияние."""
+    n = int(shape[0]) * int(shape[1])
+    if not path:
+        return "пусто"
+    last = int(path[-1])
+    if stop is not None and last in stop:
+        return "приёмник"
+    ny, nx = int(shape[0]), int(shape[1])
+    lr, lc = divmod(last, nx)
+    on_edge = lr in (0, ny - 1) or lc in (0, nx - 1)
+    nxt = int(downstream[last])
+    if nxt < 0:
+        # у рамки листа сток и уход за край неотличимы по указателю,
+        # но для отчёта это разные вещи: за краем рельеф просто кончился
+        return "край листа" if on_edge else "сток"
+    if nxt >= n:
+        return "край листа"
+    if seen is not None and nxt in seen:
+        return "слияние"
+    if len(path) > 1 and nxt == int(path[-2]):
+        return "сток"
+    return "обрыв"
+
+
+def cut_on_flattening(path, z, shape, cell_x, min_slope, window,
+                      cell_y=None):
+    """Обрезать трассу там, где рельеф выполаживается.
+
+    Линия стока обрывается там, где поток теряет силу: у подножия
+    склона, на террасе, на пойме. Признак - уклон вдоль трассы упал ниже
+    порога и держится низким на протяжении, а не на одном шаге.
+
+    Уклон меряется осреднённо по последним `window` метрам пути. По
+    одному шагу D8 он на грубой ЦМР скачет, и ступенька в одну ячейку
+    читалась бы как выполаживание. Короткая полка внутри крутого склона
+    среднее не уронит, настоящее выполаживание уронит.
+
+    Режется по началу окна: точка, с которой пошло выполаживание, и есть
+    место, где поток растекается. Возвращает (путь, обрезано ли).
+    """
+    if len(path) < 3 or min_slope <= 0 or window <= 0:
+        return list(path), False
+    ny, nx = int(shape[0]), int(shape[1])
+    cy = float(cell_x if cell_y is None else cell_y)
+    cx = float(cell_x)
+    zf = np.asarray(z, dtype=np.float64).ravel()
+    idx = np.asarray(path, dtype=np.int64)
+    r, c = np.divmod(idx, nx)
+    step = np.hypot(np.diff(c) * cx, np.diff(r) * cy)
+    s = np.concatenate(([0.0], np.cumsum(step)))
+    zz = zf[idx]
+    win = float(window)
+    if s[-1] <= win:
+        return list(path), False
+    j0 = 0
+    for j in range(1, len(idx)):
+        while s[j] - s[j0] > win and j0 < j - 1:
+            j0 += 1
+        if s[j] - s[j0] < win:
+            continue
+        drop = zz[j0] - zz[j]
+        if drop / (s[j] - s[j0]) < float(min_slope):
+            return list(idx[:j0 + 1]), True
+    return list(path), False
+
+
+def steep_run(path, z, shape, cell_x, min_slope, cell_y=None):
+    """Самый длинный участок трассы круче порога.
+
+    Мера зоны зарождения: лавина срывается там, где склон держит уклон на
+    протяжении, а не в одной ячейке. Ищется наибольший отрезок пути, у
+    которого средний уклон не ниже порога, и возвращается его длина в
+    метрах вместе с индексами концов в пути.
+
+    Средний уклон по отрезку, а не по шагу: у D8 шаг скачет, и на грубой
+    ЦМР отдельная ячейка легко даёт и ноль, и вертикаль.
+    """
+    if len(path) < 2 or min_slope <= 0:
+        return 0.0, 0, 0
+    ny, nx = int(shape[0]), int(shape[1])
+    cy = float(cell_x if cell_y is None else cell_y)
+    cx = float(cell_x)
+    zf = np.asarray(z, dtype=np.float64).ravel()
+    idx = np.asarray(path, dtype=np.int64)
+    r, c = np.divmod(idx, nx)
+    s = np.concatenate(([0.0], np.cumsum(
+        np.hypot(np.diff(c) * cx, np.diff(r) * cy))))
+    zz = zf[idx]
+    thr = float(min_slope)
+    # Участок держит порог, когда (z_i - z_j) >= thr * (s_j - s_i). Это
+    # то же самое, что g(i) >= g(j) для g(k) = z_k + thr * s_k, и задача
+    # сводится к самой широкой паре с невозрастающим g. Двигать начало
+    # вперёд по одному нельзя: условие не монотонно, и окно проскакивает
+    g = zz + thr * s
+    # кандидаты на начало: индексы, где g строго растёт. Всякое начало
+    # вне этой цепочки перекрыто более ранним с большим g
+    stack = [0]
+    for k in range(1, len(g)):
+        if g[k] > g[stack[-1]]:
+            stack.append(k)
+    best, bi, bj = 0.0, 0, 0
+    for j in range(len(g) - 1, 0, -1):
+        while stack and g[stack[-1]] >= g[j]:
+            i = stack.pop()
+            if s[j] - s[i] > best:
+                best, bi, bj = float(s[j] - s[i]), int(i), int(j)
+        if not stack:
+            break
+    return best, bi, bj
+
+
+def slope_from_degrees(deg):
+    """Уклон в м/м из градусов: лавинные пороги задают углом."""
+    return float(np.tan(np.radians(float(deg))))

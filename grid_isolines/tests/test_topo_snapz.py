@@ -423,3 +423,44 @@ def test_snap_elevations_reports_the_gap():
                                      points=points, pt_tol=0.5)
     n, _med, worst = done[0]["src_gap"]
     assert n == 1 and worst > 10.0
+
+
+# --- направление линии: всегда сверху вниз по склону ------------------------
+
+def test_line_is_turned_downhill():
+    """Первая вершина выше последней, чтобы стрелка ставилась стилем."""
+    pts = [(0.0, 0.0), (10.0, 0.0), (20.0, 0.0)]
+    p, z, flipped = sz.orient_downhill(pts, [100.0, 105.0, 110.0])
+    assert flipped and z == [110.0, 105.0, 100.0]
+    assert p[0] == (20.0, 0.0)
+
+
+def test_downhill_line_is_left_alone():
+    pts = [(0.0, 0.0), (10.0, 0.0)]
+    p, z, flipped = sz.orient_downhill(pts, [110.0, 100.0])
+    assert not flipped and p == pts and z == [110.0, 100.0]
+
+
+def test_equal_ends_decided_by_the_halves():
+    """У бровки концы бывают на одной отметке: решают половины.
+
+    Сумму падений по ходу для этого брать нельзя: она телескопически
+    равна разности концов и при равных концах всегда ноль.
+    """
+    pts = [(0.0, 0.0), (10.0, 0.0), (20.0, 0.0), (30.0, 0.0)]
+    _p, _z, flipped = sz.orient_downhill(pts, [100.0, 101.0, 103.0, 100.0])
+    assert flipped, "линия в целом поднимается, её надо развернуть"
+    _p, _z, flipped = sz.orient_downhill(pts, [100.0, 99.0, 97.0, 100.0])
+    assert not flipped
+
+
+def test_flat_line_keeps_its_order():
+    """Там, где направления нет, выдумывать его не надо."""
+    pts = [(0.0, 0.0), (10.0, 0.0), (20.0, 0.0)]
+    p, z, flipped = sz.orient_downhill(pts, [100.0, 100.0, 100.0])
+    assert not flipped and p == pts and z == [100.0] * 3
+
+
+def test_short_line_survives():
+    assert sz.orient_downhill([(0.0, 0.0)], [100.0])[2] is False
+    assert sz.orient_downhill([], [])[2] is False
