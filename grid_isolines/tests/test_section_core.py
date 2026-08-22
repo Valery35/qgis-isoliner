@@ -1037,8 +1037,8 @@ def test_each_vertex_takes_its_own_bound():
     arr, gt = _belt_grid()
     zs = sc.vertex_levels([250.0, 250.0], [100.0, 300.0], arr, gt,
                           20.0, 30.0)
-    assert abs(float(zs[0]) - 20.0) < 1e-9
-    assert abs(float(zs[1]) - 30.0) < 1e-9
+    assert abs(float(zs[0]) - float(zs[1])) > 1e-9, "пояс вышел плоским"
+    assert 20.0 <= float(zs[0]) <= 30.0 and 20.0 <= float(zs[1]) <= 30.0
 
 
 def test_vertex_at_the_raster_edge_still_gets_an_elevation():
@@ -1065,13 +1065,20 @@ def test_without_bounds_there_is_nothing_to_write():
     assert sc.vertex_levels([250.0], [100.0], arr, gt, None, None) is None
 
 
-def test_belt_gets_both_levels_on_a_slope():
-    """На склоне пояс обязан иметь обе отметки, иначе он плоский."""
+def test_belt_follows_the_surface_on_a_slope():
+    """На склоне пояс идёт по поверхности, а не двумя ступенями.
+
+    Отметки вершин лежат в границах пояса и меняются вдоль кольца:
+    прежнее правило порога по середине давало ровно два значения, и
+    вершина у середины перескакивала между ними по шуму последнего
+    знака.
+    """
     arr, gt = _belt_grid()
     xs = [250.0] * 21
     ys = list(np.linspace(150.0, 350.0, 21))
     zs = sc.vertex_levels(xs, ys, arr, gt, 20.0, 30.0)
-    assert len(set(np.round(zs, 6))) == 2, "пояс вышел плоским"
+    assert len(set(np.round(zs, 6))) > 2, "пояс вышел ступенчатым"
+    assert np.all(zs >= 20.0) and np.all(zs <= 30.0)
 
 
 def test_nearest_sampling_works_at_the_raster_edge():
@@ -1116,3 +1123,45 @@ def test_edge_falls_back_to_the_nearest_cell():
     arr, gt = _belt_grid()
     zs = sc.vertex_levels([0.0, 250.0], [200.0, 200.0], arr, gt, 20.0, 30.0)
     assert np.all(np.isfinite(zs))
+
+
+# --- отметки вершин в границах пояса -------------------------------------
+
+def _slope_grid():
+    """Наклонная плоскость z = x, ячейка 10 м.
+
+    Начало сдвинуто на полячейки, чтобы центр ячейки приходился ровно на
+    круглую координату: тогда выборка в точке x даёт ровно x, и ожидания
+    в проверках читаются без поправок.
+    """
+    ny = nx = 20
+    arr = np.tile(np.arange(nx, dtype=float) * 10.0, (ny, 1))
+    gt = (-5.0, 10.0, 0.0, ny * 10.0 - 5.0, 0.0, -10.0)
+    return arr, gt
+
+
+def test_vertex_follows_the_surface_inside_the_belt():
+    """Вершина внутри диапазона получает высоту поверхности."""
+    arr, gt = _slope_grid()
+    zs = sc.vertex_levels([102.0, 105.0, 108.0], [100.0] * 3, arr, gt,
+                          100.0, 110.0)
+    assert list(np.round(zs, 6)) == [102.0, 105.0, 108.0]
+
+
+def test_vertex_outside_the_belt_is_clamped_to_its_bounds():
+    """Поверхность за границами пояса прижимается к ним.
+
+    Репрезентативная точка задаёт поясу диапазон, а вершина на рамке
+    может стоять там, где поверхность уже ушла за него.
+    """
+    arr, gt = _slope_grid()
+    zs = sc.vertex_levels([60.0, 105.0, 160.0], [100.0] * 3, arr, gt,
+                          100.0, 110.0)
+    assert list(np.round(zs, 6)) == [100.0, 105.0, 110.0]
+
+
+def test_level_key_survives_last_bit_drift():
+    """Ключ вершины не расходится от округления в последнем бите."""
+    a = sc.level_key(412345.678901, 5512345.123456)
+    b = sc.level_key(412345.678901 + 1e-9, 5512345.123456 - 1e-9)
+    assert a == b

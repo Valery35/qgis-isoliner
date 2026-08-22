@@ -73,6 +73,7 @@ so it never drifts from the plugin.
 - `2.20` Crests and toes into work
 - `2.21` Create a demo open pit
 - `2.22` Profiling of slopes
+- `2.23` Flow lines from points, lines and outlines
 
 **2. Topography: diagnostics and repair**
 
@@ -131,7 +132,7 @@ so it never drifts from the plugin.
 - `7.04` Minkowski dimension (vectors)
 - `7.05` Example for fractals (demo)
 
-_Tools in total: 67_
+_Tools in total: 68_
 <!-- /TREE -->
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
@@ -571,10 +572,12 @@ Builds isolines (lines) and, by default, contour polygons. Levels are set by a u
 | Bicubic isoline smoothing | Densifies the grid (×2…×4) by bicubic interpolation before contouring - the main isoline-smoothing method, removes "octagons" from a coarse grid. Works for both lines and polygons. off = no densification. | off (×4 on a coarse grid) |
 | Line rounding (Chaikin), iterations | An extra light line rounding (Chaikin). Weaker than bicubic smoothing; usually not needed if it is on. 0 = off. | 2 |
 | Write the value into the geometry Z | The level is written into the Z of the line vertices. Needed for DXF export: otherwise AutoCAD and Credo place the contours at zero elevation. | off |
+| Contour thinning, fraction of a cell (adv.) | Drops vertices that deviate from the straightened line by less than the given fraction of a cell. The shape is kept, the file gets much smaller. 0 = off. | 0.25 |
 | Side of hachures and labels (adv.) | The downslope side for the depression-style hachures and the direction of the topographic labels, both at once. | automatic |
 | Value field name | The name of the level attribute in the output lines. | ELEV |
 | Band (adv.) | The band number of the input raster. | 1 |
 | Isolines / Contour polygons | The output layers. Polygons are built by default into a temporary layer. | - |
+| Belt solids (closed shells) | A third output: the same belt as a closed solid. Skipped by default, the layer is created only if a destination is set. | skipped |
 
 Output fields:
 
@@ -584,17 +587,28 @@ Output fields:
 | Isolines | is_index | integer | 1 on index isolines (every Nth), otherwise 0 - for thickening. |
 | Contour polygons | ELEV_MIN | number | Lower level of the band. |
 | Contour polygons | ELEV_MAX | number | Upper level of the band. |
+| Belt solids | ELEV_MIN, ELEV_MAX | number | Elevations of the bottom and top caps of the solid. |
+| Belt solids | shell | integer | 1 on a solid - tells it from a flat belt without inspecting the geometry. |
 
 ### Z elevations on the belts
 
-The Z elevation checkbox works on the belt polygons as well. A belt lies between two levels and its rings follow them: the outer one at one level, the inner one at the neighbouring level. The vertices take the elevations of those levels, a flat belt becomes a sloping face and the whole stack a stepped surface.
+The Z elevation checkbox works on the belt polygons as well. A belt polygon is laid flat, at the upper bound of its band - the same elevation as the top cap of its solid. The stepped surface comes from the stack of belts, and belts and solids sit on each other without a gap.
 
-The elevation of a vertex is sampled from the raster and snapped to the level of a contour if that is within a third of the interval. The snapping is needed because smoothing moves a vertex off the exact position of the contour, while the elevation has to be exactly the level: otherwise neighbouring belts diverge in height along their shared edge and instead of a continuous surface a set of disjointed patches comes out.
+Elevations varying along a single ring were tried twice: by a threshold at the middle of the band and by sampling the surface itself. Both times ribbons running away in height appeared in the 3D scene. The cause is not the elevations: a non-planar ring is triangulated by the engine in plan, and long thin triangles get stretched across the whole belt between vertices of different heights. The height is carried by the walls of the solid, not by a tilted patch.
 
-The snapping goes only to the two levels of the belt itself. A vertex on the outline of the area or on a fault line lies on no contour, its elevation is the terrain, and pulling it to a foreign level is wrong - the surface would get a step on level ground.
+### Belt solids
 
-A belt some of whose vertices fell outside the raster stays flat as a whole: a polygon with a hole in its elevations drops to zero in 3D.
+A belt on its own is a surface: it has an outline but neither a bottom nor a volume. The third output gives the same belt as a closed solid - a cap below at ELEV_MIN, a cap above at ELEV_MAX and side walls along every ring, holes included. Such a solid computes a volume, cuts by a plane with a closed section and travels to programs that only understand closed shells.
 
+Closure is checked by a single rule: every edge of the shell belongs to exactly two faces. An inner ring gets its wall on a par with the outer one, otherwise the shell does not close around the hole. Solids that fail the check are counted and reported in the log.
+
+The output is skipped by default: the field holds the skip-output entry and no layer is created until a destination or a temporary layer is set. Solids are noticeably heavier than flat belts, so turn them on for a task rather than always.
+
+### Contour thinning
+
+The contourer puts a vertex at every crossing of a level with a cell edge, and on a detailed grid a line carries more vertices than its shape needs. The **Contour thinning** parameter drops vertices that deviate from the straightened line by less than the given fraction of a cell: with a fraction of 0.25 and a five-metre cell everything deviating by less than 1.25 m is dropped.
+
+The shape is kept while the layer gets several times smaller - which matters for the drawing, for the 3D scene and for the handover to AutoCAD. Thinning runs before polygonisation, so belt borders still coincide with the contours after it. Zero turns it off.
 
 ### Straight edges on the belt drawing
 
@@ -1954,6 +1968,39 @@ An important correction, worth one redaction of the specification: a contour **d
 
 **Place in the pipeline.** The output is LineStringZ, a ready form side for the **Top of forms** and **Bottom of forms** inputs of 2.03. Together with 2.20, which assembles the pairs and fills the link field, this closes the topographic scenario: areal quarries, cuts, fills and dumps, where contours inside are not described by the standard, receive a surface out of crests and toes alone.
 
+## 2.23 Downhill traces from points, lines and outlines
+
+Where the water goes from a given place. From every seed cell the tool walks downhill along the D8 flow directions and draws the path travelled as a line.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Input DEM | Terrain in metres in a metric coordinate system. | - |
+| Where it flows from | Points, lines or outlines. A point gives one cell, a line the cells under it, a polygon every cell inside. | - |
+| Receivers | Ponds, rivers, ditches. A trace stops when it reaches them. | - |
+| Stop at a watercourse: threshold, cells | Stop in a cell that more than the given number of cells drain into. The same threshold as in 2.13. 0 = off. | 0 |
+| Stop at flattening: slope, degrees | Stop where the flow loses its force. 0 = off. | 0 |
+| Length of the flat stretch, m | A shelf shorter than this is skipped. | 50 |
+| Release zone: slope, degrees | Keeps only traces that have a steep enough stretch. 0 = do not check. | 0 |
+| Length of the release zone, m | How long the steep stretch has to be. | 100 |
+| Break a trace at a merge | A trace stops once it joins one already walked. | off |
+| Trace smoothing, iterations (adv.) | Rounds the D8 staircase for the drawing. Elevations do not change. | 0 |
+| Carry over fields of the source object (adv.) | Which attributes of the source go into the trace. | - |
+| Fill depressions | Planchon-Darboux before tracing: otherwise the path drowns in the first pit. | on |
+
+**Areal sources.** A ditch of eight cells gives eight lines, the outline of a dump as many as it covers. Downhill the traces converge into one channel, and without a break every one of them walks it: a thousand cells of a dump give a thousand copies of the same channel. The **Break a trace at a merge** checkbox turns the bundle into a tree where every cell is walked once while connectivity is kept - the trace is carried up to the point of the merge.
+
+**The release zone** keeps the traces that have a stretch steeper than the given angle and no shorter than the given length. That is how an avalanche release is looked for - it starts where the slope holds its steepness over a distance rather than in a single cell. The usual thresholds are 25 degrees and a hundred metres, the length found is written into the `steep_m` field.
+
+**Flattening** stops a trace at the foot of a slope, on a terrace, on a floodplain. The slope is measured as an average over the last metres of the path, and the length of that stretch is set next to it: a short shelf inside a steep slope will not pull the average down and is skipped, real flattening will. The cut is made at the start of the stretch, and that is the place where the flow spreads out.
+
+**Why degrees.** The thresholds are set by an angle rather than a ratio: avalanche and geotechnical criteria are written in degrees, and a surveyor's slope raster is in degrees too.
+
+**The reason for stopping** is written into the `reason` field and tells four cases apart: **sink** - nowhere lower to go, **sheet edge** - the terrain ran out, **receiver** - a given pond or watercourse was reached, **merge** - the trace joined one already walked.
+
+Output fields: `src_id` the number of the source object, `cells` the number of cells, `length_m` the length of the path, `drop_m` the fall, `slope` the mean slope, `z_start` and `z_end` the elevations of the ends, `reason` the reason for stopping.
+
+A D8 trace runs along eight directions and therefore looks like a staircase at 45 degrees. That is a property of the method rather than an error: smoothing rounds the polyline for the drawing and elevations do not change. A downhill trace shows the path by the topology of the terrain and accounts for neither infiltration nor backwater nor pipes.
+
 # 3. Additional analysis tools
 
 ### Spot heights as a second source
@@ -3152,11 +3199,19 @@ Probability discharges - 1, 5, 10 percent - are supplied as a table of probabili
 
 Observed levels are supplied by their own table: an elevation and a label. This is a measurement rather than a computation, it does not rely on the curve and lies next to the computed ones, in the manner of UV 472.90 X/2021. In the layer of levels such rows are marked kind=obs, the computed ones kind=prob, and the field gives them different styling.
 
+### The section drawing as one layer
+
+The whole drawing of a gauging section comes out as one layer: the profile, the division boundaries, the levels and the footer. The parts are told apart by the **kind** field, and the presentation is attached to it by a style - the sheet is set up once and after that only the data change.
+
+The ground elevation lies in the Z of the profile vertices, so a separate point layer for the labels is not needed. The vertical exaggeration is set by the **Vertical to horizontal scale ratio** parameter: ten by default, as gauging sections are drawn. The drawing is built in its own engineering coordinate system and is not tied to the terrain.
+
 ### The drawing footer
 
-For the sheet of a gauging section a footer is produced separately - a row per part with the width, mean depth, flow area, wetted perimeter, hydraulic radius, slope in per mille, roughness coefficient and its inverse, velocity, discharge and the share of the total. The level is set by a parameter, without it the first one by probability is taken.
+The footer is not assembled from separate cells. The characteristics of a part at the footer level hang in the attributes of the part line itself - the width, mean depth, flow area, wetted perimeter, hydraulic radius, slope in per mille, roughness coefficient and its inverse, velocity, discharge and the share of the total. The footer rows are drawn by a style over those fields, so editing the data needs no reassembly of the sheet.
 
-Next to it go the ground elevations and distances as points - the bottom rows of the same drawing. The sheet is assembled by a print layout: the tool gives the data, the design lives in the template.
+The level is set by the **Footer level** parameter. Without it the highest of the computed levels is taken: a footer is computed on high water. The accepted level is printed to the log.
+
+Next to it go the ground elevations and distances - the bottom rows of the same drawing. The sheet is assembled by a print layout: the tool gives the data, the design lives in the template.
 
 ### What matters about the method
 
@@ -3175,7 +3230,9 @@ An HTML report for every section: the profile with the levels and the division b
 
 The curve is given as a vector drawing: the line, the axes, the scales with ticks and labels, the dashed marks of the exceedance levels. The very plot that goes into a report, only this one can be edited like any other layer.
 
-The plot goes as a separate layer and in its own axes: discharge or area along the horizontal, elevation along the vertical. It cannot share a layer with the profile of the gauge line - metres of distance and cubic metres per second are not comparable, no common scale for them exists. Both are put on a sheet through the layout.
+What goes along the horizontal is chosen by a parameter: discharge Q, flow area W or mean velocity v. Velocity is needed where the curve is read for scour rather than for discharge: the permissible non-scouring velocity of the soil is compared straight off the plot.
+
+The plot goes as a separate layer and in its own axes: the chosen quantity along the horizontal, elevation along the vertical. It cannot share a layer with the profile of the gauge line - metres of distance and cubic metres per second are not comparable, no common scale for them exists. Both are put on a sheet through the layout.
 
 The step of the elevation scale is set to a metre for a normative drawing, the step of the discharge scale at zero means round numbers by the range. The gauge lines are laid out in a row, each in its own block.
 

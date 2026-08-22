@@ -9,6 +9,19 @@
 через весь грид за один проход, поэтому сходимость занимает
 единицы полных циклов, а не тысячи итераций.
 
+Скорость держится на двух вещах. Первая: линия пересчитывается
+только когда с прошлого пересчёта менялась она сама или её сосед,
+для этого по каждому направлению ведётся вектор грязных линий.
+После второго-третьего цикла меняются единицы линий из тысяч, и
+поздние циклы почти бесплатны. Результат от пропусков не меняется
+ни в одной ячейке: пропускается только линия, чьи входы не
+менялись, а пересчёт с теми же входами дал бы её же значения.
+Вторая: горизонтальные проходы идут по транспонированной копии.
+Столбец исходного массива лежит в памяти с шагом в целую строку, и
+операция над ним раз в двадцать медленнее операции над строкой.
+Копия синхронизируется адресно, по списку изменённых ячеек, а при
+массовых изменениях первых циклов переснимается целиком.
+
 Epsilon задаёт минимальный уклон на плоских участках, чтобы поток
 не останавливался. Ячейки на границе грида и ячейки, соседние
 с nodata, считаются стоками: через них вода уходит с грида.
@@ -21,28 +34,115 @@ DEFAULT_MAX_PASSES = 100
 _BIG = np.float64(1e30)
 
 
-def _sweep(w, z, interior, eps, axis, reverse):
-    """Один направленный проход. Меняет w на месте, возвращает w.
+class _Axis:
+    """Рабочее состояние одной оси: массивы в её ориентации и буферы.
 
-    axis=0: проход по строкам (вертикальное направление),
-    axis=1: по столбцам (горизонтальное). reverse задаёт направление.
+    Для вертикальных проходов линия это строка w, для горизонтальных -
+    строка транспонированной копии. Обе копии живут одновременно и
+    синхронизируются списком изменённых ячеек.
     """
-    if axis == 1:
-        w = w.T
-        z = z.T
-        interior = interior.T
+
+    __slots__ = ("w", "z", "noint", "full_int", "nmin", "out",
+                 "ge", "neq", "dirty")
+
+    def __init__(self, w, z, interior):
+        self.w = w
+        self.z = z
+        self.noint = ~interior
+        # линия целиком внутренняя: маску на ней можно не накладывать
+        self.full_int = interior.all(axis=1)
+        n, m = w.shape
+        self.nmin = np.empty(m)
+        self.out = np.empty(m)
+        self.ge = np.empty(m, dtype=bool)
+        self.neq = np.empty(m, dtype=bool)
+        # свой вектор грязных линий на каждое направление оси
+        self.dirty = [np.ones(n, dtype=bool), np.ones(n, dtype=bool)]
+
+
+def _mark(vec, idx):
+    """Пометить линии idx и обе соседние. Клип по границам."""
+    n = vec.shape[0]
+    vec[idx] = True
+    up = idx + 1
+    vec[up[up < n]] = True
+    dn = idx - 1
+    vec[dn[dn >= 0]] = True
+
+
+def _sweep(ax, other, eps, reverse):
+    """Один направленный проход по оси ax.
+
+    reverse=False: линии сверху вниз, каждая видит предыдущую сверху.
+    reverse=True: снизу вверх. Пересчитываются только грязные линии
+    этого направления, флаг снимается при пересчёте. Изменённая линия
+    метит соседей у себя и перпендикулярные линии у другой оси, а сами
+    изменения копятся списком для синхронизации второй копии.
+
+    Возвращает (число изменённых ячеек, список (линия, индексы)).
+    """
+    w, z = ax.w, ax.z
     n = w.shape[0]
+    dirty = ax.dirty[1 if reverse else 0]
+    if not dirty.any():
+        return 0, []
     lines = range(n - 2, -1, -1) if reverse else range(1, n)
     step = 1 if reverse else -1
+    nmin, out, ge, neq = ax.nmin, ax.out, ax.ge, ax.neq
+    od0, od1 = other.dirty
+    d0, d1 = ax.dirty
+    changed = []
+    total = 0
     for i in lines:
+        if not dirty[i]:
+            continue
+        dirty[i] = False
         prev = w[i + step]
-        nmin = prev.copy()
-        nmin[1:] = np.minimum(nmin[1:], prev[:-1])
-        nmin[:-1] = np.minimum(nmin[:-1], prev[1:])
-        cand = nmin + eps
-        line_new = np.where(z[i] >= cand, z[i], np.minimum(w[i], cand))
-        w[i] = np.where(interior[i], line_new, w[i])
-    return w.T if axis == 1 else w
+        wi = w[i]
+        # минимум трёх соседей обработанной линии, включая диагонали
+        np.copyto(nmin, prev)
+        np.minimum(nmin[1:], prev[:-1], out=nmin[1:])
+        np.minimum(nmin[:-1], prev[1:], out=nmin[:-1])
+        nmin += eps                            # теперь это cand
+        zi = z[i]
+        np.minimum(wi, nmin, out=out)          # вода не ниже cand
+        np.greater_equal(zi, nmin, out=ge)
+        np.copyto(out, zi, where=ge)           # суша остаётся сушей
+        if not ax.full_int[i]:
+            np.copyto(out, wi, where=ax.noint[i])
+        np.not_equal(out, wi, out=neq)
+        idx = np.flatnonzero(neq)
+        if idx.size == 0:
+            continue
+        wi[idx] = out[idx]
+        total += idx.size
+        changed.append((i, idx))
+        # соседние линии обоих направлений своей оси
+        d0[i] = d1[i] = True
+        if i + 1 < n:
+            d0[i + 1] = d1[i + 1] = True
+        if i > 0:
+            d0[i - 1] = d1[i - 1] = True
+        # перпендикулярные линии другой оси: изменённые столбцы
+        _mark(od0, idx)
+        _mark(od1, idx)
+    return total, changed
+
+
+def _sync(dst, src_changed, wholesale_from, threshold, total):
+    """Перенести изменения в транспонированную копию.
+
+    При массовых правках копия переснимается целиком, иначе адресно
+    по списку (линия, индексы): так поздние циклы не платят за полное
+    транспонирование.
+    """
+    if total == 0:
+        return
+    if total > threshold:
+        np.copyto(dst, wholesale_from.T)
+        return
+    for i, idx in src_changed:
+        dst[idx, i] = wholesale_from[i, idx]
 
 
 def fill_depressions(z, nodata_mask=None, epsilon=DEFAULT_EPSILON,
@@ -83,14 +183,22 @@ def fill_depressions(z, nodata_mask=None, epsilon=DEFAULT_EPSILON,
     z_work = np.where(nodata_mask, -_BIG, z_in)
     w = np.where(outlets | nodata_mask, z_work, _BIG)
 
+    vert = _Axis(w, z_work, interior)
+    horz = _Axis(np.ascontiguousarray(w.T),
+                 np.ascontiguousarray(z_work.T),
+                 np.ascontiguousarray(interior.T))
+    threshold = max(1, w.size // 16)
+
     converged = False
     for n_pass in range(1, int(max_passes) + 1):
-        before = w.copy()
-        w = _sweep(w, z_work, interior, eps, axis=0, reverse=False)
-        w = _sweep(w, z_work, interior, eps, axis=0, reverse=True)
-        w = _sweep(w, z_work, interior, eps, axis=1, reverse=False)
-        w = _sweep(w, z_work, interior, eps, axis=1, reverse=True)
-        if np.array_equal(before, w):
+        c1, ch1 = _sweep(vert, horz, eps, reverse=False)
+        c2, ch2 = _sweep(vert, horz, eps, reverse=True)
+        _sync(horz.w, ch1 + ch2, w, threshold, c1 + c2)
+        c3, ch3 = _sweep(horz, vert, eps, reverse=False)
+        c4, ch4 = _sweep(horz, vert, eps, reverse=True)
+        _sync(w, ch3 + ch4, horz.w, threshold, c3 + c4)
+        if not (vert.dirty[0].any() or vert.dirty[1].any()
+                or horz.dirty[0].any() or horz.dirty[1].any()):
             converged = True
             if feedback:
                 feedback.pushInfo(

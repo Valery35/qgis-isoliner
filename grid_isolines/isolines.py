@@ -1469,21 +1469,24 @@ def _sample_value(arr, valid, gt, x, y, max_r=4):
     return None
 
 
-def _polygon_with_z(geom, arr, gt, lo, hi, valid=None):
-    """Полигон с отметками: каждое кольцо на своём уровне.
+def _polygon_with_z(geom, z_level):
+    """Полигон, положенный плоско на отметку `z_level`.
 
-    Кольцо пояса целиком лежит на одной изолинии, поэтому отметка у него
-    одна на всё кольцо. Внешнее на одном уровне, внутреннее на соседнем,
-    и полигон между ними становится наклонной гранью.
+    Кольцо обязано быть плоским. Отметки вдоль одного кольца пробовали
+    дважды: сперва порогом по середине пояса, потом выборкой самой
+    поверхности. Оба раза на сцене выходили ленты, уезжающие по высоте,
+    и причина не в отметках. Неплоское кольцо движок триангулирует в
+    плане, и между вершинами разной высоты натягиваются длинные тонкие
+    треугольники через весь пояс.
 
-    Выборка идёт БЛИЖАЙШЕЙ ячейкой, а не билинейно: билинейная даёт
-    пусто на самом краю растра, а контур области идёт ровно по краю, и
-    отметок не оставалось бы вовсе.
+    Тела поясов этим не страдают: у них крышка плоская, а высоту держат
+    стенки. Контурный полигон устроен так же - площадка на своём уровне,
+    а ступенчатую поверхность даёт стопка поясов. Уровень берётся
+    верхний, тот же, что у верхней крышки тела, поэтому полигоны и тела
+    ложатся друг на друга без зазора.
     """
-    import numpy as np
     from qgis.core import (QgsGeometry, QgsPoint, QgsLineString, QgsPolygon,
                            QgsMultiPolygon)
-    from . import section_core as _sc
     try:
         polys_src = geom.asMultiPolygon() or []
     except TypeError:
@@ -1491,25 +1494,17 @@ def _polygon_with_z(geom, arr, gt, lo, hi, valid=None):
     if not polys_src:
         one = geom.asPolygon()
         polys_src = [one] if one else []
-    if not polys_src or (lo is None and hi is None):
+    if not polys_src or z_level is None:
         return geom
+    z = float(z_level)
     out = QgsMultiPolygon()
     for poly in polys_src:
         qp = QgsPolygon()
         for k, ring in enumerate(poly):
             if len(ring) < 4:
                 continue
-            xs = np.array([p.x() for p in ring], dtype=np.float64)
-            ys = np.array([p.y() for p in ring], dtype=np.float64)
-            # Отметка на КАЖДУЮ вершину, а не одна на кольцо: у пояса
-            # чаще всего одно кольцо, и оно идёт частью по нижней
-            # изолинии, частью по верхней. Один уровень на кольцо сделал
-            # бы плоскими девять поясов из десяти.
-            zs = _sc.vertex_levels(xs, ys, arr, gt, lo, hi)
-            if zs is None:
-                return geom
-            ls = QgsLineString([QgsPoint(float(x), float(y), float(z))
-                                for x, y, z in zip(xs, ys, zs)])
+            ls = QgsLineString([QgsPoint(float(p.x()), float(p.y()), z)
+                                for p in ring])
             if k == 0:
                 qp.setExteriorRing(ls)
             else:
@@ -1702,13 +1697,10 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
         nf = QgsFeature(mem.fields())
         gg = QgsGeometry(g)
         if with_z:
-            # Пояс лежит между двумя уровнями, и его кольца идут по ним:
-            # внешнее по одному, внутреннее по другому. Отметки вершин
-            # делают из плоского пояса наклонную грань, а из набора
-            # поясов - ступенчатую поверхность.
-            lo = float(lv[idx - 1]) if idx > 0 else None
-            hi = float(lv[idx]) if idx < len(lv) else None
-            gg = _polygon_with_z(gg, arr, gt, lo, hi)
+            # Пояс кладётся плоско на свою верхнюю границу, как верхняя
+            # крышка тела. Ступенчатую поверхность даёт стопка поясов, а
+            # отметки вдоль кольца ломали бы его плоскость.
+            gg = _polygon_with_z(gg, float(maxs[idx]))
         gg.convertToMultiType()
         nf.setGeometry(gg)
         nf.setAttributes([float(mins[idx]), float(maxs[idx])])

@@ -150,3 +150,33 @@ def _run():
 
 if __name__ == "__main__":
     sys.exit(_run())
+
+
+def test_belt_polygon_is_flat():
+    """Кольцо контурного полигона лежит на одной отметке.
+
+    Отметки вдоль кольца пробовали дважды: порогом по середине пояса и
+    выборкой самой поверхности. Оба раза на сцене выходили ленты,
+    уезжающие по высоте. Неплоское кольцо движок триангулирует в плане,
+    и между вершинами разной высоты натягиваются длинные тонкие
+    треугольники через весь пояс. У тел поясов крышка плоская, высоту
+    держат стенки, и с ними этого не происходит.
+    """
+    code = _read("isolines.py")
+    body = code[code.index("def _polygon_with_z("):]
+    body = body[:body.index("\ndef ")]
+    # одна отметка на весь полигон, а не выборка по вершинам
+    assert "z = float(z_level)" in body
+    assert "sample_grid_points" not in body and "vertex_levels" not in body
+    assert body.count("QgsPoint(") == 1
+
+
+def test_belt_polygon_sits_on_the_upper_bound():
+    """Полигон кладётся на ту же отметку, что верхняя крышка тела.
+
+    Тело собирается из mins[idx] и maxs[idx], верхняя крышка на maxs.
+    Полигон на том же уровне ложится на тело без зазора.
+    """
+    code = _read("isolines.py")
+    assert "_polygon_with_z(gg, float(maxs[idx]))" in code
+    assert "z_lo, z_hi = float(mins[idx]), float(maxs[idx])" in code

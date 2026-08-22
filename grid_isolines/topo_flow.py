@@ -37,12 +37,18 @@ NODIR = -1  # внутренний индекс: сток
 def _shift(a, dr, dc, fill):
     """Сдвиг массива: значение соседа (r+dr, c+dc) в ячейке (r, c)."""
     out = np.full_like(a, fill)
+    _shift_into(a, dr, dc, fill, out)
+    return out
+
+
+def _shift_into(a, dr, dc, fill, out):
+    """Тот же сдвиг в готовый буфер: без аллокации на каждый вызов."""
+    out.fill(fill)
     src_r = slice(max(dr, 0), a.shape[0] + min(dr, 0))
     dst_r = slice(max(-dr, 0), a.shape[0] + min(-dr, 0))
     src_c = slice(max(dc, 0), a.shape[1] + min(dc, 0))
     dst_c = slice(max(-dc, 0), a.shape[1] + min(-dc, 0))
     out[dst_r, dst_c] = a[src_r, src_c]
-    return out
 
 
 def d8_directions(z, nodata_mask=None):
@@ -66,33 +72,44 @@ def d8_directions(z, nodata_mask=None):
 
     best_slope = np.full(z.shape, 0.0)
     dir_idx = np.full(z.shape, NODIR, dtype=np.int8)
+    # Буферы заводятся один раз на все восемь направлений: раньше
+    # каждое направление рождало пять временных массивов размером с
+    # грид, и на сорока мегапикселях аллокации стоили дороже самой
+    # арифметики. Значения не меняются, меняется только адресат записи.
+    nb = np.empty(z.shape)
+    nb_nd = np.empty(z.shape, dtype=bool)
+    better = np.empty(z.shape, dtype=bool)
     for k, (dr, dc, _esri, dist) in enumerate(_D8):
-        nb = _shift(z, dr, dc, np.inf)               # заграничье: стенка
-        nb_nd = _shift(nodata_mask, dr, dc, False)   # соседство с nodata
-        nb = np.where(nb_nd, -np.inf, nb)            # nodata-сосед: слив
-        slope = (z - nb) / dist
-        better = slope > best_slope
+        _shift_into(z, dr, dc, np.inf, nb)           # заграничье: стенка
+        _shift_into(nodata_mask, dr, dc, False, nb_nd)
+        nb[nb_nd] = -np.inf                          # nodata-сосед: слив
+        np.subtract(z, nb, out=nb)                   # nb становится уклоном
+        nb /= dist
+        np.greater(nb, best_slope, out=better)
         dir_idx[better] = k
-        best_slope[better] = slope[better]
+        np.copyto(best_slope, nb, where=better)
     dir_idx[nodata_mask] = NODIR
 
-    flat = np.arange(ny * nx, dtype=np.int64)
-    rows, cols = np.divmod(flat, nx)
     downstream = np.full(ny * nx, -1, dtype=np.int64)
+    dflat = dir_idx.ravel()
+    has_nodata = bool(nodata_mask.any())
+    nd = nodata_mask.ravel() if has_nodata else None
+    # Строка и столбец считаются только для ячеек текущего направления,
+    # а не для всего грида восемь раз подряд.
     for k, (dr, dc, _esri, _dist) in enumerate(_D8):
-        sel = (dir_idx.ravel() == k)
-        if not sel.any():
+        idx = np.flatnonzero(dflat == k)
+        if idx.size == 0:
             continue
-        rr = rows[sel] + dr
-        cc = cols[sel] + dc
+        rr, cc = np.divmod(idx, nx)
+        rr += dr
+        cc += dc
         ok = (rr >= 0) & (rr < ny) & (cc >= 0) & (cc < nx)
         tgt = np.where(ok, rr * nx + cc, -1)
         # приёмник в nodata равносилен выходу с грида
-        if nodata_mask.any():
-            nd = nodata_mask.ravel()
+        if has_nodata:
             inside = tgt >= 0
             tgt[inside & nd[np.maximum(tgt, 0)]] = -1
-        downstream[np.flatnonzero(sel)] = tgt
+        downstream[idx] = tgt
     return dir_idx, downstream
 
 
@@ -118,19 +135,34 @@ def flow_accumulation(downstream, shape, nodata_mask=None):
         acc[nodata_mask.ravel()] = 0.0
     indeg = np.zeros(n, dtype=np.int64)
     valid = downstream >= 0
-    np.add.at(indeg, downstream[valid], 1)
+    indeg += np.bincount(downstream[valid], minlength=n)
 
     frontier = np.flatnonzero((indeg == 0))
     if nodata_mask is not None:
         frontier = frontier[~nodata_mask.ravel()[frontier]]
+    # Порог переключения. На широком фронте суммы передаются через
+    # bincount: он на порядок быстрее небуферизованного np.add.at, а
+    # цена полноразмерного результата тонет в объёме работы. На узком
+    # фронте наоборот: полный массив на горстку ячеек не окупается, и
+    # точечный np.add.at с np.unique дешевле. Итог тот же с точностью
+    # до бита: суммируются целые счётчики, порядок сложения не важен.
+    wide = max(1024, n // 32)
     while frontier.size:
         ds = downstream[frontier]
         has_ds = ds >= 0
         ds = ds[has_ds]
-        np.add.at(acc, ds, acc[frontier[has_ds]])
-        np.add.at(indeg, ds, -1)
-        cand = np.unique(ds)
-        frontier = cand[indeg[cand] == 0]
+        if ds.size >= wide:
+            acc += np.bincount(ds, weights=acc[frontier[has_ds]],
+                               minlength=n)
+            got = np.bincount(ds, minlength=n)
+            indeg -= got
+            cand = np.flatnonzero(got)
+            frontier = cand[indeg[cand] == 0]
+        else:
+            np.add.at(acc, ds, acc[frontier[has_ds]])
+            np.add.at(indeg, ds, -1)
+            cand = np.unique(ds)
+            frontier = cand[indeg[cand] == 0]
     return acc.reshape(shape)
 
 
@@ -156,38 +188,74 @@ def river_network(downstream, acc, threshold, shape):
     """
     n = shape[0] * shape[1]
     mask = (acc.ravel() >= float(threshold))
-    indeg = _in_degree_masked(downstream, mask)
+    accf = acc.ravel()
 
-    def is_junction(i):
-        return indeg[i] >= 2
+    # Ячейки сети делятся на старты (исток indeg=0 или слияние indeg>=2)
+    # и внутренние (indeg=1). У внутренней ровно один сетевой исток,
+    # поэтому цепочки собираются без обхода: указатель prev на исток,
+    # прыжками указателей каждой ячейке находится её старт и номер в
+    # цепочке, а сортировка по паре (старт, номер) выкладывает звенья
+    # подряд. Обход по одной ячейке на шаг делал то же самое в цикле
+    # Python и на миллионе сетевых ячеек стоил секунды. Вся арифметика
+    # идёт в локальной нумерации сетевых ячеек: полноразмерный там
+    # только словарь перевода nid.
+    nodes = np.flatnonzero(mask)
+    m = nodes.size
+    if m == 0:
+        return []
+    nid = np.full(n, -1, dtype=np.int64)
+    nid[nodes] = np.arange(m)
 
-    heads = [int(i) for i in np.flatnonzero(mask & (indeg == 0))]
-    starts = list(heads)
-    for j in np.flatnonzero(mask & (indeg >= 2)):
-        starts.append(int(j))
+    ds_all = downstream[nodes]
+    src_ok = np.flatnonzero((ds_all >= 0) & mask[np.maximum(ds_all, 0)])
+    tgt_local = nid[ds_all[src_ok]]
+    deg = np.bincount(tgt_local, minlength=m)    # входящая степень в сети
+
+    p = np.arange(m, dtype=np.int64)             # старты держат сами себя
+    tin = deg[tgt_local] == 1                    # prev есть лишь у внутренних
+    p[tgt_local[tin]] = src_ok[tin]
+
+    # Прыжки указателей: root уходит к старту, dist копит номер в цепочке.
+    root = p.copy()
+    dist = (root != np.arange(m)).astype(np.int64)
+    for _ in range(64):                          # 2**64 ячеек хватит всем
+        rr = root[root]
+        if np.array_equal(rr, root):
+            break
+        dist += dist[root]
+        root = rr
+
+    # порядок звеньев прежний: истоки по возрастанию, затем слияния
+    loc_heads = np.flatnonzero(deg == 0)
+    loc_juncs = np.flatnonzero(deg >= 2)
+    srank = np.full(m, -1, dtype=np.int64)
+    srank[loc_heads] = np.arange(loc_heads.size)
+    srank[loc_juncs] = loc_heads.size + np.arange(loc_juncs.size)
+
+    key1 = srank[root]
+    order_idx = np.lexsort((dist, key1))
+    key1 = key1[order_idx]
+    glob = nodes[order_idx]
+    # ячейка вне какой-либо цепочки (замкнутый круг без старта) у обхода
+    # не посещалась, здесь она отбрасывается тем же исходом
+    ok = key1 >= 0
+    key1 = key1[ok]
+    glob = glob[ok]
+    bounds = np.flatnonzero(np.diff(key1)) + 1
+    seg_starts = np.concatenate(([0], bounds))
+    seg_ends = np.concatenate((bounds, [key1.size]))
 
     links = []
-    link_at_start = {}
-    for s in starts:
-        cells = [s]
-        cur = s
-        while True:
-            ds = downstream[cur]
-            if ds < 0 or not mask[ds]:
-                break
-            cells.append(int(ds))
-            if is_junction(ds):
-                break
-            cur = int(ds)
+    for a, b in zip(seg_starts, seg_ends):
+        cells = glob[a:b].tolist()
+        d = int(downstream[cells[-1]])
+        if d >= 0 and mask[d]:
+            cells.append(d)                      # замыкающее слияние
         if len(cells) < 2:
-            # исток, сразу упирающийся в слияние или край: точка не звено
-            if len(cells) == 1 and downstream[s] >= 0 and mask[downstream[s]]:
-                cells.append(int(downstream[s]))
-            else:
-                continue
+            # исток, сразу упирающийся в край: точка не звено
+            continue
         links.append({"cells": cells, "order": 0,
-                      "acc_out": float(acc.ravel()[cells[-1]])})
-        link_at_start[s] = len(links) - 1
+                      "acc_out": float(accf[cells[-1]])})
 
     # Стралер: вливающиеся звенья каждого узла
     inflows = {}
@@ -195,33 +263,37 @@ def river_network(downstream, acc, threshold, shape):
         end = lk["cells"][-1]
         inflows.setdefault(end, []).append(li)
 
-    def resolve(li, depth=0):
-        lk = links[li]
-        if lk["order"]:
-            return lk["order"]
-        if depth > n:
-            lk["order"] = 1
-            return 1
-        start = lk["cells"][0]
-        ups = []
-        if is_junction(start):
-            for uli in inflows.get(start, []):
-                ups.append(resolve(uli, depth + 1))
-        if not ups:
-            lk["order"] = 1
-        else:
-            top = max(ups)
-            lk["order"] = top + 1 if ups.count(top) >= 2 else top
-        return lk["order"]
-
-    import sys
-    old = sys.getrecursionlimit()
-    sys.setrecursionlimit(max(old, 10000))
-    try:
-        for li in range(len(links)):
-            resolve(li)
-    finally:
-        sys.setrecursionlimit(old)
+    # Порядок считается явным стеком, а не рекурсией: цепочка звеньев
+    # длиной в тысячи узлов упиралась бы в предел глубины интерпретатора.
+    state = [0] * len(links)                     # 0 нов, 1 в работе, 2 готов
+    for root_li in range(len(links)):
+        if state[root_li] == 2:
+            continue
+        stack = [root_li]
+        while stack:
+            cur = stack[-1]
+            if state[cur] == 2:
+                stack.pop()
+                continue
+            lk = links[cur]
+            start = lk["cells"][0]
+            ups = inflows.get(start, []) if deg[nid[start]] >= 2 else []
+            if state[cur] == 0:
+                state[cur] = 1
+                todo = [u for u in ups if state[u] == 0]
+                if todo:
+                    stack.extend(todo)
+                    continue
+            # звено в работе среди притоков означало бы круг: как и
+            # прежняя защита по глубине, такой приток идёт за порядок 1
+            vals = [links[u]["order"] if state[u] == 2 else 1 for u in ups]
+            if not vals:
+                lk["order"] = 1
+            else:
+                top = max(vals)
+                lk["order"] = top + 1 if vals.count(top) >= 2 else top
+            state[cur] = 2
+            stack.pop()
     return links
 
 
