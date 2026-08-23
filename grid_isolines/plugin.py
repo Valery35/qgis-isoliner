@@ -123,12 +123,13 @@ class GridIsolinesPlugin:
             except ImportError:
                 from qgis.PyQt.QtWidgets import QAction   # Qt5 (QGIS 3)
             from .i18n import tr, init_from_qgis
-            from . import about, densityview
+            from . import about, densityview, basemapview
             init_from_qgis()
             here = os.path.dirname(__file__)
             icon_main = QIcon(os.path.join(here, "icon.svg"))
             icon_log = QIcon(os.path.join(here, "icon_log.svg"))
             icon_den = QIcon(os.path.join(here, "icon_density.svg"))
+            icon_map = QIcon(os.path.join(here, "icon_basemap.svg"))
 
             win = self.iface.mainWindow()
             self.toolbar = self.iface.addToolBar(tr("Isoliner"))
@@ -142,6 +143,15 @@ class GridIsolinesPlugin:
                 a_den.triggered.connect(
                     lambda: densityview.show_view(self.iface))
                 self._add(a_den, toolbar=True)
+
+            # Подоснова: карта или космоснимок под данные
+            if basemapview.is_available():
+                a_map = QAction(icon_map, tr("Подоснова…"), win)
+                a_map.setToolTip(tr(
+                    "Подложить карту или космоснимок под данные"))
+                a_map.triggered.connect(
+                    lambda: basemapview.show_view(self.iface))
+                self._add(a_map, toolbar=True)
 
             # О плагине
             a_about = QAction(icon_main, tr("О плагине…"), win)

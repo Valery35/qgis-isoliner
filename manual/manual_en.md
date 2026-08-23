@@ -253,6 +253,18 @@ The tools are grouped into three Processing groups. The "Grid and isolines" grou
 
 ![The whole process on a generated example: wells with measurements (left) are turned into a continuous grid by kriging (centre), from which isolines and contour polygons are built (right).](images/schema_process.png){width=98%}
 
+## The basemap
+
+The **Isoliner** toolbar carries a **Basemap** button: a map or satellite imagery under the data in one move. Tick the sources you need, press **Add**, and the layers go into the project. The window stays open, because basemaps are chosen while looking at the map: add one, look, add another.
+
+Seven sources ship with the plugin - OpenStreetMap, OpenTopoMap, satellite imagery, a topographic base, a street map, hillshade and slopes. Next to the imagery it is noted that a semi-transparent variant exists: it goes over the data rather than under it, and positions are checked against it.
+
+The **Put below the other layers** checkbox drops what was added to the very bottom of the tree, so that the basemap does not cover the work.
+
+Your own source is added without touching the code. Set the layer up in QGIS as usual, then right-click in the layer tree, **Export - Save as Layer Definition File**, and put the resulting `.qlr` into the `basemaps` folder of the plugin. The order in the list is set by the numeric prefix of the file name. A layer definition is chosen for a reason: it already holds the connection string, the coordinate system and the style with its transparency, while an address assembled by hand loses all of that.
+
+Basemaps are served in the web projection while a project usually works in a local system. If the coordinate system of the project has a datum, the transformation is computed and the basemap lines up. If it has none, the imagery shifts silently, so the window warns about it in advance, before anything is added.
+
 # 1. Grid and isolines
 
 ## The elevation from the geometry
