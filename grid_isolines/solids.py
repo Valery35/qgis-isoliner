@@ -26,12 +26,30 @@ import numpy as np
 
 
 def _closed(ring):
-    """Кольцо без повтора последней вершины."""
+    """Кольцо без повтора последней вершины.
+
+    Приведение стоит дорого на кольце в тысячу вершин, а на одно тело оно
+    звалось шестью путями подряд: крышка снизу, крышка сверху, площадь
+    каждой из них и стенка. Готовое кольцо распознаётся по метке и второй
+    раз не перебирается.
+    """
+    if type(ring) is _Ring:
+        return ring
     pts = [tuple(map(float, p[:2])) for p in ring]
     if len(pts) >= 2 and abs(pts[0][0] - pts[-1][0]) < 1e-12 \
             and abs(pts[0][1] - pts[-1][1]) < 1e-12:
         pts = pts[:-1]
-    return pts
+    return _Ring(pts)
+
+
+class _Ring(list):
+    """Приведённое кольцо: тот же список кортежей, но с меткой.
+
+    Наследник list, поэтому всё, что работало со списком точек, работает
+    и здесь без единой правки у потребителей.
+    """
+
+    __slots__ = ()
 
 
 def ring_area(ring):
@@ -110,7 +128,8 @@ def shell_faces(rings, z_lo, z_hi, triangulate=None):
     z_lo, z_hi = float(z_lo), float(z_hi)
     if z_hi < z_lo:
         z_lo, z_hi = z_hi, z_lo
-    rings = [r for r in rings if len(_closed(r)) >= 3]
+    # приведение делается здесь один раз, дальше кольца ходят готовыми
+    rings = [r for r in (_closed(r) for r in rings) if len(r) >= 3]
     if not rings or z_hi - z_lo <= 0:
         return []
     out = []

@@ -335,3 +335,40 @@ def _run():
 
 if __name__ == "__main__":
     _run()
+
+
+def test_rasterize_keeps_the_order_of_the_walk():
+    """При попадании двух точек в одну ячейку побеждает последняя.
+
+    Векторная растеризация идёт группами сегментов равной густоты, и
+    группировка переставляет сегменты. Без возврата исходной очерёдности
+    в ячейке оседает отметка не того сегмента: маска сходится, а значения
+    расходятся, и на форме это выглядит как случайный выброс.
+    """
+    # два сегмента через одну и ту же ячейку, разной длины и разного z
+    feats = [{"pts": [(0.0, 0.0, 10.0), (9.0, 0.0, 10.0),
+                      (9.5, 0.0, 20.0), (0.0, 0.0, 20.0)], "z": None}]
+    mask, values, skipped = tf.rasterize_side((20, 20), feats, cell=1.0)
+    assert skipped == 0
+    # последним обходом идёт возврат с отметкой 20
+    assert abs(float(values[0, 0]) - 20.0) < 1e-9
+
+
+def test_rasterize_handles_a_single_point_feature():
+    feats = [{"pts": [(3.0, 4.0, 55.0)], "z": None}]
+    mask, values, _ = tf.rasterize_side((10, 10), feats, cell=1.0)
+    assert bool(mask[4, 3]) and abs(float(values[4, 3]) - 55.0) < 1e-9
+
+
+def test_rasterize_takes_the_feature_z_without_vertex_z():
+    feats = [{"pts": [(0.0, 0.0), (5.0, 0.0)], "z": 7.0}]
+    mask, values, _ = tf.rasterize_side((10, 10), feats, cell=1.0)
+    assert int(mask.sum()) >= 5
+    assert np.allclose(values[mask], 7.0)
+
+
+def test_rasterize_drops_points_outside_the_grid():
+    """Точка за краем растра выбрасывается, а не заворачивается по краю."""
+    feats = [{"pts": [(-50.0, -50.0, 1.0), (-40.0, -40.0, 1.0)], "z": None}]
+    mask, _values, skipped = tf.rasterize_side((10, 10), feats, cell=1.0)
+    assert int(mask.sum()) == 0 and skipped == 0

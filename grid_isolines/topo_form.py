@@ -117,10 +117,20 @@ def rasterize_side(shape, features, cell=1.0):
     values = np.full(shape, np.nan)
     skipped = 0
 
-    def put(r, c, z):
-        if 0 <= r < ny and 0 <= c < nx:
-            mask[r, c] = True
-            values[r, c] = z
+    # Точки копятся списком и укладываются в растр разом, в конце. Раньше
+    # каждая точка вдоль сегмента писалась в массив по одной, а на топоплане
+    # их выходят миллионы: обращение к ячейке NumPy стоит дороже целого
+    # векторного действия над тысячей ячеек.
+    chunks_r, chunks_c, chunks_z = [], [], []
+
+    def put_arrays(rr, cc, zz):
+        ok = (rr >= 0) & (rr < ny) & (cc >= 0) & (cc < nx)
+        if not ok.all():
+            rr, cc, zz = rr[ok], cc[ok], zz[ok]
+        if rr.size:
+            chunks_r.append(rr)
+            chunks_c.append(cc)
+            chunks_z.append(zz)
 
     for ft in features:
         pts = ft.get("pts") or []
@@ -132,22 +142,54 @@ def rasterize_side(shape, features, cell=1.0):
         if not has_z and const_z is None:
             skipped += 1
             continue
-        if len(pts) == 1:
-            x, y = pts[0][0], pts[0][1]
-            z = pts[0][2] if has_z else const_z
-            put(int(round(y / cell)), int(round(x / cell)), float(z))
+        arr = np.asarray(pts, dtype=np.float64)
+        xs, ys = arr[:, 0], arr[:, 1]
+        zs = arr[:, 2] if has_z else np.full(arr.shape[0], float(const_z))
+        if arr.shape[0] == 1:
+            put_arrays(np.rint(ys / cell).astype(np.int64),
+                       np.rint(xs / cell).astype(np.int64), zs)
             continue
-        for i in range(len(pts) - 1):
-            x0, y0 = pts[i][0], pts[i][1]
-            x1, y1 = pts[i + 1][0], pts[i + 1][1]
-            z0 = pts[i][2] if has_z else const_z
-            z1 = pts[i + 1][2] if has_z else const_z
-            n_step = max(1, int(np.hypot(x1 - x0, y1 - y0) / cell * 2))
-            for k in range(n_step + 1):
-                t = k / float(n_step)
-                put(int(round((y0 + t * (y1 - y0)) / cell)),
-                    int(round((x0 + t * (x1 - x0)) / cell)),
-                    float(z0 + t * (z1 - z0)))
+
+        x0, x1 = xs[:-1], xs[1:]
+        y0, y1 = ys[:-1], ys[1:]
+        z0, z1 = zs[:-1], zs[1:]
+        # шаг в половину ячейки: та же густота, что и прежде
+        steps = np.maximum(1, (np.hypot(x1 - x0, y1 - y0) / cell * 2)
+                           .astype(np.int64))
+        # у сегментов разная длина, поэтому идём группами равной густоты:
+        # групп единицы, а сегментов десятки тысяч
+        wide = int(steps.max()) + 1
+        f_r, f_c, f_z, f_ord = [], [], [], []
+        for n_step in np.unique(steps):
+            sel = np.flatnonzero(steps == n_step)
+            t = (np.arange(n_step + 1, dtype=np.float64)
+                 / float(n_step))[None, :]
+            gx = x0[sel][:, None] + t * (x1[sel] - x0[sel])[:, None]
+            gy = y0[sel][:, None] + t * (y1[sel] - y0[sel])[:, None]
+            gz = z0[sel][:, None] + t * (z1[sel] - z0[sel])[:, None]
+            f_r.append(np.rint(gy.ravel() / cell).astype(np.int64))
+            f_c.append(np.rint(gx.ravel() / cell).astype(np.int64))
+            f_z.append(gz.ravel())
+            # место точки в исходном обходе: сегмент, затем шаг внутри него
+            f_ord.append((sel[:, None] * wide
+                          + np.arange(n_step + 1)[None, :]).ravel())
+        # Группировка переставила сегменты, а порядок решает исход: когда
+        # две точки попадают в одну ячейку, побеждает последняя по обходу.
+        # Сортировка возвращает исходную очерёдность, и растр выходит тот
+        # же, что при точечной записи.
+        order = np.argsort(np.concatenate(f_ord), kind="stable")
+        put_arrays(np.concatenate(f_r)[order],
+                   np.concatenate(f_c)[order],
+                   np.concatenate(f_z)[order])
+
+    if chunks_r:
+        rr = np.concatenate(chunks_r)
+        cc = np.concatenate(chunks_c)
+        zz = np.concatenate(chunks_z)
+        mask[rr, cc] = True
+        # порядок записи прежний: при совпадении ячеек побеждает последняя
+        values[rr, cc] = zz
+    return mask, values, skipped
     return mask, values, skipped
 
 

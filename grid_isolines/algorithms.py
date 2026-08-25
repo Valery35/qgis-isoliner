@@ -9291,7 +9291,7 @@ class CompositionOnSectionAlgorithm(IsolinerAlgorithm):
             types=[QgsProcessing.SourceType.TypeVectorLine]))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.DEF,
-            self.tr("Определение разреза (для общего масштаба, опционально)"),
+            self.tr("Определение разреза (для общего масштаба)"),
             types=[QgsProcessing.SourceType.TypeVectorLine], optional=True))
         self.addParameter(QgsProcessingParameterRasterLayer(
             self.TOP, self.tr("Кровля пласта (растр)")))
@@ -11416,7 +11416,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
             parentLayerParameterName=self.SURVEY, optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.INTERVAL,
-            self.tr("Интервалы скважин (interval, таблица) [необязательно]"),
+            self.tr("Интервалы скважин (interval, таблица)"),
             types=[QgsProcessing.SourceType.TypeVector],
             defaultValue=_dv_layer(self, self.INTERVAL), optional=True))
         self.addParameter(_advanced(QgsProcessingParameterField(
@@ -12059,7 +12059,7 @@ class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.NREAL, 60), minValue=1, maxValue=1000))
         self.addParameter(QgsProcessingParameterNumber(
-            self.THRESHOLD, self.tr("Порог отсечки для вероятности (опционально)"),
+            self.THRESHOLD, self.tr("Порог отсечки для вероятности"),
             QgsProcessingParameterNumber.Type.Double, optional=True))
         self.addParameter(QgsProcessingParameterBoolean(
             self.ABOVE, self.tr("Вероятность ВЫШЕ порога (иначе ниже)"),
