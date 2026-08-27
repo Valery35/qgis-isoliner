@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.8.4
+version=5.9.1
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,29 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.8.4
+changelog=5.9.1
+    - Окно «Карта плотности» отзывчивее под ползунками. Поворот ручки во
+      время пересчёта больше не теряется: предпросмотр пересчитывается ещё
+      раз по окончании. Вспомогательный растр не перечитывается с диска
+      целиком на каждое движение - выборка кэшируется по слою и сетке.
+    - Справки и сообщения журнала вычитаны: убраны точки с запятой в
+      прозе, кроме математической записи интервалов.
+    5.9.0
+    - Новый инструмент 1.11 «Врезка подробной поверхности в региональную».
+      Сшивает две поверхности одной величины: подробную съёмку с открытой
+      ЦМР, куст разведочных скважин с региональной моделью кровли,
+      детальный участок опробования с общей картой содержаний.
+    - Систематическое расхождение снимается по кольцу перекрытия вокруг
+      зоны врезки, медианой или наклонной плоскостью. У рельефа это разные
+      вертикальные системы, у геологии разные методики увязки: без снятия
+      вся региональная часть остаётся смещённой, и водосбор уезжает.
+    - Переход строится весом, а не вырезанной дыркой с интерполяцией:
+      внутри зоны единица, за буфером ноль, в кольце плавно. Ширина
+      задаётся в ячейках региональной поверхности.
+    - Если подробные данные обрываются ровно по зоне врезки, перекрытия
+      нет и поправку снять не по чему. Инструмент говорит об этом прямо и
+      не сшивает молча.
+    5.8.4
     - Растеризация сторон формы в 2.03 ускорена в четыре с половиной раза:
       точки вдоль сегментов считаются и укладываются в растр группами, а
       не по одной. На наборе из восьмидесяти тысяч вершин время упало с

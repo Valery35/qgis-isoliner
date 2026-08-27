@@ -1422,7 +1422,7 @@ def _read_points(source, zfield, feedback=None,
                 ids = ids[keep]
             if feedback is not None:
                 feedback.pushInfo(
-                    _tr("Ураганные пробы: удалено %d точек вне [%.4g; %.4g]; "
+                    _tr("Ураганные пробы: удалено %d точек вне [%.4g; %.4g], "
                     "осталось %d.") % (ncut, lo, hi, len(xs)))
         if len(xs) < 2:
             raise QgsProcessingException(
@@ -1472,7 +1472,7 @@ def build_model_from_fit(name, fit, field, val_pct=0.0, val_cap=False,
                           aa=float(fit["range"]), ang=0.0, anis=1.0,
                           struct=1)]
     model.fitted = today or datetime.date.today().isoformat()
-    model.note = _tr("автоподбор 1.05, изотропная; анизотропию проставляет "
+    model.note = _tr("автоподбор 1.05, изотропная. Анизотропию проставляет "
                      "1.06 по вариограммной карте")
     return model
 
@@ -1756,7 +1756,7 @@ def _build_variogram(alg, parameters, context, nugget, auto_range, feedback=None
                 if feedback:
                     feedback.pushWarning(
                         _tr("Структура %d: степенная модель - поле «радиус a» это "
-                        "показатель ω (0<ω<2), а не радиус; задан 0, взят ω=1.") % i)
+                        "показатель ω (0<ω<2), а не радиус. Задан 0, взят ω=1.") % i)
             elif not (0.0 < rng < 2.0):
                 if feedback:
                     feedback.pushWarning(
@@ -2991,7 +2991,7 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.BLOCK_DISC, 4), minValue=2, maxValue=10)
         disc.setHelp(self.tr(
             "Сколько точек на сторону ячейки берётся для усреднения по блоку "
-            "(всего N×N). 4×4 достаточно почти всегда; больше - точнее, но "
+            "(всего N×N). 4×4 достаточно почти всегда, больше - точнее, но "
             "медленнее. Действует только при включённом блочном кригинге."))
         self.addParameter(disc)
         self.addParameter(QgsProcessingParameterBoolean(
@@ -3752,7 +3752,7 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
             "На карте слой тел бесполезен: стенки вертикальные и в плане "
             "вырождаются в полоски нулевой ширины, а крышки ложатся друг "
             "на друга. Его место в сцене и в расчёте.\n\nПоля: линии - "
-            "значение уровня (по умолчанию ELEV) и is_index (1 у главных); "
+            "значение уровня (по умолчанию ELEV) и is_index (1 у главных), "
             "полигоны - ELEV_MIN/ELEV_MAX (диапазон пояса).\n\nФлажок **Топографические подписи** задаёт линиям одно направление относительно склона, и тогда верх цифры всегда смотрит вверх по склону, как на топокарте. QGIS отсчитывает верх подписи от направления линии, поэтому поворот текста задавать не нужно. В слое остаётся поле up_side: 1 означает, что линия оставлена как была, 0 что развёрнута.\n\nВажно: в настройках подписей слоя должно быть разрешено показывать перевёрнутые подписи. Иначе QGIS доворачивает текст ради читаемости и сводит разворот линий на нет. В стилях **Структура** и **Депрессия** это уже настроено. Если подписываете своим стилем, включите в разделе отрисовки подписей показ перевёрнутых. Топографическая подпись по определению бывает перевёрнутой: на склоне, обращённом на юг, цифра читается вверх ногами.\n\n"
             "**Разломы** подаются линиями и режут изолинии точно по линии, а не "
             "по ячейкам. Линия входит и в сеть построения поясов, поэтому "
@@ -4085,7 +4085,7 @@ def _cv_advice(me, mae, rmse, msdr, r):
     if r == r:
         if r < 0.5:
             tips.append(_tr("Низкая корреляция (R=%.2f): модель слабо предсказывает - "
-                        "попробуйте другой радиус, модель или анизотропию; либо "
+                        "попробуйте другой радиус, модель или анизотропию. Либо "
                         "это предел данных (короткомасштабная изменчивость, "
                         "зоны замещения).") % r)
             good = False
@@ -4440,11 +4440,11 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
             "лучше), MSDR (к 1 - вариограмма адекватна по масштабу), R. "
             "Перебирайте параметры и сравнивайте RMSE и MSDR.\n\n"
             "Слой остатков (опц.) - точки со следующими полями:\n"
-            "  • <номер скважины> - если задано «Поле номера скважины»;\n"
-            "  • <имя проверяемого поля> - фактическое значение (факт);\n"
-            "  • z_est - оценка кригинга по остальным точкам (LOO);\n"
-            "  • error - оценка минус факт (минус: занижено, плюс: завышено);\n"
-            "  • abs_error - модуль ошибки;\n"
+            "  • <номер скважины> - если задано «Поле номера скважины»,\n"
+            "  • <имя проверяемого поля> - фактическое значение (факт),\n"
+            "  • z_est - оценка кригинга по остальным точкам (LOO),\n"
+            "  • error - оценка минус факт (минус: занижено, плюс: завышено),\n"
+            "  • abs_error - модуль ошибки,\n"
             "  • std_resid - стандартизованный остаток: error / стандартную "
             "ошибку кригинга, со знаком (это не дисперсия).\n"
             "По нему видно, где модель промахивается.\n\n"
@@ -4787,7 +4787,7 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
             "стартовая вариограмма - её уточняют кросс-валидацией.\n\n"
             "Поля результата: номер скважины, абсолютная отметка кровли (roof), "
             "мощность (thick) и содержание X. Диапазоны кровли и мощности по "
-            "умолчанию близки к реальным калийным данным; их можно изменить в "
+            "умолчанию близки к реальным калийным данным, их можно изменить в "
             "разделе «Дополнительно».\n\nНеобязательные галки добавляют поля для "
             "смежных инструментов: напор (head) для градиента потока и "
             "категориальный минтип для индикаторного кригинга. Галка K и T "
@@ -5551,6 +5551,206 @@ def _iter_polygons(g):
             yield rings
 
 
+class SurfaceGraftAlgorithm(IsolinerAlgorithm):
+    """1.11 Врезка подробной поверхности в региональную.
+
+    Задача не только про рельеф. Подробная съёмка в открытую ЦМР, куст
+    разведочных скважин в региональную модель кровли, детальный участок
+    опробования в общую карту содержаний - устройство одно: два грида
+    одной величины и зона врезки.
+    """
+
+    FINE, FINE_BAND = "FINE", "FINE_BAND"
+    REGIONAL, REG_BAND = "REGIONAL", "REG_BAND"
+    MASK = "MASK"
+    WIDTH_CELLS = "WIDTH_CELLS"
+    SHIFT_MODE = "SHIFT_MODE"
+    MIN_OVERLAP = "MIN_OVERLAP"
+    OUTPUT = "OUTPUT"
+
+    _MODES = ("median", "plane", "none")
+
+    def tr(self, s): return _tr(s)
+    def helpUrl(self): return _help_url()
+    def name(self): return "surfacegraft"
+    def displayName(self):
+        return self.tr("1.11 Врезка подробной поверхности в региональную")
+    def group(self): return self.tr(GROUP)
+    def groupId(self): return GROUP_ID
+    def createInstance(self): return SurfaceGraftAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Сшивает подробную поверхность с региональной в одну. Подробная "
+            "съёмка в открытую ЦМР, куст разведочных скважин в региональную "
+            "модель кровли, детальный участок опробования в общую карту "
+            "содержаний: устройство одно, величина любая.\n\n"
+            "Ступеней на стыке две, и они разной природы. Первая - "
+            "систематическое расхождение: у рельефа это разные вертикальные "
+            "системы (местная против геоидной, расхождение в метрах), у "
+            "геологии - разные методики увязки. Оно снимается по кольцу "
+            "перекрытия вокруг зоны врезки, медианой: среднее утащили бы "
+            "выбросы, а в кольце это крыши, кроны и одиночные скважины.\n\n"
+            "Вторая - несовпадение форм на самом стыке. Здесь работает вес: "
+            "внутри зоны единица, за буфером ноль, в кольце плавный переход "
+            "с нулевой производной на концах. Переход выходит гладким по "
+            "построению, и в шов не попадает форма, придуманная "
+            "интерполяцией дырки.\n\n"
+            "Ширина буфера задаётся в ячейках РЕГИОНАЛЬНОЙ поверхности: "
+            "смысл её в том, чтобы переход был длиннее размера её ячейки, "
+            "иначе смешивать нечего. Три-пять ячеек обычно достаточно.\n\n"
+            "Зона врезки должна быть УЖЕ покрытия подробной поверхности: "
+            "кольцо перекрытия берётся снаружи зоны, и если подробные данные "
+            "обрываются ровно по ней, расхождение снять не по чему. Об этом "
+            "инструмент говорит прямо и не сшивает молча.\n\n"
+            "Прогалы внутри подробной поверхности закрываются региональной. "
+            "Обе поверхности приводятся к сетке подробной."))
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.FINE, self.tr("Подробная поверхность")))
+        self.addParameter(QgsProcessingParameterBand(
+            self.FINE_BAND, self.tr("Канал подробной"),
+            parentLayerParameterName=self.FINE, defaultValue=1))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.REGIONAL, self.tr("Региональная поверхность")))
+        self.addParameter(QgsProcessingParameterBand(
+            self.REG_BAND, self.tr("Канал региональной"),
+            parentLayerParameterName=self.REGIONAL, defaultValue=1))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.MASK, self.tr("Зона врезки (полигоны)"),
+            [QgsProcessing.TypeVectorPolygon]))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.WIDTH_CELLS, self.tr(
+                "Ширина перехода, ячеек региональной поверхности"),
+            QgsProcessingParameterNumber.Double, defaultValue=4.0,
+            minValue=0.0))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.SHIFT_MODE, self.tr("Снятие систематического расхождения"),
+            options=[self.tr("Медиана по кольцу"),
+                     self.tr("Наклонная плоскость по кольцу"),
+                     self.tr("Не снимать")],
+            defaultValue=0))
+        p = QgsProcessingParameterNumber(
+            self.MIN_OVERLAP, self.tr("Минимум ячеек перекрытия"),
+            QgsProcessingParameterNumber.Integer, defaultValue=200,
+            minValue=0)
+        p.setFlags(p.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        self.addParameter(p)
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Сшитая поверхность")))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        from . import dem_merge as _dm
+
+        fine_l = self.parameterAsRasterLayer(parameters, self.FINE, context)
+        reg_l = self.parameterAsRasterLayer(parameters, self.REGIONAL, context)
+        if fine_l is None or reg_l is None:
+            raise QgsProcessingException(self.tr("Не заданы обе поверхности."))
+        fine_band = self.parameterAsInt(parameters, self.FINE_BAND, context)
+        reg_band = self.parameterAsInt(parameters, self.REG_BAND, context)
+        src = self.parameterAsSource(parameters, self.MASK, context)
+        if src is None:
+            raise QgsProcessingException(self.tr("Не задана зона врезки."))
+        width_cells = self.parameterAsDouble(parameters, self.WIDTH_CELLS,
+                                             context)
+        mode = self._MODES[self.parameterAsEnum(parameters, self.SHIFT_MODE,
+                                                context)]
+        min_overlap = self.parameterAsInt(parameters, self.MIN_OVERLAP, context)
+        out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+
+        ds_f = gdal.Open(fine_l.source())
+        if ds_f is None:
+            raise QgsProcessingException(
+                self.tr("Не удалось открыть подробную поверхность."))
+        bf = ds_f.GetRasterBand(fine_band)
+        fine = bf.ReadAsArray().astype(float)
+        gt = ds_f.GetGeoTransform()
+        wkt = ds_f.GetProjection()
+        nd_f = bf.GetNoDataValue()
+        ny, nx = fine.shape
+        if nd_f is not None:
+            fine = np.where(fine == nd_f, np.nan, fine)
+        ds_f = None
+
+        # Региональная приводится к сетке подробной: ячейка мельче, и
+        # решать на ней. Обратный порядок терял бы саму подробность,
+        # ради которой врезку и делают.
+        ds_r = gdal.Open(reg_l.source())
+        if ds_r is None:
+            raise QgsProcessingException(
+                self.tr("Не удалось открыть региональную поверхность."))
+        gt_r = ds_r.GetGeoTransform()
+        reg_cell = max(abs(gt_r[1]), abs(gt_r[5])) or 1.0
+        fine_cell = max(abs(gt[1]), abs(gt[5])) or 1.0
+        warped = gdal.GetDriverByName("MEM").Create("", nx, ny, 1,
+                                                    gdal.GDT_Float32)
+        warped.SetGeoTransform(gt)
+        warped.SetProjection(wkt)
+        warped.GetRasterBand(1).SetNoDataValue(-9999.0)
+        warped.GetRasterBand(1).Fill(-9999.0)
+        gdal.ReprojectImage(ds_r, warped, ds_r.GetProjection(), wkt,
+                            gdal.GRA_Bilinear)
+        reg = warped.GetRasterBand(1).ReadAsArray().astype(float)
+        reg = np.where(reg == -9999.0, np.nan, reg)
+        ds_r = None
+        warped = None
+
+        feedback.pushInfo(_tr(
+            "Сетка %d x %d, ячейка подробной %.4g, ячейка региональной %.4g.")
+            % (nx, ny, fine_cell, reg_cell))
+
+        mask = _rasterize_mask(src, gt, (ny, nx), fine_l.crs(), context)
+        if mask is None:
+            raise QgsProcessingException(
+                self.tr("В слое зоны врезки нет полигонов."))
+        n_mask = int(np.count_nonzero(mask))
+        if n_mask == 0:
+            raise QgsProcessingException(self.tr(
+                "Зона врезки не попала на сетку подробной поверхности."))
+
+        # буфер задан в ячейках региональной, работаем в ячейках подробной
+        width_px = float(width_cells) * reg_cell / fine_cell
+        feedback.pushInfo(_tr(
+            "Зона врезки %d ячеек, переход %.4g ячеек региональной "
+            "(%.4g ячеек рабочей сетки).") % (n_mask, width_cells, width_px))
+
+        merged, rep = _dm.merge(fine, reg, mask, width_px=width_px,
+                                shift_mode=mode)
+
+        if rep.get("warning"):
+            feedback.reportError(rep["warning"], fatalError=False)
+        else:
+            feedback.pushInfo(_tr(
+                "Кольцо перекрытия: %d ячеек. Расхождение до поправки: "
+                "медиана %.4g, разброс от %.4g до %.4g. После поправки "
+                "медиана %.4g.")
+                % (rep["overlap"], rep["median"], rep["p05"], rep["p95"],
+                   rep["after"]["median"]))
+            if 0 < rep["overlap"] < min_overlap:
+                feedback.reportError(_tr(
+                    "Перекрытие всего %d ячеек при пороге %d: поправка "
+                    "посчитана по горстке ячеек и может быть случайной. "
+                    "Расширьте зону врезки внутрь участка либо увеличьте "
+                    "ширину перехода.") % (rep["overlap"], min_overlap),
+                    fatalError=False)
+
+        seam, background = _dm.seam_step(merged, mask, width_px)
+        feedback.pushInfo(_tr(
+            "Перепад между соседними ячейками: в шве %.4g, по остальному "
+            "полю %.4g.") % (seam, background))
+        if background > 0 and seam > background * 1.5:
+            feedback.reportError(_tr(
+                "Шов заметнее самого поля. Обычно это значит, что "
+                "расхождение снято неверно или переход слишком узкий."),
+                fatalError=False)
+
+        nodata = -9999.0
+        out = np.where(np.isfinite(merged), merged, nodata)
+        _write_grid_tiff(out_path, out, gt, wkt, nodata, nx, ny)
+        return {self.OUTPUT: out_path}
+
+
 class VariableSupportDensityAlgorithm(IsolinerAlgorithm):
     """3.07 Плотность по замерам с переменной опорой. Замер размазывается по
     носителю (точка+сигма, линия-коридор, полигон), масса сохраняется, плотность
@@ -5584,9 +5784,9 @@ class VariableSupportDensityAlgorithm(IsolinerAlgorithm):
             "геометрически, без порогов.\n\nЭто оценка плотности (сколько и "
             "где), не интерполяция значения - для значений остаётся кригинг. "
             "Тип геометрии один на запуск, смешение - серией запусков в один "
-            "растр (дописывание).\n\nПоля: масса (по умолчанию 1 на объект); "
+            "растр (дописывание).\n\nПоля: масса (по умолчанию 1 на объект), "
             "точность (для точек сигма в единицах карты, для линий полуширина "
-            "коридора); для линий from_m/to_m - вырезка интервала по линейной "
+            "коридора), для линий from_m/to_m - вырезка интервала по линейной "
             "привязке.\n\nВыход - трёхканальный растр: канал 1 плотность (масса "
             "на км², не зависит от размера ячейки), каналы 2-3 служебные (Σm·σ и "
             "Σm), чтобы дописывание и карта эффективной сигмы были точны. "
@@ -6596,7 +6796,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
                     "сильной непрерывности.") % (m["maxlag"], m["anis"]))
                 feedback.pushInfo(
                     _tr("В «2D Kriging» подставьте азимут=%.0f и анизотропию≈%.2f "
-                    "(как ориентир); радиус a задайте больше %.4g по смыслу "
+                    "(как ориентир), радиус a задайте больше %.4g по смыслу "
                     "данных.") % (m["azimuth"], m["anis"], m["maxlag"]))
             else:
                 feedback.pushInfo(
@@ -10538,7 +10738,7 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
             "значение на точку, опрокинутое он не возьмёт. TIN из настоящих "
             "3D-граней может нависать: над одной станцией несколько отметок, и "
             "трасса заворачивается - складки с опрокинутыми крыльями ложатся как "
-            "есть.\n\nВход - слои 3D-полигонов (PolygonZ, грани TIN; не "
+            "есть.\n\nВход - слои 3D-полигонов (PolygonZ, грани TIN, причём не "
             "треугольники разбиваются веером) и/или меш-слой. Линия и vex берутся "
             "из определения разреза, высота - с самих граней, поэтому для TIN "
             "ничего задавать не нужно.\n\nВнимание: меш QGIS это 2.5D (z как "
@@ -14371,7 +14571,7 @@ class StackCheckAlgorithm(IsolinerAlgorithm):
             "**Что проверяется.** Выклинивание - мощность в пределах "
             "допуска от нуля, это геология, а не дефект. Отрицательная "
             "мощность - кровля ниже подошвы. Перехлёст соседей - подошва "
-            "вышележащего опустилась ниже кровли нижележащего; каждый "
+            "вышележащего опустилась ниже кровли нижележащего, хотя каждый "
             "пласт по одиночке при этом может быть цел.\n\n"
             "**Пары собираются по именам слоёв.** Суффиксы кровли и "
             "подошвы разбираются сами: B_top и B_bottom дают пласт B. Как "
@@ -14480,7 +14680,7 @@ class StackCheckAlgorithm(IsolinerAlgorithm):
                 order = None
             elif hit < len(beds_here):
                 feedback.pushInfo(self.tr(
-                    "В справочнике нашлись не все пласты (%d из %d); "
+                    "В справочнике нашлись не все пласты (%d из %d), "
                     "остальные встанут после них в порядке слоёв.")
                     % (hit, len(beds_here)))
         if order:
@@ -14572,7 +14772,7 @@ class StackCheckAlgorithm(IsolinerAlgorithm):
         if bad:
             feedback.pushInfo(self.tr(
                 "Несогласованность найдена на площади %.0f м2. Это места, "
-                "где независимо построенные поверхности разошлись; смотреть "
+                "где независимо построенные поверхности разошлись, и смотреть "
                 "их надо разрезом, а не картой.") % (bad * cell ** 2))
         else:
             feedback.pushInfo(self.tr(
@@ -16654,11 +16854,11 @@ class FractalDimensionAlgorithm(IsolinerAlgorithm):
             "вариограммным методом: в скользящем окне строится лог-лог "
             "вариограмма по лагам 1..N ячеек, её наклон даёт показатель "
             "Хёрста H, размерность D = 3 - H. Гладкие дифференцируемые "
-            "участки дают D около 2, изрезанные и шумные - ближе к 3; "
+            "участки дают D около 2, изрезанные и шумные - ближе к 3. "
             "перепады D подчёркивают зоны тектонических нарушений, границы "
             "блоков и смену характера рельефа кровли.\n\nВыход - грид D, "
             "готовый для «1.2 Изолинии из растра» (галка в дополнительных "
-            "добавит H вторым каналом); глобальные D и "
+            "добавит H вторым каналом), глобальные D и "
             "H по всей поверхности печатаются в журнал. Малое окно (5-8 "
             "ячеек) показывает микроструктуру, большое (12-20) - "
             "региональные зоны. Растр должен быть в метрической системе "
@@ -16832,12 +17032,12 @@ class LineDimensionAlgorithm(IsolinerAlgorithm):
         return _help_version(self.tr(
             "Считает размерность каждой линии методом циркуля (Ричардсона):"
             " линия проходится хордами убывающего раствора, наклон log N "
-            "от log r даёт D. Прямая даёт 1, изрезанная линия - больше; "
+            "от log r даёт D. Прямая даёт 1, изрезанная линия - больше. "
             "для изолиний это диагностика сглаживания: пересглаженные "
             "изолинии теряют изрезанность и D падает к единице, а сравнение"
             " D до и после сглаживания показывает, сколько геометрии "
             "съедено.\n\nВыход - те же линии с полями D и steps (количество "
-            "шагов минимального циркуля); среднее D печатается в журнал. "
+            "шагов минимального циркуля), среднее D печатается в журнал. "
             "Полигоны принимаются тоже: меряется внешнее кольцо границы. "
             "Короткие линии (меньше 30 вершин или очень малой длины) "
             "получают пустое D.") + _credit())
@@ -16944,16 +17144,16 @@ class MinkowskiDimensionAlgorithm(IsolinerAlgorithm):
             "log(1/размер) даёт размерность Минковского. Прямая линия и "
             "гладкая граница дают D около 1, речная сеть - 1.1-1.5, "
             "сильно изрезанная береговая линия - до 1.3 и выше.\n\n"
-            "Каждый объект получает поле D_mink; отдельно считается и "
+            "Каждый объект получает поле D_mink. отдельно считается и "
             "печатается в журнал D всего слоя как единого множества - для "
             "речной сети это размерность сети целиком, она выше "
             "размерности отдельных рукавов. Метод дополняет циркуль из "
             "2.9: циркуль меряет извилистость одной линии, Минковский - "
             "заполнение плоскости набором объектов.\n\nПараметры: K - "
-            "ступеней лесенки размеров (8-12 обычно; слишком большое K "
+            "ступеней лесенки размеров (8-12 обычно, слишком большое K "
             "уводит мелкие ячейки ниже масштаба детальности линии, и D "
-            "занижается к 1); сдвигов сетки - случайные смещения с "
-            "минимальным покрытием, снимают привязку к сетке (3-5); фактор "
+            "занижается к 1). Сдвигов сетки - случайные смещения с "
+            "минимальным покрытием, снимают привязку к сетке (3-5). Фактор "
             "уплотнения - шаг выборки вдоль сегментов в долях ячейки, 0 - "
             "только вершины. Каждый объект получает и D_r2 - качество "
             "лог-лог аппроксимации: ниже 0.85 оценке доверять нельзя.") + _credit())
@@ -17095,7 +17295,7 @@ class FractalDemoAlgorithm(IsolinerAlgorithm):
             "ветвящуюся речную сеть (поле order - порядок притока), полигон "
             "водосбора с изрезанной границей и отдельную береговую линию "
             "(срединные смещения). Реки подавайте в 6.04 - размерность "
-            "сети; берег и границу водосбора - в 6.03 и 5.04; растеризуйте "
+            "сети, берег и границу водосбора - в 6.03 и 5.04, растеризуйте "
             "водосбор - и он же пример для 5.02.") + _credit())
 
     def initAlgorithm(self, config=None):
@@ -23760,6 +23960,7 @@ ALGORITHMS = [
     MethodCrossValidationAlgorithm,
     ExampleWellsAlgorithm,
     GeophysProfilesDemoAlgorithm,
+    SurfaceGraftAlgorithm,
     CategoricalIndicatorAlgorithm,
     SectionDemoAlgorithm,
     AttitudeFromTraceAlgorithm,

@@ -247,6 +247,10 @@ def _build_dialog(parent, iface):
         # --- предпросмотр --------------------------------------------------
         def _preview(self):
             if self._busy:
+                # тик пришёл во время пересчёта: не терять его, а дождаться
+                # конца и пересчитать ещё раз, иначе картинка отстаёт от
+                # последнего поворота ручки
+                self._again = True
                 return
             lyr = self._layer()
             if lyr is None:
@@ -282,6 +286,9 @@ def _build_dialog(parent, iface):
                 self.lbl_inv.setText(tr("Предпросмотр не построен: %s") % e)
             finally:
                 self._busy = False
+                if getattr(self, "_again", False):
+                    self._again = False
+                    self._timer.start()
 
         def _compute_preview(self, lyr):
             ext = lyr.extent()
@@ -348,6 +355,13 @@ def _build_dialog(parent, iface):
             lyr = QgsProject.instance().mapLayer(lid)
             if lyr is None:
                 return None
+            # растр перечитывался целиком на каждый тик предпросмотра:
+            # с большим GeoTIFF под ползунком это диск на каждые 180 мс.
+            # Сетка и слой между тиками обычно те же - выборка кэшируется.
+            key = (lid, gs.xmin, gs.ymin, gs.cell, gs.nx, gs.ny)
+            cached = getattr(self, "_aux_cache", None)
+            if cached is not None and cached[0] == key:
+                return cached[1]
             try:
                 from osgeo import gdal
                 ds = gdal.Open(lyr.source())
@@ -363,7 +377,9 @@ def _build_dialog(parent, iface):
                 row = ((gs.row_centers() - g[3]) / g[5]).astype(int)
                 col = np.clip(col, 0, arr.shape[1] - 1)
                 row = np.clip(row, 0, arr.shape[0] - 1)
-                return arr[np.ix_(row, col)]
+                out = arr[np.ix_(row, col)]
+                self._aux_cache = (key, out)
+                return out
             except Exception:
                 return None
 
