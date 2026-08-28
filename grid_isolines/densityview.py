@@ -201,6 +201,7 @@ def _build_dialog(parent, iface):
             return QgsProject.instance().mapLayer(lid) if lid else None
 
         def _layer_changed(self):
+            self._drop_cache()
             lyr = self._layer()
             fields = []
             if lyr is not None:
@@ -290,6 +291,105 @@ def _build_dialog(parent, iface):
                     self._again = False
                     self._timer.start()
 
+        # Кэш сырья слоя: разобранные геометрии и значения полей. Каждый
+        # тик предпросмотра читал слой заново через провайдера, и на
+        # больших shapefile диск съедал больше, чем сам счёт. Сырьё не
+        # зависит ни от одного ползунка: выбор полей применяется к
+        # сохранённым значениям, вырезка интервалов - тоже.
+        _CACHE_VERTS_MAX = 2_000_000   # предохранитель по памяти
+
+        def _drop_cache(self):
+            self._feat_cache = None
+
+        def _watch_layer(self, lyr):
+            """Подписка на правки слоя: любое изменение сбрасывает кэш."""
+            prev = getattr(self, "_watched", None)
+            if prev is not None and prev[0]() is not None \
+                    and prev[0]() is lyr:
+                return
+            if prev is not None:
+                old_lyr = prev[0]()
+                if old_lyr is not None:
+                    for sig in prev[1]:
+                        try:
+                            sig.disconnect(self._drop_cache)
+                        except Exception:               # nosec
+                            pass
+            self._watched = None
+            if lyr is None:
+                return
+            import weakref
+            sigs = []
+            for name in ("dataChanged", "layerModified", "editingStopped"):
+                sig = getattr(lyr, name, None)
+                if sig is not None:
+                    try:
+                        sig.connect(self._drop_cache)
+                        sigs.append(sig)
+                    except Exception:                   # nosec
+                        pass
+            self._watched = (weakref.ref(lyr), sigs)
+
+        def _layer_raw(self, lyr):
+            """Сырьё слоя: [(вид, геометрия, значения полей), ...].
+
+            Возвращает кэш, если слой тот же и правок не было. При
+            превышении предохранителя по вершинам кэш не строится, и
+            каждый тик читает провайдера напрямую, как раньше.
+            """
+            cached = getattr(self, "_feat_cache", None)
+            if cached is not None and cached[0] == lyr.id():
+                return cached[1]
+            self._watch_layer(lyr)
+            gt = lyr.geometryType()
+            names = [f.name() for f in lyr.fields()]
+            raw = []
+            nverts = 0
+            for ft in lyr.getFeatures():
+                if len(raw) >= PREVIEW_FEATURES:
+                    break
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                attrs = dict(zip(names, ft.attributes()))
+                if gt == _POINT_GT:
+                    parts = list(_points(g))
+                    nverts += len(parts)
+                elif gt == _LINE_GT:
+                    parts = list(_lines(g))
+                    nverts += sum(len(v) for v in parts)
+                else:
+                    parts = list(_polys(g))
+                    nverts += sum(len(r) for rings in parts for r in rings)
+                raw.append((parts, attrs))
+                if nverts > self._CACHE_VERTS_MAX:
+                    # слой слишком велик для памяти: работать напрямую
+                    self._feat_cache = None
+                    return raw + self._raw_rest(lyr, gt, names, len(raw))
+            self._feat_cache = (lyr.id(), raw)
+            return raw
+
+        def _raw_rest(self, lyr, gt, names, skip):
+            """Хвост слоя сверх предохранителя, без сохранения в кэш."""
+            rest = []
+            for i, ft in enumerate(lyr.getFeatures()):
+                if i < skip:
+                    continue
+                if skip + len(rest) >= PREVIEW_FEATURES:
+                    break
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                attrs = dict(zip(names, ft.attributes()))
+                if gt == _POINT_GT:
+                    parts = list(_points(g))
+                elif gt == _LINE_GT:
+                    parts = list(_lines(g))
+                else:
+                    parts = list(_polys(g))
+                rest.append((parts, attrs))
+            return rest
+
         def _compute_preview(self, lyr):
             ext = lyr.extent()
             if ext.isEmpty():
@@ -312,27 +412,22 @@ def _build_dialog(parent, iface):
 
             in_mass = 0.0
             n = 0
-            for ft in lyr.getFeatures():
-                if n >= PREVIEW_FEATURES:
-                    break
-                g = ft.geometry()
-                if g is None or g.isEmpty():
-                    continue
-                mass = _num(ft, f_mass, 1.0)
-                prec = _num(ft, f_prec, None)
+            for parts, attrs in self._layer_raw(lyr):
+                mass = _num_a(attrs, f_mass, 1.0)
+                prec = _num_a(attrs, f_prec, None)
                 if mass is None or mass == 0:
                     continue
                 in_mass += float(mass)
                 n += 1
                 if gt == _POINT_GT:
-                    for x, y in _points(g):
+                    for x, y in parts:
                         D.add_point(acc, snum, wsum, gs, x, y, mass,
                                     prec if prec else dsig,
                                     renorm_inside=renorm)
                 elif gt == _LINE_GT:
-                    fr = _num(ft, f_from, None)
-                    to = _num(ft, f_to, None)
-                    for verts in _lines(g):
+                    fr = _num_a(attrs, f_from, None)
+                    to = _num_a(attrs, f_to, None)
+                    for verts in parts:
                         v = verts
                         if f_from or f_to:
                             v = D.cut_polyline(verts, fr, to)
@@ -342,7 +437,7 @@ def _build_dialog(parent, iface):
                                    prec if prec else dsig,
                                    renorm_inside=renorm)
                 else:
-                    for rings in _polys(g):
+                    for rings in parts:
                         mask = D.rasterize_polygon(gs, rings)
                         D.add_polygon(acc, snum, wsum, gs, mask, mass, aux=aux)
             dens, _eff, total = D.finalize(acc, snum, wsum, gs)
@@ -499,6 +594,19 @@ def _build_dialog(parent, iface):
                         QgsProject.instance().addMapLayer(sl)
             except Exception as e:                                   # noqa: BLE001
                 QMessageBox.warning(self, tr("Карта плотности"), str(e))
+
+    def _num_a(attrs, field, default):
+        """То же, что _num, но по сохранённым значениям полей из кэша."""
+        if not field:
+            return default
+        try:
+            v = attrs.get(field)
+            if v is None:
+                return default
+            fv = float(v)
+            return fv if np.isfinite(fv) else default
+        except (TypeError, ValueError):
+            return default
 
     def _num(ft, field, default):
         if not field:

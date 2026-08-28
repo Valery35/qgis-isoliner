@@ -40,3 +40,48 @@ def test_aux_raster_is_cached_per_grid():
     assert "_aux_cache" in body
     for part in ("lid", "gs.xmin", "gs.ymin", "gs.cell", "gs.nx", "gs.ny"):
         assert part in body, part
+
+
+def test_preview_walks_the_cache_not_the_provider():
+    """Предпросмотр идёт по сырью из кэша, а не по провайдеру слоя.
+
+    Каждый тик читал слой заново: на больших shapefile диск съедал
+    больше, чем счёт. Прямой обход getFeatures остаётся только в двух
+    местах - при построении кэша и в хвосте сверх предохранителя.
+    """
+    body = SRC[SRC.index("def _compute_preview"):]
+    body = body[:body.index("def _aux_grid")]
+    assert "getFeatures" not in body
+    assert "_layer_raw" in body
+    assert SRC.count("getFeatures") == 2
+
+
+def test_cache_is_dropped_on_layer_edits():
+    """Правка слоя сбрасывает кэш: плотность не должна отставать от данных."""
+    for sig in ("dataChanged", "layerModified", "editingStopped"):
+        assert sig in SRC, sig
+    body = SRC[SRC.index("def _layer_changed"):]
+    body = body[:body.index("def ", 10)]
+    assert "_drop_cache" in body
+
+
+def test_cache_has_a_memory_guard():
+    """Предохранитель по вершинам: огромный слой работает как раньше."""
+    assert "_CACHE_VERTS_MAX" in SRC
+    body = SRC[SRC.index("def _layer_raw"):]
+    body = body[:body.index("def _raw_rest")]
+    assert "_CACHE_VERTS_MAX" in body and "self._feat_cache = None" in body
+
+
+def test_field_reading_twins_stay_together():
+    """У _num есть двойник _num_a по сохранённым значениям.
+
+    Оба обязаны одинаково обходиться с пустыми значениями: вернуть
+    умолчание на None и на нечисловом значении.
+    """
+    for name in ("def _num(", "def _num_a("):
+        assert name in SRC, name
+    for fn in ("_num(", "_num_a("):
+        body = SRC[SRC.index("def " + fn):]
+        body = body[:body.index("\n\n")]
+        assert "return default" in body and "np.isfinite" in body
