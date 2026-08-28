@@ -407,7 +407,7 @@ def path_metrics(path, z, shape, cell_x, cell_y=None):
     вниз по склону он не бывает отрицательным, и отрицательное значение
     означает, что грид не заполнен и трасса вышла из впадины вверх.
     """
-    ny, nx = int(shape[0]), int(shape[1])
+    nx = int(shape[1])
     cy = float(cell_x if cell_y is None else cell_y)
     cx = float(cell_x)
     zf = np.asarray(z, dtype=np.float64).ravel()
@@ -469,7 +469,7 @@ def cut_on_flattening(path, z, shape, cell_x, min_slope, window,
     """
     if len(path) < 3 or min_slope <= 0 or window <= 0:
         return list(path), False
-    ny, nx = int(shape[0]), int(shape[1])
+    nx = int(shape[1])
     cy = float(cell_x if cell_y is None else cell_y)
     cx = float(cell_x)
     zf = np.asarray(z, dtype=np.float64).ravel()
@@ -506,7 +506,7 @@ def steep_run(path, z, shape, cell_x, min_slope, cell_y=None):
     """
     if len(path) < 2 or min_slope <= 0:
         return 0.0, 0, 0
-    ny, nx = int(shape[0]), int(shape[1])
+    nx = int(shape[1])
     cy = float(cell_x if cell_y is None else cell_y)
     cx = float(cell_x)
     zf = np.asarray(z, dtype=np.float64).ravel()

@@ -916,3 +916,83 @@ def azimuth_at_distance(vertices, dist):
         if dist <= dd[i + 1] or i == len(az) - 1:
             return az[i]
     return az[-1]
+
+
+# --- сборка сечения в кольца ---------------------------------------------
+
+def chain_segments(segs, tol=1e-6):
+    """Собирает отрезки сечения в цепочки: замкнутые кольца и открытые линии.
+
+    На вход отрезки в осях разреза, каждый как (d1, z1, d2, z2). Отрезки
+    приходят вразнобой и с любой ориентацией: они рождаются треугольник за
+    треугольником, а не по порядку обхода.
+
+    Возвращает список словарей: `pts` - вершины цепочки, `closed` - сомкнулась
+    ли она, `gap` - расстояние между концами у незамкнутой.
+
+    Замыкать всё подряд нельзя. Замкнутый контур получается только у
+    замкнутой оболочки; сечение поверхности (TIN рельефа, кровля пласта)
+    открыто по построению, и его концы лежат на краю поверхности. Хорда
+    между ними - выдуманная линия, а площадь такого «полигона» -
+    выдуманное число. Поэтому цепочка становится кольцом сама, если
+    сомкнулась, а не по требованию.
+
+    Концы соседних треугольников совпадают лишь приближённо, поэтому узлы
+    сводятся по допуску: он задаётся в единицах чертежа.
+    """
+    tol = float(tol)
+    if tol <= 0:
+        tol = 1e-9
+
+    def key(x, y):
+        return (int(round(float(x) / tol)), int(round(float(y) / tol)))
+
+    # узел -> список (номер отрезка, ключ другого конца)
+    nodes = {}
+    pts_of = {}
+    alive = []
+    for i, s in enumerate(segs):
+        d1, z1, d2, z2 = float(s[0]), float(s[1]), float(s[2]), float(s[3])
+        a, b = key(d1, z1), key(d2, z2)
+        if a == b:                       # вырожденный отрезок в точку
+            continue
+        pts_of.setdefault(a, (d1, z1))
+        pts_of.setdefault(b, (d2, z2))
+        idx = len(alive)
+        alive.append(True)
+        nodes.setdefault(a, []).append((idx, b))
+        nodes.setdefault(b, []).append((idx, a))
+
+    def walk(start):
+        """Идёт от узла, пока есть неиспользованные отрезки."""
+        chain = [start]
+        cur = start
+        while True:
+            nxt = None
+            for idx, other in nodes.get(cur, ()):
+                if alive[idx]:
+                    alive[idx] = False
+                    nxt = other
+                    break
+            if nxt is None:
+                return chain
+            chain.append(nxt)
+            cur = nxt
+
+    out = []
+    # сперва от концов: у открытой цепочки узел степени один, и начинать
+    # надо с него, иначе она разорвётся надвое посередине
+    starts = [k for k, v in nodes.items() if len(v) % 2 == 1]
+    for start in starts + list(nodes.keys()):
+        while any(alive[idx] for idx, _o in nodes.get(start, ())):
+            chain = walk(start)
+            if len(chain) < 2:
+                continue
+            pts = [pts_of[k] for k in chain]
+            closed = chain[0] == chain[-1] and len(chain) >= 4
+            if closed:
+                pts = pts[:-1]
+            gap = 0.0 if closed else math.hypot(pts[0][0] - pts[-1][0],
+                                                pts[0][1] - pts[-1][1])
+            out.append({"pts": pts, "closed": closed, "gap": gap})
+    return out

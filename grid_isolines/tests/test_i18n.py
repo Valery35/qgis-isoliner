@@ -26,15 +26,36 @@ ROOT = os.path.dirname(PKG)              # родитель пакета
 sys.path.insert(0, PKG)
 import i18n  # noqa: E402
 
-SCAN_FILES = ["algorithms.py", "widgets.py", "isolines.py", "kb2d.py", "provider.py"]
+# Сканируются ВСЕ модули пакета, а не список избранных: строки окон
+# «Карта плотности» и «Подоснова» так и жили без проверки перевода, и
+# добавлять их приходилось на глаз.
+SCAN_FILES = sorted(f for f in os.listdir(PKG)
+                    if f.endswith(".py") and f != "i18n.py")
 # Константы-списки и одиночные строки, обёрнутые как _tr(x) for x in LIST / _tr(NAME):
 # AST не видит их литералы в точке tr(), поэтому читаем сами присваивания.
-CONST_NAMES = ["MODEL_LABELS", "KTYPE_LABELS", "FIT_LABELS",
-               "ACTION_LABELS", "PROFILE_NONE", "CREDIT", "GROUP"]
+# Строки, которые переводят через имя: _tr(SEED_HELP), _tr(GROUP) и им
+# подобные. AST не видит их литерал в точке вызова, поэтому читаем сами
+# присваивания. Список собирается автоматически - перечислять руками
+# значит забыть очередную константу и не заметить пропажу перевода.
+CONST_NAMES = None   # заполняется в collect_keys по вызовам перевода
 
 
-def _wrapped_constants(tree):
-    """Литералы из присваиваний MODEL_LABELS=[...] / PROFILE_NONE='...' и т.п."""
+def _translated_names(tree):
+    """Имена, которые куда-то передают в перевод: _tr(SEED_HELP), _tr(GROUP)."""
+    names = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        is_tr = (isinstance(f, ast.Name) and f.id in ("_tr", "tr")) \
+            or (isinstance(f, ast.Attribute) and f.attr == "tr")
+        if is_tr and node.args and isinstance(node.args[0], ast.Name):
+            names.add(node.args[0].id)
+    return names
+
+
+def _wrapped_constants(tree, names):
+    """Литералы из присваиваний тем именам, что уходят в перевод."""
     out = []
     for node in ast.walk(tree):
         targets = []
@@ -44,18 +65,31 @@ def _wrapped_constants(tree):
             targets = [node.target]
         else:
             continue
-        names = {t.id for t in targets if isinstance(t, ast.Name)}
-        if not (names & set(CONST_NAMES)) or node.value is None:
+        if not (set(t.id for t in targets if isinstance(t, ast.Name)) & names) \
+                or node.value is None:
             continue
         try:
             val = ast.literal_eval(node.value)
         except (ValueError, SyntaxError):  # literal_eval на не-литерале
             continue
         if isinstance(val, str):
-            out.append(val)
+            if val:                      # пустая строка переводу не нужна
+                out.append(val)
         elif isinstance(val, (list, tuple)):
-            out.extend(x for x in val if isinstance(x, str))
+            out.extend(x for x in val if isinstance(x, str) and x)
     return out
+
+
+def _all_translated_names(_cache={}):
+    if not _cache:
+        names = set()
+        for fn in SCAN_FILES:
+            path = os.path.join(PKG, fn)
+            if os.path.exists(path):
+                names |= _translated_names(
+                    ast.parse(open(path, encoding="utf-8").read(), fn))
+        _cache["v"] = names
+    return _cache["v"]
 
 
 def collect_keys():
@@ -68,8 +102,10 @@ def collect_keys():
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 f = node.func
-                is_tr = (isinstance(f, ast.Name) and f.id == "_tr") or \
-                        (isinstance(f, ast.Attribute) and f.attr == "tr")
+                # в окнах перевод зовут просто tr(...), а не _tr(...):
+                # без этого имени строки окон в проверку не попадали
+                is_tr = (isinstance(f, ast.Name) and f.id in ("_tr", "tr")) \
+                    or (isinstance(f, ast.Attribute) and f.attr == "tr")
                 if is_tr and node.args:
                     a0 = node.args[0]
                     if isinstance(a0, ast.Constant) and isinstance(a0.value, str):
@@ -79,7 +115,9 @@ def collect_keys():
                     a1 = node.args[1]
                     if isinstance(a1, ast.Constant) and isinstance(a1.value, str):
                         keys.add(a1.value)
-        keys.update(_wrapped_constants(tree))
+        # имена собираются по всему пакету: константу справки объявляют в
+        # одном модуле, а переводят в другом
+        keys.update(_wrapped_constants(tree, _all_translated_names()))
     return keys
 
 
@@ -200,3 +238,25 @@ def test_i18n_checks_run_under_pytest():
 
 if __name__ == "__main__":
     main()
+
+
+def test_no_duplicate_translation_keys():
+    """Один ключ - один перевод.
+
+    Повтор ключа в словаре не ошибка для Python: второе значение молча
+    затирает первое. Пока переводы совпадают, это просто мусор, но стоит
+    им разойтись - и в интерфейс попадёт тот, который стоит ниже, а
+    править будут тот, который нашли поиском первым.
+    """
+    import ast
+    import collections
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(here, "i18n.py"), encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    keys = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            keys += [k.value for k in node.keys
+                     if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+    dup = [k for k, c in collections.Counter(keys).items() if c > 1]
+    assert not dup, "повторы ключей: %s" % ", ".join(repr(k[:40]) for k in dup[:5])

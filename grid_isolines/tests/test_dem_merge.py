@@ -146,3 +146,129 @@ def test_shapes_must_match():
         assert "сетке" in str(exc)
     else:
         raise AssertionError("несовпадение сеток должно быть отказом")
+
+
+# --- охват и разрешение результата ---------------------------------------
+
+def test_grid_covers_the_extent_whole_cells():
+    """Сетка накрывает охват целым числом ячеек, начало в левом верхнем."""
+    gt, nx, ny = dm.grid_from_extent(100.0, 200.0, 350.0, 400.0, 10.0)
+    assert (nx, ny) == (25, 20)
+    assert gt[0] == 100.0 and gt[1] == 10.0 and gt[5] == -10.0
+    assert gt[3] == 400.0                       # верх = ymin + ny*cell
+    # неровный охват округляется вверх, иначе полоса справа осталась бы вне
+    _gt, nx2, ny2 = dm.grid_from_extent(0.0, 0.0, 95.0, 91.0, 10.0)
+    assert (nx2, ny2) == (10, 10)
+
+
+def test_grid_refuses_nonsense():
+    for args in ((0, 0, 10, 10, 0.0), (0, 0, 0, 10, 1.0), (0, 0, 10, 0, 1.0)):
+        try:
+            dm.grid_from_extent(*args)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("ожидался отказ на %r" % (args,))
+
+
+def test_cell_count_catches_the_impossible_raster():
+    """Сантиметровая съёмка на региональном охвате даёт триллион ячеек.
+
+    Это и есть случай, ради которого ячейка результата вынесена в
+    параметры: подробная съёмка бывает сантиметровой, региональная -
+    тридцатиметровой на десятки километров.
+    """
+    huge = dm.cells_for(0, 0, 50000, 50000, 0.05)
+    assert huge > 1e11
+    assert dm.cells_for(0, 0, 50000, 50000, 5.0) == 100_000_000
+    assert dm.cells_for(0, 0, 50000, 50000, 30.0) < 3e6
+
+
+def test_coarsening_averages_rather_than_samples():
+    """При укрупнении ячейки поверхность осредняется, а не выбирается.
+
+    Билинейная выборка берёт значение в узле и теряет всё между узлами -
+    на подробной съёмке это и есть сама подробность.
+    """
+    assert dm.resample_rule(0.05, 5.0) == "average"
+    assert dm.resample_rule(30.0, 5.0) == "bilinear"
+    assert dm.resample_rule(5.0, 5.0) == "bilinear"
+    assert dm.resample_rule(5.0, 7.0) == "bilinear"    # без запаса не грубим
+    assert dm.resample_rule(5.0, 8.0) == "average"
+
+
+def test_service_value_instead_of_a_hole_ruins_the_graft():
+    """Пустота, попавшая в расчёт числом, губит поправку целиком.
+
+    У ЦМР пустоты помечены служебным значением: -32768, -9999, ноль. Если
+    не передать его при переносе на сетку результата, оно идёт в расчёт
+    как настоящая отметка. Кольцо перекрытия «находит» данные там, где их
+    нет, расхождение считается по мусору, и поправка уезжает в
+    бессмыслицу: со стороны выглядит, будто растр просто вставлен без
+    перехода.
+
+    Проверка держит числа, ради которых обёртка обязана передавать
+    пустоту явно.
+    """
+    rng = np.random.default_rng(5)
+    ny = nx = 200
+    y, x = np.mgrid[0:ny, 0:nx]
+    truth = 0.05 * x + 20 * np.sin(x / 60.0) * np.cos(y / 50.0)
+    survey = np.zeros((ny, nx), dtype=bool)
+    survey[60:150, 60:150] = True
+    mask = np.zeros((ny, nx), dtype=bool)
+    mask[65:145, 65:145] = True
+    coarse = truth + DATUM + rng.normal(0, 0.3, (ny, nx))
+
+    clean = np.where(survey, truth, np.nan)
+    dirty = np.where(survey, truth, -32768.0)
+
+    _z1, r_clean = dm.merge(clean, coarse, mask, width_px=10.0,
+                            shift_mode="plane")
+    _z2, r_dirty = dm.merge(dirty, coarse, mask, width_px=10.0,
+                            shift_mode="plane")
+    assert abs(r_clean["median"] + DATUM) < 1.0
+    assert abs(r_dirty["median"]) > 1000.0, \
+        "проверка потеряла смысл: мусор не влияет"
+
+
+# --- обёртка QGIS: устройство переноса на сетку результата ---------------
+#
+# Сам перенос без QGIS не запустить, поэтому проверяется код класса:
+# обе правки держатся на нескольких строках, которые легко потерять.
+
+def _graft_source():
+    import ast
+    src = io_open(os.path.join(ROOT, "algorithms.py"))
+    tree = ast.parse(src)
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) \
+                and node.name == "SurfaceGraftAlgorithm":
+            return ast.get_source_segment(src, node)
+    raise AssertionError("класс SurfaceGraftAlgorithm не найден")
+
+
+def io_open(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def test_wrapper_passes_the_source_nodata():
+    """Пустота источника передаётся при переносе на сетку результата."""
+    body = _graft_source()
+    assert "GetNoDataValue()" in body
+    assert "srcNodata" in body
+
+
+def test_wrapper_clips_to_the_target_frame():
+    """Обе поверхности режутся по рамке результата, а не только сдвигаются.
+
+    Раньше подробная ЦМР приходила целиком: рамку задали, а обрезки не
+    было, и за её краем оставались данные.
+    """
+    body = _graft_source()
+    assert "outputBounds" in body
+    assert "xRes" in body and "yRes" in body

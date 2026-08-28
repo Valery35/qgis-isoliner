@@ -52,6 +52,8 @@ so it never drifts from the plugin.
 - `1.08` Method cross-validation (LOO)
 - `1.09` Create sample wells (demo)
 - `1.10` Create a geophysical-profiles example (demo)
+- `1.11` Graft a detailed surface into a regional one
+- `1.12` MBA: multilevel B-splines (points to raster)
 
 **2. Topography**
 
@@ -132,7 +134,7 @@ so it never drifts from the plugin.
 - `7.04` Minkowski dimension (vectors)
 - `7.05` Example for fractals (demo)
 
-_Tools in total: 68_
+_Tools in total: 70_
 <!-- /TREE -->
 
 The alternative way is from a ZIP file. Plugins → Manage and Install Plugins → Install from ZIP. This is handy for offline installation and pre-release builds.
@@ -1195,6 +1197,113 @@ Electrical fields: **profile** (profile number), **picket_m** (picket in metres 
 Subsidence fields: **profile**, **picket_m**, **pk**, **tour** (tour number), **z** (elevation, m), **settle** (subsidence, mm), **settle_true** (subsidence without noise).
 
 
+## 1.12 MBA: multilevel B-splines (points to raster)
+
+The third way to get a surface from points, after kriging (1.02) and minimum curvature (1.03). It is worth reading together with them: the number simply comes last because the tool appeared later.
+
+The method of Lee, Wolberg and Shin, 1997. A coarse lattice of control points is taken and a cubic B-spline approximating the data is built over it. It approximates coarsely, so the residual is computed - the difference between the measurement and the current surface - the lattice is doubled, and the residual is approximated anew. Level after level: each next one picks up what the previous could not.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Points with measurements / Value field | The input. | - |
+| Extent | By the points by default. | by the points |
+| Cell size | The detail of writing into the raster. 0 - five hundred cells along the longer side. | 0 |
+| Initial lattice in X, in Y | The radius of influence. Different counts per axis give anisotropy. | 4 and 4 |
+| Number of levels | Smoothness. One or two give a trend, eight and more sit the surface on the measurements. | 8 |
+| Clip by the convex hull of the points | Beyond the cloud the surface must not be kept. | on |
+| Lower and upper bounds of the result | The physically possible range of the quantity. Empty - no bound. | empty |
+| Margin around the hull (adv.) | Widens the clip. | 0 |
+| Stop by the residual (adv.) | Ends the refinement early. 0 - do not check. | 0 |
+| Limit on the size of the raster, millions of cells (adv.) | Beyond it the tool refuses to work. | 50 |
+
+### What it is good at
+
+No system of equations is solved at all. A coefficient of the lattice is computed explicitly, as a weighted sum over the points that fall into the support of its spline. So the work is linear in the number of points while the memory depends only on the size of the lattice. Kriging solves a system over the neighbours in every cell, and on ten million measurements these are incomparable things: MBA takes a million points in seconds.
+
+### Controlling the lattices
+
+The initial lattice sets the radius of influence: the coarser it is, the further a measurement spreads. Different numbers of cells per axis give anisotropy - on a survey grid stretched along the strike that is exactly what is needed, and it is set directly, without a variogram model.
+
+The number of levels controls the smoothness. Every level is twice as detailed and twice as close to the data: one or two give a smooth trend, eight and more sit the surface on the measurements.
+
+### What it does not give
+
+Neither an error of the estimate, nor a model of covariance, nor weights that can be shown. This is an approximator rather than an estimator: it does not know how good its answer is. Cross-validation of the method (1.08) and a map of the error do not apply to it. Hence the main use in exploration: **build a trend with it and refine the residuals by kriging** - there is kriging with an external trend for that.
+
+The surface is smooth by construction, with a continuous derivative. For terrain and trends that is a plus, for grades a minus: peaks get smoothed, and in reserve estimation that is exactly what geostatistics gets blamed for.
+
+An exact hit into the measurements must not be expected even where the data are constant. On a constant value the deviation reaches a third of the range at one level, drops tenfold at three and disappears at eight. That is the nature of the method rather than an error of the computation: the edge coefficients underget their share, and every next level picks up the residual.
+
+### Bounds of the result
+
+An approximator does not know that a grade is never negative and a fraction is never above one. Between measurements a smooth surface overshoots the range - especially where markedly different values stand close together, and especially near the edge of the cloud. On lognormal data such as grades it easily goes fifteen hundred below zero.
+
+The bounds cut the result to the physically possible. Cutting is more useful than the «as it came out» look, but it is also a sign: the log reports how many cells were cut from below and from above, what share of the area that makes and how far the surface went. If a tenth of the area or more is pressed against a bound, the surface there is not estimated but cut: there are no measurements nearby and the spline goes anywhere. That is cured not by bounds but by a coarser lattice, fewer levels or a narrower extent.
+
+For quantities that are never negative and vary by orders of magnitude - grades, permeability - it is better not to cut but to build the surface over the logarithm of the quantity and return it through the exponent. Then zero is unreachable by construction and no plateau appears at the bound.
+
+### Clipping
+
+Beyond the cloud of points the edge coefficients have no data and the surface goes anywhere - on a survey grid that shows as lifted corners of the raster. So the result is clipped by the convex hull of the points by default, with a margin around it set separately. The clip can be turned off, but then beyond the outline of the grid you get a picture that must not be presented as an estimate.
+
+## 1.11 Graft a detailed surface into a regional one
+
+The tool sews two surfaces of the same quantity into one: a detailed surface over a site and a regional one over the whole area around it. The task keeps coming back to surveyors and hydrologists - a detailed survey into an open DEM - but it does not depend on terrain. A cluster of exploration holes into a regional model of a seam roof, a detailed sampling area into a general grade map: the arrangement is the same, the quantity is any.
+
+Two rasters and a polygon of the graft area go in. One raster at the given extent and resolution comes out.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Detailed surface | The raster of the site. Its grid becomes the working one. | - |
+| Regional surface | The raster of the surroundings. Brought onto the detailed grid. | - |
+| Graft area (polygons) | Where the detailed surface stays. Has to be narrower than its coverage. | - |
+| Width of the transition, cells of the regional surface | The ring in which one surface passes into the other. | 4 |
+| Removing the systematic offset | Median over the ring, a tilted plane, or leave it. | median |
+| Extent of the result | By the regional surface, by the detailed one, or set by hand. | by the regional |
+| Cell of the result | 0 - same as the detailed surface. | 0 |
+| Limit on the size of the result, millions of cells (adv.) | Beyond it the tool refuses to work. | 50 |
+| Minimum cells of overlap (adv.) | Below this count the correction is treated as unreliable and reported in the log. | 200 |
+
+### Two kinds of step, of different nature
+
+**A systematic offset.** For terrain these are different vertical systems: a detailed survey runs in a local one, open products in a geoid-based one - COP30 on EGM2008, SRTM on EGM96. The discrepancy is measured in metres and is the same across the whole site. In geology the same place is taken by different methods of adjustment: another drilling reference, a correction of core against logging.
+
+It cannot be smoothed away. The edge would smooth out while the whole regional part stayed lifted or dropped, and the catchment would shift with it. So the offset is removed beforehand, over the ring of overlap around the graft area, where both surfaces exist.
+
+The median is taken rather than a mean. Roofs, canopies and single holes fall into the ring, and in radar products those are outliers of tens of metres: a mean would be dragged away by them, a median holds. A tilted plane is needed where the site stretches for tens of kilometres and the correction drifts along it; before the fit the outliers of the ring are cut off by percentiles.
+
+**A mismatch of shapes at the joint.** Here a weight does the work rather than a hole cut out and interpolated afterwards. Inside the area the weight of the detailed surface is one, beyond the buffer zero, and in the ring a smooth transition by a function with zero slope at both ends. The transition comes out smooth by construction rather than by the fact of smoothing, and no shape invented by interpolation gets into the seam. A linear transition would put a break of slope exactly on the border of the ring - just where hydrologists look for one.
+
+### The extent and the resolution of the result
+
+The extent is taken from the regional surface by default: a graft is made for the whole of the surroundings rather than for the patch under the site. The extent of the detailed surface can be used instead, or a rectangle set by hand.
+
+The cell is set separately, and on a large extent that is a must. A detailed survey may be centimetric while a regional one is thirty metres over tens of kilometres. A graft at the detailed step would give a raster that does not exist: fifty kilometres at a cell of five centimetres is a trillion cells. At a cell of one metre two and a half billion are left, at five metres a hundred million, at thirty fewer than three million.
+
+So the size of the result is worked out beforehand, and beyond the limit the tool refuses to work and names a fitting cell. The limit sits in the advanced parameters, fifty million cells by default.
+
+The detail inside the graft area is bounded by the cell of the result rather than by the survey: a centimetric survey in a five-metre grid gives five-metre detail. If the whole detail is needed, narrow the extent to the surroundings of the site.
+
+When coarsened, the detailed surface is averaged rather than sampled at the nodes. Sampling takes the value at a node and loses everything between them, and on a detailed survey that is the detail itself.
+
+Both surfaces are clipped to the frame of the result and brought onto its grid together with their holes: in a DEM a hole is marked by a service value, and that value has to be recognised. Otherwise it goes into the computation as a real elevation, the ring of overlap finds data where there is none, and the correction drifts into nonsense - to the eye the raster is simply inserted without a transition. The log reports the share of cells with data for each surface: if it is suspiciously high for the detailed one, the holes in its file are not marked, and that has to be fixed before grafting.
+
+For the tilted plane the log reports its extreme values over the field. The plane is fitted over the ring around the site but applied to the whole extent, and on a large frame it can drift far beyond what it saw: if the spread of the correction is markedly larger than the offset itself, take the median.
+
+### The graft area has to be narrower than the survey
+
+The ring of overlap is taken outside the area. If the detailed data end exactly along it, there is no overlap and nothing to measure the offset against. The tool says so plainly instead of sewing silently: a silent graft would leave a step of the whole datum, and it gets noticed when the flow stalls at the seam.
+
+Hence the rule: draw the graft area inside the coverage of the detailed survey, with a margin of at least the width of the transition.
+
+### What goes into the log and what to look at
+
+The tool reports the number of cells in the overlap, the offset before the correction as a median and a spread by percentiles, the remainder after the correction, and the step between neighbouring cells separately at the seam and over the rest of the field.
+
+That last pair is the measure of acceptance. If the graft worked, the step at the seam does not stand out against ordinary terrain. On a test scene with an offset of 12.4 m a manual graft left a step of 14.5 m at the seam, while the tool leaves 2.6 m against a field background of 2.55 m. When the seam is markedly larger than the background it is reported in the log as a warning: usually the offset was removed wrongly or the transition is too narrow.
+
+Gaps inside the detailed surface are closed by the regional one, no separate filling is needed.
+
 ## Topography: terrain from open data
 
 The **"2. Topography"** group answers a frequent request: the best possible terrain model from open data, out of the box. The front door is the DEM downloader by extent, next to it the vector base map from OpenStreetMap, the Topo2Raster core that builds terrain from points and contours, and the full hydrology set: depression filling, flow and accumulation, the river network, basins, slope with aspect, and peaks. All the analytics run on pure NumPy, without GRASS, SAGA or external modules.
@@ -1980,7 +2089,7 @@ An important correction, worth one redaction of the specification: a contour **d
 
 **Place in the pipeline.** The output is LineStringZ, a ready form side for the **Top of forms** and **Bottom of forms** inputs of 2.03. Together with 2.20, which assembles the pairs and fills the link field, this closes the topographic scenario: areal quarries, cuts, fills and dumps, where contours inside are not described by the standard, receive a surface out of crests and toes alone.
 
-## 2.23 Downhill traces from points, lines and outlines
+## 2.23 Flow lines from points, lines and outlines
 
 Where the water goes from a given place. From every seed cell the tool walks downhill along the D8 flow directions and draws the path travelled as a line.
 
@@ -2819,8 +2928,27 @@ An important limit: **a QGIS mesh is 2.5D**, its height is a scalar per vertex, 
 | Mesh layer (2.5D) | A QGIS mesh, for generality. One value above a point, overturning is not preserved in a mesh. | optional |
 | TIN trace on the section (drawing) | The output 2D trace in the section axes, may fold. | created |
 | TIN trace (3D) | The output trace in real 3D coordinates. | on request |
+| Closed sections (polygons) | Rings of the section assembled from the segments. | on request |
+| Carry over fields of the source object (adv.) | Names separated by commas. They go into the rings. | - |
+| Tolerance for closing the rings (adv.) | In drawing units. The ends of neighbouring triangles coincide only approximately. | 0.001 |
 
 Supply at least one of the two inputs - TIN faces or a mesh.
+
+### Chains and closed sections
+
+Cutting gives one segment per triangle, and a shell has tens of thousands of them. Such segments are merged into chains, and one polyline per chain goes onto the drawing: a layer of separate segments can be neither labelled, nor selected, nor styled.
+
+The chains are assembled **per source**: every shell is cut by its own triangles, and mixing them into one heap is not allowed - neighbouring solids would merge into a single line.
+
+Closed chains additionally come out as polygons: for a shell that is the solid in section, with an area that can be computed and labelled.
+
+A ring appears **by itself** if the chain closes. Closing everything by force is not allowed, and here is why. A closed contour is guaranteed only for a closed shell. The section of a surface - a TIN of terrain, the roof of a seam, any open set of faces - is open by construction, and its ends lie on the edge of the surface. Joining them means drawing a chord that is not in the data and computing an area over it that does not exist.
+
+So a chain that did not close by itself stays a line and does not go into the polygons, while the log reports the number of chains, how many of them closed and open, and the largest gap between the ends. If a closed shell was cut and the chains came out open, that gap is the hint: raise the tolerance for closing. The ends of segments from neighbouring triangles coincide only approximately, and the tolerance merges them into one node.
+
+An inner ring is assembled separately from the outer one, so the section of a solid with a cavity gives two polygons rather than one.
+
+Fields of the source object are carried into the rings if their names are listed, separated by commas. There may be several layers of faces with different fields, and a field missing from a layer stays empty. The values are written as text so that types need not be unpicked on the output side. Besides them every chain carries a flag of closure `closed` and the gap `gap` between its ends, and the polygons also carry an area in drawing units. The fields of the source are carried into both the lines and the polygons.
 
 ## 4.07 Project objects onto the section
 

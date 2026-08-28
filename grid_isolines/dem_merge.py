@@ -36,6 +36,51 @@ import numpy as np
 _BIG = 1e18
 
 
+def grid_from_extent(xmin, ymin, xmax, ymax, cell):
+    """Сетка по охвату и размеру ячейки: (geotransform, nx, ny).
+
+    Охват расширяется до целого числа ячеек, начало кладётся в левый
+    верхний угол, шаг по игреку отрицательный - как принято в GeoTIFF.
+    """
+    cell = float(cell)
+    if cell <= 0:
+        raise ValueError("Размер ячейки должен быть больше нуля.")
+    if xmax <= xmin or ymax <= ymin:
+        raise ValueError("Охват пуст.")
+    nx = int(np.ceil((float(xmax) - float(xmin)) / cell))
+    ny = int(np.ceil((float(ymax) - float(ymin)) / cell))
+    nx = max(1, nx)
+    ny = max(1, ny)
+    gt = (float(xmin), cell, 0.0, float(ymin) + ny * cell, 0.0, -cell)
+    return gt, nx, ny
+
+
+def cells_for(xmin, ymin, xmax, ymax, cell):
+    """Сколько ячеек выйдет при таком охвате и шаге.
+
+    Считается ДО выделения памяти: на сантиметровой съёмке и региональном
+    охвате счёт идёт на триллионы, и попытка создать такой растр
+    роняет QGIS без внятного сообщения.
+    """
+    _gt, nx, ny = grid_from_extent(xmin, ymin, xmax, ymax, cell)
+    return nx * ny
+
+
+def resample_rule(src_cell, dst_cell):
+    """Как пересчитывать поверхность на другую сетку.
+
+    При заметном укрупнении ячейки правильнее осреднять: билинейная выборка
+    берёт значение в точке и теряет всё, что было между узлами, а на
+    подробной съёмке это и есть сама подробность. При измельчении и
+    близких размерах берётся билинейная.
+    """
+    src_cell = float(src_cell)
+    dst_cell = float(dst_cell)
+    if src_cell <= 0 or dst_cell <= 0:
+        return "bilinear"
+    return "average" if dst_cell > src_cell * 1.5 else "bilinear"
+
+
 def _edt_1d_rows(f):
     """Квадраты расстояний вдоль строк, сразу по всем строкам.
 
@@ -163,7 +208,10 @@ def fit_shift(fine, coarse, where, mode="median"):
     Нужна там, где участок вытянут на десятки километров и поправка
     успевает уползти. Считается по тем же ячейкам кольца.
 
-    Возвращает (поправка_как_растр, отчёт).
+    Возвращает (поправка_как_растр, отчёт). В отчёте для плоскости идут её
+    крайние значения по растру: плоскость считается по кольцу, а
+    применяется ко всему полю, и на большом охвате она может уехать
+    далеко за пределы того, что видела.
     """
     fine = np.asarray(fine, dtype=np.float64)
     coarse = np.asarray(coarse, dtype=np.float64)
@@ -173,7 +221,9 @@ def fit_shift(fine, coarse, where, mode="median"):
         return np.zeros(fine.shape), dict(stats, mode="none")
 
     if mode != "plane":
-        return np.full(fine.shape, stats["median"]), dict(stats, mode="median")
+        med = stats["median"]
+        return np.full(fine.shape, med), dict(stats, mode="median",
+                                              corr_min=med, corr_max=med)
 
     ny, nx = fine.shape
     yy, xx = np.mgrid[0:ny, 0:nx]
@@ -187,7 +237,9 @@ def fit_shift(fine, coarse, where, mode="median"):
     coef, _res, _rank, _sv = np.linalg.lstsq(a, d[keep], rcond=None)
     plane = coef[0] * xx + coef[1] * yy + coef[2]
     return plane, dict(stats, mode="plane",
-                       plane=(float(coef[0]), float(coef[1]), float(coef[2])))
+                       plane=(float(coef[0]), float(coef[1]), float(coef[2])),
+                       corr_min=float(plane.min()),
+                       corr_max=float(plane.max()))
 
 
 def merge(fine, coarse, mask, width_px=4.0, shift_mode="median",

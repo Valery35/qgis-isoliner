@@ -1086,7 +1086,6 @@ def _drop_fid(processing, layer_id, context, feedback):
     любой шаг, размножающий объекты (разрез, разбор мультичастей), даёт ту
     же беду, и чинить её у каждого по отдельности значит ждать следующего.
     """
-    from qgis.core import QgsProcessingUtils
     try:
         lay = _as_layer(layer_id, context)
         names = [f.name() for f in lay.fields()] if lay is not None else []
@@ -1527,8 +1526,7 @@ def _polygonize_belts(processing, lines_layer, area_lines, crs, context,
     падало вдвое. unaryUnion узлует всю сеть (включая T-стыки концов изолиний с
     контуром), polygonize собирает грани. Возвращает memory-слой полигонов.
     """
-    from qgis.core import (QgsProcessingUtils, QgsGeometry, QgsVectorLayer,
-                            QgsFeature)
+    from qgis.core import QgsGeometry, QgsVectorLayer, QgsFeature
     geoms = []
     # Линия разлома входит в сеть наравне с изолиниями и контуром: тогда
     # грани замыкаются точно по ней, и граница поясов идёт по разлому, а

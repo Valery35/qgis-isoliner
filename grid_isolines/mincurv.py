@@ -181,7 +181,6 @@ def solve(z, fixed, tension=0.0, boundary_tension=0.0,
     fixed = np.asarray(fixed, dtype=bool)
     if z.shape[0] < 3 or z.shape[1] < 3:
         return z, 0, 0.0
-    data = z[fixed].copy()
     tfield = np.full(z.shape, float(tension))
     tb = max(float(tension), float(boundary_tension))
     tfield[0, :] = tb; tfield[-1, :] = tb

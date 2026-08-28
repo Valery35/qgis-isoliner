@@ -483,7 +483,6 @@ def _build_dialog(parent, iface):
             """Создать учебный набор инструментом 3.08."""
             try:
                 import processing
-                from qgis.core import QgsProject  # noqa: F401
                 canvas = iface.mapCanvas() if iface is not None else None
                 ext = canvas.extent() if canvas is not None else None
                 crs = (canvas.mapSettings().destinationCrs().authid()

@@ -1165,3 +1165,73 @@ def test_level_key_survives_last_bit_drift():
     a = sc.level_key(412345.678901, 5512345.123456)
     b = sc.level_key(412345.678901 + 1e-9, 5512345.123456 - 1e-9)
     assert a == b
+
+
+# --- сборка сечения в кольца ---------------------------------------------
+
+def _square(x0=0.0, y0=0.0, a=10.0):
+    """Отрезки квадрата вразнобой и с разной ориентацией.
+
+    Так они и приходят из сечения: треугольник за треугольником, а не по
+    порядку обхода.
+    """
+    return [(x0, y0, x0 + a, y0),
+            (x0 + a, y0 + a, x0 + a, y0),
+            (x0, y0 + a, x0 + a, y0 + a),
+            (x0, y0, x0, y0 + a)]
+
+
+def test_closed_shell_gives_a_ring():
+    """Сечение замкнутой оболочки смыкается само."""
+    out = sc.chain_segments(_square())
+    assert len(out) == 1
+    assert out[0]["closed"] and len(out[0]["pts"]) == 4
+    assert out[0]["gap"] == 0.0
+
+
+def test_open_surface_stays_a_line():
+    """Сечение поверхности остаётся открытым, и хорда не пририсовывается.
+
+    У TIN рельефа или кровли пласта концы сечения лежат на краю
+    поверхности. Соединить их - значит провести линию, которой в данных
+    нет, и посчитать по ней выдуманную площадь.
+    """
+    out = sc.chain_segments([(0, 5, 10, 7), (10, 7, 20, 4), (20, 4, 30, 9)])
+    assert len(out) == 1
+    assert not out[0]["closed"]
+    assert out[0]["gap"] > 25.0        # концы далеко друг от друга
+    assert len(out[0]["pts"]) == 4
+
+
+def test_two_bodies_give_two_rings():
+    out = sc.chain_segments(_square() + _square(100.0))
+    assert len(out) == 2
+    assert all(c["closed"] for c in out)
+
+
+def test_a_hole_gives_its_own_ring():
+    """Внутреннее кольцо собирается отдельно от внешнего."""
+    inner = [(3, 3, 7, 3), (7, 3, 7, 7), (7, 7, 3, 7), (3, 7, 3, 3)]
+    out = sc.chain_segments(_square() + inner)
+    assert len(out) == 2
+    assert all(c["closed"] for c in out)
+    sizes = sorted(abs(sc.ring_area(np.array(c["pts"]))) for c in out)
+    assert sizes[0] < sizes[1]
+
+
+def test_nodes_are_merged_within_the_tolerance():
+    """Концы соседних треугольников совпадают лишь приближённо."""
+    segs = _square()
+    segs[1] = (10 + 1e-9, 0, 10, 10)
+    out = sc.chain_segments(segs, tol=1e-6)
+    assert len(out) == 1 and out[0]["closed"]
+
+
+def test_degenerate_segment_is_dropped():
+    """Отрезок, выродившийся в точку, не создаёт узла."""
+    out = sc.chain_segments(_square() + [(5.0, 5.0, 5.0, 5.0)])
+    assert len(out) == 1 and out[0]["closed"]
+
+
+def test_empty_input_gives_nothing():
+    assert sc.chain_segments([]) == []

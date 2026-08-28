@@ -77,7 +77,6 @@ from qgis.core import (
     QgsProcessingParameterBand,
     QgsProcessingParameterVectorDestination,
     QgsProcessingParameterFeatureSink,
-    QgsProcessingParameterFile,
     QgsProcessingParameterFileDestination,
     QgsProcessingParameterDefinition,
     QgsFields,
@@ -102,7 +101,7 @@ from .kb2d import (
     junction_report as kb2d_junction_report,
     cross_validate_detrend, ExternalDrift, exceedance_prob,
     experimental_variogram, fit_variogram, model_curve, variogram_map,
-    MODEL_SPHERICAL, MODEL_EXPONENTIAL, MODEL_GAUSSIAN, GAUSS_MIN_NUGGET_FRAC)
+    MODEL_GAUSSIAN, GAUSS_MIN_NUGGET_FRAC)
 from .isolines import (
     isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD,
     add_z_from_field,
@@ -229,6 +228,23 @@ def _advanced(param):
         flag = Qgis.ProcessingParameterFlag.Advanced             # QGIS 4
     param.setFlags(param.flags() | flag)
     return param
+
+
+def _field_text(value):
+    """Значение поля источника как текст.
+
+    Переносимые поля бывают любого типа - код пласта, номер модели, дата.
+    Единый строковый тип избавляет от разбора типов на стороне выхода, а
+    пустое значение остаётся пустым, а не превращается в слово «NULL».
+    """
+    if value is None:
+        return ""
+    try:
+        if isinstance(value, QVariant) and value.isNull():
+            return ""
+    except Exception:                                    # nosec
+        pass
+    return str(value)
 
 
 def _short(s, n=32):
@@ -904,6 +920,54 @@ def _save_values(alg, parameters):
 def _dv(alg, key, fallback):
     """Значение по умолчанию: ранее сохранённое или запасное."""
     return getattr(alg, "_defaults", {}).get(key, fallback)
+
+
+def _duplicate_points(pts, vals, quant=1e-6):
+    """Замеры, стоящие в одной точке с разными значениями.
+
+    Возвращает (число пар, наибольшее расхождение) или None. Для
+    аппроксиматора это неустранимый источник невязки: в такой точке он
+    выдаёт среднее, и дробление решётки тут не помогает.
+    """
+    key = np.round(np.asarray(pts, dtype=np.float64) / quant).astype(np.int64)
+    order = np.lexsort((key[:, 1], key[:, 0]))
+    k = key[order]
+    v = np.asarray(vals, dtype=np.float64)[order]
+    same = np.all(k[1:] == k[:-1], axis=1)
+    if not np.any(same):
+        return None
+    diff = np.abs(v[1:] - v[:-1])[same]
+    pairs = int(np.count_nonzero(diff > 0))
+    if pairs == 0:
+        return None
+    return pairs, float(diff.max())
+
+
+def _rasterize_geometry(geom, gt, shape):
+    """Булева маска одной геометрии на сетке (gt, shape).
+
+    Тот же путь, что у маски по слою, но источник один и переводить его
+    некуда: геометрия уже в системе координат растра.
+    """
+    from osgeo import ogr
+    if geom is None or geom.isEmpty():
+        return None
+    ny, nx = int(shape[0]), int(shape[1])
+    drv = ogr.GetDriverByName("Memory")
+    ds = drv.CreateDataSource("hull")
+    lyr = ds.CreateLayer("hull", None, ogr.wkbPolygon)
+    f = ogr.Feature(lyr.GetLayerDefn())
+    f.SetGeometry(ogr.CreateGeometryFromWkt(geom.asWkt()))
+    lyr.CreateFeature(f)
+    f = None
+    mem = gdal.GetDriverByName("MEM").Create("", nx, ny, 1, gdal.GDT_Byte)
+    mem.SetGeoTransform(gt)
+    mem.GetRasterBand(1).Fill(0)
+    gdal.RasterizeLayer(mem, [1], lyr, burn_values=[1])
+    out = mem.GetRasterBand(1).ReadAsArray().astype(bool)
+    mem = None
+    ds = None
+    return out
 
 
 def _rasterize_mask(src, gt, shape, target_crs, context):
@@ -2354,7 +2418,7 @@ def _mask_cells(mask_layer, context, xmn, ymn, cell, nx, ny, feedback):
     тогда считается всё, как раньше.
     """
     try:
-        from qgis.core import QgsVectorLayer, QgsWkbTypes
+        from qgis.core import QgsVectorLayer
         lay = mask_layer
         if isinstance(lay, str):
             lay = context.getMapLayer(lay) or QgsVectorLayer(lay, "mask",
@@ -4058,7 +4122,6 @@ def _weighted_cv_metrics(fact, est, err, var, w):
 def _cv_advice(me, mae, rmse, msdr, r):
     """Авто-интерпретация метрик: итог + конкретные действия."""
     tips = []
-    nan = float("nan")
     rr = rmse if rmse and rmse == rmse else 1.0
     good = True
     if msdr == msdr:
@@ -5551,6 +5614,326 @@ def _iter_polygons(g):
             yield rings
 
 
+class MbaGridAlgorithm(IsolinerAlgorithm):
+    """1.12 MBA: мультисеточные B-сплайны (точки → растр).
+
+    Третий способ получить поверхность из точек, рядом с кригингом (1.02) и
+    минимальной кривизной (1.03). Берёт скоростью на больших наборах и
+    управлением гладкостью через решётки.
+    """
+
+    POINTS, FIELD = "POINTS", "FIELD"
+    EXTENT, CELL = "EXTENT", "CELL"
+    GRID_X, GRID_Y = "GRID_X", "GRID_Y"
+    LEVELS, TOL = "LEVELS", "TOL"
+    CLIP_HULL, HULL_BUFFER = "CLIP_HULL", "HULL_BUFFER"
+    CLAMP_MIN, CLAMP_MAX = "CLAMP_MIN", "CLAMP_MAX"
+    MAX_CELLS = "MAX_CELLS"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return MbaGridAlgorithm()
+    def name(self): return "mbagrid"
+    def displayName(self):
+        return self.tr("1.12 MBA: мультисеточные B-сплайны (точки → растр)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP)
+    def groupId(self): return GROUP_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Строит поверхность по разбросанным точкам мультисеточными "
+            "B-сплайнами (метод Ли, Волберга и Шина, 1997).\n\n"
+            "Устройство. Берётся грубая решётка контрольных точек, по ней "
+            "строится сплайн, приближающий данные. Он приближает грубо, "
+            "поэтому считается остаток, решётка удваивается, и остаток "
+            "приближается заново. Так уровень за уровнем.\n\n"
+            "Чем берёт: система уравнений не решается вообще, коэффициент "
+            "считается явно по точкам своего носителя. Работа линейна по "
+            "числу точек, и миллионы замеров считаются там, где кригинг "
+            "неприменим в принципе.\n\n"
+            "Начальная решётка задаёт радиус влияния: чем она грубее, тем "
+            "дальше расходится замер. Разные числа ячеек по осям дают "
+            "анизотропию - на разведочной сети, вытянутой по простиранию, "
+            "это то, что нужно. Число уровней управляет гладкостью: один-два "
+            "дают тренд, восемь и больше сажают поверхность на замеры.\n\n"
+            "Чего НЕ даёт: ни ошибки оценки, ни модели ковариации, ни весов. "
+            "Это аппроксиматор, а не оценщик, и он не знает, насколько хорош "
+            "его ответ. Кросс-валидация 1.08 и карта ошибки к нему "
+            "неприменимы. Отсюда и главное применение: тренд, который дальше "
+            "уточняют кригингом остатков.\n\n"
+            "Поверхность гладкая по построению, с непрерывной производной. "
+            "Для рельефа и трендов это плюс, для содержаний минус: пики "
+            "сглаживаются. Точного попадания в замеры ждать нельзя даже на "
+            "постоянных данных - метод приближает, а не интерполирует.\n\n"
+            "За пределами облака точек поверхность уходит куда угодно: у "
+            "краевых коэффициентов нет данных. Поэтому результат по "
+            "умолчанию обрезается выпуклой оболочкой точек.\n\n"
+            "Границы результата задают физически возможный диапазон: "
+            "содержание не бывает отрицательным, доля не бывает больше "
+            "единицы. Между замерами гладкая поверхность за диапазон "
+            "проскакивает, и срез к границе полезнее, чем вид «как "
+            "получилось». Но он же и признак: если к границе прижата "
+            "заметная доля площади, поверхность там не оценена, а срезана, "
+            "и надо менять решётку или число уровней. Сколько срезано и "
+            "насколько далеко уходило, пишется в журнал.\n\n"
+            "Для величин, которые не бывают отрицательными и меняются на "
+            "порядки (содержания, проницаемость), правильнее не срезать, а "
+            "строить поверхность по логарифму величины и возвращать её "
+            "через экспоненту: тогда ноль недостижим по построению, и "
+            "плато у границы не возникает.\n\n"
+            "Размер ячейки задаётся отдельно от решёток: решётка управляет "
+            "формой поверхности, ячейка - только подробностью её записи в "
+            "растр. При нуле берётся пятьсот ячеек по длинной стороне "
+            "охвата.\n\n"
+            "Остановка по невязке прекращает дробление раньше срока: если "
+            "наибольшее расхождение в точках стало меньше заданного, "
+            "следующий уровень ловил бы уже не структуру, а шум замеров. "
+            "Ноль отключает проверку, и уровни идут до заданного числа.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.POINTS, self.tr("Точки с замерами"),
+            [QgsProcessing.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            self.FIELD, self.tr("Поле значения"), parentLayerParameterName=
+            self.POINTS, type=QgsProcessingParameterField.Numeric))
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Охват (по умолчанию по точкам)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELL, self.tr("Размер ячейки"),
+            QgsProcessingParameterNumber.Double, defaultValue=0.0,
+            minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.GRID_X, self.tr("Начальная решётка по X, ячеек"),
+            QgsProcessingParameterNumber.Integer, defaultValue=4, minValue=1))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.GRID_Y, self.tr("Начальная решётка по Y, ячеек"),
+            QgsProcessingParameterNumber.Integer, defaultValue=4, minValue=1))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.LEVELS, self.tr("Число уровней (гладкость)"),
+            QgsProcessingParameterNumber.Integer, defaultValue=8, minValue=1,
+            maxValue=14))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.CLIP_HULL, self.tr("Обрезать выпуклой оболочкой точек"),
+            defaultValue=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CLAMP_MIN, self.tr(
+                "Нижняя граница результата (пусто = нет)"),
+            QgsProcessingParameterNumber.Double, optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CLAMP_MAX, self.tr(
+                "Верхняя граница результата (пусто = нет)"),
+            QgsProcessingParameterNumber.Double, optional=True))
+        p = QgsProcessingParameterNumber(
+            self.HULL_BUFFER, self.tr("Запас вокруг оболочки"),
+            QgsProcessingParameterNumber.Double, defaultValue=0.0,
+            minValue=0.0)
+        p.setFlags(p.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        self.addParameter(p)
+        p_t = QgsProcessingParameterNumber(
+            self.TOL, self.tr("Остановка по невязке (0 - не проверять)"),
+            QgsProcessingParameterNumber.Double, defaultValue=0.0,
+            minValue=0.0)
+        p_t.setFlags(p_t.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        self.addParameter(p_t)
+        p_m = QgsProcessingParameterNumber(
+            self.MAX_CELLS, self.tr("Предел размера растра, млн ячеек"),
+            QgsProcessingParameterNumber.Double, defaultValue=50.0,
+            minValue=1.0)
+        p_m.setFlags(p_m.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        self.addParameter(p_m)
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Поверхность MBA")))
+
+        _restore_layer_defaults(self, (self.POINTS,))
+
+    def processAlgorithm(self, parameters, context, feedback):
+        from . import mba as _mba
+        from . import dem_merge as _dm
+
+        src = self.parameterAsSource(parameters, self.POINTS, context)
+        if src is None:
+            raise QgsProcessingException(self.tr("Не задан слой точек."))
+        field = self.parameterAsString(parameters, self.FIELD, context)
+        cell = self.parameterAsDouble(parameters, self.CELL, context)
+        gx = self.parameterAsInt(parameters, self.GRID_X, context)
+        gy = self.parameterAsInt(parameters, self.GRID_Y, context)
+        levels = self.parameterAsInt(parameters, self.LEVELS, context)
+        tol = self.parameterAsDouble(parameters, self.TOL, context)
+        clip = self.parameterAsBool(parameters, self.CLIP_HULL, context)
+
+        def _opt(name):
+            v = parameters.get(name, None)
+            if v is None or v == "":
+                return None
+            return self.parameterAsDouble(parameters, name, context)
+        clamp_lo = _opt(self.CLAMP_MIN)
+        clamp_hi = _opt(self.CLAMP_MAX)
+        if clamp_lo is not None and clamp_hi is not None \
+                and clamp_lo > clamp_hi:
+            raise QgsProcessingException(self.tr(
+                "Нижняя граница результата больше верхней."))
+        buf = self.parameterAsDouble(parameters, self.HULL_BUFFER, context)
+        max_cells = self.parameterAsDouble(parameters, self.MAX_CELLS,
+                                           context) * 1e6
+        out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+
+        xs, ys, vs = [], [], []
+        for ft in src.getFeatures():
+            if feedback.isCanceled():
+                break
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            v = ft.attribute(field)
+            if v is None:
+                continue
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                continue
+            if not np.isfinite(v):
+                continue
+            for p in (g.asMultiPoint() if g.isMultipart() else [g.asPoint()]):
+                xs.append(p.x())
+                ys.append(p.y())
+                vs.append(v)
+        if len(xs) < 4:
+            raise QgsProcessingException(self.tr(
+                "Точек с числовым значением меньше четырёх."))
+        pts = np.column_stack([np.asarray(xs, float), np.asarray(ys, float)])
+        vals = np.asarray(vs, dtype=float)
+        feedback.pushInfo(_tr("Точек с замерами: %d.") % pts.shape[0])
+
+        rect = self.parameterAsExtent(parameters, self.EXTENT, context,
+                                      src.sourceCrs())
+        if rect is None or rect.isEmpty():
+            rect = QgsRectangle(float(pts[:, 0].min()), float(pts[:, 1].min()),
+                                float(pts[:, 0].max()), float(pts[:, 1].max()))
+        if cell <= 0:
+            # ячейка по умолчанию: пятьсот ячеек по длинной стороне -
+            # достаточно, чтобы увидеть форму, и не громоздко
+            cell = max(rect.width(), rect.height()) / 500.0
+            if cell <= 0:
+                raise QgsProcessingException(self.tr("Охват вырожден."))
+            feedback.pushInfo(_tr("Ячейка не задана, взята %.6g.") % cell)
+
+        need = _dm.cells_for(rect.xMinimum(), rect.yMinimum(),
+                             rect.xMaximum(), rect.yMaximum(), cell)
+        if need > max_cells:
+            fit = math.sqrt(rect.width() * rect.height() / max_cells)
+            raise QgsProcessingException(_tr(
+                "При такой ячейке вышло бы %.3g млн ячеек при пределе %.3g "
+                "млн. Задайте ячейку крупнее (примерно от %.4g).")
+                % (need / 1e6, max_cells / 1e6, fit))
+        gt, nx, ny = _dm.grid_from_extent(rect.xMinimum(), rect.yMinimum(),
+                                          rect.xMaximum(), rect.yMaximum(),
+                                          cell)
+        feedback.pushInfo(_tr("Сетка %d x %d, ячейка %.6g.") % (nx, ny, cell))
+
+        seen = {"worst": None, "grew": 0}
+
+        def _step(lvl, worst, cells):
+            feedback.setProgress(int(70.0 * (lvl + 1) / max(1, levels)))
+            feedback.pushInfo(_tr(
+                "Уровень %d: решётка %s, наибольшая невязка %.6g.")
+                % (lvl + 1, "x".join(str(c) for c in cells), worst))
+            # Наибольшая невязка обычно падает от уровня к уровню. Рост и
+            # застревание на ненулевом значении означают одно: в данных
+            # есть точки, стоящие в одном месте с разными значениями.
+            # Метод даёт в такой точке их среднее, и невязка там не
+            # исчезает, сколько уровней ни дроби.
+            if seen["worst"] is not None and worst > seen["worst"] * 1.02:
+                seen["grew"] += 1
+            seen["worst"] = worst
+
+        lo = [rect.xMinimum(), rect.yMinimum()]
+        hi = [rect.xMaximum(), rect.yMaximum()]
+        lattices = _mba.fit(pts, vals, lo=lo, hi=hi, grid=(gx, gy),
+                            levels=levels,
+                            tol=(tol if tol > 0 else None), progress=_step)
+        feedback.setProgress(75)
+
+        # порядок осей держит ядро: точки идут как (x, y), растр как
+        # (строка, столбец), и перепутать их здесь было бы незаметно
+        out = _mba.surface_on_grid(lattices, gt, nx, ny)
+
+        if clip:
+            hull = QgsGeometry.fromMultiPointXY(
+                [QgsPointXY(float(x), float(y)) for x, y in pts]).convexHull()
+            if buf > 0:
+                hull = hull.buffer(float(buf), 8)
+            mask = _rasterize_geometry(hull, gt, (ny, nx))
+            if mask is None:
+                feedback.pushWarning(_tr("Оболочка не построена, обрезки нет."))
+            else:
+                out = np.where(mask, out, np.nan)
+                feedback.pushInfo(_tr(
+                    "Обрезано выпуклой оболочкой: осталось %.1f процента "
+                    "ячеек. За пределами облака точек поверхность держать "
+                    "нельзя - там у решётки нет данных.")
+                    % (100.0 * np.count_nonzero(mask) / float(nx * ny)))
+
+        if clamp_lo is not None or clamp_hi is not None:
+            out, crep = _mba.clamp(out, clamp_lo, clamp_hi)
+            total = max(1, crep["total"])
+            cut = crep["low"] + crep["high"]
+            feedback.pushInfo(_tr(
+                "Срезано к границам: снизу %d ячеек, сверху %d (%.1f "
+                "процента). Наибольший вылет: под нижнюю на %.6g, над "
+                "верхней на %.6g.")
+                % (crep["low"], crep["high"], 100.0 * cut / total,
+                   crep["worst_low"], crep["worst_high"]))
+            if cut > 0.1 * total:
+                feedback.pushWarning(_tr(
+                    "К границам прижата десятая часть площади и больше. Там "
+                    "поверхность не оценена, а срезана: замеров рядом нет, и "
+                    "сплайн уходит куда угодно. Уменьшите число уровней, "
+                    "возьмите решётку грубее или сузьте охват."))
+
+        rep = _mba.levels_report(lattices, pts, vals)
+        last = rep[-1]
+        feedback.pushInfo(_tr(
+            "Уровней построено: %d. Невязка в точках: наибольшая %.6g, "
+            "среднеквадратичная %.6g.") % (len(rep), last["max"], last["rms"]))
+        if seen["grew"] or last["max"] > 1e-6:
+            dup = _duplicate_points(pts, vals)
+            if dup:
+                feedback.pushWarning(_tr(
+                    "Замеров в совпадающих точках: %d пар, наибольшее "
+                    "расхождение между ними %.6g. В такой точке метод даёт "
+                    "среднее, поэтому невязка там не исчезает, сколько "
+                    "уровней ни дроби, а на промежуточных уровнях она может "
+                    "и подрасти. Обычно это две скважины с одинаковыми "
+                    "координатами или дубли в таблице - проверьте данные.")
+                    % (dup[0], dup[1]))
+            elif seen["grew"]:
+                feedback.pushInfo(_tr(
+                    "На %d уровне (уровнях) наибольшая невязка подрастала. "
+                    "Совпадающих точек не найдено, значит поверхность "
+                    "раскачивается на резком перепаде между близкими "
+                    "замерами. Среднеквадратичная при этом падает.")
+                    % seen["grew"])
+        feedback.pushInfo(_tr(
+            "MBA не даёт ошибки оценки: кросс-валидация 1.08 и карта ошибки "
+            "к нему неприменимы. Для подсчёта запасов стройте им тренд, а "
+            "остатки уточняйте кригингом."))
+
+        nodata = -9999.0
+        grid = np.where(np.isfinite(out), out, nodata)
+        _write_grid_tiff(out_path, grid, gt, src.sourceCrs().toWkt(), nodata,
+                         nx, ny)
+        # Стиль растру не вешаем: QGIS растянет серую шкалу по данным сам,
+        # как у прочих гридов модуля. Ссылка на несуществующий .qml делала
+        # слой чёрным - оформление не применялось, а диапазон вырождался.
+        _set_output_name(context, out_path, _tr("Поверхность MBA"))
+        return {self.OUTPUT: out_path}
+
+
 class SurfaceGraftAlgorithm(IsolinerAlgorithm):
     """1.11 Врезка подробной поверхности в региональную.
 
@@ -5565,6 +5948,10 @@ class SurfaceGraftAlgorithm(IsolinerAlgorithm):
     MASK = "MASK"
     WIDTH_CELLS = "WIDTH_CELLS"
     SHIFT_MODE = "SHIFT_MODE"
+    EXTENT_MODE = "EXTENT_MODE"
+    EXTENT = "EXTENT"
+    CELL = "CELL"
+    MAX_CELLS = "MAX_CELLS"
     MIN_OVERLAP = "MIN_OVERLAP"
     OUTPUT = "OUTPUT"
 
@@ -5603,8 +5990,20 @@ class SurfaceGraftAlgorithm(IsolinerAlgorithm):
             "кольцо перекрытия берётся снаружи зоны, и если подробные данные "
             "обрываются ровно по ней, расхождение снять не по чему. Об этом "
             "инструмент говорит прямо и не сшивает молча.\n\n"
-            "Прогалы внутри подробной поверхности закрываются региональной. "
-            "Обе поверхности приводятся к сетке подробной."))
+            "Прогалы внутри подробной поверхности закрываются региональной.\n\n"
+            "Охват результата по умолчанию берётся по региональной "
+            "поверхности: сшивка нужна ради всей округи, а не ради куска "
+            "под участком. Можно взять охват подробной или задать вручную.\n\n"
+            "Ячейка результата по умолчанию как у подробной поверхности, но "
+            "задаётся отдельно, и на большом охвате это обязательно. "
+            "Подробная съёмка бывает сантиметровой, региональная - "
+            "тридцатиметровой на десятки километров: в шаге подробной такой "
+            "растр вышел бы в триллион ячеек. Предел размера задаётся в "
+            "дополнительных параметрах, при его превышении инструмент "
+            "отказывается работать и называет подходящую ячейку.\n\n"
+            "При укрупнении подробная поверхность осредняется, а не "
+            "выбирается по узлам: выборка потеряла бы то, ради чего съёмку "
+            "и делали."))
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterRasterLayer(
@@ -5631,6 +6030,27 @@ class SurfaceGraftAlgorithm(IsolinerAlgorithm):
                      self.tr("Наклонная плоскость по кольцу"),
                      self.tr("Не снимать")],
             defaultValue=0))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.EXTENT_MODE, self.tr("Охват результата"),
+            options=[self.tr("По региональной поверхности"),
+                     self.tr("По подробной поверхности"),
+                     self.tr("Задать вручную")],
+            defaultValue=0))
+        p_ext = QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Охват вручную"), optional=True)
+        self.addParameter(p_ext)
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELL, self.tr(
+                "Ячейка результата (0 - как у подробной поверхности)"),
+            QgsProcessingParameterNumber.Double, defaultValue=0.0,
+            minValue=0.0))
+        p_max = QgsProcessingParameterNumber(
+            self.MAX_CELLS, self.tr("Предел размера результата, млн ячеек"),
+            QgsProcessingParameterNumber.Double, defaultValue=50.0,
+            minValue=1.0)
+        p_max.setFlags(p_max.flags()
+                       | QgsProcessingParameterDefinition.FlagAdvanced)
+        self.addParameter(p_max)
         p = QgsProcessingParameterNumber(
             self.MIN_OVERLAP, self.tr("Минимум ячеек перекрытия"),
             QgsProcessingParameterNumber.Integer, defaultValue=200,
@@ -5657,60 +6077,143 @@ class SurfaceGraftAlgorithm(IsolinerAlgorithm):
         mode = self._MODES[self.parameterAsEnum(parameters, self.SHIFT_MODE,
                                                 context)]
         min_overlap = self.parameterAsInt(parameters, self.MIN_OVERLAP, context)
+        ext_mode = self.parameterAsEnum(parameters, self.EXTENT_MODE, context)
+        cell_req = self.parameterAsDouble(parameters, self.CELL, context)
+        max_cells = self.parameterAsDouble(parameters, self.MAX_CELLS,
+                                           context) * 1e6
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+
+        crs = fine_l.crs()
+        wkt = crs.toWkt() if crs.isValid() else ""
 
         ds_f = gdal.Open(fine_l.source())
         if ds_f is None:
             raise QgsProcessingException(
                 self.tr("Не удалось открыть подробную поверхность."))
-        bf = ds_f.GetRasterBand(fine_band)
-        fine = bf.ReadAsArray().astype(float)
-        gt = ds_f.GetGeoTransform()
-        wkt = ds_f.GetProjection()
-        nd_f = bf.GetNoDataValue()
-        ny, nx = fine.shape
-        if nd_f is not None:
-            fine = np.where(fine == nd_f, np.nan, fine)
-        ds_f = None
+        gt_f = ds_f.GetGeoTransform()
+        fine_cell = max(abs(gt_f[1]), abs(gt_f[5])) or 1.0
+        if not wkt:
+            wkt = ds_f.GetProjection()
 
-        # Региональная приводится к сетке подробной: ячейка мельче, и
-        # решать на ней. Обратный порядок терял бы саму подробность,
-        # ради которой врезку и делают.
         ds_r = gdal.Open(reg_l.source())
         if ds_r is None:
             raise QgsProcessingException(
                 self.tr("Не удалось открыть региональную поверхность."))
         gt_r = ds_r.GetGeoTransform()
         reg_cell = max(abs(gt_r[1]), abs(gt_r[5])) or 1.0
-        fine_cell = max(abs(gt[1]), abs(gt[5])) or 1.0
-        warped = gdal.GetDriverByName("MEM").Create("", nx, ny, 1,
-                                                    gdal.GDT_Float32)
-        warped.SetGeoTransform(gt)
-        warped.SetProjection(wkt)
-        warped.GetRasterBand(1).SetNoDataValue(-9999.0)
-        warped.GetRasterBand(1).Fill(-9999.0)
-        gdal.ReprojectImage(ds_r, warped, ds_r.GetProjection(), wkt,
-                            gdal.GRA_Bilinear)
-        reg = warped.GetRasterBand(1).ReadAsArray().astype(float)
-        reg = np.where(reg == -9999.0, np.nan, reg)
-        ds_r = None
-        warped = None
 
+        # --- охват и ячейка результата ---
+        # Раньше результат шёл в сетке подробной поверхности, и от
+        # региональной оставался только кусок под ней. Теперь охват задаётся,
+        # а ячейка не обязана быть сантиметровой: подробная съёмка бывает
+        # сантиметровой, региональная - тридцатиметровой на десятки
+        # километров, и сшивка в шаге подробной дала бы растр в триллионы
+        # ячеек.
+        if ext_mode == 2:
+            rect = self.parameterAsExtent(parameters, self.EXTENT, context,
+                                          crs)
+            if rect is None or rect.isEmpty():
+                raise QgsProcessingException(
+                    self.tr("Охват задан вручную, но не указан."))
+        elif ext_mode == 1:
+            rect = fine_l.extent()
+        else:
+            rect = reg_l.extent()
+            if crs.isValid() and reg_l.crs().isValid() and crs != reg_l.crs():
+                rect = QgsCoordinateTransform(
+                    reg_l.crs(), crs,
+                    context.transformContext()).transformBoundingBox(rect)
+
+        cell = float(cell_req) if cell_req > 0 else fine_cell
+        try:
+            need = _dm.cells_for(rect.xMinimum(), rect.yMinimum(),
+                                 rect.xMaximum(), rect.yMaximum(), cell)
+        except ValueError as exc:
+            raise QgsProcessingException(str(exc))
+        if need > max_cells:
+            fit = math.sqrt(rect.width() * rect.height() / max_cells)
+            raise QgsProcessingException(_tr(
+                "При охвате %.6g на %.6g и ячейке %.4g вышло бы %.3g млн "
+                "ячеек при пределе %.3g млн. Задайте ячейку крупнее "
+                "(примерно от %.4g) либо сузьте охват. Подробность внутри "
+                "зоны врезки ограничена ячейкой результата, а не съёмкой.")
+                % (rect.width(), rect.height(), cell, need / 1e6,
+                   max_cells / 1e6, fit))
+
+        gt, nx, ny = _dm.grid_from_extent(rect.xMinimum(), rect.yMinimum(),
+                                          rect.xMaximum(), rect.yMaximum(),
+                                          cell)
         feedback.pushInfo(_tr(
-            "Сетка %d x %d, ячейка подробной %.4g, ячейка региональной %.4g.")
-            % (nx, ny, fine_cell, reg_cell))
+            "Результат: сетка %d x %d, ячейка %.4g (подробная %.4g, "
+            "региональная %.4g).") % (nx, ny, cell, fine_cell, reg_cell))
 
-        mask = _rasterize_mask(src, gt, (ny, nx), fine_l.crs(), context)
+        x0, y1 = gt[0], gt[3]
+        x1, y0 = gt[0] + nx * cell, gt[3] - ny * cell
+
+        def _to_target(ds, band, src_cell):
+            """Перекладывает канал на целевую сетку и обрезает по рамке.
+
+            Пустоту источника обязательно передавать явно. Без неё
+            служебное значение (у ЦМР это -32768, -9999 или ноль) идёт в
+            расчёт как настоящая отметка: подробная поверхность
+            «покрывает» весь охват, кольцо перекрытия считает невязку по
+            мусору, и поправка уезжает в бессмыслицу. Со стороны это
+            выглядит так, будто растр просто вставлен без перехода.
+            """
+            rule = _dm.resample_rule(src_cell, cell)
+            src_ds = ds
+            if band != 1:
+                src_ds = gdal.Translate("", ds, format="MEM",
+                                        bandList=[band])
+            nd = src_ds.GetRasterBand(1).GetNoDataValue()
+            kw = dict(format="MEM",
+                      outputBounds=(x0, y0, x1, y1),
+                      xRes=cell, yRes=cell,
+                      dstSRS=wkt,
+                      dstNodata=-9999.0,
+                      outputType=gdal.GDT_Float32,
+                      resampleAlg=rule)
+            if nd is not None:
+                kw["srcNodata"] = nd
+            src_wkt = ds.GetProjection()
+            if src_wkt:
+                kw["srcSRS"] = src_wkt
+            out = gdal.Warp("", src_ds, **kw)
+            if out is None:
+                raise QgsProcessingException(self.tr(
+                    "Не удалось привести поверхность к сетке результата."))
+            arr = out.GetRasterBand(1).ReadAsArray().astype(float)
+            out = None
+            arr = np.where(arr == -9999.0, np.nan, arr)
+            return arr, rule
+
+        fine, rule_f = _to_target(ds_f, fine_band, fine_cell)
+        reg, rule_r = _to_target(ds_r, reg_band, reg_cell)
+        ds_f = None
+        ds_r = None
+        total_cells = float(nx * ny)
+        feedback.pushInfo(_tr(
+            "Данные на сетке результата: подробная %.1f процента, "
+            "региональная %.1f процента.")
+            % (100.0 * np.count_nonzero(np.isfinite(fine)) / total_cells,
+               100.0 * np.count_nonzero(np.isfinite(reg)) / total_cells))
+        if rule_f == "average":
+            feedback.pushInfo(_tr(
+                "Подробная поверхность укрупняется до ячейки результата "
+                "осреднением: выборка по узлам потеряла бы то, ради чего "
+                "съёмку и делали."))
+
+        mask = _rasterize_mask(src, gt, (ny, nx), crs, context)
         if mask is None:
             raise QgsProcessingException(
                 self.tr("В слое зоны врезки нет полигонов."))
         n_mask = int(np.count_nonzero(mask))
         if n_mask == 0:
             raise QgsProcessingException(self.tr(
-                "Зона врезки не попала на сетку подробной поверхности."))
+                "Зона врезки не попала на сетку результата."))
 
-        # буфер задан в ячейках региональной, работаем в ячейках подробной
-        width_px = float(width_cells) * reg_cell / fine_cell
+        # буфер задан в ячейках региональной, работаем в ячейках результата
+        width_px = float(width_cells) * reg_cell / cell
         feedback.pushInfo(_tr(
             "Зона врезки %d ячеек, переход %.4g ячеек региональной "
             "(%.4g ячеек рабочей сетки).") % (n_mask, width_cells, width_px))
@@ -5727,6 +6230,12 @@ class SurfaceGraftAlgorithm(IsolinerAlgorithm):
                 "медиана %.4g.")
                 % (rep["overlap"], rep["median"], rep["p05"], rep["p95"],
                    rep["after"]["median"]))
+            if rep.get("mode") == "plane":
+                feedback.pushInfo(_tr(
+                    "Поправка плоскостью: от %.4g до %.4g по полю. Плоскость "
+                    "считается по кольцу, а применяется ко всему охвату - на "
+                    "большой рамке проверьте края.")
+                    % (rep.get("corr_min", 0.0), rep.get("corr_max", 0.0)))
             if 0 < rep["overlap"] < min_overlap:
                 feedback.reportError(_tr(
                     "Перекрытие всего %d ячеек при пороге %d: поправка "
@@ -6812,8 +7321,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
         # Анизотропия дописывается в таблицу моделей: вход читается,
         # строки выбранного профиля получают азимут и коэффициент, и всё
         # уходит отдельным выходом. Входной слой не правится.
-        dest_model = _augment_anisotropy(self, parameters, context, feedback,
-                                         m)
+        _augment_anisotropy(self, parameters, context, feedback, m)
 
         results = {}
         src_name = _short(src.sourceName()) if hasattr(src, "sourceName") else zfield
@@ -8329,7 +8837,6 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             bp = lg.interpolate(float(t[i] * L)).asPoint()
             wx[i] = bp.x() + off[i] * nx
             wy[i] = bp.y() + off[i] * ny
-        hs = [_demo_sample(g, wx, wy, xmin, xmax, ymin, ymax) for g in surf]
         wf = QgsFields()
         wf.append(QgsField("name", QVariant.String))
         for j in range(6):
@@ -10721,6 +11228,9 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
 
     LINE_DEF, FACES, MESH = "LINE_DEF", "FACES", "MESH"
     OUTPUT, OUTPUT_3D = "OUTPUT", "OUTPUT_3D"
+    OUTPUT_POLY = "OUTPUT_POLY"
+    FIELDS = "FIELDS"
+    SNAP_TOL = "SNAP_TOL"
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionTinIntersectAlgorithm()
@@ -10743,7 +11253,23 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
             "из определения разреза, высота - с самих граней, поэтому для TIN "
             "ничего задавать не нужно.\n\nВнимание: меш QGIS это 2.5D (z как "
             "скаляр на вершине), опрокинутое в нём не представимо. Нависание дают "
-            "только настоящие 3D-грани от геомоделлера.") + _credit())
+            "только настоящие 3D-грани от геомоделлера.\n\n"
+            "Отрезки сечения можно собрать в замкнутые кольца - отдельный "
+            "выход «Замкнутые сечения». Кольцо получается САМО, если "
+            "сомкнулось: у замкнутой оболочки сечение замкнуто, у "
+            "поверхности (TIN рельефа, кровля пласта) открыто по "
+            "построению, и его концы лежат на краю граней. Домыкать такую "
+            "цепочку нельзя: хорда между концами - выдуманная линия, а "
+            "площадь по ней - выдуманное число. Сколько колец сомкнулось и "
+            "сколько осталось открытыми, пишется в журнал вместе с "
+            "наибольшим зазором в концах.\n\n"
+            "Допуск смыкания задаётся в единицах чертежа: концы соседних "
+            "треугольников совпадают лишь приближённо. Если замкнутая "
+            "оболочка даёт открытые цепочки, увеличьте его.\n\n"
+            "Поля исходного объекта переносятся в кольца, если перечислить "
+            "их имена через запятую. Слоёв граней бывает несколько, поля у "
+            "них разные, поэтому поле, которого в слое нет, останется "
+            "пустым. Значения кладутся текстом.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -10762,6 +11288,25 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
             self.OUTPUT_3D, self.tr("Трасса TIN (3D)"),
             type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
             createByDefault=False))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_POLY, self.tr("Замкнутые сечения (полигоны)"),
+            type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
+            createByDefault=False))
+        # Слоёв граней несколько, и поля у них разные, поэтому выбрать их
+        # списком из одного родителя нельзя: имена задаются перечислением.
+        # Поле, которого в слое нет, просто останется пустым.
+        p_f = QgsProcessingParameterString(
+            self.FIELDS, self.tr(
+                "Перенести поля исходного объекта (имена через запятую)"),
+            optional=True)
+        p_f.setFlags(p_f.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        self.addParameter(p_f)
+        p_t = QgsProcessingParameterNumber(
+            self.SNAP_TOL, self.tr("Допуск смыкания колец, ед. чертежа"),
+            QgsProcessingParameterNumber.Double, defaultValue=0.001,
+            minValue=0.0)
+        p_t.setFlags(p_t.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        self.addParameter(p_t)
 
         _restore_layer_defaults(self, (self.LINE_DEF, self.FACES))
 
@@ -10786,16 +11331,33 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
 
         from .kb2d import tin_section_trace, fan_triangulate
 
+        want_fields = [t.strip() for t in
+                       (self.parameterAsString(parameters, self.FIELDS, context)
+                        or "").split(",") if t.strip()]
+        snap_tol = self.parameterAsDouble(parameters, self.SNAP_TOL, context)
+
         n_tri = 0
         segs = []
+        # Сечение собирается по каждому ИСТОЧНИКУ отдельно: кольцо
+        # принадлежит своему объекту, и атрибуты этого объекта надо знать.
+        # Раньше треугольники всего слоя сваливались в общий список, и
+        # принадлежность терялась.
+        groups = []
 
-        def _emit(tris, sname):
+        def _emit(tris, sname, extra=None):
+            got = []
             for dd, poly_xy in traces:
-                for s in tin_section_trace(poly_xy, tris):
+                cut = tin_section_trace(poly_xy, tris)
+                for s in cut:
                     segs.append((dd, s[0], s[1], s[2], s[3], sname))
+                if cut:
+                    got.append((dd, cut))
+            if got:
+                groups.append((sname, extra or {}, got))
             return len(tris)
 
-        for lyr in faces:
+        n_layers = max(1, len([l for l in faces if l is not None]))
+        for li, lyr in enumerate(faces):
             if lyr is None:
                 continue
             sname = _short(lyr.name())
@@ -10804,19 +11366,51 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
             if scrs.isValid() and tcrs.isValid() and scrs != tcrs:
                 xform = QgsCoordinateTransform(
                     tcrs, scrs, context.transformContext())
-            tris = []
             had3d = False
-            for ft in lyr.getFeatures():
+            n_feats = max(1, lyr.featureCount())
+            canceled = False
+            names = [fl.name() for fl in lyr.fields()]
+            for fi, ft in enumerate(lyr.getFeatures()):
                 if feedback.isCanceled():
+                    canceled = True
                     break
+                tris = []            # свои треугольники на каждый объект
                 g = ft.geometry()
                 if g is None or g.isEmpty():
                     continue
                 if xform is not None:
                     g = QgsGeometry(g)
                     g.transform(xform)
-                for part in g.asGeometryCollection():
-                    cg = part.constGet()
+                # Части читаются по месту. asGeometryCollection() создавал
+                # объект Python на каждый треугольник, а у слоя оболочки их
+                # тридцать тысяч в ОДНОМ объекте, у вокселей - до полумиллиона.
+                # По той же причине координаты берутся через xAt/yAt/zAt, а не
+                # через ring.points(), который строит список точек на кольцо.
+                root = g.constGet()
+                if root is None:
+                    continue
+                try:
+                    n_parts = root.numGeometries()
+                except Exception:                        # nosec
+                    n_parts = 0
+                if n_parts <= 0:                         # одиночный полигон
+                    parts = [root]
+                    n_parts = 1
+                else:
+                    parts = None
+                for pi in range(n_parts):
+                    # Отмена и ход работы висят на ЧАСТЯХ, а не на объектах:
+                    # у слоя оболочек объект один на уровень, и проверка по
+                    # объектам срабатывала два-три раза за всю работу. Со
+                    # стороны это выглядело зависшей обработкой.
+                    if (pi & 1023) == 0:
+                        if feedback.isCanceled():
+                            canceled = True
+                            break
+                        done = (li + (fi + pi / float(n_parts)) / n_feats) \
+                            / n_layers
+                        feedback.setProgress(int(100.0 * min(1.0, done)))
+                    cg = parts[pi] if parts is not None else root.geometryN(pi)
                     if cg is None or not hasattr(cg, "exteriorRing"):
                         continue
                     if cg.is3D():
@@ -10824,16 +11418,27 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
                     ring = cg.exteriorRing()
                     if ring is None:
                         continue
-                    pts = [(p.x(), p.y(), p.z()) for p in ring.points()]
-                    if len(pts) < 3:
+                    npt = ring.numPoints()
+                    if npt < 3:
                         continue
+                    pts = [(ring.xAt(k), ring.yAt(k), ring.zAt(k))
+                           for k in range(npt)]
                     tris.extend(fan_triangulate(pts))
+                if canceled:
+                    break
+                if tris:
+                    extra = {}
+                    for nm in want_fields:
+                        if nm in names:
+                            extra[nm] = ft.attribute(nm)
+                    n_tri += _emit(tris, sname, extra)
+            if canceled:
+                break
             if not had3d:
                 feedback.pushWarning(_tr(
                     "Слой «%s» без 3D-полигонов (нет Z) - пропущен.")
                     % lyr.name())
                 continue
-            n_tri += _emit(tris, sname)
 
         if mesh is not None:
             try:
@@ -10867,34 +11472,94 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
         f.append(QgsField("sec", QVariant.String))
         f.append(QgsField("sec_id", QVariant.Int))
         f.append(QgsField("src", QVariant.String))
+        f.append(QgsField("closed", QVariant.Int))
+        f.append(QgsField("gap", QVariant.Double))
+        # поля источника идут следом, порядок как перечислили
+        for nm in want_fields:
+            f.append(QgsField(nm, QVariant.String))
+        fpoly = QgsFields()
+        for fl in f:
+            fpoly.append(fl)
+        fpoly.append(QgsField("area", QVariant.Double))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, f,
             QgsWkbTypes.Type.LineString, _section_draw_crs())
+        sinkp, destp = self.parameterAsSink(
+            parameters, self.OUTPUT_POLY, context, fpoly,
+            QgsWkbTypes.Type.Polygon, _section_draw_crs())
         sink3, dest3 = self.parameterAsSink(
             parameters, self.OUTPUT_3D, context, f,
             QgsWkbTypes.Type.LineStringZ, scrs)
-        for dd, d0, z0, d1, z1, sname in segs:
-            vex, ox, oy = dd["vex"], dd["ox"], dd["oy"]
-            tag = [dd["sec"], dd["sec_id"]]
-            if sink is not None:
-                fa = QgsFeature(f)
-                fa.setGeometry(QgsGeometry.fromPolylineXY(
-                    [QgsPointXY(d0 + ox, z0 * vex + oy),
-                     QgsPointXY(d1 + ox, z1 * vex + oy)]))
-                fa.setAttributes(tag + [sname])
-                sink.addFeature(fa)
-            # 3D в реальных координатах, раскладка его не двигает
-            if sink3 is not None:
-                p0 = dd["line"].interpolate(d0).asPoint()
-                p1 = dd["line"].interpolate(d1).asPoint()
-                fb = QgsFeature(f)
-                fb.setGeometry(QgsGeometry(QgsLineString(
-                    [QgsPoint(p0.x(), p0.y(), z0),
-                     QgsPoint(p1.x(), p1.y(), z1)])))
-                fb.setAttributes(tag + [sname])
-                sink3.addFeature(fb)
+        # Отрезки сливаются в цепочки ПО ИСТОЧНИКУ: каждая оболочка режется
+        # своими треугольниками, и мешать их в общую кучу нельзя - соседние
+        # тела сошлись бы в одну линию. На чертёж идёт полилиния на цепочку,
+        # а не объект на треугольник: у оболочки их десятки тысяч, и слоем
+        # из отрезков ни подписать, ни выбрать.
+        n_ring = n_open = n_chain = 0
+        worst_gap = 0.0
+        for sname, extra, got in groups:
+            vals = [_field_text(extra.get(nm)) for nm in want_fields]
+            for dd, cut in got:
+                vex, ox, oy = dd["vex"], dd["ox"], dd["oy"]
+                chains = _sc.chain_segments(
+                    [(c[0], c[1], c[2], c[3]) for c in cut],
+                    tol=snap_tol if snap_tol > 0 else 1e-9)
+                for ch in chains:
+                    pts = ch["pts"]
+                    if len(pts) < 2:
+                        continue
+                    n_chain += 1
+                    closed = 1 if ch["closed"] else 0
+                    if closed:
+                        n_ring += 1
+                    else:
+                        n_open += 1
+                        worst_gap = max(worst_gap, ch["gap"])
+                    tag = [dd["sec"], dd["sec_id"], sname, closed,
+                           float(ch["gap"])] + vals
+                    ring2d = [QgsPointXY(d + ox, z * vex + oy)
+                              for d, z in pts]
+                    if sink is not None:
+                        line = ring2d + ([ring2d[0]] if closed else [])
+                        fa = QgsFeature(f)
+                        fa.setGeometry(QgsGeometry.fromPolylineXY(line))
+                        fa.setAttributes(tag)
+                        sink.addFeature(fa)
+                    # 3D в реальных координатах, раскладка его не двигает
+                    if sink3 is not None:
+                        p3 = []
+                        for d, z in pts:
+                            q = dd["line"].interpolate(d).asPoint()
+                            p3.append(QgsPoint(q.x(), q.y(), z))
+                        if closed and p3:
+                            p3.append(QgsPoint(p3[0]))
+                        fb = QgsFeature(f)
+                        fb.setGeometry(QgsGeometry(QgsLineString(p3)))
+                        fb.setAttributes(tag)
+                        sink3.addFeature(fb)
+                    if sinkp is not None and closed and len(ring2d) >= 3:
+                        geom = QgsGeometry.fromPolygonXY([ring2d])
+                        fp = QgsFeature(fpoly)
+                        fp.setGeometry(geom)
+                        fp.setAttributes(tag + [float(geom.area())])
+                        sinkp.addFeature(fp)
+
+        feedback.pushInfo(_tr(
+            "Цепочек: %d, из них замкнутых %d, открытых %d.")
+            % (n_chain, n_ring, n_open))
+        if n_open:
+            feedback.pushInfo(_tr(
+                "Открытая цепочка это сечение ПОВЕРХНОСТИ, а не тела: её "
+                "концы лежат на краю граней, и хорда между ними была бы "
+                "выдуманной линией. Наибольший зазор в концах %.4g. Если "
+                "резалась замкнутая оболочка, увеличьте допуск смыкания.")
+                % worst_gap)
+
 
         res = {self.OUTPUT: dest}
+        if sinkp is not None:
+            res[self.OUTPUT_POLY] = destp
+            _set_output_name(context, destp, _tr("Замкнутые сечения TIN"))
         _set_output_name(context, dest, _tr("Трасса TIN на разрезе"))
         _attach_style(context, dest, _style_path("section_tin"))
         if sink3 is not None:
@@ -13287,7 +13952,6 @@ class StackBuildAlgorithm(IsolinerAlgorithm):
             return got or _field_by_names(src, *names)
 
         f_cid = _fld(self.CID, csrc, "hole_id", "id", "скважина")
-        f_cz = _fld(self.CZ, csrc, "z", "отметка", "elev")
         f_dip = _fld(self.CDIP, csrc, "dip", "угол")
         f_iid = _fld(self.IID, isrc, "hole_id", "id", "скважина")
         f_from = _fld(self.IFROM, isrc, "from", "от", "top")
@@ -16349,7 +17013,6 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
             arr = np.where(arr == nod, np.nan, arr)
         gt = ds.GetGeoTransform()
         wkt = ds.GetProjection()
-        cell = abs(gt[1]) * abs(gt[5])
         # Уровень вдоль реки не постоянен: вверх по течению он выше.
         # Резать всю площадь одной отметкой значит заливать долину там,
         # где дно лежит ниже этой отметки, но вода туда не доходит.
@@ -23961,6 +24624,7 @@ ALGORITHMS = [
     ExampleWellsAlgorithm,
     GeophysProfilesDemoAlgorithm,
     SurfaceGraftAlgorithm,
+    MbaGridAlgorithm,
     CategoricalIndicatorAlgorithm,
     SectionDemoAlgorithm,
     AttitudeFromTraceAlgorithm,

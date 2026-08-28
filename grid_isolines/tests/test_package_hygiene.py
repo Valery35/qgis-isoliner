@@ -75,3 +75,23 @@ def _run():
 
 if __name__ == "__main__":
     sys.exit(_run())
+
+
+def test_every_referenced_style_file_exists():
+    """Каждый _style_path указывает на существующий .qml.
+
+    Ссылка на несуществующий файл не роняет запуск: стиль просто не
+    применяется, а слой выходит с вырожденной серой шкалой и выглядит
+    чёрным. Ошибку видит пользователь, а не разработчик, поэтому сторож
+    здесь.
+    """
+    import re
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(here, "algorithms.py"), encoding="utf-8") as f:
+        src = f.read()
+    names = set(re.findall(r'_style_path\("([^"]+)"\)', src))
+    assert names, "ссылки на стили пропали - проверка выродилась"
+    missing = [n for n in sorted(names)
+               if not os.path.exists(os.path.join(here, "styles",
+                                                  "%s.qml" % n))]
+    assert not missing, "нет файлов стилей: %s" % ", ".join(missing)

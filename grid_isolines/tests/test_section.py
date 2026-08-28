@@ -418,6 +418,69 @@ class ChildToolsBatch(_unittest.TestCase):
         blk = self.src.split("def _log_defs(")[1].split("\ndef ")[0]
         self.assertIn("pushWarning", blk)
 
+    # --- 4.06: слой из одного объекта не должен выглядеть зависшим -------
+
+    def _code_only(self, body):
+        """Тело класса без комментариев: проверяем код, а не пояснения."""
+        out = []
+        for line in body.split("\n"):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            out.append(line.split("  #")[0])
+        return "\n".join(out)
+
+    def test_tin_intersect_can_be_stopped(self):
+        """Отмена и ход работы висят на частях, а не на объектах.
+
+        У слоя изоповерхности объект один на уровень, а треугольников в
+        нём десятки тысяч. Пока проверка стояла в цикле по объектам, она
+        срабатывала два-три раза за всю работу: кнопку отмены нажать было
+        нельзя, полосы хода не было, и обработка выглядела зависшей.
+        """
+        body = self._code_only(self._cls("SectionTinIntersectAlgorithm"))
+        self.assertGreaterEqual(body.count("isCanceled()"), 2,
+                                "проверки отмены мало для слоя из одного объекта")
+        self.assertIn("setProgress(", body)
+
+    def test_tin_intersect_reads_parts_in_place(self):
+        """Части читаются по месту, без построения объекта на треугольник.
+
+        asGeometryCollection() создавал объект Python на каждый
+        треугольник, ring.points() - список точек на каждое кольцо. У
+        вокселей из 2.04 частей до полумиллиона.
+        """
+        body = self._code_only(self._cls("SectionTinIntersectAlgorithm"))
+        self.assertNotIn("asGeometryCollection(", body)
+        self.assertNotIn("ring.points()", body)
+        self.assertTrue("geometryN(" in body or "numGeometries()" in body,
+                        "части должны читаться через geometryN/numGeometries")
+        for acc in ("xAt(", "yAt(", "zAt("):
+            self.assertIn(acc, body, acc)
+
+    def test_tin_intersect_merges_segments_into_chains(self):
+        """Отрезки сливаются в цепочки, а не пишутся по одному.
+
+        Резка даёт отрезок на треугольник, и у оболочки их десятки тысяч:
+        слоем из отрезков ни подписать, ни выбрать. Цепочки собираются по
+        источнику - мешать треугольники разных оболочек нельзя, соседние
+        тела сошлись бы в одну линию.
+        """
+        body = self._code_only(self._cls("SectionTinIntersectAlgorithm"))
+        self.assertIn("chain_segments(", body)
+        self.assertIn("for sname, extra, got in groups:", body)
+        # запись по одному отрезку исчезла
+        self.assertNotIn("for dd, d0, z0, d1, z1, sname in segs:", body)
+
+    def test_tin_intersect_carries_source_fields(self):
+        """Поля источника переносятся, значит резать надо по объектам."""
+        body = self._code_only(self._cls("SectionTinIntersectAlgorithm"))
+        self.assertIn("want_fields", body)
+        self.assertIn("_field_text(", body)
+        # треугольники собираются на каждый объект, а не на весь слой
+        self.assertIn("tris = []", body)
+        self.assertIn("n_tri += _emit(tris, sname, extra)", body)
+
 
 if __name__ == "__main__":
     _run_all()
