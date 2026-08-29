@@ -4773,6 +4773,21 @@ def _demo_field(rng, G, w):
     return (f - f.mean()) / s
 
 
+def _step(feedback, pct, message):
+    """Отметка этапа: доля, сообщение и проверка отмены разом.
+
+    Демо-инструменты строят много слоёв подряд и раньше молчали до самого
+    конца: со стороны это неотличимо от зависания, а нажать отмену было
+    негде. Возвращает False, если работу просят прекратить.
+    """
+    if feedback is None:
+        return True
+    feedback.setProgress(int(pct))
+    if message:
+        feedback.pushInfo(message)
+    return not feedback.isCanceled()
+
+
 def _demo_sample(f, xs, ys, xmin, xmax, ymin, ymax):
     """Билинейная выборка значений поля f в точках (xs, ys)."""
     G = f.shape[0]
@@ -8621,6 +8636,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         surf = [s1]
         for t in th:
             surf.append(surf[-1] - t)              # s2...s6
+        _step(feedback, 10, _tr("Поверхности пачки построены."))
 
         cellx = (xmax - xmin) / (G - 1)
         celly = (ymax - ymin) / (G - 1)
@@ -8705,6 +8721,8 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         lg3 = QgsGeometry.fromPolylineXY([r0, rm, r1])
         fields = QgsFields()
         fields.append(QgsField("name", QVariant.String))
+        if not _step(feedback, 35, _tr("Растры поверхностей записаны.")):
+            return {}
         sink, dest = self.parameterAsSink(
             parameters, self.LINE, context, fields, QgsWkbTypes.Type.LineString, crs)
         for geom, nm in ((lg, self.tr("Разрез 1")),
@@ -8880,6 +8898,8 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         # негде. Справочник пишется независимо от выходов скважин - он нужен
         # сам по себе, а не только вместе с ними.
         codes = ["Q", "В1", "Пр1", "В2", "Пр2", "В3"]
+        if not _step(feedback, 55, _tr("Разрезы и структурные элементы готовы.")):
+            return {}
         self._write_demo_reference(parameters, context, feedback, codes)
 
         if csink is not None and isink is not None:
@@ -9364,6 +9384,11 @@ class SectionAlgorithm(IsolinerAlgorithm):
         f.append(QgsField("bot", QVariant.String))
         f.append(QgsField("t_mean", QVariant.Double))
         f.append(QgsField("seclen", QVariant.Double))
+        # Цвет полосы прямо в данных, шестнадцатеричной строкой. Символику
+        # слоя читают не все потребители: трёхмерная сцена красит по своему
+        # правилу, и забор выходил серым, хотя цвет пласта был известен.
+        # Поле переживает экспорт в DXF, GeoPackage и передачу подрядчику.
+        f.append(QgsField("color", QVariant.String))
         return f
 
     def _process(self, parameters, context, feedback):
@@ -9607,6 +9632,8 @@ class SectionAlgorithm(IsolinerAlgorithm):
             sink2d, dest2d = self.parameterAsSink(
                 parameters, self.OUTPUT_2D, context, f2,
                 QgsWkbTypes.Type.Polygon, _section_draw_crs())
+        bcats = []          # категории цвета: нужны и чертежу, и забору 3D
+        bed_color = {}      # имя кровли -> цвет полосы, для поля color
         # полосы пластов красятся тем же механизмом, что скважины в 4.02:
         # категория на пласт по имени кровли (поле top), цвет детерминирован
         # от имени, тонкий чёрный контур из базового стиля, легенда в дереве.
@@ -9623,7 +9650,7 @@ class SectionAlgorithm(IsolinerAlgorithm):
                 self.parameterAsSource(parameters, self.REFERENCE, context),
                 feedback)
 
-            bcats, n_ref, n_grey, rows = [], 0, 0, []
+            n_ref, n_grey, rows = 0, 0, []
             for k in range(len(surfs) - 1):
                 top_name, bot_name = surfs[k][2], surfs[k + 1][2]
                 bed, many = None, False
@@ -9642,6 +9669,7 @@ class SectionAlgorithm(IsolinerAlgorithm):
                 if bed is not None:
                     col = bed.color or _dh.code_color(bed.code)
                     bcats.append((top_name, col, bed.code))
+                    bed_color[top_name] = col
                     n_ref += 1
                     rows.append((k + 1, top_name, bot_name, bed.body,
                                  bed.code, col, "reference"))
@@ -9650,6 +9678,7 @@ class SectionAlgorithm(IsolinerAlgorithm):
                     label = "%s...%s" % (span[0], span[-1]) if span \
                         else top_name
                     bcats.append((top_name, UNKNOWN_BODY_COLOR, label))
+                    bed_color[top_name] = UNKNOWN_BODY_COLOR
                     n_grey += 1
                     rows.append((k + 1, top_name, bot_name, "many",
                                  label, UNKNOWN_BODY_COLOR, "many"))
@@ -9658,6 +9687,7 @@ class SectionAlgorithm(IsolinerAlgorithm):
                     # имени кровли, серый если это похоже на межпластье
                     col = _dh.code_color(top_name)
                     bcats.append((top_name, col, top_name))
+                    bed_color[top_name] = col
                     n_grey += 1
                     rows.append((k + 1, top_name, bot_name, "?",
                                  top_name, col, "own"))
@@ -9685,7 +9715,14 @@ class SectionAlgorithm(IsolinerAlgorithm):
         else:
             sink3d, dest3d = self.parameterAsSink(
                 parameters, self.OUTPUT_3D, context, f2,
-                QgsWkbTypes.Type.PolygonZ, crs_line)
+                QgsWkbTypes.Type.MultiPolygonZ, crs_line)
+            # Те же цвета пластов, что на чертеже. Без этого забор в сцене
+            # выходит одноцветным: стенки-то построены по каждому пласту и
+            # код пласта лежит в атрибутах, а красить его было нечем, и
+            # разрез читался как ограждение, а не как геология.
+            if dest3d is not None and bcats:
+                _attach_categories(context, dest3d, _style_path("dh_bands"),
+                                   "top", bcats)
         fdef = QgsFields()
         fdef.append(QgsField("sec", QVariant.String))
         fdef.append(QgsField("sec_id", QVariant.Int))
@@ -9840,7 +9877,8 @@ class SectionAlgorithm(IsolinerAlgorithm):
             for bed in sc_.beds:
                 tname, bname = bed["top"], bed["bot"]
                 tmean = bed["t_mean"]
-                attrs = tag + [bed["bed"], tname, bname, tmean, length]
+                attrs = tag + [bed["bed"], tname, bname, tmean, length,
+                               bed_color.get(tname, "")]
                 for run in bed["runs"]:
                     # 2D: расстояние по X, высота по Y (с преувеличением).
                     # Робастность: вырожденную геометрию (пустую, нулевой
@@ -9860,14 +9898,24 @@ class SectionAlgorithm(IsolinerAlgorithm):
                     # 3D: вертикальная стенка PolygonZ в реальных координатах.
                     # Раскладка её не касается, забор стоит на своём месте.
                     if sink3d is not None:
-                        poly = QgsPolygon()
-                        poly.setExteriorRing(QgsLineString(
-                            [QgsPoint(float(px), float(py), float(pz))
-                             for (px, py, pz) in run["ring3d"]]))
-                        fb = QgsFeature(f2)
-                        fb.setGeometry(QgsGeometry(poly))
-                        fb.setAttributes(attrs)
-                        sink3d.addFeature(fb)
+                        # Стенка идёт четырёхугольниками по звеньям трассы,
+                        # а не одним кольцом. Кольцо «верх туда, низ обратно»
+                        # сильно невыпукло, и сцена триангулирует его веером
+                        # от первой вершины: разрез выходит дырявым. Каждый
+                        # четырёхугольник плоский по построению.
+                        quads = run.get("quads3d") or []
+                        if quads:
+                            mp = QgsMultiPolygon()
+                            for quad in quads:
+                                poly = QgsPolygon()
+                                poly.setExteriorRing(QgsLineString(
+                                    [QgsPoint(float(px), float(py), float(pz))
+                                     for (px, py, pz) in quad]))
+                                mp.addGeometry(poly)
+                            fb = QgsFeature(f2)
+                            fb.setGeometry(QgsGeometry(mp))
+                            fb.setAttributes(attrs)
+                            sink3d.addFeature(fb)
                 nbed += 1
                 if len(secs) == 1:
                     feedback.pushInfo(_tr(

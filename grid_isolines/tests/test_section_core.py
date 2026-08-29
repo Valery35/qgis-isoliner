@@ -1235,3 +1235,64 @@ def test_degenerate_segment_is_dropped():
 
 def test_empty_input_gives_nothing():
     assert sc.chain_segments([]) == []
+
+
+# --- стенка забора по звеньям --------------------------------------------
+
+def _wall_case():
+    xs = np.array([0.0, 100.0, 180.0, 300.0])
+    ys = np.array([0.0, 60.0, 60.0, 140.0])
+    ztop = np.array([50.0, 48.0, 47.0, 45.0])
+    zbot = np.array([30.0, 29.0, 28.5, 27.0])
+    return xs, ys, ztop, zbot
+
+
+def test_wall_is_split_by_links():
+    """Стенка режется по звеньям трассы: своё полотнище на звено."""
+    xs, ys, ztop, zbot = _wall_case()
+    quads = sc.bed_wall_quads(xs, ys, ztop, zbot, 0, 3)
+    assert len(quads) == 3
+    for q in quads:
+        assert len(q) == 5 and q[0] == q[-1]
+
+
+def test_every_quad_is_planar():
+    """Четырёхугольник звена плоский точно, а не приближённо.
+
+    Два соседних узла трассы задают вертикальную плоскость, обе отметки
+    лежат в ней. Это и есть причина резать по звеньям: длинное кольцо
+    «верх туда, низ обратно» сильно невыпукло, и сцена триангулирует его
+    веером от первой вершины - разрез выходит дырявым.
+    """
+    xs, ys, ztop, zbot = _wall_case()
+    for q in sc.bed_wall_quads(xs, ys, ztop, zbot, 0, 3):
+        p = np.array(q[:4])
+        n = np.cross(p[1] - p[0], p[2] - p[0])
+        n = n / np.linalg.norm(n)
+        assert abs(float(np.dot(p[3] - p[0], n))) < 1e-9
+
+
+def test_wall_keeps_the_elevations_of_the_surfaces():
+    """Отметки берутся из поверхностей как есть, без преувеличения."""
+    xs, ys, ztop, zbot = _wall_case()
+    q = sc.bed_wall_quads(xs, ys, ztop, zbot, 0, 3)[0]
+    assert q[0][2] == 50.0 and q[1][2] == 48.0
+    assert q[2][2] == 29.0 and q[3][2] == 30.0
+
+
+def test_zero_link_gives_no_wall():
+    """Совпавшие узлы трассы полотнища не дают: стенка вырождена в линию."""
+    xs = np.array([0.0, 0.0, 50.0])
+    ys = np.array([0.0, 0.0, 0.0])
+    ztop = np.array([10.0, 10.0, 9.0])
+    zbot = np.array([0.0, 0.0, 1.0])
+    assert len(sc.bed_wall_quads(xs, ys, ztop, zbot, 0, 2)) == 1
+
+
+def test_missing_elevation_drops_the_link():
+    """Звено с пропуском в отметках пропускается, а не рвёт всю стенку."""
+    xs = np.array([0.0, 50.0, 100.0])
+    ys = np.array([0.0, 0.0, 0.0])
+    ztop = np.array([10.0, np.nan, 9.0])
+    zbot = np.array([0.0, 0.0, 1.0])
+    assert len(sc.bed_wall_quads(xs, ys, ztop, zbot, 0, 2)) == 0

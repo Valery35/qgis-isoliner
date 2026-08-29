@@ -552,6 +552,8 @@ def build_section(vertices, surfaces, step=0.0, vmode=VMODE_ASPECT,
                 n_degenerate += 1
             runs.append({"i0": i0, "i1": i1, "ring2d": ring,
                          "ring3d": bed_ring_3d(xs, ys, ztop, zbot, i0, i1),
+                         "quads3d": bed_wall_quads(xs, ys, ztop, zbot,
+                                                   i0, i1),
                          "degenerate": bad})
         beds.append({"bed": k + 1, "top": names[k], "bot": names[k + 1],
                      "t_mean": t_mean, "runs": runs})
@@ -995,4 +997,38 @@ def chain_segments(segs, tol=1e-6):
             gap = 0.0 if closed else math.hypot(pts[0][0] - pts[-1][0],
                                                 pts[0][1] - pts[-1][1])
             out.append({"pts": pts, "closed": closed, "gap": gap})
+    return out
+
+
+def bed_wall_quads(xs, ys, ztop, zbot, i0, i1):
+    """Стенка пласта четырёхугольниками: по одному на звено трассы.
+
+    Возвращает список колец по четыре точки (плюс замыкающая), каждое в
+    своей вертикальной плоскости.
+
+    Одним кольцом стенку отдавать нельзя. Кольцо «верх слева направо, низ
+    обратно» выходит длинным и сильно невыпуклым, а движки сцены
+    триангулируют такое веером от первой вершины: получаются перекрытия и
+    дырки. На чертеже этого не видно - там полигон плоский и рисуется
+    заливкой, - а в трёхмерной сцене разрез выглядит дырявым.
+
+    Четырёхугольник на звено плоский по построению: два соседних узла
+    трассы задают вертикальную плоскость, и обе отметки лежат в ней. Любая
+    триангуляция такого четырёхугольника верна.
+    """
+    out = []
+    for i in range(i0, i1):
+        j = i + 1
+        x0, y0 = float(xs[i]), float(ys[i])
+        x1, y1 = float(xs[j]), float(ys[j])
+        zt0, zt1 = float(ztop[i]), float(ztop[j])
+        zb0, zb1 = float(zbot[i]), float(zbot[j])
+        if not all(np.isfinite(v) for v in (zt0, zt1, zb0, zb1)):
+            continue
+        if x0 == x1 and y0 == y1:          # нулевое звено: стенки не будет
+            continue
+        quad = [(x0, y0, zt0), (x1, y1, zt1),
+                (x1, y1, zb1), (x0, y0, zb0)]
+        quad.append(quad[0])
+        out.append(quad)
     return out

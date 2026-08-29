@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.12.0
+version=5.12.3
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,27 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.12.0
+changelog=5.12.3
+    - Забор 3D из 4.01 больше не дырявый в сцене. Стенка пласта отдавалась
+      одним кольцом «верх туда, низ обратно»: оно длинное и сильно
+      невыпуклое, а движки сцены триангулируют такое веером от первой
+      вершины. Теперь стенка режется по звеньям трассы, и каждый
+      четырёхугольник плоский по построению - любая триангуляция верна.
+      На чертеже проблемы не было: там полигон плоский и рисуется заливкой.
+    5.12.2
+    - У полос разреза 4.01 появилось поле color: цвет пласта лежит прямо в
+      данных шестнадцатеричной строкой. Символику слоя читают не все
+      потребители, и трёхмерная сцена красила забор своим цветом, хотя
+      цвет пласта был известен. Поле переживает экспорт и передачу.
+    5.12.1
+    - Забор 3D из 4.01 красится теми же категориями пластов, что чертёж.
+      Стенки строились по каждому пласту, код пласта лежал в атрибутах, но
+      цвет вешался только на чертёжный слой: в сцене разрез выходил
+      одноцветным и читался как ограждение, а не как геология.
+    - 4.10 «Пример для разреза» сообщает о ходе работы и слушает отмену.
+      Раньше он молчал до конца, и долгая работа была неотличима от
+      зависания.
+    5.12.0
     - Чистка модуля. Убраны неиспользуемые импорты и мёртвые присваивания
       в семи файлах, включая лишнюю копию массива в 1.03 и вычисление
       выборок в демо-инструменте, результат которого никуда не шёл.

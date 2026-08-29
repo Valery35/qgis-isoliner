@@ -481,6 +481,50 @@ class ChildToolsBatch(_unittest.TestCase):
         self.assertIn("tris = []", body)
         self.assertIn("n_tri += _emit(tris, sname, extra)", body)
 
+    def test_fence_3d_is_coloured_like_the_drawing(self):
+        """Забор в сцене красится теми же категориями, что чертёж.
+
+        Стенки строятся по каждому пласту, и код пласта лежит в атрибутах,
+        но категории вешались только на чертёжный слой. В сцене разрез
+        выходил одноцветным и читался как ограждение, а не как геология.
+        """
+        body = self._code_only(self._cls("SectionAlgorithm"))
+        assert body.count("_attach_categories(") >= 2, \
+            "категории должны вешаться и на чертёж, и на забор 3D"
+        i2d = body.index("dest2d")
+        i3d = body.index("dest3d")
+        tail = body[min(i2d, i3d):]
+        assert "dest3d" in tail and '"top", bcats' in tail
+        # список категорий обязан существовать до обоих применений
+        assert body.index("bcats = []") < body.index("_attach_categories(")
+
+    def test_beds_carry_their_colour_in_the_data(self):
+        """Цвет полосы лежит в атрибутах, а не только в символике.
+
+        Символику слоя читают не все потребители: трёхмерная сцена красит
+        по своему правилу, и забор выходил серым, хотя цвет пласта был
+        известен. Поле переживает и экспорт, и передачу подрядчику.
+        """
+        body = self._code_only(self._cls("SectionAlgorithm"))
+        assert 'QgsField("color"' in body
+        assert "bed_color[top_name]" in body
+        assert "bed_color.get(tname" in body
+        # словарь заполняется во всех трёх ветках выбора цвета
+        assert body.count("bed_color[top_name] =") == 3
+        assert body.count("bcats.append(") == 3
+
+    def test_fence_3d_is_built_from_quads(self):
+        """Забор собирается четырёхугольниками звеньев, а не одним кольцом.
+
+        Одно длинное кольцо сильно невыпукло, и сцена триангулирует его
+        веером от первой вершины: разрез выходит дырявым. На чертеже это
+        не видно - там полигон плоский и рисуется заливкой.
+        """
+        body = self._code_only(self._cls("SectionAlgorithm"))
+        assert 'run.get("quads3d")' in body
+        assert "QgsMultiPolygon()" in body
+        assert "MultiPolygonZ" in body
+
 
 if __name__ == "__main__":
     _run_all()

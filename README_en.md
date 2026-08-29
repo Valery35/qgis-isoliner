@@ -327,6 +327,9 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.12.3** — the 3D fence of 4.01 is split by the links of the trace: the gaps between the bands, caused by fan triangulation of one long non-convex ring, are gone from the scene.
+- **5.12.2** — the bands of 4.01 now carry a `color` field: the scene and outside consumers take the colour from the data instead of parsing the layer symbology.
+- **5.12.1** — the 3D fence of 4.01 is coloured by the same bed categories as the drawing: the section in the scene is no longer of a single colour.
 - **5.12.0** — a clean-up of the module: unused imports and dead assignments are gone, and the translation check now scans the whole package - it used to look at five files out of thirty and missed the strings of the windows entirely.
 - **5.11.2** — lower and upper bounds of the result are now set for 1.12: a grade is never negative, while a smooth surface between measurements overshoots the range. The log shows how much of the area was cut and how far it went.
 - **5.11.1** — the order of the axes when building the raster is fixed in 1.12: the values were taken from the wrong place. The style that made the layer black is removed.
