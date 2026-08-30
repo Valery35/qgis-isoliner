@@ -5868,8 +5868,12 @@ class MbaGridAlgorithm(IsolinerAlgorithm):
 
         lo = [rect.xMinimum(), rect.yMinimum()]
         hi = [rect.xMaximum(), rect.yMaximum()]
+        # Тренд снимается всегда. Коэффициент решётки линеен по значению,
+        # поэтому на данных, далёких от нуля, ошибка растёт вместе с самой
+        # величиной: в дыре внутри облака точек поверхность ныряет к нулю.
+        # Где значения около нуля, снятие тренда не меняет ничего.
         lattices = _mba.fit(pts, vals, lo=lo, hi=hi, grid=(gx, gy),
-                            levels=levels,
+                            levels=levels, center="plane",
                             tol=(tol if tol > 0 else None), progress=_step)
         feedback.setProgress(75)
 
@@ -5907,8 +5911,10 @@ class MbaGridAlgorithm(IsolinerAlgorithm):
                 feedback.pushWarning(_tr(
                     "К границам прижата десятая часть площади и больше. Там "
                     "поверхность не оценена, а срезана: замеров рядом нет, и "
-                    "сплайн уходит куда угодно. Уменьшите число уровней, "
-                    "возьмите решётку грубее или сузьте охват."))
+                    "сплайн уходит куда угодно. Смотрите на пустые места "
+                    "внутри облака точек и на края: решётка грубее растянет "
+                    "влияние замеров дальше, но дыру размером с несколько "
+                    "ячеек этим не закрыть - там нужны данные."))
 
         rep = _mba.levels_report(lattices, pts, vals)
         last = rep[-1]

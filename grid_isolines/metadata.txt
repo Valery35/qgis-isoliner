@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.12.3
+version=5.12.4
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,19 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.12.3
+changelog=5.12.4
+    - 1.12 снимает тренд плоскостью перед подгонкой. Коэффициент решётки
+      линеен по значению, поэтому на данных, далёких от нуля, ошибка
+      росла вместе с самой величиной: в дыре внутри облака точек
+      поверхность ныряла к нулю. На рельефе около двухсот метров с пустым
+      кругом посередине промах был 30 м, стал меньше метра. Числом
+      уровней это не лечилось.
+    - Тренд возвращается в коэффициенты нулевого уровня, поэтому оценка
+      остаётся в абсолютных значениях. Плоскость воспроизводится точно.
+    - Предупреждение об обрезке к границам больше не советует убавить
+      уровни: в случае дыры внутри облака это не помогает, там нужны
+      данные.
+    5.12.3
     - Забор 3D из 4.01 больше не дырявый в сцене. Стенка пласта отдавалась
       одним кольцом «верх туда, низ обратно»: оно длинное и сильно
       невыпуклое, а движки сцены триангулируют такое веером от первой

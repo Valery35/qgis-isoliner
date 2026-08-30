@@ -327,6 +327,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.12.4** — MBA (1.12) removes a trend before the fit: on data far from zero the surface dived towards zero in empty places inside the cloud of points, and the number of levels did not cure it. The error in the test void dropped from 30 m to a metre.
 - **5.12.3** — the 3D fence of 4.01 is split by the links of the trace: the gaps between the bands, caused by fan triangulation of one long non-convex ring, are gone from the scene.
 - **5.12.2** — the bands of 4.01 now carry a `color` field: the scene and outside consumers take the colour from the data instead of parsing the layer symbology.
 - **5.12.1** — the 3D fence of 4.01 is coloured by the same bed categories as the drawing: the section in the scene is no longer of a single colour.

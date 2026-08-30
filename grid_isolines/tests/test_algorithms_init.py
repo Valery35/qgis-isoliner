@@ -1127,3 +1127,25 @@ def test_no_local_shadows_the_upper_elevation():
         t = line.strip()
         if t.startswith("top =") and "parameterAsDouble" not in t:
             raise AssertionError("имя top переопределено: %s" % t)
+
+def test_mba_tool_removes_the_trend():
+    """1.12 снимает тренд плоскостью, и это не настройка.
+
+    Коэффициент решётки линеен по значению: на данных, далёких от нуля,
+    ошибка растёт вместе с самой величиной, и в дыре внутри облака точек
+    поверхность ныряет к нулю. Где значения около нуля, снятие тренда не
+    меняет ничего, поэтому поля в форме для него нет.
+    """
+    import ast
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(here, "algorithms.py"), encoding="utf-8") as f:
+        src = f.read()
+    tree = ast.parse(src)
+    body = None
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == "MbaGridAlgorithm":
+            body = ast.get_source_segment(src, node)
+    assert body is not None, "класс MbaGridAlgorithm не найден"
+    code = "\n".join(l for l in body.split("\n")
+                     if not l.lstrip().startswith("#"))
+    assert 'center="plane"' in code

@@ -1226,6 +1226,16 @@ The initial lattice sets the radius of influence: the coarser it is, the further
 
 The number of levels controls the smoothness. Every level is twice as detailed and twice as close to the data: one or two give a smooth trend, eight and more sit the surface on the measurements.
 
+### Removing the trend
+
+A coefficient of the lattice is computed by a formula linear in the value. So the error grows with the **magnitude** of the elevation rather than with its spread. Where the support is one-sided - the edge of the area or an empty place inside the cloud of points - the denominator is small and the coefficient flies apart in proportion to the elevation itself: the surface dives towards zero in the void.
+
+The number of levels does not cure it: every next level inherits the same trouble. On a test terrain of about two hundred metres with an empty circle of radius 250 m the error inside the circle reached 30 m, and at its centre 169 came out instead of 199.
+
+So the tool removes a trend by a plane before the fit and returns it into the coefficients of the zero level. The error in the same void becomes less than a metre. There is no setting for this: where the values are near zero, removing the trend changes nothing, and where they are far it removes an error proportional to the magnitude itself.
+
+It follows that **clipping by the convex hull and the bounds of the result do not cure a void inside the cloud**. The hull cuts off what lies outside, and the bounds turn a pit into a flat patch at the level of the bound. There is nothing to restore the shape from: an empty place needs data.
+
 ### What it does not give
 
 Neither an error of the estimate, nor a model of covariance, nor weights that can be shown. This is an approximator rather than an estimator: it does not know how good its answer is. Cross-validation of the method (1.08) and a map of the error do not apply to it. Hence the main use in exploration: **build a trend with it and refine the residuals by kriging** - there is kriging with an external trend for that.
@@ -2625,7 +2635,7 @@ All the section layers carry two common fields: **sec** with the section name an
 | zmin, zmax | The elevation range of the drawing. |
 | ox, oy | Offset of the drawing in the layout. Zero for a single section. |
 
-**Section (3D fence)** - vertical PolygonZ polygons along the trace, one per bed:
+**Section (3D fence)** - vertical MultiPolygonZ walls along the trace, one per bed:
 
 | Field | What it holds |
 |---|---|
@@ -2634,6 +2644,11 @@ All the section layers carry two common fields: **sec** with the section name an
 | top, bot | Names of the roof and bottom surfaces. |
 | t_mean | Mean bed thickness along the trace, m. |
 | seclen | Trace length, m. |
+| color | The colour of the bed as `#RRGGBB`, the same as on the drawing. |
+
+A wall is split by the links of the trace: one panel per link, all of them collected into a single multipart feature. A wall must not be given as one ring: a ring of «top one way, bottom back» comes out long and strongly non-convex, and 3D engines triangulate such a ring by a fan from the first vertex - the section then looks full of holes. The quadrilateral of a link is planar by construction, because two neighbouring nodes define a vertical plane and both elevations lie in it.
+
+The colour of a bed travels by two ways at once: as categories on the layer, like on the drawing, and as the `color` field in the attributes. Symbology is not read by every consumer - a 3D scene colours by its own rule, and a contractor has no access to QGIS symbology at all - so the colour is duplicated in the data.
 
 **Section corner points**: sec and sec_id, num (corner number), name (УГ-1, УГ-2, …), pos (top or bottom), d (station, m), x and y (map coordinates), az (azimuth of the next leg), label (a ready-made label). **Horizontal axes**: sec, sec_id, elev (axis elevation, m) and label. **Corner table**: sec, sec_id, kind (row type) and text (cell content).
 

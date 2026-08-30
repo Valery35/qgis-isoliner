@@ -2,7 +2,7 @@
 
 You need no data of your own. In every scenario the first step creates or downloads the data itself, so the route can be walked on an empty project.
 
-The module holds 48 tools, and that is daunting at first sight. Start with five: **1.02**, **1.04**, **2.03**, **2.13** and **4.01**. The rest will find you when a task calls for it.
+The module holds 70 tools, and that is daunting at first sight. Start with five: **1.02**, **1.04**, **2.03**, **2.13** and **4.01**. The rest will find you when a task calls for it.
 
 After every step there is a line saying what should come out. If something else came out, that is the place to stop and look into it rather than to move on.
 

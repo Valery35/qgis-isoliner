@@ -164,9 +164,78 @@ class Lattice(object):
         return (flat[idx] * w).sum(axis=1)
 
 
+def _trend(pts, vals, mode):
+    """Тренд, снимаемый перед подгонкой: (значения тренда, описание).
+
+    Коэффициент решётки считается формулой, линейной по значению:
+    phi = w * v / sum(w^2). Значит ошибка растёт вместе с ВЕЛИЧИНОЙ
+    отметки, а не с её разбросом. Там, где носитель односторонний - край
+    области, дыра внутри облака точек, - знаменатель мал, и коэффициент
+    разлетается пропорционально самой отметке: поверхность в дыре ныряет
+    к нулю. Числом уровней это не лечится, потому что каждый следующий
+    уровень наследует ту же беду.
+
+    Отсюда правило: подгонять надо остаток от тренда, а не сами отметки.
+    Рельеф около двухсот метров с дырой посередине даёт без снятия тренда
+    промах в тридцать метров, со снятием - меньше метра.
+    """
+    if mode is None or mode == "none":
+        return np.zeros(vals.shape), "none"
+    if mode == "mean":
+        m = float(np.mean(vals))
+        return np.full(vals.shape, m), ("mean", m)
+    if mode != "plane":
+        raise ValueError("Неизвестный способ снятия тренда: %r" % (mode,))
+
+    ndim = pts.shape[1]
+    a = np.column_stack([pts, np.ones(pts.shape[0])])
+    coef, _res, rank, _sv = np.linalg.lstsq(a, vals, rcond=None)
+    if rank < ndim + 1:
+        # вырожденная сеть: точек меньше, чем неизвестных, или все на
+        # одной прямой. Плоскость по таким данным не определена, и её
+        # коэффициенты уедут; среднее устоит всегда.
+        m = float(np.mean(vals))
+        return np.full(vals.shape, m), ("mean", m)
+    return a @ coef, ("plane", coef)
+
+
+def _plane_into_level(lat, trend):
+    """Возвращает снятый тренд в коэффициенты решётки нулевого уровня.
+
+    Решётка воспроизводит плоскость ТОЧНО, если коэффициент взять
+    в его собственной точке: lo + (j - 1) * step по каждой оси. Кубический
+    B-сплайн - разбиение единицы, и на линейной функции сумма весов с
+    такими коэффициентами даёт её же.
+
+    Так тренд возвращается один раз, внутрь модели, и наружу ничего не
+    протекает: evaluate, surface_on_grid и levels_report остаются в
+    абсолютных значениях, а вызывающей стороне править нечего.
+    """
+    if trend == "none" or trend is None:
+        return
+    grids = np.meshgrid(*[lat.lo[d] + (np.arange(lat.shape[d]) - 1)
+                          * lat.step[d] for d in range(lat.ndim)],
+                        indexing="ij")
+    kind, value = trend
+    if kind == "plane":
+        add = np.zeros(lat.shape)
+        for d in range(lat.ndim):
+            add = add + value[d] * grids[d]
+        add = add + value[lat.ndim]
+    else:                                          # среднее
+        add = np.full(lat.shape, float(value))
+    lat.coef = lat.coef + add
+
+
 def fit(pts, vals, lo=None, hi=None, grid=(2, 2), levels=8, tol=None,
-        progress=None):
+        progress=None, center=None):
     """Строит поверхность MBA и возвращает список решёток по уровням.
+
+    `center` - снятие тренда перед подгонкой: None или "none" не снимать,
+    "mean" среднее, "plane" плоскость наименьшими квадратами. Тренд
+    возвращается в коэффициенты нулевого уровня, поэтому оценка остаётся
+    в абсолютных значениях. См. `_trend`: без снятия ошибка растёт вместе
+    с величиной отметки, а не с её разбросом.
 
     `grid` - число ячеек начальной решётки по каждой оси. Оно и задаёт
     радиус влияния: чем крупнее ячейка, тем дальше расходится замер.
@@ -202,8 +271,10 @@ def fit(pts, vals, lo=None, hi=None, grid=(2, 2), levels=8, tol=None,
     if grid.size != ndim:
         raise ValueError("Размер начальной решётки должен быть по числу осей.")
 
+    trend_vals, trend = _trend(pts, vals, center)
+
     lattices = []
-    resid = vals.copy()
+    resid = vals - trend_vals
     n = grid.copy()
     for lvl in range(max(1, int(levels))):
         lat = Lattice(lo, hi, n).fit(pts, resid)
@@ -215,6 +286,9 @@ def fit(pts, vals, lo=None, hi=None, grid=(2, 2), levels=8, tol=None,
         if tol is not None and worst <= float(tol):
             break
         n = n * 2
+
+    if lattices:
+        _plane_into_level(lattices[0], trend)
     return lattices
 
 

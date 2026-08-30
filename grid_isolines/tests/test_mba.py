@@ -306,3 +306,114 @@ def test_clamp_reports_how_far_it_went():
     _out, rep = mba.clamp(a, 0.0, 100.0)
     assert rep["worst_low"] == 30.0
     assert rep["worst_high"] == 20.0
+
+
+# --- снятие тренда -------------------------------------------------------
+
+def _hole_case():
+    """Рельеф около двухсот метров с пустым кругом посередине.
+
+    Дыра внутри облака точек - это не край области: обрезка выпуклой
+    оболочкой её не трогает, и поверхность там видна как есть.
+    """
+    rng = np.random.default_rng(17)
+    pts = rng.uniform(0, 2000, (600, 2))
+    pts = pts[np.hypot(pts[:, 0] - 1000, pts[:, 1] - 1000) > 250]
+
+    def truth(x, y):
+        return 200.0 + 15 * np.sin(x / 400.0) + 10 * np.cos(y / 350.0)
+
+    vals = truth(pts[:, 0], pts[:, 1])
+    gx, gy = np.meshgrid(np.linspace(0, 2000, 121),
+                         np.linspace(0, 2000, 121), indexing="ij")
+    grid = np.column_stack([gx.ravel(), gy.ravel()])
+    hole = np.hypot(grid[:, 0] - 1000, grid[:, 1] - 1000) <= 250
+    return pts, vals, grid, truth(grid[:, 0], grid[:, 1]), hole
+
+
+def test_hole_inside_the_cloud_is_ruined_without_centring():
+    """Без снятия тренда поверхность в дыре ныряет к нулю.
+
+    Держит причину правки: коэффициент решётки линеен по значению, и на
+    данных, далёких от нуля, ошибка растёт вместе с самой величиной, а не
+    с её разбросом. Числом уровней это не лечится.
+    """
+    pts, vals, grid, ref, hole = _hole_case()
+    lat = mba.fit(pts, vals, grid=(8, 8), levels=5, center=None)
+    err = np.abs(mba.evaluate(lat, grid) - ref)
+    assert float(err[hole].max()) > 25.0
+
+
+def test_centring_fixes_the_hole():
+    """Со снятием тренда промах в дыре меньше метра."""
+    pts, vals, grid, ref, hole = _hole_case()
+    for mode in ("mean", "plane"):
+        lat = mba.fit(pts, vals, grid=(8, 8), levels=5, center=mode)
+        err = np.abs(mba.evaluate(lat, grid) - ref)
+        assert float(err[hole].max()) < 1.0, mode
+
+
+def test_plane_is_reproduced_by_the_zero_level_alone():
+    """Плоскость воспроизводится точно одним нулевым уровнем.
+
+    Тренд возвращается в коэффициенты решётки, взятые в их собственных
+    точках. Кубический B-сплайн - разбиение единицы, поэтому на линейной
+    функции сумма даёт её же.
+    """
+    rng = np.random.default_rng(3)
+    pts = rng.uniform(0, 100, (50, 2))
+    vals = 5.0 + 0.3 * pts[:, 0] - 0.2 * pts[:, 1]
+    lat = mba.fit(pts, vals, grid=(2, 2), levels=1, center="plane")
+    assert len(lat) == 1
+    assert np.max(np.abs(mba.evaluate(lat, pts) - vals)) < 1e-9
+    probe = rng.uniform(10, 90, (20, 2))
+    ref = 5.0 + 0.3 * probe[:, 0] - 0.2 * probe[:, 1]
+    assert np.max(np.abs(mba.evaluate(lat, probe) - ref)) < 1e-9
+
+
+def test_evaluation_stays_absolute_after_centring():
+    """Наружу выходят абсолютные значения, а не остаток от тренда.
+
+    Тренд возвращён внутрь модели, поэтому evaluate, surface_on_grid и
+    levels_report правки не требуют.
+    """
+    pts, vals, _grid, _ref, _hole = _hole_case()
+    lat = mba.fit(pts, vals, grid=(8, 8), levels=6, center="plane")
+    got = mba.evaluate(lat, pts)
+    assert abs(float(np.mean(got)) - float(np.mean(vals))) < 1.0
+    rep = mba.levels_report(lat, pts, vals)
+    assert rep[-1]["rms"] < 1.0
+    gt = (0.0, 20.0, 0.0, 2000.0, 0.0, -20.0)
+    surf = mba.surface_on_grid(lat, gt, 100, 100)
+    assert 150.0 < float(np.nanmean(surf)) < 250.0
+
+
+def test_degenerate_network_falls_back_to_the_mean():
+    """Точки на одной прямой: плоскость не определена, берётся среднее."""
+    line = np.column_stack([np.linspace(0, 100, 20), np.zeros(20)])
+    vals = 50.0 + line[:, 0] * 0.1
+    lat = mba.fit(line, vals, grid=(2, 2), levels=3, center="plane")
+    got = mba.evaluate(lat, line)
+    assert np.all(np.isfinite(got))
+    assert abs(float(np.mean(got)) - float(np.mean(vals))) < 1.0
+
+
+def test_unknown_centring_is_refused():
+    """Неизвестное имя способа - отказ, а не молчаливое «не снимать»."""
+    pts = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+    vals = np.array([1.0, 2.0, 3.0, 4.0])
+    try:
+        mba.fit(pts, vals, center="linear")
+    except ValueError as exc:
+        assert "linear" in str(exc)
+    else:
+        raise AssertionError("неизвестный способ должен быть отказом")
+
+
+def test_centring_none_keeps_the_old_behaviour():
+    """Умолчание не изменилось: без параметра тренд не снимается."""
+    pts, vals, grid, _ref, _hole = _hole_case()
+    a = mba.evaluate(mba.fit(pts, vals, grid=(8, 8), levels=4), grid)
+    b = mba.evaluate(mba.fit(pts, vals, grid=(8, 8), levels=4,
+                             center="none"), grid)
+    assert np.allclose(a, b)
