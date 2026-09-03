@@ -327,6 +327,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.12.8** — the terrain preparation and hydrology tools no longer report that the result may be incomplete. The log now shows that the depression fill has converged and after how many passes. The elevations are unchanged.
 - **5.12.7** — the Russian texts of the variogram tools no longer use the loanword «лаг»; the labels now read «number of steps» and «max distance». Evaluative comparisons are removed from the manual. The English texts are unchanged.
 - **5.12.6** — the surface graft (1.11) reports empty cells in the result when the regional surface does not cover the given extent.
 - **5.12.5** — the «do not remove» mode of the surface graft (1.11) now works: it used to correct the height silently instead of leaving it as it is.

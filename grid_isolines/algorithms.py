@@ -6243,7 +6243,7 @@ class SurfaceGraftAlgorithm(IsolinerAlgorithm):
                                 shift_mode=mode)
 
         if rep.get("warning"):
-            feedback.reportError(rep["warning"], fatalError=False)
+            feedback.pushWarning(rep["warning"])
         else:
             feedback.pushInfo(_tr(
                 "Кольцо перекрытия: %d ячеек. Расхождение до поправки: "
@@ -10837,8 +10837,12 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
         # служебной колонкой, QGIS дубликат не создаёт, и значения
         # съезжают в соседние. На живом прогоне это выглядело так: app_exp
         # показывал 25 у всех трёх объектов, туда попадало значение dip.
+        # fid здесь же: служебный ключ исходного слоя, попав в выход
+        # обычной колонкой, сталкивается с ключом GeoPackage, и запись
+        # падает на UNIQUE constraint failed. Через reserved он
+        # переименуется, как и одноимённые поля выше.
         reserved = ("sec", "sec_id", "src", "label", "d", "z", "d1", "d2",
-                    "dip", "dip_az", "app_dip")
+                    "dip", "dip_az", "app_dip", "fid")
         extra_names, extra_maps, extra_defs, origin = [], {}, [], []
         if keep:
             per_layer = [[f.name() for f in lyr.fields()]
@@ -12151,8 +12155,15 @@ class ShaftUnwrapAlgorithm(IsolinerAlgorithm):
         x0 = y0 = None
         for ft in asrc.getFeatures():
             g = ft.geometry()
-            if g is not None and not g.isEmpty():
-                p = g.asPoint(); x0, y0 = p.x(), p.y(); break
+            if g is None or g.isEmpty():
+                continue
+            # без этой проверки разбор точки роняет расчёт трейсбеком
+            if g.type() != QgsWkbTypes.GeometryType.PointGeometry:
+                raise QgsProcessingException(self.tr(
+                    "В поле «Ось ствола» подан не точечный слой. "
+                    "Нужна точка устья: вокруг неё разворачивается "
+                    "стенка ствола."))
+            p = g.asPoint(); x0, y0 = p.x(), p.y(); break
         if x0 is None:
             raise QgsProcessingException(self.tr("В слое оси нет точки."))
 

@@ -31,6 +31,16 @@ def has_no_interior_pit(z, mask=None):
     return True
 
 
+class _Feedback(object):
+    """Заглушка обратной связи Processing: копит строки."""
+
+    def __init__(self):
+        self.messages = []
+
+    def pushInfo(self, text):
+        self.messages.append(text)
+
+
 class TestFill(unittest.TestCase):
 
     def test_single_pit_filled_eps_zero(self):
@@ -143,6 +153,29 @@ class TestFill(unittest.TestCase):
         self.assertTrue(has_no_interior_pit(filled))
         # Заполнение никогда не опускает рельеф.
         self.assertTrue(np.all(filled >= z - 1e-12))
+
+    def test_convergence_is_reported_on_ordinary_relief(self):
+        # Сходимость должна распознаваться, а не упираться в предел проходов.
+        # Флаг грязных линий у крайней линии каждого направления снимается,
+        # иначе цикл всегда доходит до max_passes и печатает предупреждение.
+        rng = np.random.default_rng(42)
+        z = rng.uniform(0.0, 100.0, size=(60, 60))
+        fb = _Feedback()
+        fill_depressions(z, epsilon=0.001, feedback=fb)
+        joined = " ".join(fb.messages)
+        self.assertIn("сошлось", joined)
+        self.assertNotIn("предел", joined)
+
+    def test_result_independent_of_pass_limit(self):
+        # Раз заполнение сходится, потолок проходов на результат не влияет.
+        rng = np.random.default_rng(11)
+        z = rng.uniform(0.0, 100.0, size=(50, 50))
+        f_low, n_low, m_low = fill_depressions(z, epsilon=0.001,
+                                               max_passes=100)
+        f_high, n_high, m_high = fill_depressions(z, epsilon=0.001,
+                                                  max_passes=1000)
+        self.assertTrue(np.array_equal(f_low, f_high))
+        self.assertEqual((n_low, m_low), (n_high, m_high))
 
     def test_bad_input(self):
         with self.assertRaises(ValueError):

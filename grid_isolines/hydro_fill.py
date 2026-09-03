@@ -84,6 +84,11 @@ def _sweep(ax, other, eps, reverse):
     w, z = ax.w, ax.z
     n = w.shape[0]
     dirty = ax.dirty[1 if reverse else 0]
+    # Крайнюю линию это направление не обходит: сверху вниз недостижима
+    # нулевая, снизу вверх - последняя. Её флаг ничего не означает, и
+    # снимать его надо здесь, иначе он остаётся поднятым навсегда,
+    # сходимость не распознаётся и проходы идут до предела вхолостую.
+    dirty[n - 1 if reverse else 0] = False
     if not dirty.any():
         return 0, []
     lines = range(n - 2, -1, -1) if reverse else range(1, n)
@@ -202,10 +207,13 @@ def fill_depressions(z, nodata_mask=None, epsilon=DEFAULT_EPSILON,
             converged = True
             if feedback:
                 feedback.pushInfo(
-                    "Заполнение сошлось за {} проходов.".format(n_pass))
+                    "Заполнение сошлось, проходов: {}.".format(n_pass))
             break
     if not converged and feedback:
-        feedback.pushInfo(
+        # это предупреждение, а не сводка: заполнение не сошлось.
+        # Не у всякой обратной связи есть pushWarning, отсюда getattr
+        warn = getattr(feedback, "pushWarning", feedback.pushInfo)
+        warn(
             "Достигнут предел {} проходов, результат может быть "
             "неполным на очень сложном рельефе.".format(max_passes))
 
