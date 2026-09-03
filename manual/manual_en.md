@@ -1282,6 +1282,10 @@ It cannot be smoothed away. The edge would smooth out while the whole regional p
 
 The median is taken rather than a mean. Roofs, canopies and single holes fall into the ring, and in radar products those are outliers of tens of metres: a mean would be dragged away by them, a median holds. A tilted plane is needed where the site stretches for tens of kilometres and the correction drifts along it; before the fit the outliers of the ring are cut off by percentiles.
 
+On a constant offset the median and the plane give the **same** result, and that is not an error: a plane fitted over a ring with an unchanging offset degenerates into a constant. The difference between the modes appears only where the offset varies across the area. The correction is reported in the log as a number, and that number shows what is happening.
+
+The third mode, «do not remove», is for when both surfaces are certainly in the same system and a correction would only spoil them - for instance when the detailed and the regional models are computed from the same holes. The median over the ring is still reported in the log: if it is markedly different from zero, it is worth reconsidering.
+
 **A mismatch of shapes at the joint.** Here a weight does the work rather than a hole cut out and interpolated afterwards. Inside the area the weight of the detailed surface is one, beyond the buffer zero, and in the ring a smooth transition by a function with zero slope at both ends. The transition comes out smooth by construction rather than by the fact of smoothing, and no shape invented by interpolation gets into the seam. A linear transition would put a break of slope exactly on the border of the ring - just where hydrologists look for one.
 
 ### The extent and the resolution of the result
@@ -1313,6 +1317,12 @@ The tool reports the number of cells in the overlap, the offset before the corre
 That last pair is the measure of acceptance. If the graft worked, the step at the seam does not stand out against ordinary terrain. On a test scene with an offset of 12.4 m a manual graft left a step of 14.5 m at the seam, while the tool leaves 2.6 m against a field background of 2.55 m. When the seam is markedly larger than the background it is reported in the log as a warning: usually the offset was removed wrongly or the transition is too narrow.
 
 Gaps inside the detailed surface are closed by the regional one, no separate filling is needed.
+
+Hence an important difference from the manual way this task is solved in QGIS: cut a hole in the regional surface by a buffer around the mask, glue the two together and fill the void by interpolation. Here no hole is cut at all and no empty cells appear - in the ring both surfaces are taken with a weight. Interpolation in a hole would invent a shape that is not in the data, while a weight takes what already exists on both sides and changes their share.
+
+And the main point: the step at the seam comes not from the way of gluing but from the systematic offset between the products. If it is not removed, the seam stays as high as the whole datum, whatever the hole is filled with. On a test scene closing the hole with the regional surface without removing the offset gives a step of 14.4 m, while the graft with the correction gives 1.62 m against a terrain background of 2.18 m.
+
+If empty cells do end up in the result, their count is reported in the log. A cell can be empty only where neither of the two surfaces exists: usually the regional one does not cover the given extent.
 
 ## Topography: terrain from open data
 

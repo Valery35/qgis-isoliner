@@ -327,6 +327,9 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.12.7** — the Russian texts of the variogram tools no longer use the loanword «лаг»; the labels now read «number of steps» and «max distance». Evaluative comparisons are removed from the manual. The English texts are unchanged.
+- **5.12.6** — the surface graft (1.11) reports empty cells in the result when the regional surface does not cover the given extent.
+- **5.12.5** — the «do not remove» mode of the surface graft (1.11) now works: it used to correct the height silently instead of leaving it as it is.
 - **5.12.4** — MBA (1.12) removes a trend before the fit: on data far from zero the surface dived towards zero in empty places inside the cloud of points, and the number of levels did not cure it. The error in the test void dropped from 30 m to a metre.
 - **5.12.3** — the 3D fence of 4.01 is split by the links of the trace: the gaps between the bands, caused by fan triangulation of one long non-convex ring, are gone from the scene.
 - **5.12.2** — the bands of 4.01 now carry a `color` field: the scene and outside consumers take the colour from the data instead of parsing the layer symbology.

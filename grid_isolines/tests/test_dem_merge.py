@@ -272,3 +272,55 @@ def test_wrapper_clips_to_the_target_frame():
     body = _graft_source()
     assert "outputBounds" in body
     assert "xRes" in body and "yRes" in body
+
+
+def test_three_modes_differ_on_a_tilted_offset():
+    """Медиана, плоскость и «не снимать» дают три разных ответа.
+
+    Проверка держит две вещи сразу. Первая: режимы вообще доходят до
+    расчёта. Вторая: «не снимать» действительно не снимает - раньше он
+    уходил в ветку медианы и молча правил высоту.
+    """
+    rng = np.random.default_rng(5)
+    ny = nx = 200
+    y, x = np.mgrid[0:ny, 0:nx]
+    truth = 0.05 * x + 20 * np.sin(x / 60.0) * np.cos(y / 50.0)
+    survey = np.zeros((ny, nx), dtype=bool)
+    survey[60:150, 60:150] = True
+    mask = np.zeros((ny, nx), dtype=bool)
+    mask[70:140, 70:140] = True
+    fine = np.where(survey, truth, np.nan)
+    coarse = truth + 12.0 + 0.05 * x + rng.normal(0, 0.2, (ny, nx))
+
+    out, rep = {}, {}
+    for mode in ("median", "plane", "none"):
+        out[mode], rep[mode] = dm.merge(fine, coarse, mask, width_px=10.0,
+                                        shift_mode=mode)
+        assert rep[mode]["mode"] == mode, mode
+
+    assert np.nanmax(np.abs(out["median"] - out["plane"])) > 1.0
+    assert np.nanmax(np.abs(out["median"] - out["none"])) > 5.0
+    # «не снимать» оставляет расхождение как есть
+    assert abs(rep["none"]["after"]["median"] - rep["none"]["median"]) < 1e-9
+    assert rep["none"]["corr_min"] == 0.0 and rep["none"]["corr_max"] == 0.0
+
+
+def test_constant_offset_makes_median_and_plane_agree():
+    """На постоянной невязке плоскость вырождается в константу.
+
+    Это не ошибка и не повод искать разницу: одинаковый ответ у двух
+    режимов означает, что расхождение по площади не меняется.
+    """
+    rng = np.random.default_rng(8)
+    ny = nx = 200
+    y, x = np.mgrid[0:ny, 0:nx]
+    truth = 15 * np.sin(x / 55.0) + 10 * np.cos(y / 45.0)
+    survey = np.zeros((ny, nx), dtype=bool)
+    survey[60:150, 60:150] = True
+    mask = np.zeros((ny, nx), dtype=bool)
+    mask[70:140, 70:140] = True
+    fine = np.where(survey, truth, np.nan)
+    coarse = truth + DATUM + rng.normal(0, 0.2, (ny, nx))
+    a, _ra = dm.merge(fine, coarse, mask, width_px=10.0, shift_mode="median")
+    b, _rb = dm.merge(fine, coarse, mask, width_px=10.0, shift_mode="plane")
+    assert np.nanmax(np.abs(a - b)) < 0.1

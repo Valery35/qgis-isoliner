@@ -1149,18 +1149,18 @@ def _warn_fit_quality(feedback, fit, r2_min=0.1, nug_max=0.5):
 
 
 def _report_nugget_pairs(feedback, xs, ys, vs, ev, data_var, top=5):
-    """Кто именно поднял наггет: первый лаг и пары-виновники поимённо.
+    """Кто именно поднял наггет: первый шаг и пары-виновники поимённо.
 
     В разреженной сети наггет обычно задают единицы пар, а не облако точек.
-    Печатаем размер первого лага, число пар в нём и сравнение с дисперсией,
-    затем самые тяжёлые пары внутри этого лага с координатами и значениями -
+    Печатаем размер первого шага, число пар в нём и сравнение с дисперсией,
+    затем самые тяжёлые пары внутри этого шага с координатами и значениями -
     по координатам пару находят на карте за секунду.
     """
     if feedback is None:
         return
     from .kb2d import nugget_pairs
     # `x or []` на массиве NumPy срывается: `or` проверяет массив на
-    # истинность, а у массива длиннее одного элемента её нет. Пока лаги
+    # истинность, а у массива длиннее одного элемента её нет. Пока шаги
     # приходили списком, это работало, а с массивом расчёт прерывался.
     def _arr(key):
         raw = ev.get(key)
@@ -1172,11 +1172,11 @@ def _report_nugget_pairs(feedback, xs, ys, vs, ev, data_var, top=5):
     h1, g1 = float(lag[0]), float(gam[0])
     n1 = int(npr[0]) if len(npr) else 0
     feedback.pushInfo(_tr(
-        "Первый лаг: h=%.4g, пар %d, γ=%.4g при дисперсии данных %.4g.")
+        "Первый шаг: h=%.4g, пар %d, γ=%.4g при дисперсии данных %.4g.")
         % (h1, n1, g1, data_var))
     if data_var > 0.0 and g1 > data_var:
         feedback.pushWarning(_tr(
-            "На первом лаге разброс уже выше общей дисперсии. Описать это "
+            "На первом шаге разброс уже выше общей дисперсии. Описать это "
             "можно только наггетом, и кригинг после такого подбора будет "
             "возвращать среднее вместо карты."))
     try:
@@ -1185,7 +1185,7 @@ def _report_nugget_pairs(feedback, xs, ys, vs, ev, data_var, top=5):
         return
     if not pairs:
         return
-    feedback.pushInfo(_tr("Пары, формирующие наггет (внутри первого лага):"))
+    feedback.pushInfo(_tr("Пары, формирующие наггет (внутри первого шага):"))
     for _i, _j, dist, vi, vj, g in pairs:
         feedback.pushInfo(_tr(
             "  расстояние %.4g, значения %.4g и %.4g, вклад γ=%.4g "
@@ -1691,7 +1691,7 @@ def _augment_anisotropy(alg, parameters, context, feedback, m):
     Карта оценивает геометрию, а модель, наггет и вклад берутся из
     омнинаправленной вариограммы 1.05. Поэтому строки не перестраиваются
     заново: у выбранного профиля меняются только азимут, коэффициент и,
-    если радиус не упёрся в максимальный лаг, радиус главной оси.
+    если радиус не упёрся в максимальное расстояние, радиус главной оси.
 
     Правится та таблица, которую подали. Это её реестровое назначение, а
     не побочный эффект: создавать копию на каждый прогон значило бы
@@ -5230,7 +5230,7 @@ def _fit_advice(fit, data_var, maxlag=None):
     tips = []
     if not fit:
         return [_tr("Точек экспериментальной вариограммы мало для подбора. "
-                "Увеличьте количество лагов или максимальное расстояние.")]
+                "Увеличьте количество шагов или максимальное расстояние.")]
     name = MODEL_LABELS[fit["model"]].lower()
     total = fit["nugget"] + fit["sill"]
     tips.append(_tr("Рекомендация: модель %s, наггет C0=%.4g, вклад C=%.4g "
@@ -5280,7 +5280,7 @@ def _fit_advice(fit, data_var, maxlag=None):
 
 def _write_variogram_report(path, title, series, data_var, fit, model_curves,
                             advice, meta, cloud=None, feedback=None):
-    """HTML-отчёт по экспериментальной вариограмме: точки по лагам (по группам,
+    """HTML-отчёт по экспериментальной вариограмме: точки по шагам (по группам,
     если задано поле), наложенная модель и подобранная кривая, линия дисперсии
     данных, облако пар (опц.). Без plotly - таблица значений и рекомендация."""
     def _meta_table(rows):
@@ -6251,6 +6251,17 @@ class SurfaceGraftAlgorithm(IsolinerAlgorithm):
                 "медиана %.4g.")
                 % (rep["overlap"], rep["median"], rep["p05"], rep["p95"],
                    rep["after"]["median"]))
+            if rep.get("mode") == "median":
+                feedback.pushInfo(_tr(
+                    "Поправка одним числом: %.4g. Наклонная плоскость на "
+                    "постоянном расхождении даёт то же самое - разница "
+                    "между режимами видна только там, где невязка меняется "
+                    "по площади.") % rep.get("corr_min", 0.0))
+            if rep.get("mode") == "none":
+                feedback.pushInfo(_tr(
+                    "Расхождение не снимается по вашему выбору. В шов оно "
+                    "войдёт как есть: медиана по кольцу %.4g.")
+                    % rep["median"])
             if rep.get("mode") == "plane":
                 feedback.pushInfo(_tr(
                     "Поправка плоскостью: от %.4g до %.4g по полю. Плоскость "
@@ -6264,6 +6275,15 @@ class SurfaceGraftAlgorithm(IsolinerAlgorithm):
                     "Расширьте зону врезки внутрь участка либо увеличьте "
                     "ширину перехода.") % (rep["overlap"], min_overlap),
                     fatalError=False)
+
+        holes = int(np.count_nonzero(~np.isfinite(merged)))
+        if holes:
+            feedback.pushWarning(_tr(
+                "Пустых ячеек в результате: %d (%.1f процента). Пусто там, "
+                "где нет НИ ОДНОЙ из двух поверхностей: обычно региональная "
+                "не покрывает заданный охват. Переход между поверхностями "
+                "пустот не оставляет, он считается весом, а не вырезанием "
+                "дыры.") % (holes, 100.0 * holes / float(nx * ny)))
 
         seam, background = _dm.seam_step(merged, mask, width_px)
         feedback.pushInfo(_tr(
@@ -6732,7 +6752,7 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
     def shortHelpString(self):
         return _help_version(self.tr(
             "Строит изотропную экспериментальную полувариограмму по "
-            "точкам: облако пар усредняется по интервалам расстояния (лагам). "
+            "точкам: облако пар усредняется по шагам расстояния. "
             "Помогает увидеть структуру данных и подобрать вариограмму глазом, "
             "а не угадывать наггет/радиус.\n\n"
             "Поле группировки (необязательно): для каждого значения поля "
@@ -6743,9 +6763,9 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
             "модель. Сохраните их в профиль (поле «Сохранить профиль под "
             "именем») и подставьте в «2D Kriging». Можно наложить уже заданную "
             "модель, чтобы сравнить её с облаком.\n\n"
-            "HTML-отчёт открывается в просмотрщике результатов: точки по лагам, "
+            "HTML-отчёт открывается в просмотрщике результатов: точки по шагам, "
             "модель и подобранная кривая, линия дисперсии данных. Слой-таблица "
-            "(опц.) содержит лаг, γ(h) и количество пар для построения в QGIS."
+            "(опц.) содержит расстояние, γ(h) и количество пар для построения в QGIS."
             "\n\n"
             "**Дописать в таблицу моделей** указывает существующую таблицу, "
             "куда лечь результату. Строки этого профиля заменяются новыми, "
@@ -6764,7 +6784,7 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
             "**Устойчивая оценка (Кресси-Хокинса)** считает полудисперсию по "
             "формуле, которая гасит выбросы. Обычная оценка Матерона возводит "
             "разность пары в квадрат, поэтому одна ураганная проба задирает "
-            "весь лаг, в который она попала. Включайте, когда точки по лагам "
+            "весь шаг, в который она попала. Включайте, когда точки по шагам "
             "скачут без видимой причины, а на исходных данных есть отдельные "
             "резко выделяющиеся значения.\n\n"
             "**Ураганные пробы: перцентиль обрезки** отсекает хвосты "
@@ -6807,7 +6827,7 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.MIN_GROUP_PCT, 2.0),
             minValue=0.0, maxValue=100.0)))
         self.addParameter(QgsProcessingParameterNumber(
-            self.N_LAGS, self.tr("Количество лагов"),
+            self.N_LAGS, self.tr("Количество шагов"),
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.N_LAGS, 15), minValue=3, maxValue=100))
         self.addParameter(QgsProcessingParameterNumber(
@@ -6858,7 +6878,7 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
             QgsProcessing.SourceType.TypeVector, optional=True,
             createByDefault=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
-            self.OUTPUT, self.tr("Таблица вариограммы (лаг, γ, количество пар)"),
+            self.OUTPUT, self.tr("Таблица вариограммы (расстояние, γ, количество пар)"),
             type=QgsProcessing.SourceType.TypeVector, optional=True, createByDefault=True))
         self.addParameter(QgsProcessingParameterFileDestination(
             self.OUTPUT_HTML, self.tr("Отчёт (HTML)"),
@@ -7049,7 +7069,7 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
 
         advice = _fit_advice(fit, data_var, ev["maxlag"]) if do_fit else []
 
-        # таблица-слой (без геометрии): лаг, γ, количество пар, группа
+        # таблица-слой (без геометрии): расстояние, γ, количество пар, группа
         results = {}
         if dest_model is not None:
             results[self.OUT_MODEL] = dest_model
@@ -7080,7 +7100,7 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
         if html_path:
             meta = [(_tr("Поле Z"), zfield), (_tr("Точек"), "%d" % len(xs)),
                     (_tr("Дисперсия данных"), "%.4g" % data_var),
-                    (_tr("Количество лагов"), "%d" % n_lags),
+                    (_tr("Количество шагов"), "%d" % n_lags),
                     (_tr("Максимальное расстояние"), "%.4g" % ev["maxlag"]),
                     (_tr("Оценка"), _tr("Кресси-Хокинса") if robust else _tr("Матерона"))]
             if ev["subsampled"]:
@@ -7157,8 +7177,8 @@ def _write_varmap_report(path, title, m, meta, advice, feedback=None):
                 x=[-rmaj * dx, rmaj * dx], y=[-rmaj * dy, rmaj * dy],
                 mode="lines", line=dict(color="#ff5555", width=2, dash="dash"),
                 name=_tr("главная ось")))
-        fig.update_xaxes(title_text=_tr("лаг по востоку h_x"), zeroline=True)
-        fig.update_yaxes(title_text=_tr("лаг по северу h_y"), zeroline=True,
+        fig.update_xaxes(title_text=_tr("расстояние по востоку h_x"), zeroline=True)
+        fig.update_yaxes(title_text=_tr("расстояние по северу h_y"), zeroline=True,
                          scaleanchor="x", scaleratio=1)
         fig.update_layout(height=640, legend=dict(orientation="h"),
                           margin=dict(l=60, r=20, t=30, b=50))
@@ -7196,7 +7216,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
         return _help_version(self.tr(
             "Строит вариограммную карту - поверхность γ(h_x, h_y): для всех пар "
             "берётся вектор разноса (dx, dy) и полудисперсия 0.5·(Δz)², значения "
-            "усредняются по 2D-сетке лагов. Анизотропия видна как эллипс: "
+            "усредняются по двумерной сетке расстояний. Анизотропия видна как эллипс: "
             "направление, вдоль которого γ растёт медленнее (длиннее радиус), - "
             "ось максимальной непрерывности (для складчатости - простирание).\n\n"
             "В Журнал и в HTML-отчёт выводятся оценки: азимут главной оси "
@@ -7206,7 +7226,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
             "кригинге. Оценка индикативная: уточняйте по самому хитмапу.\n\n"
             "Если структура близка к изотропной или радиус меньше ячейки - "
             "анизотропия не оценивается (помечается «не выражена»).\n\n"
-            "Опц. растр поверхности (в координатах лага, начало в 0,0) - для "
+            "Опц. растр поверхности (в координатах расстояния, начало в 0,0) - для "
             "тех, кто хочет видеть карту на холсте.\n\n"
             "**Модели вариограмм** и **Профиль из таблицы** принимают "
             "таблицу, подобранную в 1.05, и дописывают в неё анизотропию: "
@@ -7244,7 +7264,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.N_BINS, 15), minValue=5, maxValue=40))
         self.addParameter(QgsProcessingParameterNumber(
             self.MAXLAG,
-            self.tr("Макс. лаг, в единицах слоя (0 = пол-диагонали)"),
+            self.tr("Макс. расстояние, в единицах слоя (0 = пол-диагонали)"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.MAXLAG, 0.0), minValue=0.0))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
@@ -7263,7 +7283,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
             self.tr("HTML files (*.html)"), optional=True,
             createByDefault=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
-            self.OUTPUT_RASTER, self.tr("Растр поверхности (опц., в лаг-координатах)"),
+            self.OUTPUT_RASTER, self.tr("Растр поверхности (опц., в координатах расстояния)"),
             optional=True, createByDefault=False))
 
         _restore_layer_defaults(self, (self.INPUT,))
@@ -7319,10 +7339,10 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
                 % (m["azimuth"], m["anis"], m["range_major"]))
             if m["range_capped"]:
                 feedback.pushWarning(
-                    _tr("Радиус главной оси упёрся в макс. лаг (%.4g): вдоль "
+                    _tr("Радиус главной оси упёрся в макс. расстояние (%.4g): вдоль "
                     "простирания вариограмма на полку не вышла. Радиус - нижняя "
                     "оценка, анизотропия (%.2f) занижена по выраженности. "
-                    "Увеличьте «Макс. лаг», либо это признак тренда / очень "
+                    "Увеличьте «Макс. расстояние», либо это признак тренда / очень "
                     "сильной непрерывности.") % (m["maxlag"], m["anis"]))
                 feedback.pushInfo(
                     _tr("В «2D Kriging» подставьте азимут=%.0f и анизотропию≈%.2f "
@@ -7336,7 +7356,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
         else:
             feedback.pushInfo(
                 _tr("Анизотропия не выражена (структура близка к изотропной или "
-                "радиус меньше ячейки). Можно уменьшить макс. лаг или увеличить "
+                "радиус меньше ячейки). Можно уменьшить макс. расстояние или увеличить "
                 "количество бинов."))
 
         # Анизотропия дописывается в таблицу моделей: вход читается,
@@ -7351,11 +7371,11 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
         if html_path:
             meta = [(_tr("Поле Z"), zfield), (_tr("Точек"), "%d" % m["n_used"]),
                     (_tr("Дисперсия (силл)"), "%.4g" % m["sill"]),
-                    (_tr("Макс. лаг"), "%.4g" % m["maxlag"]),
-                    (_tr("Ячейка лага"), "%.4g" % m["cell"]),
+                    (_tr("Макс. расстояние"), "%.4g" % m["maxlag"]),
+                    (_tr("Ячейка карты"), "%.4g" % m["cell"]),
                     (_tr("Бинов на полуось"), "%d" % m["n_bins"])]
             if m["resolved"]:
-                rad_str = (_tr("≥ %.4g (упёрся в макс. лаг)") % m["range_major"]
+                rad_str = (_tr("≥ %.4g (упёрся в макс. расстояние)") % m["range_major"]
                            if m["range_capped"] else "%.4g" % m["range_major"])
                 meta += [(_tr("Азимут главной оси"), "%.0f°" % m["azimuth"]),
                          (_tr("Анизотропия (малая/главная)"), "%.2f" % m["anis"]),
@@ -7373,13 +7393,13 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
                 advice = [
                     _tr("Главная ось непрерывности ~%.0f° (геогр.). Для складчатости "
                     "это направление простирания.") % m["azimuth"],
-                    _tr("Радиус главной оси упёрся в макс. лаг (%.4g): вдоль "
+                    _tr("Радиус главной оси упёрся в макс. расстояние (%.4g): вдоль "
                     "простирания вариограмма на полку не вышла - радиус считайте "
                     "нижней оценкой, а анизотропию (%.2f) - заниженной по "
                     "выраженности.") % (m["maxlag"], m["anis"]),
                     _tr("В «2D Kriging» задайте азимут=%.0f и анизотропию≈%.2f как "
                     "ориентир, радиус a возьмите больше %.4g по смыслу данных. "
-                    "Чтобы измерить радиус - увеличьте «Макс. лаг».") % (
+                    "Чтобы измерить радиус - увеличьте «Макс. расстояние».") % (
                         m["azimuth"], m["anis"], m["maxlag"]),
                     _tr("Если γ не выходит на полку даже при широком окне - в данных "
                     "тренд: его убирают до интерполяции либо учитывают видом "
@@ -7388,7 +7408,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
                 advice = [
                     _tr("Анизотропия не разрешается на этой сетке: структура близка к "
                     "изотропной либо радиус меньше ячейки."),
-                    _tr("Попробуйте уменьшить «Макс. лаг» или увеличить «Бинов на "
+                    _tr("Попробуйте уменьшить «Макс. расстояние» или увеличить «Бинов на "
                     "полуось», чтобы разрешить ближнюю структуру.")]
             title = _tr("Вариограммная карта %s · %s") % (zfield, src_name)
             try:
@@ -7425,7 +7445,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
         arr = arr[::-1, :]                       # строка 0 растра = север (верх)
         drv = gdal.GetDriverByName("GTiff")
         ds = drv.Create(path, size, size, 1, gdal.GDT_Float32)
-        # начало в (0,0) в координатах лага: левый-верх = (-maxlag-cell/2, +maxlag+cell/2)
+        # начало в (0,0) в координатах расстояния: левый-верх = (-maxlag-cell/2, +maxlag+cell/2)
         ds.SetGeoTransform([-maxlag - cell / 2.0, cell, 0.0,
                             maxlag + cell / 2.0, 0.0, -cell])
         try:
@@ -17569,7 +17589,7 @@ class FractalDimensionAlgorithm(IsolinerAlgorithm):
         return _help_version(self.tr(
             "Считает карту фрактальной размерности поверхности "
             "вариограммным методом: в скользящем окне строится лог-лог "
-            "вариограмма по лагам 1..N ячеек, её наклон даёт показатель "
+            "вариограмма по шагам от одной до N ячеек (шаг один это соседние ячейки, шаг четыре это ячейки через три), её наклон даёт показатель "
             "Хёрста H, размерность D = 3 - H. Гладкие дифференцируемые "
             "участки дают D около 2, изрезанные и шумные - ближе к 3. "
             "перепады D подчёркивают зоны тектонических нарушений, границы "
@@ -17591,7 +17611,7 @@ class FractalDimensionAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.WINDOW, 8), minValue=2))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.MAX_LAG, self.tr("Количество лагов вариограммы"),
+            self.MAX_LAG, self.tr("Количество шагов вариограммы"),
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.MAX_LAG, 4), minValue=2,
             maxValue=12)))
@@ -17632,7 +17652,7 @@ class FractalDimensionAlgorithm(IsolinerAlgorithm):
 
         if max_lag >= min(ny, nx) // 4 or 2 * window >= min(ny, nx):
             raise QgsProcessingException(
-                self.tr("Окно или лаги велики для этого грида."))
+                self.tr("Окно или шаги велики для этого грида."))
         feedback.setProgress(5)
         D, H = fractal_dimension_map(arr, window=window, max_lag=max_lag)
         feedback.setProgress(80)
