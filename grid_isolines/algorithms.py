@@ -4046,6 +4046,16 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
                 out_z = add_z_from_field(out, field_name or DEFAULT_FIELD,
                                          context, feedback)
                 _move_load_on_completion(context, out, out_z)
+                if isinstance(out_z, str) and out_z != out:
+                    # отметки в геометрии требуют нового слоя, и путь выхода
+                    # перестаёт совпадать с заданным. В окне это незаметно,
+                    # а модель или скрипт получают не тот файл
+                    feedback.pushInfo(self.tr(
+                        "Отметки записаны в геометрию линий, поэтому они "
+                        "легли в отдельный файл: %s. По заданному пути %s "
+                        "остался слой без Z. В моделях и скриптах берите "
+                        "путь из результата, а не тот, что задавали.")
+                        % (out_z, out))
                 out = out_z
             _set_output_name(context, out, _tr("Изолинии · %s") % name)
             _set_output_name(context, poly, _tr("Полигоны · %s") % name)
@@ -4074,6 +4084,16 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
                 out_z = add_z_from_field(out, field_name or DEFAULT_FIELD,
                                          context, feedback)
                 _move_load_on_completion(context, out, out_z)
+                if isinstance(out_z, str) and out_z != out:
+                    # отметки в геометрии требуют нового слоя, и путь выхода
+                    # перестаёт совпадать с заданным. В окне это незаметно,
+                    # а модель или скрипт получают не тот файл
+                    feedback.pushInfo(self.tr(
+                        "Отметки записаны в геометрию линий, поэтому они "
+                        "легли в отдельный файл: %s. По заданному пути %s "
+                        "остался слой без Z. В моделях и скриптах берите "
+                        "путь из результата, а не тот, что задавали.")
+                        % (out_z, out))
                 out = out_z
             _set_output_name(context, out, _tr("Изолинии · %s") % name)
             _attach_style(context, out, line_style)
@@ -4137,7 +4157,8 @@ def _cv_advice(me, mae, rmse, msdr, r):
                         "не трогайте) и пересчитайте - оценки не изменятся.") % msdr)
             good = False
         else:
-            tips.append(_tr("MSDR близок к 1: масштаб вариограммы подобран адекватно."))
+            tips.append(_tr("MSDR близок к 1 (%.3g, полоса от 0.7 до 1.3): "
+                        "масштаб вариограммы подобран адекватно.") % msdr)
     if abs(me) > 0.1 * rr:
         tips.append(_tr("ME заметно отличается от 0 (%+.3g): возможен "
                     "систематический сдвиг - проверьте данные и тип кригинга "
@@ -20814,6 +20835,7 @@ class SlopeAspectAlgorithm(IsolinerAlgorithm):
                                                 context)
         out_aspect = self.parameterAsOutputLayer(parameters, self.OUT_ASPECT,
                                                  context)
+        feedback.pushInfo(_version_line())
         z, mask, gt, proj, cell, = _topo_read_dem(layer, self.tr)
         slope, aspect = topo_surface.slope_aspect(z, cell, nodata_mask=mask)
         nd = -9999.0
@@ -20825,6 +20847,23 @@ class SlopeAspectAlgorithm(IsolinerAlgorithm):
                            nodata=nd)
         _topo_group_layer(context, out_slope, self.tr("Топография"))
         _topo_group_layer(context, out_aspect, self.tr("Топография"))
+        # два числа, по которым сразу видно, живой результат или мусор:
+        # без них инструмент молчал, и проверить его было нечем
+        ok = slope != nd
+        n_ok = int(np.count_nonzero(ok))
+        if n_ok:
+            feedback.pushInfo(self.tr(
+                "Уклон: от %.4g до %.4g градусов, медиана %.4g.")
+                % (float(slope[ok].min()), float(slope[ok].max()),
+                   float(np.median(slope[ok]))))
+            flat = int(np.count_nonzero((aspect == -1.0) & ok))
+            feedback.pushInfo(self.tr(
+                "Ячеек с данными %d из %d, из них плоских без экспозиции %d.")
+                % (n_ok, int(slope.size), flat))
+        else:
+            feedback.pushWarning(self.tr(
+                "Уклон не посчитан ни в одной ячейке: во входной ЦМР нет "
+                "данных, либо всё закрыто nodata."))
         return {self.OUT_SLOPE: out_slope, self.OUT_ASPECT: out_aspect}
 
 
@@ -22622,6 +22661,16 @@ class TerraceSmoothAlgorithm(IsolinerAlgorithm):
                 feedback.pushInfo(_tr("Ступеней не осталось."))
         moved = np.nanmax(np.abs(out - arr)) if np.isfinite(arr).any() else 0.0
         feedback.pushInfo(_tr("Наибольший сдвиг поверхности: %.4g м.") % moved)
+        # вердикт раньше выносился только по «стало»: на рельефе без ступеней
+        # инструмент сдвигал поверхность и рапортовал «ступеней не осталось»,
+        # как будто что-то исправил
+        if before and "attract_ratio" in before and before["attract_ratio"] < 1.5:
+            feedback.pushWarning(_tr(
+                "Во входном рельефе ступеней не было: притяжение к уровням "
+                "%.3g, это ниже порога 1.5. Сглаживание всё равно сдвинуло "
+                "отметки на %.4g м. Проверьте по 2.13, нужен ли этот шаг: "
+                "если ступеней нет, берите исходный рельеф.")
+                % (before["attract_ratio"], moved))
 
         smoothed = out.copy()      # для отчёта, до подстановки nodata
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)

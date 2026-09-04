@@ -327,6 +327,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.12.9** — the section/vector intersection (4.05) writes its bands again: carrying attributes across could break the write while the tool still reported success. Slope and aspect (2.08) now log the slope range and the number of computed cells. Terrace removal (2.14) warns when the input relief had no terracing and the elevations were moved anyway. The shaft wall unwrap (4.09) answers an unsuitable layer with a plain message instead of aborting. The contour tool (1.04) names the file the elevation-carrying lines were written to.
 - **5.12.8** — the terrain preparation and hydrology tools no longer report that the result may be incomplete. The log now shows that the depression fill has converged and after how many passes. The elevations are unchanged.
 - **5.12.7** — the Russian texts of the variogram tools no longer use the loanword «лаг»; the labels now read «number of steps» and «max distance». Evaluative comparisons are removed from the manual. The English texts are unchanged.
 - **5.12.6** — the surface graft (1.11) reports empty cells in the result when the regional surface does not cover the given extent.
