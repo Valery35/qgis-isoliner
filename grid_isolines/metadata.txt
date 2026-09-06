@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.12.9
+version=5.13.0
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,26 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.12.9
+changelog=5.13.0
+    - Порядок объектов во входном слое больше не влияет на результат
+      кригинга. На правильной сети узел оценки часто равноудалён сразу
+      от нескольких замеров, а место в выборке одно, и занимал его тот,
+      кто раньше записан в файле. Тот же слой, сохранённый в другом
+      порядке, давал другую карту, местами на десятки единиц.
+    - Кригинг сообщает, если в части ячеек система не решилась и
+      значение взято запасным способом. Раньше такие ячейки ничем не
+      отличались от остальных, а стандартная ошибка в них завышена.
+    - Запуск из модели или из скрипта с частью параметров берёт
+      недостающие из объявления инструмента, а не из значений прошлого
+      запуска. Один и тот же запуск считает одинаково на любой машине.
+      В окне параметров подстановка прошлого запуска работает как
+      раньше.
+    - 5.05 узнаёт поверхности, сделанные 5.03: сборка пачки помечает их
+      при записи, и разметка проекта больше не зависит от того, как
+      названы слои.
+    - В английском интерфейсе появились переводы сообщений, которые
+      раньше показывались по-русски.
+    5.12.9
     - 4.05 снова записывает полосы на разрез: перенос атрибутов мог
       оборвать запись, а инструмент при этом сообщал об успехе.
     - 2.08 пишет в журнал размах уклона и число посчитанных ячеек.

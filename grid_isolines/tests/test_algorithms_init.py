@@ -63,14 +63,28 @@ def setup_module(module):
     _SAVED_MODULES = dict(sys.modules)
 
 
+# Убирать надо ТОЛЬКО то, что подставил этот файл. Прежняя уборка сносила
+# из sys.modules всё, чего не было в снимке, вместе с numpy и её
+# расширениями на C. Такое расширение второй раз в том же процессе не
+# загружается, и следующий файл тестов, которому нужен numpy, падал
+# с «cannot load module more than once per process».
+_OURS = ("qgis", "processing", "osgeo", "grid_isolines")
+
+
+def _is_ours(name):
+    return any(name == p or name.startswith(p + ".") for p in _OURS)
+
+
 def teardown_module(module):
     """Вернуть sys.modules в исходное состояние."""
     if _SAVED_MODULES is None:
         return
     for name in list(sys.modules):
-        if name not in _SAVED_MODULES:
+        if name not in _SAVED_MODULES and _is_ours(name):
             del sys.modules[name]
-    sys.modules.update(_SAVED_MODULES)
+    for name, mod in _SAVED_MODULES.items():
+        if _is_ours(name):
+            sys.modules[name] = mod
 
 
 def _install_qgis_stubs():

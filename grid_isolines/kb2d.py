@@ -296,7 +296,7 @@ class InverseCache:
 
 def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
                  ndmin, ndmax, rad2, nodata, bdx=None, bdy=None, cbb=None,
-                 cache=None, gid=None, vg_key=b""):
+                 cache=None, gid=None, vg_key=b"", tally=None):
     """Кригинг в одной точке (или в блоке). Возвращает (оценка, дисперсия).
 
     Точечный кригинг (bdx=None или один узел дискретизации) воспроизводит пробу
@@ -326,9 +326,14 @@ def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
     # разных путях отбора - отсюда расхождение оценки на сотую долю
     # процента ячеек.
     #
-    # Правило одно для обоих путей: при равных расстояниях берётся замер
-    # с меньшим ГЛОБАЛЬНЫМ номером. Решать это надо ДО усечения до
-    # ndmax, а не после: ничья и происходит на самой границе.
+    # Правило одно для обоих путей: при равных расстояниях замеры
+    # упорядочиваются по САМИМ ДАННЫМ - координата X, затем Y, затем
+    # значение. Раньше решал номер замера, а номер это строка входного
+    # файла: перестановка строк того же слоя давала другую выборку и
+    # другую карту. Координаты и значение от порядка строк не зависят,
+    # поэтому теперь результат от него не зависит тоже. Решать ничью
+    # надо ДО усечения до ndmax, а не после: она и происходит на самой
+    # границе отбора.
     if h2.size > ndmax:
         # Полная сортировка не нужна: argpartition раскладывает за
         # линейное время. Но граница отбора может рассекать группу
@@ -340,19 +345,20 @@ def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
         if tie.size > 1:
             keep = cut[h2[cut] < thr]
             need = ndmax - keep.size
-            num = tie if gid is None else gid[tie]
-            tie = tie[np.argsort(num, kind="stable")][:need]
+            tie = tie[np.lexsort((vrd[tie], yd[tie], xd[tie]))][:need]
             cut = np.concatenate([keep, tie])
         order = cut[np.argsort(h2[cut], kind="stable")]
     else:
         order = np.argsort(h2, kind="stable")
     sel = order[h2[order] <= rad2][:ndmax]
-    # Для кэша набор упорядочивается по индексу пробы: порядок по
-    # расстоянию у каждой ячейки свой и ключом быть не может. Значения
-    # берутся в том же порядке, поэтому оценка не меняется - меняется
-    # только нумерация уравнений внутри системы.
-    if cache is not None and len(sel):
-        sel = np.sort(sel)
+    # Порядок уравнений в системе тоже приводится к одному виду и по
+    # тому же ключу. Математически перестановка уравнений решение не
+    # меняет, но арифметика с плавающей точкой не ассоциативна, и
+    # последние разряды расходились. Заодно это даёт устойчивый ключ
+    # кэша: порядок по расстоянию у каждой ячейки свой и ключом быть не
+    # может, а порядок по данным у одного набора всегда один.
+    if len(sel) > 1:
+        sel = sel[np.lexsort((vrd[sel], yd[sel], xd[sel]))]
     na = len(sel)
     if na < ndmin:
         return nodata, nodata
@@ -464,7 +470,13 @@ def _solve_point(xloc, yloc, xd, yd, vrd, vg, ktype, skmean,
     except np.linalg.LinAlgError:
         pass
 
-    if est is None:                          # запас: обратные расстояния соседей
+    if est is None:
+        # Запас: обратные расстояния до тех же соседей. Ячейку считаем.
+        # Молча подменять кригинг другим методом нельзя: карта выглядит
+        # обычной, а часть её посчитана не тем, что заказано, и
+        # дисперсия там не своя, а наибольшая возможная.
+        if tally is not None:
+            tally[0] += 1
         wts = 1.0 / np.maximum(h2sel, EPS)
         est = float(np.dot(wts, vra) / wts.sum())
         var = cbb                            # априорная (максимальная) дисперсия
@@ -673,6 +685,7 @@ def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
         cbb = block_block_cov(vg, bdx, bdy)
     total = nx * ny
     done = 0
+    idw = [0]        # ячейки, где система не решилась и сработал запас
     for row in range(ny):                    # row 0 = north
         iy = ny - row                        # 1..ny counted from south
         yloc = ymn + (iy - 1) * cell
@@ -747,13 +760,19 @@ def build_grid(xd, yd, vrd, vg, ktype, skmean, ndmin, ndmax,
             e, v = _solve_point(
                 xloc, yloc, xs, ys, vs, vg_here, ktype, skmean,
                 ndmin, ndmax, rad2, nodata, bdx=bdx, bdy=bdy, cbb=cbb,
-                cache=cache, gid=gid, vg_key=vg_key)
+                cache=cache, gid=gid, vg_key=vg_key, tally=idw)
             grid[row, ix] = e
             if with_variance and e != nodata:
                 sgrid[row, ix] = math.sqrt(max(v, 0.0))
             done += 1
         if progress is not None:
             progress(done, total)
+    if stats is not None:
+        # Доля площади, посчитанная запасом, а не кригингом. Ноль тоже
+        # значимое число: без него не отличить «не сработало ни разу»
+        # от «счётчик не завели».
+        stats["idw_cells"] = idw[0]
+        stats["est_cells"] = int(np.count_nonzero(grid != nodata))
     if cache is not None and cache.hits and stats is not None:
         stats["cache_rate"] = cache.rate()
         stats["cache_mb"] = cache.spent / 1e6

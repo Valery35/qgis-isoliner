@@ -918,8 +918,64 @@ def _save_values(alg, parameters):
 
 
 def _dv(alg, key, fallback):
-    """Значение по умолчанию: ранее сохранённое или запасное."""
+    """Значение по умолчанию: ранее сохранённое или запасное.
+
+    Заодно записывает ЗАЯВЛЕННОЕ значение (fallback) в alg._declared.
+    Оно нужно вызову из модели или скрипта: там недостающие параметры
+    брались из памяти прошлого запуска, и один и тот же вызов давал на
+    разных машинах разный результат. Подстановка памяти остаётся для
+    окна параметров, где она и полезна, а вызов без параметра получает
+    заявленное значение - см. _declared_for_missing.
+    """
+    declared = getattr(alg, "_declared", None)
+    # isinstance, а не проверка на None: атрибута может не быть вовсе, а
+    # у заглушки в тестах любой неизвестный атрибут отвечает объектом, и
+    # присваивание по ключу тогда падает TypeError.
+    if not isinstance(declared, dict):
+        declared = {}
+        alg._declared = declared
+    declared[key] = fallback
     return getattr(alg, "_defaults", {}).get(key, fallback)
+
+
+def _declared_for_missing(alg, parameters, feedback=None):
+    """Недостающие параметры берутся из объявления, а не из памяти.
+
+    Окно параметров подаёт весь набор целиком, поэтому там не меняется
+    ничего. Недостающие параметры бывают только у вызова из модели или
+    из скрипта, и раньше они молча брались из памяти прошлого запуска:
+    тот же вызов на другой машине, в другом профиле или просто назавтра
+    давал другой результат, а по журналу это было не видно.
+
+    Возвращает новый словарь, исходный не трогает.
+    """
+    declared = getattr(alg, "_declared", None)
+    if not isinstance(declared, dict) or not declared:
+        return parameters
+    memory = getattr(alg, "_defaults", None)
+    if not isinstance(memory, dict):
+        memory = {}
+    missing = [k for k in declared if k not in parameters]
+    if not missing:
+        return parameters
+    # Говорим только о тех, где память и объявление разошлись: остальные
+    # подставились бы тем же самым, и сообщение было бы шумом.
+    differing = sorted(k for k in missing
+                       if k in memory and memory[k] != declared[k])
+    out = dict(parameters)
+    for k in missing:
+        out[k] = declared[k]
+    if differing and feedback is not None:
+        try:
+            feedback.pushWarning(_tr(
+                "Вызов без параметров: %s. Взяты значения из объявления "
+                "инструмента. Значения прошлого запуска тут не "
+                "подставляются: с ними один и тот же вызов давал на разных "
+                "машинах разный результат. Задайте эти параметры явно, если "
+                "нужны не заявленные значения.") % ", ".join(differing))
+        except Exception:  # nosec
+            pass
+    return out
 
 
 def _duplicate_points(pts, vals, quant=1e-6):
@@ -2183,6 +2239,24 @@ def _run_kriging_to_tiff(alg, parameters, context, feedback, source, zfield,
                      with_variance=want_se, ndisc=ndisc, fault_segs=fsegs,
                      cell_mask=cmask, azi=azi_arr, stats=kstats)
     grid, segrid = res if want_se else (res, None)
+    # Откат на обратные расстояния молчал. Карта при этом выглядит
+    # обычной, а часть её посчитана не кригингом, и дисперсия там
+    # наибольшая возможная, а не своя.
+    n_idw = int(kstats.get("idw_cells", 0))
+    if n_idw:
+        n_est = int(kstats.get("est_cells", 0)) or n_idw
+        share = 100.0 * n_idw / n_est
+        note = _tr(
+            "Система кригинга не решилась в %d ячейках из %d, это %.2g%% "
+            "оценённой площади. Там значение взято по обратным расстояниям "
+            "до тех же соседей, а дисперсия принята наибольшей. Обычные "
+            "причины: совпадающие пробы, нулевой наггет, вырожденная "
+            "вариограмма.") % (n_idw, n_est, share)
+        # Единичные ячейки это сообщение, заметная доля - предупреждение.
+        if share >= 1.0:
+            feedback.pushWarning(note)
+        else:
+            feedback.pushInfo(note)
     if kstats.get("cache_rate"):
         feedback.pushInfo(_tr(
             "Кэш систем: попаданий %.0f%%, память %.0f МБ%s. Матрица "
@@ -2639,6 +2713,10 @@ class IsolinerAlgorithm(QgsProcessingAlgorithm):
         import time
         from . import trace
         name = self.displayName()
+        # Недостающие параметры - из объявления, а не из памяти прошлого
+        # запуска. Подстановка идёт до журнала, чтобы в журнале стояло
+        # то, чем инструмент на самом деле считал.
+        parameters = _declared_for_missing(self, parameters, feedback)
         trace.step("Инструмент: %s" % name)
         trace.data("Параметры: %s" % self._short_params(parameters))
         started = time.time()
@@ -14241,6 +14319,14 @@ class StackBuildAlgorithm(IsolinerAlgorithm):
             b2 = out.GetRasterBand(1)
             b2.WriteArray(np.where(np.isfinite(arr), arr, -9999.0))
             b2.SetNoDataValue(-9999.0)
+            # Роль пишется в сам файл. Раньше сборка выкладывала
+            # поверхности в папку и ничего о них не сообщала: 5.05
+            # разбирала проект по именам слоёв, а имя тут «01_КОД», и
+            # ни одна подсказка на него не ложилась. Свои же поверхности
+            # оставались неразмеченными. Клеймо едет вместе с файлом и
+            # переживает переименование слоя и переезд в другой проект.
+            out.SetMetadataItem(manifest.META_ROLE, manifest.ROLE_CONTACT)
+            out.SetMetadataItem(manifest.META_CODE, str(code))
             out = None
             return path
 
@@ -14611,7 +14697,7 @@ class ManifestAlgorithm(IsolinerAlgorithm):
             QgsWkbTypes.Type.NoGeometry)
 
         found = {}
-        n_kept, n_guess, n_none = 0, 0, 0
+        n_kept, n_file, n_guess, n_none = 0, 0, 0, 0
         for lyr in layers:
             lid = lyr.id()
             name = lyr.name()
@@ -14620,13 +14706,25 @@ class ManifestAlgorithm(IsolinerAlgorithm):
             if role:
                 n_kept += 1
             else:
-                role = manifest.guess_role(name)
+                # Клеймо в файле идёт раньше имени: поверхность, сделанная
+                # нашим же инструментом, знает свою роль сама. Манифест
+                # проекта всё равно главнее обоих: решение человека не
+                # перебивается ни файлом, ни догадкой.
+                try:
+                    role = manifest.role_from_source(lyr.source())
+                except Exception:  # nosec - у слоя может не быть источника
+                    role = None
                 if role:
-                    src = self.tr("по имени слоя")
-                    n_guess += 1
+                    src = self.tr("из файла поверхности")
+                    n_file += 1
                 else:
-                    src = self.tr("не распознано")
-                    n_none += 1
+                    role = manifest.guess_role(name)
+                    if role:
+                        src = self.tr("по имени слоя")
+                        n_guess += 1
+                    else:
+                        src = self.tr("не распознано")
+                        n_none += 1
             if role:
                 found[lid] = role
             ft = QgsFeature(fields)
@@ -14647,10 +14745,11 @@ class ManifestAlgorithm(IsolinerAlgorithm):
                 "тронут."))
 
         feedback.pushInfo(self.tr(
-            "Слоёв просмотрено %d: из манифеста %d, угадано по имени %d, "
-            "не распознано %d. Догадка это подсказка, а не решение: имя "
-            "слоя ничего не гарантирует.")
-            % (len(layers), n_kept, n_guess, n_none))
+            "Слоёв просмотрено %d: из манифеста %d, из файла поверхности %d, "
+            "угадано по имени %d, не распознано %d. Догадка по имени это "
+            "подсказка, а не решение: имя слоя ничего не гарантирует. Роль "
+            "из файла поставил инструмент, который эту поверхность сделал.")
+            % (len(layers), n_kept, n_file, n_guess, n_none))
         _set_output_name(context, dest, self.tr("Роли слоёв"))
         return {self.OUTPUT: dest}
 
