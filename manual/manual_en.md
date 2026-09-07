@@ -255,6 +255,14 @@ The tools are grouped into three Processing groups. The "Grid and isolines" grou
 
 ![The whole process on a generated example: wells with measurements (left) are turned into a continuous grid by kriging (centre), from which isolines and contour polygons are built (right).](images/schema_process.png){width=98%}
 
+## Running from a model or a script
+
+The parameters window remembers the values you entered and offers them the next time the same tool is run. That is convenient for repeated runs over the same data and works as before.
+
+A call from the model designer or from a script is different. There the parameters the call did not set are taken from the declaration of the tool itself rather than from what was typed into the window the day before. Otherwise the same script would compute differently on different machines, in different QGIS profiles and simply on different days, and the log would not show it. When a missing parameter differs from what the window remembers, the tool says so in the log and names the parameter.
+
+Hence the rule for models: set in the call every parameter whose value matters for the result. The declared default of a tool is known and written down in this manual, while the memory of the window is known only to the machine where it was formed.
+
 ## The basemap
 
 The **Isoliner** toolbar carries a **Basemap** button: a map or satellite imagery under the data in one move. Tick the sources you need, press **Add**, and the layers go into the project. The window stays open, because basemaps are chosen while looking at the map: add one, look, add another.
@@ -2482,6 +2490,20 @@ Behind the word "kriging" the plugin hosts a family of methods, and the choice b
 
 The search neighbourhood is common to all the kinds, and three rules remove most problems: the radius of the order of the variogram range, 12-16 neighbours at most, the neighbourhood anisotropy consistent with the variogram anisotropy from the variogram map.
 
+### Equal distances at the edge of the selection
+
+On a regular sampling grid the estimated node is often equidistant from several samples at once. As many neighbours are taken as the maximum allows, and the edge of the selection cuts through a group of equal distances: there is one place and several candidates.
+
+The choice is made from the data itself - the smaller X coordinate, at equal X the smaller Y, and if those coincide as well, the smaller value. The key is chosen deliberately, because it does not depend on the order in which the samples are written in the input layer. The same layer saved in a different order gives the same map. The order of the equations in the system is brought to one form by the same key and for the same reason: a permutation of equations changes nothing mathematically, but floating-point arithmetic is not associative, and the last digits would diverge.
+
+The practical meaning is simple. Exporting the same set from a database with a different sort order, merging layers in a different order, exporting again - none of that changes the elevations on the map any more.
+
+### When the system does not solve
+
+The kriging system can be degenerate. The usual causes are coincident samples with different values, a zero nugget, and a variogram at which the matrix loses its conditioning. In such a node the estimate is taken by the fallback method, by inverse distances to the same neighbours, and the variance is set to the largest one possible.
+
+That is a fallback rather than kriging, and the standard-error map is overstated in those cells. The tool therefore lists them in the log: the number of cells and their share of the estimated area. Single cells go as a message, a share of a percent and above goes as a warning. If the warning appeared, what needs looking at is not the map but the variogram and the coincident samples.
+
 ## 3.07 Density from measurements (variable support)
 
 The tool builds a density map where a measurement is given not by a point but by a finite-size support: a point with an uncertainty sigma, a line segment (a corridor of half-width) or a polygon. The unit mass of a measurement is spread over its support. Mass is conserved and density is inverse to the support area, so coarse georeferencing self-attenuates geometrically, without thresholds or filters. This is density estimation (how much and where), not value interpolation - kriging remains for values.
@@ -3276,6 +3298,10 @@ After the assembly the project turns into a heap of rasters and tables with no e
 The rule that matters more than the others: the tools read the manifest but do not require it. If the roles are there, the inputs are found on their own. If they are not, everything works by explicit choice. The manifest shortens the path rather than becoming a condition of work.
 
 The roles are guessed from the names of the layers and produced as a table for checking: a name guarantees nothing. Foreign roles written by other modules are kept: the manifest is shared, and clearing out the unfamiliar means breaking the work of neighbours.
+
+Surfaces built by the bed assembly (5.03) are recognized without guessing. The assembly writes them out as files and marks every file with its role, so the mark travels with the file: the layer can be renamed, moved to another project or handed to a colleague, and the role stays with it. Previously such surfaces were named "01_CODE" and matched no hint by name, which meant that the module left its own outputs unmarked.
+
+The sources of a role are taken in order of seniority: first the project manifest, then the mark in the file, then the guess by name. A decision made by a person and written into the manifest is overridden neither by a file nor by a guess.
 
 ## 5.06 Folding of a surface
 
