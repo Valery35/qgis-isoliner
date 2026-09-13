@@ -275,7 +275,8 @@ def test_report_svg_is_valid_xml():
     i = src.index("    @staticmethod\n    def _svg_curve")
     j = src.index("    def _write_html", i)
     code = "import numpy as np\n" + "\n".join(
-        l[4:] if l.startswith("    ") else l for l in src[i:j].split("\n"))
+        ln[4:] if ln.startswith("    ") else ln
+        for ln in src[i:j].split("\n"))
     ns = {"_hs_wet_spans": hs.wet_spans}
     exec(code.replace("@staticmethod\n", ""), ns)
 

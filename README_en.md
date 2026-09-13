@@ -327,6 +327,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.3** — the way the dialog settings are written is updated in tools 1.11, 1.12 and 4.06: the former form is going away from QGIS, and on future builds their parameter window would have stopped opening.
 - **5.13.2** — the tool count that had fallen behind the module is removed from the manual and the quick start page: the tool list is generated from the module itself and is always correct.
 - **5.13.1** — the Darcy arrow layer names the quantity and the unit, the discharge field is now `q`, and without the K and T rasters the tool answers in words instead of breaking off. A new tool 4.13: bed grades at the well collars, an input for kriging a grade map. 4.02 colours the columns by grade from the sample table, finds the survey fields on its own, detects the zenith angle convention used in the database, and the 3D output follows the real trajectory of the hole.
 - **5.13.0** — the order of features in the input layer no longer changes the kriging map. Kriging reports the cells computed by the fallback method. A run from a model or a script with part of the parameters takes the missing ones from the declaration of the tool rather than from the previous run. 5.05 recognizes the surfaces built by 5.03 by a mark in the file.

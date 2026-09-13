@@ -39,14 +39,19 @@ def _sources():
 
 
 def _strip_comments(code):
-    """Убирает строки-комментарии: в них конструкции упоминаются нарочно,
-    чтобы объяснить запрет."""
+    """Гасит комментарии: в них конструкции упоминаются нарочно, чтобы
+    объяснить запрет.
+
+    Строка не выбрасывается, а становится пустой. Прежде она выбрасывалась,
+    и номер в сообщении считался по укороченному тексту: он не совпадал с
+    номером в файле и уводил читателя не туда.
+    """
     out = []
     for line in code.splitlines():
-        stripped = line.lstrip()
-        if stripped.startswith("#"):
-            continue
-        out.append(line.split("  #")[0])
+        if line.lstrip().startswith("#"):
+            out.append("")
+        else:
+            out.append(line.split("  #")[0])
     return "\n".join(out)
 
 
@@ -59,6 +64,52 @@ def test_no_empty_qvariant():
                 line = body[:m.start()].count("\n") + 1
                 bad.append("%s:%d %s -> %s" % (name, line, m.group(0), hint))
     assert not bad, "запрещено проверкой Qt6:\n  " + "\n  ".join(bad)
+
+
+# Короткие формы enum. В Qt6 значение живёт во вложенном классе, и обращение
+# через сам класс проверка каталога считает ошибкой: «add 'Type' before
+# 'Double'». В коде такие формы держались годами и работали, поэтому глазами
+# они не видны, а находит их только каталог - уже после заливки.
+#
+# Пара: что запрещено и какой класс надо вставить.
+SHORT_ENUMS = (
+    (r"QgsProcessingParameterNumber\.(?!Type\.)(Double|Integer)\b", "Type"),
+    (r"QgsProcessingParameterDefinition\.(?!Flag\.)(Flag\w+)\b", "Flag"),
+    (r"QgsProcessing\.(?!SourceType\.)(Type\w+)\b", "SourceType"),
+    (r"QgsProcessingParameterField\.(?!DataType\.)"
+     r"(Numeric|String|DateTime|Any)\b", "DataType"),
+    (r"QgsProcessingParameterFile\.(?!Behavior\.)(File|Folder)\b", "Behavior"),
+)
+
+
+def test_no_short_enum_forms():
+    """Каталог блокирует версию за каждую такую строку.
+
+    Проверка идёт по всему пакету, а не по одному файлу: короткая форма
+    заводится там, где пишется новый инструмент, и в прошлый раз это были
+    сразу три места в разных группах.
+    """
+    bad = []
+    for name, code in _sources():
+        body = _strip_comments(code)
+        for pattern, mid in SHORT_ENUMS:
+            for m in re.finditer(pattern, body):
+                line = body[:m.start()].count("\n") + 1
+                bad.append("%s:%d %s - вставить %s перед %s"
+                           % (name, line, m.group(0), mid, m.group(1)))
+    assert not bad, (
+        "короткая форма enum, каталог такую версию не примет:\n  "
+        + "\n  ".join(bad))
+
+
+def test_long_enum_forms_are_not_flagged():
+    """Контроль: правильная запись не должна ловиться."""
+    sample = ("QgsProcessingParameterNumber.Type.Double\n"
+              "QgsProcessingParameterDefinition.Flag.FlagAdvanced\n"
+              "QgsProcessing.SourceType.TypeVectorPoint\n"
+              "QgsProcessingParameterField.DataType.Numeric\n")
+    for pattern, _mid in SHORT_ENUMS:
+        assert not re.search(pattern, sample), pattern
 
 
 def test_qvariant_types_still_allowed():

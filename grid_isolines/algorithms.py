@@ -5909,26 +5909,26 @@ class MbaGridAlgorithm(IsolinerAlgorithm):
         self._defaults = _load_defaults(self)
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.POINTS, self.tr("Точки с замерами"),
-            [QgsProcessing.TypeVectorPoint]))
+            [QgsProcessing.SourceType.TypeVectorPoint]))
         self.addParameter(QgsProcessingParameterField(
             self.FIELD, self.tr("Поле значения"), parentLayerParameterName=
-            self.POINTS, type=QgsProcessingParameterField.Numeric))
+            self.POINTS, type=QgsProcessingParameterField.DataType.Numeric))
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Охват (по умолчанию по точкам)"),
             optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             self.CELL, self.tr("Размер ячейки"),
-            QgsProcessingParameterNumber.Double, defaultValue=0.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
             minValue=0.0))
         self.addParameter(QgsProcessingParameterNumber(
             self.GRID_X, self.tr("Начальная решётка по X, ячеек"),
-            QgsProcessingParameterNumber.Integer, defaultValue=4, minValue=1))
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=4, minValue=1))
         self.addParameter(QgsProcessingParameterNumber(
             self.GRID_Y, self.tr("Начальная решётка по Y, ячеек"),
-            QgsProcessingParameterNumber.Integer, defaultValue=4, minValue=1))
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=4, minValue=1))
         self.addParameter(QgsProcessingParameterNumber(
             self.LEVELS, self.tr("Число уровней (гладкость)"),
-            QgsProcessingParameterNumber.Integer, defaultValue=8, minValue=1,
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=8, minValue=1,
             maxValue=14))
         self.addParameter(QgsProcessingParameterBoolean(
             self.CLIP_HULL, self.tr("Обрезать выпуклой оболочкой точек"),
@@ -5936,28 +5936,28 @@ class MbaGridAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterNumber(
             self.CLAMP_MIN, self.tr(
                 "Нижняя граница результата (пусто = нет)"),
-            QgsProcessingParameterNumber.Double, optional=True))
+            QgsProcessingParameterNumber.Type.Double, optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             self.CLAMP_MAX, self.tr(
                 "Верхняя граница результата (пусто = нет)"),
-            QgsProcessingParameterNumber.Double, optional=True))
+            QgsProcessingParameterNumber.Type.Double, optional=True))
         p = QgsProcessingParameterNumber(
             self.HULL_BUFFER, self.tr("Запас вокруг оболочки"),
-            QgsProcessingParameterNumber.Double, defaultValue=0.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
             minValue=0.0)
-        p.setFlags(p.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        p.setFlags(p.flags() | QgsProcessingParameterDefinition.Flag.FlagAdvanced)
         self.addParameter(p)
         p_t = QgsProcessingParameterNumber(
             self.TOL, self.tr("Остановка по невязке (0 - не проверять)"),
-            QgsProcessingParameterNumber.Double, defaultValue=0.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
             minValue=0.0)
-        p_t.setFlags(p_t.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        p_t.setFlags(p_t.flags() | QgsProcessingParameterDefinition.Flag.FlagAdvanced)
         self.addParameter(p_t)
         p_m = QgsProcessingParameterNumber(
             self.MAX_CELLS, self.tr("Предел размера растра, млн ячеек"),
-            QgsProcessingParameterNumber.Double, defaultValue=50.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=50.0,
             minValue=1.0)
-        p_m.setFlags(p_m.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        p_m.setFlags(p_m.flags() | QgsProcessingParameterDefinition.Flag.FlagAdvanced)
         self.addParameter(p_m)
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Поверхность MBA")))
@@ -6237,11 +6237,11 @@ class SurfaceGraftAlgorithm(IsolinerAlgorithm):
             parentLayerParameterName=self.REGIONAL, defaultValue=1))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.MASK, self.tr("Зона врезки (полигоны)"),
-            [QgsProcessing.TypeVectorPolygon]))
+            [QgsProcessing.SourceType.TypeVectorPolygon]))
         self.addParameter(QgsProcessingParameterNumber(
             self.WIDTH_CELLS, self.tr(
                 "Ширина перехода, ячеек региональной поверхности"),
-            QgsProcessingParameterNumber.Double, defaultValue=4.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=4.0,
             minValue=0.0))
         self.addParameter(QgsProcessingParameterEnum(
             self.SHIFT_MODE, self.tr("Снятие систематического расхождения"),
@@ -6261,20 +6261,20 @@ class SurfaceGraftAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterNumber(
             self.CELL, self.tr(
                 "Ячейка результата (0 - как у подробной поверхности)"),
-            QgsProcessingParameterNumber.Double, defaultValue=0.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
             minValue=0.0))
         p_max = QgsProcessingParameterNumber(
             self.MAX_CELLS, self.tr("Предел размера результата, млн ячеек"),
-            QgsProcessingParameterNumber.Double, defaultValue=50.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=50.0,
             minValue=1.0)
         p_max.setFlags(p_max.flags()
-                       | QgsProcessingParameterDefinition.FlagAdvanced)
+                       | QgsProcessingParameterDefinition.Flag.FlagAdvanced)
         self.addParameter(p_max)
         p = QgsProcessingParameterNumber(
             self.MIN_OVERLAP, self.tr("Минимум ячеек перекрытия"),
-            QgsProcessingParameterNumber.Integer, defaultValue=200,
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=200,
             minValue=0)
-        p.setFlags(p.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        p.setFlags(p.flags() | QgsProcessingParameterDefinition.Flag.FlagAdvanced)
         self.addParameter(p)
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Сшитая поверхность")))
@@ -11607,13 +11607,13 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
             self.FIELDS, self.tr(
                 "Перенести поля исходного объекта (имена через запятую)"),
             optional=True)
-        p_f.setFlags(p_f.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        p_f.setFlags(p_f.flags() | QgsProcessingParameterDefinition.Flag.FlagAdvanced)
         self.addParameter(p_f)
         p_t = QgsProcessingParameterNumber(
             self.SNAP_TOL, self.tr("Допуск смыкания колец, ед. чертежа"),
-            QgsProcessingParameterNumber.Double, defaultValue=0.001,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.001,
             minValue=0.0)
-        p_t.setFlags(p_t.flags() | QgsProcessingParameterDefinition.FlagAdvanced)
+        p_t.setFlags(p_t.flags() | QgsProcessingParameterDefinition.Flag.FlagAdvanced)
         self.addParameter(p_t)
 
         _restore_layer_defaults(self, (self.LINE_DEF, self.FACES))
@@ -11664,7 +11664,7 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
                 groups.append((sname, extra or {}, got))
             return len(tris)
 
-        n_layers = max(1, len([l for l in faces if l is not None]))
+        n_layers = max(1, len([f for f in faces if f is not None]))
         for li, lyr in enumerate(faces):
             if lyr is None:
                 continue

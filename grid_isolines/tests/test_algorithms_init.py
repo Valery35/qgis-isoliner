@@ -199,13 +199,14 @@ def test_style_not_overwritten_by_grouping():
         os.path.abspath(__file__))), "algorithms.py"), encoding="utf-8").read()
     lines = src.split("\n")
     styled = {}
-    for i, l in enumerate(lines):
-        m = re.search(r"_attach_(?:style|break_style|categories)\(context, (\w+)", l)
+    for i, ln in enumerate(lines):
+        m = re.search(
+            r"_attach_(?:style|break_style|categories)\(context, (\w+)", ln)
         if m:
             styled.setdefault(m.group(1), []).append(i)
     bad = []
-    for i, l in enumerate(lines):
-        m = re.search(r"_topo_group_layer\(context, (\w+)", l)
+    for i, ln in enumerate(lines):
+        m = re.search(r"_topo_group_layer\(context, (\w+)", ln)
         if not m or m.group(1) not in styled:
             continue
         if "collapse=False" in "\n".join(lines[i:i + 3]):
@@ -1160,6 +1161,6 @@ def test_mba_tool_removes_the_trend():
         if isinstance(node, ast.ClassDef) and node.name == "MbaGridAlgorithm":
             body = ast.get_source_segment(src, node)
     assert body is not None, "класс MbaGridAlgorithm не найден"
-    code = "\n".join(l for l in body.split("\n")
-                     if not l.lstrip().startswith("#"))
+    code = "\n".join(ln for ln in body.split("\n")
+                     if not ln.lstrip().startswith("#"))
     assert 'center="plane"' in code
