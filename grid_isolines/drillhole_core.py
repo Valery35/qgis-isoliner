@@ -62,13 +62,27 @@ FIELD_SYNONYMS = {
 def find_field(names, wanted):
     """Имя поля из списка names под ожидаемое имя wanted или None.
 
-    Сначала точное совпадение без учёта регистра, затем синонимы в порядке
-    словаря. Возвращается имя в исходном написании слоя.
+    wanted это либо ключ из FIELD_SYNONYMS, либо готовый список
+    кандидатов. Второе нужно таблицам, у которых своего ключа в словаре
+    нет: инклинометрия ищет глубину, азимут и зенит собственным набором
+    имён. Раньше список кандидатов уходил в FIELD_SYNONYMS.get как ключ,
+    не находился там, и поиск шёл по одному кандидату - самому этому
+    списку. Совпасть с именем поля список не мог никогда, поэтому
+    автопоиск полей инклинометрии не работал вовсе, и таблицу
+    приходилось расписывать вручную.
+
+    Сначала точное совпадение без учёта регистра, затем синонимы в
+    порядке перечисления. Возвращается имя в исходном написании слоя.
     """
     lower = {str(n).lower(): n for n in names}
-    for cand in FIELD_SYNONYMS.get(wanted, (wanted,)):
-        if cand in lower:
-            return lower[cand]
+    if isinstance(wanted, (list, tuple, set, frozenset)):
+        cands = tuple(wanted)
+    else:
+        cands = FIELD_SYNONYMS.get(wanted, (wanted,))
+    for cand in cands:
+        nm = lower.get(str(cand).strip().lower())
+        if nm is not None:
+            return nm
     return None
 
 
@@ -460,6 +474,47 @@ def unfold(z, frm, to):
     return z - frm, z - to
 
 
+
+def vertical_reference(values, band=5.0):
+    """Какое значение зенитного угла в этих данных означает вертикаль.
+
+    Соглашение в базах разное. Где-то зенит отсчитывают от вертикали, и
+    вертикальная скважина это ноль. Где-то угол наклона отсчитывают от
+    горизонта со знаком вниз, и та же скважина это минус девяносто. Реже
+    встречается тот же отсчёт без знака, девяносто.
+
+    Гадать по первой строке нельзя: первой может стоять единственная
+    наклонная скважина. Поэтому смотрим, к какому из трёх значений жмётся
+    БОЛЬШИНСТВО замеров: почти все скважины на месторождении
+    вертикальные, и их угол и есть отсчёт вертикали.
+
+    Возвращает 0.0, -90.0 или 90.0. На пустых данных - 0.0, это
+    соглашение ядра.
+    """
+    nums = [float(v) for v in values
+            if v is not None and math.isfinite(float(v))]
+    if not nums:
+        return 0.0
+    best, best_n = 0.0, -1
+    for ref in (0.0, -90.0, 90.0):
+        n = sum(1 for v in nums if abs(v - ref) <= band)
+        if n > best_n:
+            best, best_n = ref, n
+    if best_n <= 0:
+        # Ни к чему не жмётся: решаем по знаку размаха. Отрицательные
+        # углы бывают только у отсчёта от горизонта.
+        return -90.0 if min(nums) < -45.0 else 0.0
+    return best
+
+
+def to_zenith(value, reference):
+    """Зенитный угол в соглашении ядра: 0 вертикаль, 90 горизонталь."""
+    v = float(value)
+    if reference == 0.0:
+        return v
+    return 90.0 - abs(v)
+
+
 def read_surveys(rows, summary):
     """Таблица инклинометрии: hole_id, глубина по стволу, азимут, зенит.
 
@@ -495,6 +550,16 @@ def read_surveys(rows, summary):
             continue
         seen[key] = True
         out.setdefault(hid, []).append((float(md), float(azi), float(inc)))
+    # Отсчёт вертикали определяется по всем принятым замерам сразу, а не
+    # по первой строке: первой может стоять единственная наклонная
+    # скважина, и тогда вся выборка развернулась бы на девяносто
+    # градусов молча.
+    ref = vertical_reference([r[2] for v in out.values() for r in v])
+    summary["survey_vertical_ref"] = ref
+    if ref != 0.0:
+        for hid in out:
+            out[hid] = [(md, azi, to_zenith(inc, ref))
+                        for (md, azi, inc) in out[hid]]
     for hid in out:
         out[hid].sort(key=lambda r: r[0])
     return out
@@ -545,6 +610,61 @@ def axis_from_survey(x0, y0, z0, stations, eoh=None):
         _md, px, py, pz = axis[-1]
         axis.append((md2, px + de, py + dn, pz - dv))
     return axis
+
+
+def survey_stats(collars, surveys, min_tilt=2.0):
+    """Числа об инклинометрии для журнала инструмента.
+
+    Возвращает словарь: сколько скважин с замерами и без, сколько
+    замеров, наибольший снос забоя и у какой скважины, сколько скважин
+    отклонились больше min_tilt градусов, наибольший шаг между замерами.
+
+    Снос забоя это расстояние в плане от устья до низа оси. По нему
+    видно, стоило ли вообще браться за траекторию: на вертикальных
+    данных он нулевой, и вертикальное допущение остаётся верным.
+
+    Наибольший шаг между замерами нужен рядом: метод минимальной
+    кривизны считает ствол между замерами дугой окружности, и при редких
+    замерах это допущение, а не истина.
+    """
+    n_hole = n_st = n_tilt = 0
+    max_off, max_off_id = 0.0, None
+    max_gap = 0.0
+    for hid, st in (surveys or {}).items():
+        if not st:
+            continue
+        n_hole += 1
+        n_st += len(st)
+        prev = 0.0
+        for md, _azi, inc in st:
+            max_gap = max(max_gap, md - prev)
+            prev = md
+        if any(abs(inc) > min_tilt for (_m, _a, inc) in st):
+            n_tilt += 1
+        col = (collars or {}).get(hid)
+        if col is None:
+            continue
+        x0 = getattr(col, "x", None)
+        y0 = getattr(col, "y", None)
+        z0 = getattr(col, "z", 0.0)
+        if x0 is None or y0 is None:
+            continue
+        eoh = getattr(col, "eoh", None)
+        axis = axis_from_survey(x0, y0, z0, st, eoh)
+        _md, bx, by, _bz = axis[-1]
+        off = math.hypot(bx - float(x0), by - float(y0))
+        if off > max_off:
+            max_off, max_off_id = off, hid
+    total = len(collars or {})
+    return {
+        "holes": n_hole,
+        "stations": n_st,
+        "without": max(total - n_hole, 0),
+        "tilted": n_tilt,
+        "max_offset": max_off,
+        "max_offset_hole": max_off_id,
+        "max_gap": max_gap,
+    }
 
 
 def point_at_depth(axis, md):
@@ -614,6 +734,164 @@ def intervals_from_levels(z, levels, codes, min_len=0.01):
             continue
         out.append((frm, to, codes[k]))
     return out
+
+
+# --- приведение проб к интервалам (compositing) ---------------------------
+#
+# Опробование нарезано своей сеткой, литология своей, и совпадают они
+# редко: проба лежит внутри слоя, пересекает границу двух или покрывает
+# несколько. Поэтому стыковать надо по глубинам, а не по номеру записи.
+#
+# Правило о пропусках здесь главное. Отсутствующий компонент это
+# ОТСУТСТВИЕ ДАННЫХ, а не ноль. Подстановка нуля даёт заведомо ложное
+# среднее и тем опаснее, чем реже компонент встречается. Поэтому проба
+# без значения по компоненту выпадает из среднего вместе со своим весом,
+# а в результат кладётся охват: какая доля целевого интервала обеспечена
+# данными именно по этому компоненту. По охвату вызывающий код и решает,
+# доверять числу или нет.
+
+def _clean_span(frm, to):
+    """Пара глубин в порядке сверху вниз или None, если пара негодная."""
+    a, b = parse_num(frm), parse_num(to)
+    if a is None or b is None:
+        return None
+    a, b = float(a), float(b)
+    if not (math.isfinite(a) and math.isfinite(b)):
+        return None
+    return (b, a) if a > b else (a, b)
+
+
+def _union_length(spans):
+    """Длина объединения отрезков: перекрытие не считается дважды."""
+    if not spans:
+        return 0.0
+    total = 0.0
+    cur_a, cur_b = spans[0]
+    for a, b in sorted(spans)[1:]:
+        if a > cur_b:
+            total += cur_b - cur_a
+            cur_a, cur_b = a, b
+        elif b > cur_b:
+            cur_b = b
+    return total + (cur_b - cur_a)
+
+
+def composite(samples, targets, components=None, min_cover=None):
+    """Средневзвешенные содержания проб по целевым интервалам.
+
+    samples - пробы: последовательность (from, to, values), где values -
+    словарь «компонент: значение». Значение None, пустая строка или
+    нечисловое считается отсутствующим.
+
+    targets - целевые интервалы: последовательность (from, to) или
+    (from, to, ключ). Глубины по стволу, как во всей модели бурения.
+
+    components - какие компоненты считать. По умолчанию берётся
+    объединение ключей всех проб, в порядке первого появления.
+
+    min_cover - доля целевого интервала, ниже которой результат помечается
+    ненадёжным. None означает, что порог ставит вызывающий код, а здесь
+    только считается фактический охват.
+
+    Возвращает список словарей, по одному на целевой интервал:
+
+    * from, to, length, key - сам интервал;
+    * values - {компонент: среднее или None};
+    * cover - {компонент: доля интервала, обеспеченная данными};
+    * cover_any - доля интервала, покрытая пробами вообще;
+    * n_samples - сколько проб задело интервал;
+    * overlap - суммарная длина взаимных перекрытий проб внутри
+      интервала, ноль у здоровых данных;
+    * low_cover - True, False или None при min_cover=None.
+
+    Вес пробы - длина её перекрытия с целевым интервалом, поэтому проба,
+    попавшая частично, и учитывается частично.
+    """
+    prepared = []
+    order = []
+    for row in samples:
+        span = _clean_span(row[0], row[1])
+        if span is None:
+            continue
+        vals = row[2] if len(row) > 2 and row[2] else {}
+        clean = {}
+        for name, raw in vals.items():
+            num = parse_num(raw)
+            if num is None or not math.isfinite(float(num)):
+                continue
+            clean[name] = float(num)
+            if name not in order:
+                order.append(name)
+        prepared.append((span[0], span[1], clean))
+    # Только по глубинам: у двух проб с одной парой глубин словари
+    # значений сравнивать нечем, и сортировка падала бы на них.
+    prepared.sort(key=lambda r: (r[0], r[1]))
+    comps = list(components) if components is not None else order
+
+    out = []
+    for tgt in targets:
+        span = _clean_span(tgt[0], tgt[1])
+        key = tgt[2] if len(tgt) > 2 else None
+        if span is None:
+            out.append({"from": None, "to": None, "length": 0.0, "key": key,
+                        "values": {c: None for c in comps},
+                        "cover": {c: 0.0 for c in comps},
+                        "cover_any": 0.0, "n_samples": 0, "overlap": 0.0,
+                        "low_cover": None if min_cover is None else True})
+            continue
+        t0, t1 = span
+        length = t1 - t0
+        wsum = {c: 0.0 for c in comps}
+        vsum = {c: 0.0 for c in comps}
+        hits, spans, w_all = 0, [], 0.0
+        for s0, s1, vals in prepared:
+            if s1 <= t0:
+                continue
+            if s0 >= t1:
+                break                      # пробы отсортированы, дальше только ниже
+            w = min(s1, t1) - max(s0, t0)
+            if w <= 0.0:
+                continue
+            hits += 1
+            spans.append((max(s0, t0), min(s1, t1)))
+            w_all += w
+            for c in comps:
+                if c in vals:
+                    wsum[c] += w
+                    vsum[c] += w * vals[c]
+        cover = {c: (wsum[c] / length if length > 0 else 0.0) for c in comps}
+        values = {c: (vsum[c] / wsum[c] if wsum[c] > 0 else None)
+                  for c in comps}
+        union = _union_length(spans)
+        cover_any = union / length if length > 0 else 0.0
+        worst = min(cover.values()) if cover else 0.0
+        out.append({
+            "from": t0, "to": t1, "length": length, "key": key,
+            "values": values, "cover": cover, "cover_any": cover_any,
+            "n_samples": hits,
+            # Перекрытие проб между собой: сумма весов минус объединение.
+            # Молчать о нём нельзя, две пробы на одну глубину это спор в
+            # данных, а не мелочь округления.
+            "overlap": max(w_all - union, 0.0),
+            "low_cover": None if min_cover is None else worst < float(min_cover),
+        })
+    return out
+
+
+def composite_summary(rows):
+    """Сводка по результату composite: числа для журнала инструмента."""
+    n = len(rows)
+    covers = [r["cover_any"] for r in rows]
+    empty = sum(1 for r in rows if r["n_samples"] == 0)
+    low = sum(1 for r in rows if r.get("low_cover"))
+    overlap = sum(1 for r in rows if r["overlap"] > 1e-9)
+    return {
+        "targets": n,
+        "mean_cover": (sum(covers) / n) if n else 0.0,
+        "empty": empty,
+        "low_cover": low,
+        "with_overlap": overlap,
+    }
 
 
 # --- порядок и цвет кодов ------------------------------------------------

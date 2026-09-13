@@ -196,3 +196,43 @@ def test_base_class_applies_it_before_the_body():
     assert at != -1, "базовый класс больше не подставляет заявленные значения"
     assert at < body.find("self._process("), (
         "подстановка стоит после тела инструмента")
+
+
+class _AlgWithParams(_Alg):
+    """Пустышка, знающая свои параметры, как настоящий инструмент."""
+
+    def __init__(self, memory, params):
+        _Alg.__init__(self, memory)
+        self._params = set(params)
+
+    def parameterDefinition(self, key):
+        return object() if key in self._params else None
+
+
+def test_service_memory_keys_are_not_reported_as_parameters():
+    """Ключ памяти это не параметр, и в сообщении ему делать нечего.
+
+    Ссылки на слои хранятся под служебным именем с суффиксом
+    (INPUT_layerid и подобные) и проходят через тот же _dv. Без отсева
+    инструмент писал в журнал «вызов без параметров: INPUT_layerid», и
+    пользователь искал в окне параметр, которого там нет.
+    """
+    A = _algorithms()
+    alg = _AlgWithParams({"INPUT_layerid": "слой_из_прошлого_проекта"},
+                         params=["INPUT", "MAX_POINTS"])
+    _declare(A, alg, {"INPUT_layerid": None, "MAX_POINTS": 24})
+    fb = _Feedback()
+    out = A._declared_for_missing(alg, {"INPUT": "точки", "MAX_POINTS": 8}, fb)
+    assert not fb.warnings, "сообщение о служебном ключе: %r" % fb.warnings
+    assert "INPUT_layerid" not in out, "служебный ключ подставлен в вызов"
+
+
+def test_real_missing_parameter_is_still_reported():
+    """Контроль: отсев не должен глушить настоящие параметры."""
+    A = _algorithms()
+    alg = _AlgWithParams({"MAX_POINTS": 40}, params=["INPUT", "MAX_POINTS"])
+    _declare(A, alg, {"MAX_POINTS": 24})
+    fb = _Feedback()
+    out = A._declared_for_missing(alg, {"INPUT": "точки"}, fb)
+    assert out["MAX_POINTS"] == 24
+    assert fb.warnings and "MAX_POINTS" in fb.warnings[0]
