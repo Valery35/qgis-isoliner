@@ -44,6 +44,7 @@ from . import validate_core as _vc  # чистое ядро валидации, 
 from . import hydro_section  # чистое ядро гидравлики створа, без QGIS
 from . import manifest  # роли слоёв модели, без QGIS
 from . import fold  # складчатость поверхности, без QGIS
+from . import landxml as _lx  # чтение и запись LandXML, без QGIS
 from . import demo_river  # демо-река: створы с известным ответом
 from .topo_smooth import smooth_clamped as _smooth_clamped
 from qgis.core import (
@@ -77,6 +78,7 @@ from qgis.core import (
     QgsProcessingParameterBand,
     QgsProcessingParameterVectorDestination,
     QgsProcessingParameterFeatureSink,
+    QgsProcessingParameterFile,
     QgsProcessingParameterFileDestination,
     QgsProcessingParameterDefinition,
     QgsFields,
@@ -25224,6 +25226,560 @@ class DownhillTraceAlgorithm(IsolinerAlgorithm):
 
 
 
+class LandXmlReadAlgorithm(IsolinerAlgorithm):
+    """2.24 Принять LandXML: точки, линии, поверхность, трасса, поперечники."""
+
+    INPUT = "INPUT"
+    NORTH_FIRST = "NORTH_FIRST"
+    SAG = "SAG"
+    CRS = "CRS"
+    OUT_POINTS = "OUT_POINTS"
+    OUT_LINES = "OUT_LINES"
+    OUT_SURFACE = "OUT_SURFACE"
+    OUT_ALIGN = "OUT_ALIGN"
+    OUT_PROFILE = "OUT_PROFILE"
+    OUT_XSECT = "OUT_XSECT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return LandXmlReadAlgorithm()
+    def name(self): return "landxml_read"
+    def displayName(self): return self.tr("2.24 Принять LandXML")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPO)
+    def groupId(self): return GROUP_TOPO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Читает обменный файл LandXML, который пишут программы "
+            "обработки тахеометрической съёмки: Credo, Trimble Business "
+            "Center, Topcon Magnet, Leica Infinity, Civil 3D.\n\n"
+            "Из файла берутся точки съёмки с именем и кодом, именованные "
+            "линии, поверхность гранями, трасса с пикетажем, продольный "
+            "профиль и поперечники. Выходы необязательные: снимите "
+            "ненужные, файл всё равно разбирается один раз.\n\n"
+            "Поверхность выдаётся трёхмерными гранями, поэтому её сразу "
+            "режет разрезом инструмент 4.06. Поперечники ложатся на "
+            "местность поперёк трассы с отметками в вершинах, такую линию "
+            "принимают инструменты группы «Гидрология рек».\n\n"
+            "**Порядок координат в файле** решает, что записано первым. "
+            "По схеме это север, затем восток, но пишут и наоборот. "
+            "Ошибка даёт зеркальный поворот, поэтому охват прочитанного "
+            "печатается в журнал: сверьте его с ожидаемым.\n\n"
+            "**Допуск спрямления кривых** задаёт, насколько ломаная может "
+            "отходить от дуги. Круговые кривые разбиваются по этому "
+            "допуску, переходные заменяются хордой, и число замен идёт в "
+            "журнал: на них длина трассы занижена.\n\n"
+            "**Система координат** берётся из файла, если он её называет. "
+            "Заданная вызовом перекрывает файл.\n\n"
+            "Кадастровые участки, трубопроводные сети, дорожные объекты, "
+            "полевые измерения и межевые знаки не читаются намеренно. "
+            "Такие разделы перечисляются в журнале, а не пропускаются "
+            "молча.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFile(
+            self.INPUT, self.tr("Файл LandXML"),
+            extension="xml"))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.NORTH_FIRST,
+            self.tr("В файле сначала север, затем восток (по схеме)"),
+            defaultValue=_dv(self, self.NORTH_FIRST, True)))
+        self.addParameter(QgsProcessingParameterCrs(
+            self.CRS, self.tr("Система координат (пусто = из файла)"),
+            optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SAG, self.tr("Допуск спрямления кривых, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.SAG, _lx.DEFAULT_SAG),
+            minValue=0.0001)))
+        for key, title in (
+                (self.OUT_POINTS, "Точки съёмки"),
+                (self.OUT_LINES, "Линии"),
+                (self.OUT_SURFACE, "Поверхность (грани)"),
+                (self.OUT_ALIGN, "Трассы"),
+                (self.OUT_PROFILE, "Продольный профиль (линия с отметками)"),
+                (self.OUT_XSECT, "Поперечники на местности")):
+            self.addParameter(QgsProcessingParameterFeatureSink(
+                key, self.tr(title), optional=True, createByDefault=True))
+
+    def _crs(self, parameters, context, doc, feedback):
+        crs = self.parameterAsCrs(parameters, self.CRS, context)
+        if crs is not None and crs.isValid():
+            feedback.pushInfo(self.tr("Система координат задана вызовом: %s")
+                              % crs.authid())
+            return crs
+        code = (doc.crs or {}).get("epsg")
+        if code:
+            crs = QgsCoordinateReferenceSystem("EPSG:%d" % int(code))
+            if crs.isValid():
+                feedback.pushInfo(self.tr("Система координат из файла: %s")
+                                  % crs.authid())
+                return crs
+        name = (doc.crs or {}).get("name")
+        crs = QgsProject.instance().crs()
+        feedback.pushWarning(self.tr(
+            "Система координат в файле не указана кодом%s, взята система "
+            "проекта %s. Проверьте её до работы с результатом.")
+            % ((self.tr(" (назван «%s»)") % name) if name else "",
+               crs.authid()))
+        return crs
+
+    def _process(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        path = self.parameterAsFile(parameters, self.INPUT, context)
+        if not path or not os.path.exists(path):
+            raise QgsProcessingException(self.tr("Файл LandXML не найден."))
+        north = self.parameterAsBoolean(parameters, self.NORTH_FIRST, context)
+        sag = self.parameterAsDouble(parameters, self.SAG, context)
+        try:
+            doc = _lx.load(path, north_first=north, sagitta=sag)
+        except _lx.LandXmlError as exc:
+            raise QgsProcessingException(str(exc))
+
+        for w in doc.warnings:
+            feedback.pushWarning(w)
+        c = doc.counts()
+        feedback.pushInfo(self.tr(
+            "Прочитано: точек %d, линий %d, поверхностей %d (граней %d), "
+            "трасс %d, поперечников %d.")
+            % (c["points"], c["lines"], c["surfaces"], c["faces"],
+               c["alignments"], c["cross_sects"]))
+        if doc.unsupported:
+            feedback.pushInfo(self.tr(
+                "Не читаются намеренно: %s.")
+                % ", ".join("%s (%d)" % (k, v)
+                            for k, v in sorted(doc.unsupported.items())))
+        if doc.is_empty():
+            raise QgsProcessingException(self.tr(
+                "В файле нет ни одного читаемого раздела. Прочитаны бывают "
+                "CgPoints, PlanFeatures, Surfaces и Alignments."))
+        crs = self._crs(parameters, context, doc, feedback)
+
+        results = {}
+        xs, ys = [], []
+
+        def remember(x, y):
+            xs.append(x)
+            ys.append(y)
+
+        # точки -----------------------------------------------------------
+        if doc.points:
+            fields = QgsFields()
+            for nm in ("name", "code", "desc"):
+                fields.append(QgsField(nm, QVariant.String))
+            fields.append(QgsField("z", QVariant.Double))
+            sink, dest = self.parameterAsSink(
+                parameters, self.OUT_POINTS, context, fields,
+                QgsWkbTypes.Type.PointZ, crs)
+            if sink is not None:
+                for p in doc.points:
+                    f = QgsFeature(fields)
+                    z = 0.0 if p["z"] is None else float(p["z"])
+                    f.setGeometry(QgsGeometry(QgsPoint(p["x"], p["y"], z)))
+                    f.setAttributes([p["name"], p["code"], p["desc"],
+                                     None if p["z"] is None else float(p["z"])])
+                    sink.addFeature(f)
+                    remember(p["x"], p["y"])
+                results[self.OUT_POINTS] = dest
+                _set_output_name(context, dest, self.tr("Точки LandXML"))
+
+        # линии -----------------------------------------------------------
+        if doc.lines:
+            fields = QgsFields()
+            fields.append(QgsField("name", QVariant.String))
+            fields.append(QgsField("desc", QVariant.String))
+            fields.append(QgsField("npts", QVariant.Int))
+            sink, dest = self.parameterAsSink(
+                parameters, self.OUT_LINES, context, fields,
+                QgsWkbTypes.Type.LineStringZ, crs)
+            if sink is not None:
+                for ln in doc.lines:
+                    pts = [QgsPoint(x, y, 0.0 if z is None else z)
+                           for x, y, z in ln["coords"]]
+                    f = QgsFeature(fields)
+                    f.setGeometry(QgsGeometry.fromPolyline(pts))
+                    f.setAttributes([ln["name"], ln["desc"], len(pts)])
+                    sink.addFeature(f)
+                    for x, y, _z in ln["coords"]:
+                        remember(x, y)
+                results[self.OUT_LINES] = dest
+                _set_output_name(context, dest, self.tr("Линии LandXML"))
+
+        # поверхность -------------------------------------------------------
+        if doc.surfaces:
+            fields = QgsFields()
+            fields.append(QgsField("surface", QVariant.String))
+            fields.append(QgsField("tri", QVariant.Int))
+            sink, dest = self.parameterAsSink(
+                parameters, self.OUT_SURFACE, context, fields,
+                QgsWkbTypes.Type.PolygonZ, crs)
+            if sink is not None:
+                for s in doc.surfaces:
+                    if s["skipped_faces"]:
+                        feedback.pushInfo(self.tr(
+                            "Поверхность «%s»: пропущено скрытых граней %d.")
+                            % (s["name"], s["skipped_faces"]))
+                    for n, face in enumerate(s["faces"], start=1):
+                        ring = [QgsPoint(*s["points"][i]) for i in face]
+                        ring.append(ring[0])
+                        f = QgsFeature(fields)
+                        f.setGeometry(QgsGeometry.fromPolygon(
+                            [QgsLineString(ring)]))
+                        f.setAttributes([s["name"], n])
+                        sink.addFeature(f)
+                    for x, y, _z in s["points"]:
+                        remember(x, y)
+                results[self.OUT_SURFACE] = dest
+                _set_output_name(context, dest, self.tr("Поверхность LandXML"))
+
+        # трассы, профиль, поперечники ---------------------------------------
+        if doc.alignments:
+            results.update(self._write_alignments(
+                parameters, context, feedback, doc, crs, remember))
+
+        if xs:
+            feedback.pushInfo(self.tr(
+                "Охват прочитанного: X от %.2f до %.2f, Y от %.2f до %.2f. "
+                "Если он лёг зеркально, поменяйте порядок координат.")
+                % (min(xs), max(xs), min(ys), max(ys)))
+        for dest in results.values():
+            _topo_group_layer(context, dest, self.tr("Топография"))
+        _save_values(self, _saved)
+        return results
+
+    def _write_alignments(self, parameters, context, feedback, doc, crs,
+                          remember):
+        out = {}
+        af = QgsFields()
+        af.append(QgsField("name", QVariant.String))
+        af.append(QgsField("desc", QVariant.String))
+        af.append(QgsField("sta_start", QVariant.Double))
+        af.append(QgsField("length_m", QVariant.Double))
+        a_sink, a_dest = self.parameterAsSink(
+            parameters, self.OUT_ALIGN, context, af,
+            QgsWkbTypes.Type.LineString, crs)
+
+        pf = QgsFields()
+        pf.append(QgsField("align", QVariant.String))
+        pf.append(QgsField("npts", QVariant.Int))
+        p_sink, p_dest = self.parameterAsSink(
+            parameters, self.OUT_PROFILE, context, pf,
+            QgsWkbTypes.Type.LineStringZ, crs)
+
+        xf = QgsFields()
+        xf.append(QgsField("align", QVariant.String))
+        xf.append(QgsField("sta", QVariant.Double))
+        xf.append(QgsField("name", QVariant.String))
+        xf.append(QgsField("surf", QVariant.String))
+        xf.append(QgsField("npts", QVariant.Int))
+        x_sink, x_dest = self.parameterAsSink(
+            parameters, self.OUT_XSECT, context, xf,
+            QgsWkbTypes.Type.LineStringZ, crs)
+
+        lost_x = 0
+        for a in doc.alignments:
+            coords = a["coords"]
+            if a_sink is not None and len(coords) >= 2:
+                f = QgsFeature(af)
+                f.setGeometry(QgsGeometry.fromPolylineXY(
+                    [QgsPointXY(x, y) for x, y, _z in coords]))
+                f.setAttributes([a["name"], a["desc"], a["sta_start"],
+                                 a["length"]])
+                a_sink.addFeature(f)
+                for x, y, _z in coords:
+                    remember(x, y)
+
+            if p_sink is not None and a["profile"] and len(coords) >= 2:
+                pts = []
+                for sta, z in a["profile"]:
+                    at = _lx.point_at_station(coords, sta, a["sta_start"])
+                    if at is not None:
+                        pts.append(QgsPoint(at[0], at[1], z))
+                if len(pts) >= 2:
+                    f = QgsFeature(pf)
+                    f.setGeometry(QgsGeometry.fromPolyline(pts))
+                    f.setAttributes([a["name"], len(pts)])
+                    p_sink.addFeature(f)
+
+            if x_sink is not None and a["cross_sects"]:
+                if len(coords) < 2:
+                    lost_x += len(a["cross_sects"])
+                    continue
+                for cs in a["cross_sects"]:
+                    for srf in cs["surfaces"]:
+                        pts = []
+                        for off, z in srf["points"]:
+                            xy = _lx.offset_point(coords, cs["sta"], off,
+                                                  a["sta_start"])
+                            if xy is not None:
+                                pts.append(QgsPoint(xy[0], xy[1], z))
+                        if len(pts) < 2:
+                            continue
+                        f = QgsFeature(xf)
+                        f.setGeometry(QgsGeometry.fromPolyline(pts))
+                        f.setAttributes([a["name"], cs["sta"], cs["name"],
+                                         srf["name"], len(pts)])
+                        x_sink.addFeature(f)
+        if lost_x:
+            feedback.pushWarning(self.tr(
+                "Поперечников пропущено: %d. У их трассы в файле нет "
+                "геометрии, положить их на местность не по чему. Выдавать "
+                "их в условных координатах рядом с остальными слоями было "
+                "бы хуже: слой оказался бы в двух системах сразу.") % lost_x)
+
+        if a_sink is not None:
+            out[self.OUT_ALIGN] = a_dest
+            _set_output_name(context, a_dest, self.tr("Трассы LandXML"))
+        if p_sink is not None:
+            out[self.OUT_PROFILE] = p_dest
+            _set_output_name(context, p_dest, self.tr("Профиль LandXML"))
+        if x_sink is not None:
+            out[self.OUT_XSECT] = x_dest
+            _set_output_name(context, x_dest, self.tr("Поперечники LandXML"))
+        return out
+
+
+class LandXmlWriteAlgorithm(IsolinerAlgorithm):
+    """2.25 Записать LandXML: точки, линии, поверхность, трасса."""
+
+    POINTS = "POINTS"
+    P_NAME = "P_NAME"
+    P_CODE = "P_CODE"
+    LINES = "LINES"
+    L_NAME = "L_NAME"
+    SURFACE = "SURFACE"
+    ALIGN = "ALIGN"
+    XSECT = "XSECT"
+    X_STA = "X_STA"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return LandXmlWriteAlgorithm()
+    def name(self): return "landxml_write"
+    def displayName(self): return self.tr("2.25 Записать LandXML")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPO)
+    def groupId(self): return GROUP_TOPO_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Собирает обменный файл LandXML из слоёв проекта. Файл "
+            "открывают программы обработки съёмки: Credo, Trimble Business "
+            "Center, Topcon Magnet, Leica Infinity, Civil 3D.\n\n"
+            "Входы необязательные, берётся то, что задано. Точечный слой "
+            "уходит точками съёмки, линейный именованными линиями, слой "
+            "трёхмерных граней поверхностью, линия трассы трассой с "
+            "пикетажем и продольным профилем по отметкам её вершин.\n\n"
+            "**Поперечники** записываются только вместе с трассой: "
+            "смещение точки считается от оси, и без оси его неоткуда "
+            "взять. Смещение положительно справа по ходу трассы.\n\n"
+            "Файл всегда пишется в метрах и по схеме, то есть сначала "
+            "север, затем восток. Система координат берётся у первого "
+            "заданного слоя и записывается кодом EPSG.\n\n"
+            "Слои в метрической системе координат обязательны: LandXML "
+            "хранит плоские координаты, и градусы в нём становятся "
+            "бессмыслицей.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.POINTS, self.tr("Точки съёмки"),
+            [QgsProcessing.SourceType.TypeVectorPoint], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.P_NAME, self.tr("Поле имени точки"),
+            parentLayerParameterName=self.POINTS, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.P_CODE, self.tr("Поле кода точки"),
+            parentLayerParameterName=self.POINTS, optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.LINES, self.tr("Линии"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.L_NAME, self.tr("Поле имени линии"),
+            parentLayerParameterName=self.LINES, optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.SURFACE, self.tr("Поверхность: слой трёхмерных граней"),
+            [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.ALIGN, self.tr("Трасса (одна линия)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.XSECT, self.tr("Поперечники (линии с отметками)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.X_STA, self.tr("Поле пикета поперечника"),
+            parentLayerParameterName=self.XSECT, optional=True,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterFileDestination(
+            self.OUTPUT, self.tr("Файл LandXML"),
+            self.tr("LandXML files (*.xml)")))
+
+    @staticmethod
+    def _vertices(geom):
+        out = []
+        for v in geom.vertices():
+            z = v.z()
+            out.append((v.x(), v.y(), None if z != z else z))
+        return out
+
+    def _process(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        doc = _lx.Document()
+        crs = None
+
+        pts_src = self.parameterAsSource(parameters, self.POINTS, context)
+        lines_src = self.parameterAsSource(parameters, self.LINES, context)
+        surf_src = self.parameterAsSource(parameters, self.SURFACE, context)
+        align_src = self.parameterAsSource(parameters, self.ALIGN, context)
+        xs_src = self.parameterAsSource(parameters, self.XSECT, context)
+        for src in (pts_src, lines_src, surf_src, align_src, xs_src):
+            if src is not None and crs is None:
+                crs = src.sourceCrs()
+        if crs is None:
+            raise QgsProcessingException(self.tr(
+                "Не задан ни один слой: записывать нечего."))
+        if crs.isGeographic():
+            raise QgsProcessingException(self.tr(
+                "Слои в градусах. LandXML хранит плоские координаты, "
+                "перепроецируйте данные в метрическую систему."))
+        epsg = None
+        auth = crs.authid() or ""
+        if auth.upper().startswith("EPSG:"):
+            try:
+                epsg = int(auth.split(":", 1)[1])
+            except ValueError:
+                epsg = None
+        doc.crs = {"name": crs.description() or auth, "epsg": epsg}
+
+        if pts_src is not None:
+            nf = self.parameterAsString(parameters, self.P_NAME, context)
+            cf = self.parameterAsString(parameters, self.P_CODE, context)
+            for n, ft in enumerate(pts_src.getFeatures(), start=1):
+                g = ft.geometry()
+                if g.isEmpty():
+                    continue
+                v = next(g.vertices())
+                z = v.z()
+                doc.points.append({
+                    "name": str(ft[nf]) if nf else str(n),
+                    "code": str(ft[cf]) if cf else "",
+                    "desc": "",
+                    "x": v.x(), "y": v.y(),
+                    "z": None if z != z else z})
+            feedback.pushInfo(self.tr("Точек записано: %d")
+                              % len(doc.points))
+
+        if lines_src is not None:
+            nf = self.parameterAsString(parameters, self.L_NAME, context)
+            for n, ft in enumerate(lines_src.getFeatures(), start=1):
+                g = ft.geometry()
+                if g.isEmpty():
+                    continue
+                coords = [(x, y, 0.0 if z is None else z)
+                          for x, y, z in self._vertices(g)]
+                if len(coords) < 2:
+                    continue
+                doc.lines.append({"name": str(ft[nf]) if nf else str(n),
+                                  "desc": "", "coords": coords})
+            feedback.pushInfo(self.tr("Линий записано: %d") % len(doc.lines))
+
+        if surf_src is not None:
+            pts, index, faces, skipped = [], {}, [], 0
+            for ft in surf_src.getFeatures():
+                g = ft.geometry()
+                if g.isEmpty():
+                    continue
+                ring = [(v[0], v[1], 0.0 if v[2] is None else v[2])
+                        for v in self._vertices(g)]
+                if ring and ring[0] == ring[-1]:
+                    ring = ring[:-1]
+                if len(ring) != 3:
+                    skipped += 1
+                    continue
+                idx = []
+                for p in ring:
+                    key = (round(p[0], 6), round(p[1], 6), round(p[2], 6))
+                    if key not in index:
+                        index[key] = len(pts)
+                        pts.append(p)
+                    idx.append(index[key])
+                faces.append(tuple(idx))
+            if skipped:
+                feedback.pushWarning(self.tr(
+                    "Пропущено объектов поверхности: %d. Гранью считается "
+                    "только треугольник, полигоны с другим числом вершин "
+                    "надо триангулировать заранее.") % skipped)
+            if faces:
+                doc.surfaces.append({"name": "surface", "desc": "",
+                                     "points": pts, "faces": faces,
+                                     "skipped_faces": 0})
+                feedback.pushInfo(self.tr("Граней записано: %d") % len(faces))
+
+        if align_src is not None:
+            axis = None
+            for ft in align_src.getFeatures():
+                g = ft.geometry()
+                if g.isEmpty():
+                    continue
+                axis = self._vertices(g)
+                break
+            if axis is None or len(axis) < 2:
+                raise QgsProcessingException(self.tr(
+                    "В слое трассы нет линии с двумя вершинами."))
+            prof = []
+            acc = _lx.cum_lengths(axis)
+            for s, v in zip(acc, axis):
+                if v[2] is not None:
+                    prof.append((s, v[2]))
+            doc.alignments.append({
+                "name": "alignment", "desc": "", "sta_start": 0.0,
+                "length": acc[-1], "coords": axis,
+                "profile": prof, "cross_sects": []})
+            feedback.pushInfo(self.tr(
+                "Трасса записана: длина %.2f м, отметок в профиле %d.")
+                % (acc[-1], len(prof)))
+
+            if xs_src is not None:
+                sf = self.parameterAsString(parameters, self.X_STA, context)
+                made = 0
+                for n, ft in enumerate(xs_src.getFeatures(), start=1):
+                    g = ft.geometry()
+                    if g.isEmpty():
+                        continue
+                    vs = self._vertices(g)
+                    pairs = []
+                    stations = []
+                    for x, y, z in vs:
+                        so = _lx.station_offset(axis, x, y)
+                        if so is None:
+                            continue
+                        stations.append(so[0])
+                        pairs.append((so[1], 0.0 if z is None else z))
+                    if len(pairs) < 2:
+                        continue
+                    sta = float(ft[sf]) if sf else (
+                        sum(stations) / len(stations))
+                    doc.alignments[0]["cross_sects"].append({
+                        "sta": sta, "name": str(n), "desc": "",
+                        "surfaces": [{"name": "surface", "points": pairs}]})
+                    made += 1
+                feedback.pushInfo(self.tr("Поперечников записано: %d") % made)
+        elif xs_src is not None:
+            raise QgsProcessingException(self.tr(
+                "Поперечники записываются только вместе с трассой: "
+                "смещение точки считается от оси, и без оси его неоткуда "
+                "взять."))
+
+        path = self.parameterAsFileOutput(parameters, self.OUTPUT, context)
+        _lx.dump(doc, path)
+        feedback.pushInfo(self.tr("Записан файл: %s") % path)
+        _save_values(self, _saved)
+        return {self.OUTPUT: path}
+
+
 class BedGradesAtCollarsAlgorithm(IsolinerAlgorithm):
     """4.13 Содержания по пласту в устьях.
 
@@ -25518,6 +26074,8 @@ class BedGradesAtCollarsAlgorithm(IsolinerAlgorithm):
         return {self.OUTPUT: dest}
 
 ALGORITHMS = [
+    LandXmlReadAlgorithm,
+    LandXmlWriteAlgorithm,
     BedGradesAtCollarsAlgorithm,
     RatingCurveAlgorithm,
     FloodExtentAlgorithm,

@@ -3032,4 +3032,94 @@ TRANSLATIONS = {
         'The length of the stream network inside the catchment at an accumulation threshold of %.4g cells: the net_km and net_dens fields. The threshold decides what counts as a stream, and the length changes with it severalfold.',
     'Расчёт по СП 33-101 при сечении %.4g м: средний уклон склонов Iск и средневзвешенный уклон водотока. Поле sp_iso_km это суммарная длина ГОРИЗОНТАЛЕЙ в водосборе, множитель Σli в формуле, а не длина водотоков. Эти величины отличаются от физических и осмысленны только внутри нормативной методики.':
         'The SP 33-101 computation at a contour interval of %.4g m: the mean slope of the hillsides Isk and the weighted mean slope of the stream. The sp_iso_km field is the total length of the CONTOURS within the catchment, the Σli factor of the formula, not the length of the streams. These quantities differ from the physical ones and make sense only within the normative method.',
+    ' (назван «%s»)':
+        ' (named «%s»)',
+    '2.24 Принять LandXML':
+        '2.24 Read LandXML',
+    '2.25 Записать LandXML':
+        '2.25 Write LandXML',
+    'LandXML files (*.xml)':
+        'LandXML files (*.xml)',
+    'В слое трассы нет линии с двумя вершинами.':
+        'The alignment layer holds no line with two vertices.',
+    'В файле нет ни одного читаемого раздела. Прочитаны бывают CgPoints, PlanFeatures, Surfaces и Alignments.':
+        'The file holds no readable section. The ones that are read are CgPoints, PlanFeatures, Surfaces and Alignments.',
+    'В файле сначала север, затем восток (по схеме)':
+        'The file gives north first, then east (as the schema does)',
+    'Граней записано: %d':
+        'Faces written: %d',
+    'Допуск спрямления кривых, м':
+        'Curve chording tolerance, m',
+    'Записан файл: %s':
+        'File written: %s',
+    'Линии LandXML':
+        'LandXML lines',
+    'Линий записано: %d':
+        'Lines written: %d',
+    'Не задан ни один слой: записывать нечего.':
+        'Not a single layer is given: there is nothing to write.',
+    'Не читаются намеренно: %s.':
+        'Deliberately not read: %s.',
+    'Охват прочитанного: X от %.2f до %.2f, Y от %.2f до %.2f. Если он лёг зеркально, поменяйте порядок координат.':
+        'Extent of what was read: X from %.2f to %.2f, Y from %.2f to %.2f. If it came out mirrored, switch the coordinate order.',
+    'Поверхность LandXML':
+        'LandXML surface',
+    'Поверхность «%s»: пропущено скрытых граней %d.':
+        'Surface «%s»: hidden faces skipped: %d.',
+    'Поверхность: слой трёхмерных граней':
+        'Surface: a layer of 3D faces',
+    'Поле имени линии':
+        'Line name field',
+    'Поле имени точки':
+        'Point name field',
+    'Поле кода точки':
+        'Point code field',
+    'Поле пикета поперечника':
+        'Cross section station field',
+    'Поперечники (линии с отметками)':
+        'Cross sections (lines with elevations)',
+    'Поперечники LandXML':
+        'LandXML cross sections',
+    'Поперечники записываются только вместе с трассой: смещение точки считается от оси, и без оси его неоткуда взять.':
+        'Cross sections are written only together with an alignment: the offset of a point is measured from the axis, and without an axis there is nowhere to take it from.',
+    'Поперечников записано: %d':
+        'Cross sections written: %d',
+    'Поперечников пропущено: %d. У их трассы в файле нет геометрии, положить их на местность не по чему. Выдавать их в условных координатах рядом с остальными слоями было бы хуже: слой оказался бы в двух системах сразу.':
+        'Cross sections skipped: %d. Their alignment has no geometry in the file, so there is nothing to place them on the ground by. Giving them out in local coordinates beside the other layers would be worse: the layer would end up in two coordinate systems at once.',
+    'Пропущено объектов поверхности: %d. Гранью считается только треугольник, полигоны с другим числом вершин надо триангулировать заранее.':
+        'Surface features skipped: %d. Only a triangle counts as a face, polygons with another vertex count have to be triangulated beforehand.',
+    'Профиль LandXML':
+        'LandXML profile',
+    'Прочитано: точек %d, линий %d, поверхностей %d (граней %d), трасс %d, поперечников %d.':
+        'Read: points %d, lines %d, surfaces %d (faces %d), alignments %d, cross sections %d.',
+    'Система координат (пусто = из файла)':
+        'Coordinate reference system (empty = from the file)',
+    'Система координат в файле не указана кодом%s, взята система проекта %s. Проверьте её до работы с результатом.':
+        'The file gives no coordinate system code%s, the project system %s is used instead. Check it before working with the result.',
+    'Система координат задана вызовом: %s':
+        'The coordinate system is given by the call: %s',
+    'Система координат из файла: %s':
+        'Coordinate system from the file: %s',
+    'Слои в градусах. LandXML хранит плоские координаты, перепроецируйте данные в метрическую систему.':
+        'The layers are in degrees. LandXML holds plane coordinates, reproject the data into a metric system.',
+    'Точек записано: %d':
+        'Points written: %d',
+    'Точки LandXML':
+        'LandXML points',
+    'Точки съёмки':
+        'Survey points',
+    'Трасса (одна линия)':
+        'Alignment (a single line)',
+    'Трасса записана: длина %.2f м, отметок в профиле %d.':
+        'Alignment written: length %.2f m, elevations in the profile %d.',
+    'Трассы LandXML':
+        'LandXML alignments',
+    'Файл LandXML':
+        'LandXML file',
+    'Файл LandXML не найден.':
+        'The LandXML file was not found.',
+    'Читает обменный файл LandXML, который пишут программы обработки тахеометрической съёмки: Credo, Trimble Business Center, Topcon Magnet, Leica Infinity, Civil 3D.\n\nИз файла берутся точки съёмки с именем и кодом, именованные линии, поверхность гранями, трасса с пикетажем, продольный профиль и поперечники. Выходы необязательные: снимите ненужные, файл всё равно разбирается один раз.\n\nПоверхность выдаётся трёхмерными гранями, поэтому её сразу режет разрезом инструмент 4.06. Поперечники ложатся на местность поперёк трассы с отметками в вершинах, такую линию принимают инструменты группы «Гидрология рек».\n\n**Порядок координат в файле** решает, что записано первым. По схеме это север, затем восток, но пишут и наоборот. Ошибка даёт зеркальный поворот, поэтому охват прочитанного печатается в журнал: сверьте его с ожидаемым.\n\n**Допуск спрямления кривых** задаёт, насколько ломаная может отходить от дуги. Круговые кривые разбиваются по этому допуску, переходные заменяются хордой, и число замен идёт в журнал: на них длина трассы занижена.\n\n**Система координат** берётся из файла, если он её называет. Заданная вызовом перекрывает файл.\n\nКадастровые участки, трубопроводные сети, дорожные объекты, полевые измерения и межевые знаки не читаются намеренно. Такие разделы перечисляются в журнале, а не пропускаются молча.':
+        'Reads a LandXML exchange file, the format written by the programs that process total station surveys: Credo, Trimble Business Center, Topcon Magnet, Leica Infinity, Civil 3D.\n\nFrom the file it takes survey points with a name and a code, named lines, a surface as faces, an alignment with stationing, a longitudinal profile and cross sections. The outputs are optional: switch off the ones you do not need, the file is parsed once either way.\n\nThe surface comes out as 3D faces, so tool 4.06 cuts it with a section straight away. Cross sections are placed on the ground across the alignment with elevations in their vertices, and a line like that is what the tools of the "River hydrology" group take.\n\n**The coordinate order in the file** decides what is written first. The schema says north, then east, but the reverse is written too. The mistake gives a mirrored turn, so the extent of what was read is printed to the log: check it against what you expect.\n\n**The curve chording tolerance** sets how far the polyline may depart from the arc. Circular curves are split by this tolerance, transition curves are replaced by a chord, and the number of replacements goes to the log: the length of the alignment is understated on them.\n\n**The coordinate system** is taken from the file when the file names it. The one given by the call overrides the file.\n\nCadastral parcels, pipe networks, roadway objects, field observations and monuments are deliberately not read. Such sections are listed in the log rather than passed over in silence.',
+    'Собирает обменный файл LandXML из слоёв проекта. Файл открывают программы обработки съёмки: Credo, Trimble Business Center, Topcon Magnet, Leica Infinity, Civil 3D.\n\nВходы необязательные, берётся то, что задано. Точечный слой уходит точками съёмки, линейный именованными линиями, слой трёхмерных граней поверхностью, линия трассы трассой с пикетажем и продольным профилем по отметкам её вершин.\n\n**Поперечники** записываются только вместе с трассой: смещение точки считается от оси, и без оси его неоткуда взять. Смещение положительно справа по ходу трассы.\n\nФайл всегда пишется в метрах и по схеме, то есть сначала север, затем восток. Система координат берётся у первого заданного слоя и записывается кодом EPSG.\n\nСлои в метрической системе координат обязательны: LandXML хранит плоские координаты, и градусы в нём становятся бессмыслицей.':
+        'Assembles a LandXML exchange file from the layers of the project. The file is opened by the programs that process surveys: Credo, Trimble Business Center, Topcon Magnet, Leica Infinity, Civil 3D.\n\nThe inputs are optional, whatever is given is taken. A point layer goes out as survey points, a line layer as named lines, a layer of 3D faces as a surface, an alignment line as an alignment with stationing and a longitudinal profile built from the elevations of its vertices.\n\n**Cross sections** are written only together with an alignment: the offset of a point is measured from the axis, and without an axis there is nowhere to take it from. The offset is positive to the right along the alignment.\n\nThe file is always written in metres and as the schema says, that is north first, then east. The coordinate system is taken from the first layer given and written as an EPSG code.\n\nLayers in a metric coordinate system are required: LandXML holds plane coordinates, and degrees in it turn into nonsense.',
 }

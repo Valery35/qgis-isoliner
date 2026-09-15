@@ -157,6 +157,8 @@ displayName, поэтому ниже инструменты перечислен
 - 2.21 `TopoDemoPitAlgorithm` (demo_pit) - пример карьера (демо), id `topo_demo_pit`: рельеф и истинные линии разом, эталон для 2.19
 - 2.22 `SnapElevationsAlgorithm` (topo_snapz) - отметки с примыкающих горизонталей, id `snap_elevations`: профиль линии восстанавливается по узлам горизонталей, доведённых до линии
 - 2.23 `DownhillTraceAlgorithm` (topo_flow) - линии стока от точек, линий и контуров, id `downhill_trace`: путь вниз по склону от заданных мест, а не от всей площади
+- 2.24 `LandXmlReadAlgorithm` (landxml) - чтение LandXML, id `landxml_read`: точки, линии, поверхность гранями, трасса с пикетажем, профиль и поперечники. Поверхность выдаётся `PolygonZ` намеренно, её сразу режет 4.06, поперечники ложатся поперёк трассы и годятся группе 6
+- 2.25 `LandXmlWriteAlgorithm` (landxml) - запись LandXML, id `landxml_write`. Имена `name()` нейтральны к группе: при переносе в будущую группу «Обмен» поменяется только префикс в подписи, модели и скрипты уцелеют
 
 Подгруппа **2. Топография: диагностика и правка** (GROUP_TOPODIAG/topography_diag):
 - 2.11 `ContourSplitAlgorithm` (topo_smooth) - разделить горизонтали на построение и проверку
@@ -272,7 +274,7 @@ displayName, поэтому ниже инструменты перечислен
   берутся из шапки самого `manual.md` - ключ `-M title` поверх шапки ломает
   кириллицу в титуле. Пакет `float` с `floatplacement{figure}{H}` **не**
   подключать: он добавляет две лишние страницы. Контроль сборки - объём:
-  RU 155 страниц и EN 150 на тексте от 5.13.4 (на тексте 4.95.0 было
+  RU 156 страниц и EN 152 на тексте от 5.13.5 (на тексте 4.95.0 было
   132 и 129, на тексте 4.30.0 - 111 и 107. Цифру обновлять при заметном
   приросте текста, иначе она перестаёт что-либо контролировать).
 - Сборка требует пакета `lmodern`, без него xelatex падает на
@@ -411,6 +413,7 @@ displayName, поэтому ниже инструменты перечислен
   `TestGedtmWindow` в tests/test_dem_glo30.py.
 
 - Qt6 (QGIS 4): плоские enum'ы Qt местами недоступны (`Qt.WindowMinMaxButtonsHint` и т.п., шим QGIS покрывает не всё). Использовать `getattr(getattr(Qt, "WindowType", Qt), "…")` - работает в Qt5 и Qt6.
+- **Модули `xml` в плагин не брать.** Сканер каталога блокирует `xml.etree.ElementTree`, `minidom` и `pyexpat`: штатный разборщик поддаётся раздутым сущностям и внешним ссылкам, а `defusedxml` в поставке QGIS нет. Первый раз это поймалось на палитре Leapfrog, второй на LandXML. Свой разборщик живёт в `landxml.py`: раскрывает только пять встроенных сущностей и числовые ссылки, а на объявление своих отвечает отказом. Сторож `tests/test_scanner_rules.py`
 - Qt6-проверка каталога plugins.qgis.org (не блокирующая, но чинить сразу) ловит короткие формы enum и у QGIS-классов: `QgsColorRampShader.Interpolated` -> `QgsColorRampShader.Type.Interpolated`, `Qgis.Info` -> `Qgis.MessageLevel.Info`. Писать полный путь через промежуточный enum-класс тем же getattr-паттерном, что выше (закрыто в densityview.py и `_topo_log` в algorithms.py). Скан голых enum по всему пакету теперь стоит сторожем `test_no_short_enum_forms` в `tests/test_qt6_rules.py`, гонять его руками перед выгрузкой больше не нужно. Правило тут было и раньше, а проверки не было, и в 5.13.2 каталог нашёл двадцать четыре таких места в 1.11, 1.12 и 4.06.
 - QGIS 4: `QgsWkbTypes.PointGeometry` заменён на `Qgis.GeometryType.Point`; сравнение со старой константой молча не совпадает. Импортировать с fallback.
 - QGIS 4: `QgsGeometry.asMultiPolyline()` / `asMultiPoint()` / `asMultiPolygon()` на одиночной геометрии бросают TypeError (в QGIS 3 возвращали пустой список). Оборачивать в try/except с fallback на asPolyline/asPoint/asPolygon (Topo2RasterAlgorithm в algorithms.py) либо проверять QgsWkbTypes.isMultiType до вызова (density, section demo). Всплывало на обкатке 3.0.2 Topo2Raster на живых слоях OSM.
