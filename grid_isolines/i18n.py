@@ -3006,4 +3006,30 @@ TRANSLATIONS = {
         'no data',
     '3D: интервалов по оси инклинометрии %d из %d, остальные отвесно от устья.':
         '3D: %d intervals out of %d follow the deviation-survey axis, the rest hang vertically from the collar.',
+    'Средний уклон водосбора, градусы':
+        'Mean slope of the catchment, degrees',
+    'Длина ГЛАВНОГО водотока от створа до истока, км':
+        'Length of the MAIN stream from the gauge to the source, km',
+    'Падение главного водотока, м':
+        'Fall of the main stream, m',
+    'СП 33-101: средний уклон склонов Iск, промилле':
+        'SP 33-101: mean slope of the hillsides Isk, permille',
+    'СП 33-101: суммарная длина ГОРИЗОНТАЛЕЙ, км':
+        'SP 33-101: total length of the CONTOURS, km',
+    'СП 33-101: суммарная длина горизонталей, км':
+        'SP 33-101: total length of the contours, km',
+    'СП 33-101: средневзвешенный уклон водотока, промилле':
+        'SP 33-101: weighted mean slope of the stream, permille',
+    'Длина речной СЕТИ внутри водосбора, км':
+        'Length of the stream NETWORK inside the catchment, km',
+    'Длина речной сети внутри водосбора, км':
+        'Length of the stream network inside the catchment, km',
+    'Густота речной сети, км на км²':
+        'Stream network density, km per km²',
+    'Порог аккумуляции для длины речной сети, ячеек (0 = не считать)':
+        'Accumulation threshold for the stream network length, cells (0 = do not compute)',
+    'Длина речной сети внутри водосбора при пороге аккумуляции %.4g ячеек: поля net_km и net_dens. Порог решает, что считать водотоком, и длина меняется вместе с ним в разы.':
+        'The length of the stream network inside the catchment at an accumulation threshold of %.4g cells: the net_km and net_dens fields. The threshold decides what counts as a stream, and the length changes with it severalfold.',
+    'Расчёт по СП 33-101 при сечении %.4g м: средний уклон склонов Iск и средневзвешенный уклон водотока. Поле sp_iso_km это суммарная длина ГОРИЗОНТАЛЕЙ в водосборе, множитель Σli в формуле, а не длина водотоков. Эти величины отличаются от физических и осмысленны только внутри нормативной методики.':
+        'The SP 33-101 computation at a contour interval of %.4g m: the mean slope of the hillsides Isk and the weighted mean slope of the stream. The sp_iso_km field is the total length of the CONTOURS within the catchment, the Σli factor of the formula, not the length of the streams. These quantities differ from the physical ones and make sense only within the normative method.',
 }

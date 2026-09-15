@@ -1793,9 +1793,26 @@ Watersheds of neighbouring gauges on one stream nest into each other: every gaug
 | Main stream length | stream_km | km |
 | Stream fall | fall_m | m |
 | Mean stream slope | slope_ppm | permille |
+| Mean slope of the hillsides Isk (SP) | sp_slope_ppm | permille |
+| Total length of the **contours** | sp_iso_km | km |
+| Weighted mean slope of the stream (SP) | sp_stream_ppm | permille |
+| Length of the stream **network** in the catchment | net_km | km |
+| Stream network density | net_dens | km per sq. km |
 | Cells in the basin | cells | count |
 
+The five fields at the bottom of the table are filled only when the matching parameters are on: the three **sp_** fields with a contour interval given, the two **net_** fields with an accumulation threshold given. Otherwise they stay empty.
+
 A value that cannot be computed is written as null rather than zero: zero is a measurement, null is the absence of one.
+
+### Three lengths that are easy to confuse
+
+Three length fields sit next to each other in the attribute table, and the short names do not tell them apart. The table headers carry the names in words, but an export to CSV and any expression keep the field names, so the difference is spelled out here.
+
+**stream_km** is the length of the **main** stream, from the gauge upstream by the highest accumulation to the source. One line, tributaries not included.
+
+**net_km** is the length of the **whole** stream network inside the catchment, the main stream together with its tributaries. Filled when an accumulation threshold is given.
+
+**sp_iso_km** is the length of the **contours**, not of the streams. It is the Σli factor of the SP formula for the slope of the hillsides, and it is two orders of magnitude larger than the network: contours run over the whole area at every step in elevation. For a catchment of 54 sq. km at a 5 m interval it comes out around 2800 km, and that is correct.
 
 ### Parameters
 
@@ -1803,6 +1820,8 @@ A value that cannot be computed is written as null rather than zero: zero is a m
 |---|---|---|
 | Input DEM | Relief in metres in a metric CRS. | - |
 | Gauge points | A point layer, one point per gauge. | - |
+| Contour interval for the SP computation, m | Switches the sp_ fields on. Zero switches them off. | 10 |
+| Accumulation threshold for the stream network length, cells | Switches the net_ fields on. Zero switches them off. | 0 |
 | Snapping radius, m (adv.) | Search window for maximum accumulation. | 150 |
 | Fill depressions | Relief preparation before the flow routing. | on |
 | Slope epsilon, m (adv.) | Fill slope, as in 2.04. | as in 2.04 |
@@ -1838,6 +1857,17 @@ Isk is not the physical slope. On a plane the formula gives half the tangent, be
 
 For comparison the physical quantities stay in the output as well: **slope_deg** is the mean slope of the cells by Horn's method, **stream_ppm** the fall of the stream divided by its length.
 
+### The length of the stream network
+
+The **accumulation threshold for the stream network length** parameter switches on the **net_km** and **net_dens** fields, zero switches them off.
+
+The network is the set of cells where the accumulation has reached the threshold, that is the same definition of a stream as in **2.06 River network**. The length is counted over the links of the flow grid, a diagonal link weighing the square root of two cell sizes, so the figure matches the length of the lines 2.06 would build at the same threshold.
+
+A link counts only when both of its cells are inside the catchment. A link that leaves the boundary already belongs to the neighbouring catchment, and charging it here would count one river twice.
+
+The threshold decides what counts as a stream, and the length of the network changes with it severalfold: at a small threshold the network grows into every hollow, at a large one only the major streams remain. A figure without the threshold beside it therefore means nothing, and the log prints the threshold next to the length.
+
+**The network density net_dens** is the length of the network divided by the area of the catchment, in kilometres per square kilometre. It is comparable between basins, unlike the length itself.
 
 ## 2.16 Catchment of a line or an outline (ditches, open pits)
 
@@ -1917,9 +1947,38 @@ It is needed where a catchment already exists: drawn by hand, taken from somebod
 | Catchment polygons | The existing outlines to compute over. | - |
 | Outlet points | Gauges. Empty - the point is taken by the highest accumulation inside the polygon. | empty |
 | Compute the stream length and the fall | Requires tracing over the DEM and costs noticeably more than the rest. | on |
+| Contour interval for the SP computation, m | Switches the sp_ fields on. Zero switches them off. | 10 |
+| Accumulation threshold for the stream network length, cells | Switches the net_ fields on. Zero switches them off. | 0 |
 | Snapping radius (adv.) | Moves a gauge to the cell with the highest accumulation nearby. | 0 |
 | Fill the depressions (adv.) | Without filling the water stops in the local pits of the DEM. | on |
 | Catchments with characteristics | Output: the same polygons with the computed fields appended. | - |
+
+### The fields of the output layer
+
+| Value | Field | Units |
+|---|---|---|
+| Catchment area | area_km2 | sq. km |
+| Mean elevation | z_mean | m |
+| Minimum elevation | z_min | m |
+| Maximum elevation | z_max | m |
+| Mean slope of the catchment | slope_mean | degrees (Horn 3x3) |
+| Elevation of the outlet | z_gauge | m |
+| Main stream length | stream_km | km |
+| Stream fall | stream_fall_m | m |
+| Mean stream slope | stream_ppm | permille |
+| Mean slope of the hillsides Isk (SP) | sp_slope_ppm | permille |
+| Total length of the **contours** | sp_iso_km | km |
+| Weighted mean slope of the stream (SP) | sp_stream_ppm | permille |
+| Length of the stream **network** in the catchment | net_km | km |
+| Stream network density | net_dens | km per sq. km |
+| How the outlet was chosen | outlet | - |
+| Cells in the catchment | cells | count |
+
+The **sp_** fields are filled when a contour interval is given, the **net_** fields when an accumulation threshold is given, the stream fields when the length checkbox is on. Otherwise they stay empty: empty is the absence of a measurement, not a zero.
+
+Three lengths in this table are easy to confuse, and the difference is large. **stream_km** is the length of the main stream, one line from the outlet to the source. **net_km** is the length of the whole network including tributaries. **sp_iso_km** is the length of the **contours**, the Σli factor of the SP formula for the slope of the hillsides, and it is two orders of magnitude larger than the network: contours run over the whole area at every step in elevation. For a catchment of 54 sq. km at a 5 m interval it comes out around 2800 km, and that figure is right rather than broken.
+
+The attribute table headers carry the names in words, but an export to CSV and any expression keep the field names.
 
 ### The outlet
 
@@ -1948,8 +2007,19 @@ Isk is not the physical slope. On a plane the formula gives half the tangent, be
 
 **The weighted mean slope of the stream** is computed as the product of the partial slopes of the reaches between the inflection points of the profile, each raised to the share of its length. On a straight profile it equals the plain fall over length, on a broken one it comes out lower: a river with a steep head and a gentle lower course is not described by a single ratio.
 
-For comparison the physical quantities stay in the output as well: **slope_deg** is the mean slope of the cells by Horn's method, **stream_ppm** the fall of the stream divided by its length.
+For comparison the physical quantities stay in the output as well: **slope_mean** is the mean slope of the cells by Horn's method, **stream_ppm** the fall of the stream divided by its length.
 
+### The length of the stream network
+
+The **accumulation threshold for the stream network length** parameter switches on the **net_km** and **net_dens** fields, zero switches them off.
+
+The network is the set of cells where the accumulation has reached the threshold, that is the same definition of a stream as in **2.06 River network**. The length is counted over the links of the flow grid, a diagonal link weighing the square root of two cell sizes, so the figure matches the length of the lines 2.06 would build at the same threshold.
+
+A link counts only when both of its cells are inside the catchment. A link that leaves the boundary already belongs to the neighbouring catchment, and charging it here would count one river twice.
+
+The threshold decides what counts as a stream, and the length of the network changes with it severalfold: at a small threshold the network grows into every hollow, at a large one only the major streams remain. A figure without the threshold beside it therefore means nothing, and the log prints the threshold next to the length.
+
+**The network density net_dens** is the length of the network divided by the area of the catchment, in kilometres per square kilometre. It is comparable between basins, unlike the length itself.
 
 ## 2.18 Cut and fill (earthwork volumes)
 

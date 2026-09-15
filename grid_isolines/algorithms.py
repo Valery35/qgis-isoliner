@@ -20187,6 +20187,35 @@ class BasinsAlgorithm(IsolinerAlgorithm):
         return results
 
 
+# Псевдонимы полей водосбора. Имя поля короткое, и по нему величину не
+# опознать: пользователь 2.17 принял sp_iso_km за длину притоков, а это
+# суммарная длина горизонталей, число на два порядка больше. Псевдоним
+# ставится словами в заголовок таблицы атрибутов, само имя поля остаётся
+# прежним и выражения не ломаются. Словарь общий для 2.15 и 2.17: у них
+# разные имена трёх полей водотока, и лишние ключи просто не находятся.
+_CATCHMENT_ALIASES = {
+    "area_km2": _tr("Площадь водосбора, км²"),
+    "z_mean": _tr("Средняя высота, м"),
+    "z_min": _tr("Минимальная высота, м"),
+    "z_max": _tr("Максимальная высота, м"),
+    "slope_deg": _tr("Средний уклон водосбора, градусы"),
+    "slope_mean": _tr("Средний уклон водосбора, градусы"),
+    "z_gauge": _tr("Отметка створа, м"),
+    "stream_km": _tr("Длина ГЛАВНОГО водотока от створа до истока, км"),
+    "fall_m": _tr("Падение главного водотока, м"),
+    "stream_fall_m": _tr("Падение главного водотока, м"),
+    "slope_ppm": _tr("Средний уклон водотока, промилле"),
+    "stream_ppm": _tr("Средний уклон водотока, промилле"),
+    "sp_slope_ppm": _tr("СП 33-101: средний уклон склонов Iск, промилле"),
+    "sp_iso_km": _tr("СП 33-101: суммарная длина ГОРИЗОНТАЛЕЙ, км"),
+    "sp_stream_ppm": _tr("СП 33-101: средневзвешенный уклон водотока, "
+                         "промилле"),
+    "net_km": _tr("Длина речной СЕТИ внутри водосбора, км"),
+    "net_dens": _tr("Густота речной сети, км на км²"),
+    "cells": _tr("Ячеек в водосборе"),
+}
+
+
 class GaugeReportAlgorithm(IsolinerAlgorithm):
     """2.15 Отчёт по створу: морфометрия водосбора от точки замыкания."""
 
@@ -20194,6 +20223,7 @@ class GaugeReportAlgorithm(IsolinerAlgorithm):
     GAUGES = "GAUGES"
     SNAP = "SNAP"
     ISO_STEP = "ISO_STEP"
+    NET_ACC = "NET_ACC"
     KEEP_FIELDS = "KEEP_FIELDS"
     FILL = "FILL"
     EPSILON = "EPSILON"
@@ -20276,6 +20306,12 @@ class GaugeReportAlgorithm(IsolinerAlgorithm):
             self.tr("Сечение горизонталей для расчёта по СП, м (0 = не считать)"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.ISO_STEP, 10.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.NET_ACC,
+            self.tr("Порог аккумуляции для длины речной сети, ячеек "
+                    "(0 = не считать)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.NET_ACC, 0.0), minValue=0.0))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.SNAP, self.tr("Радиус притяжки точек, м"),
             QgsProcessingParameterNumber.Type.Double,
@@ -20300,7 +20336,8 @@ class GaugeReportAlgorithm(IsolinerAlgorithm):
 
     _NUM_KEYS = ("area_km2", "z_mean", "z_min", "z_max", "slope_deg",
                  "z_gauge", "stream_km", "fall_m", "slope_ppm",
-                 "sp_slope_ppm", "sp_iso_km", "sp_stream_ppm")
+                 "sp_slope_ppm", "sp_iso_km", "sp_stream_ppm",
+                 "net_km", "net_dens")
 
     def _process(self, parameters, context, feedback):
         _saved = dict(parameters)
@@ -20313,9 +20350,18 @@ class GaugeReportAlgorithm(IsolinerAlgorithm):
         if iso_step > 0:
             feedback.pushInfo(self.tr(
                 "Расчёт по СП 33-101 при сечении %.4g м: средний уклон "
-                "склонов Iск и средневзвешенный уклон водотока. Эти "
+                "склонов Iск и средневзвешенный уклон водотока. Поле "
+                "sp_iso_km это суммарная длина ГОРИЗОНТАЛЕЙ в водосборе, "
+                "множитель Σli в формуле, а не длина водотоков. Эти "
                 "величины отличаются от физических и осмысленны только "
                 "внутри нормативной методики.") % iso_step)
+        net_acc = self.parameterAsDouble(parameters, self.NET_ACC, context)
+        if net_acc > 0:
+            feedback.pushInfo(self.tr(
+                "Длина речной сети внутри водосбора при пороге аккумуляции "
+                "%.4g ячеек: поля net_km и net_dens. Порог решает, что "
+                "считать водотоком, и длина меняется вместе с ним в разы.")
+                % net_acc)
         do_fill = self.parameterAsBoolean(parameters, self.FILL, context)
         epsilon = self.parameterAsDouble(parameters, self.EPSILON, context)
         html_path = self.parameterAsFileOutput(
@@ -20377,7 +20423,7 @@ class GaugeReportAlgorithm(IsolinerAlgorithm):
             rep = topo_gauge.gauge_report(
                 z, downstream, acc, z.shape, seed, cell,
                 slope=slope_deg, nodata_mask=mask,
-                iso_interval=iso_step)
+                iso_interval=iso_step, net_threshold=net_acc)
             reports.append((num, src_id, rep))
             feedback.pushInfo(self.tr("Створ %d:") % num)
             for ln in topo_gauge.report_lines(rep, _tr):
@@ -20423,6 +20469,7 @@ class GaugeReportAlgorithm(IsolinerAlgorithm):
             sink.addFeature(fo)
 
         results = {self.OUT_POLY: dest_id}
+        _set_field_aliases(context, dest_id, _CATCHMENT_ALIASES)
         _topo_group_layer(context, dest_id, self.tr("Топография"),
                           collapse=False)
         if html_path:
@@ -20442,8 +20489,22 @@ class GaugeReportAlgorithm(IsolinerAlgorithm):
             ("stream_km", _tr("Длина главного водотока, км"), "%.3f"),
             ("stream_fall_m", _tr("Падение водотока, м"), "%.2f"),
             ("stream_ppm", _tr("Средний уклон водотока, промилле"), "%.1f"),
+            ("net_km", _tr("Длина речной сети внутри водосбора, км"),
+             "%.3f"),
+            ("net_dens", _tr("Густота речной сети, км на км²"), "%.2f"),
+            ("sp_slope_ppm",
+             _tr("СП 33-101: средний уклон склонов Iск, промилле"), "%.1f"),
+            ("sp_iso_km",
+             _tr("СП 33-101: суммарная длина горизонталей, км"), "%.2f"),
+            ("sp_stream_ppm",
+             _tr("СП 33-101: средневзвешенный уклон водотока, промилле"),
+             "%.1f"),
             ("cells", _tr("Ячеек в бассейне"), "%d"),
         ]
+        # Пустые строки не выводятся: расчёт по СП и длина сети
+        # необязательны, и без них таблица пестрела бы прочерками.
+        rows = [r for r in rows
+                if any(rep.get(r[0]) is not None for _n, _s, rep in reports)]
         title = _tr("Отчёт по створам")
         out = ["<html><head><meta charset='utf-8'><title>%s</title>"
                "<style>body{font-family:sans-serif;margin:20px;color:#222}"
@@ -20530,6 +20591,7 @@ class CatchmentStatsAlgorithm(IsolinerAlgorithm):
     GAUGES = "GAUGES"
     SNAP = "SNAP"
     ISO_STEP = "ISO_STEP"
+    NET_ACC = "NET_ACC"
     FILL = "FILL"
     EPSILON = "EPSILON"
     STREAM = "STREAM"
@@ -20621,6 +20683,12 @@ class CatchmentStatsAlgorithm(IsolinerAlgorithm):
             self.tr("Сечение горизонталей для расчёта по СП, м (0 = не считать)"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.ISO_STEP, 10.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.NET_ACC,
+            self.tr("Порог аккумуляции для длины речной сети, ячеек "
+                    "(0 = не считать)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.NET_ACC, 0.0), minValue=0.0))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.SNAP, self.tr("Радиус притяжки точек, м"),
             QgsProcessingParameterNumber.Type.Double,
@@ -20638,7 +20706,8 @@ class CatchmentStatsAlgorithm(IsolinerAlgorithm):
 
     _NUM_KEYS = ("area_km2", "z_mean", "z_min", "z_max", "slope_mean",
                  "z_gauge", "stream_km", "stream_fall_m", "stream_ppm",
-                 "sp_slope_ppm", "sp_iso_km", "sp_stream_ppm")
+                 "sp_slope_ppm", "sp_iso_km", "sp_stream_ppm",
+                 "net_km", "net_dens")
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
@@ -20659,9 +20728,18 @@ class CatchmentStatsAlgorithm(IsolinerAlgorithm):
         if iso_step > 0:
             feedback.pushInfo(self.tr(
                 "Расчёт по СП 33-101 при сечении %.4g м: средний уклон "
-                "склонов Iск и средневзвешенный уклон водотока. Эти "
+                "склонов Iск и средневзвешенный уклон водотока. Поле "
+                "sp_iso_km это суммарная длина ГОРИЗОНТАЛЕЙ в водосборе, "
+                "множитель Σli в формуле, а не длина водотоков. Эти "
                 "величины отличаются от физических и осмысленны только "
                 "внутри нормативной методики.") % iso_step)
+        net_acc = self.parameterAsDouble(parameters, self.NET_ACC, context)
+        if net_acc > 0:
+            feedback.pushInfo(self.tr(
+                "Длина речной сети внутри водосбора при пороге аккумуляции "
+                "%.4g ячеек: поля net_km и net_dens. Порог решает, что "
+                "считать водотоком, и длина меняется вместе с ним в разы.")
+                % net_acc)
 
         z, mask, gt, proj, cell, dir_idx, downstream, acc = \
             _topo_prepare_flow(layer, do_fill, epsilon, feedback, self.tr)
@@ -20764,11 +20842,10 @@ class CatchmentStatsAlgorithm(IsolinerAlgorithm):
                     n_by_gauge += 1
                     break
             rep = topo_gauge.mask_report(
-                z, m, cell,
-                downstream=downstream if want_stream else None,
-                acc=acc if want_stream else None,
+                z, m, cell, downstream=downstream, acc=acc,
                 seed_idx=seed, slope=slope_deg, nodata_mask=mask,
-                iso_interval=iso_step)
+                iso_interval=iso_step, net_threshold=net_acc,
+                trace_stream=want_stream)
             fo = QgsFeature(fields)
             fo.setGeometry(g)
             attrs = list(ft.attributes())
@@ -20795,6 +20872,7 @@ class CatchmentStatsAlgorithm(IsolinerAlgorithm):
                 "Длина водотока не считалась: галочка снята. Площадь и "
                 "отметки посчитаны."))
         _set_output_name(context, dest, self.tr("Водосборы с расчётом"))
+        _set_field_aliases(context, dest, _CATCHMENT_ALIASES)
         _topo_group_layer(context, dest, self.tr("Топография"),
                           collapse=False)
         _save_values(self, _saved)

@@ -91,6 +91,64 @@ def contour_length_in_mask(z, mask, cellsize, interval, nodata_mask=None):
     return total * float(cellsize)
 
 
+def network_length_in_mask(downstream, acc, mask, cellsize, threshold,
+                           nodata_mask=None):
+    """Суммарная длина речной сети внутри водосбора, метры.
+
+    Сеть это ячейки, где аккумуляция достигла порога. Длина считается по
+    ЗВЕНЬЯМ решётки стока, а не по числу ячеек: цепочка из пяти ячеек это
+    четыре звена. Диагональное звено весит корень из двух размеров ячейки,
+    как и в слое речной сети 2.06, где длина берётся с построенной линии.
+
+    Звено засчитывается, только если обе его ячейки сетевые и обе внутри
+    водосбора. Звено, уходящее за границу, принадлежит уже соседнему
+    водосбору, и приписывать его сюда значит считать одну реку дважды.
+
+    Порог здесь тот же, что в 2.06, и смысл у него тот же: он решает, что
+    считать водотоком. Длина сети меняется вместе с порогом в разы, поэтому
+    число без порога рядом не значит ничего.
+
+    Ноль или отрицательный порог отключает расчёт и возвращает None: ноль
+    это измерение, None это отсутствие измерения.
+    """
+    if threshold is None or float(threshold) <= 0:
+        return None
+    m = np.asarray(mask, dtype=bool)
+    if nodata_mask is not None:
+        m = m & ~np.asarray(nodata_mask, dtype=bool)
+    shape = m.shape
+    nx = shape[1]
+    inside = m.ravel()
+    accf = np.asarray(acc, dtype=np.float64).ravel()
+    ds = np.asarray(downstream).ravel()
+    net = inside & np.isfinite(accf) & (accf >= float(threshold))
+    src = np.flatnonzero(net & (ds >= 0))
+    if src.size == 0:
+        return 0.0
+    tgt = ds[src]
+    keep = net[tgt]
+    src, tgt = src[keep], tgt[keep]
+    if src.size == 0:
+        return 0.0
+    dr = (tgt // nx) - (src // nx)
+    dc = (tgt % nx) - (src % nx)
+    steps = np.sqrt(dr.astype(np.float64) ** 2 + dc.astype(np.float64) ** 2)
+    return float(steps.sum()) * float(cellsize)
+
+
+def _fill_network(rep, downstream, acc, mask, cellsize, threshold,
+                  nodata_mask=None):
+    """Кладёт в отчёт длину сети и её густоту. Порог ноль - оба поля пустые."""
+    net_m = network_length_in_mask(downstream, acc, mask, cellsize, threshold,
+                                   nodata_mask)
+    if net_m is None:
+        return
+    rep["net_km"] = net_m / 1000.0
+    area_km2 = rep.get("area_km2")
+    if area_km2:
+        rep["net_dens"] = rep["net_km"] / area_km2
+
+
 def sp_slope_ppm(iso_len_m, area_m2, interval):
     """Средний уклон склонов Iск по СП 33-101-2003, промилле.
 
@@ -224,12 +282,15 @@ REPORT_KEYS = (
     "sp_slope_ppm",   # средний уклон склонов Iск по СП 33-101, промилле
     "sp_iso_km",      # суммарная длина горизонталей в водосборе, км
     "sp_stream_ppm",  # средневзвешенный уклон водотока по СП, промилле
+    "net_km",         # длина речной сети внутри водосбора, км
+    "net_dens",       # густота речной сети, км на км²
     "cells",          # ячеек в бассейне (служебно, замыкает список)
 )
 
 
 def gauge_report(z, downstream, acc, shape, seed_idx, cellsize,
-                 slope=None, nodata_mask=None, iso_interval=0.0):
+                 slope=None, nodata_mask=None, iso_interval=0.0,
+                 net_threshold=0.0):
     """Морфометрия бассейна от створа: словарь по REPORT_KEYS.
 
     z - отметки, downstream и acc - решётка стока, seed_idx - плоский
@@ -256,6 +317,8 @@ def gauge_report(z, downstream, acc, shape, seed_idx, cellsize,
         rep["sp_iso_km"] = iso_len / 1000.0
         rep["sp_slope_ppm"] = sp_slope_ppm(
             iso_len, int(mask.sum()) * float(cellsize) ** 2, iso_interval)
+    _fill_network(rep, downstream, acc, mask, cellsize, net_threshold,
+                  nodata_mask)
     zf = np.asarray(z, dtype=np.float64).ravel()
     zg = zf[int(seed_idx)]
     rep["z_gauge"] = float(zg) if math.isfinite(zg) else None
@@ -309,7 +372,7 @@ def outlet_in_mask(z, mask, acc=None, nodata_mask=None):
 
 def mask_report(z, mask, cellsize, downstream=None, acc=None,
                 seed_idx=None, slope=None, nodata_mask=None,
-                iso_interval=0.0):
+                iso_interval=0.0, net_threshold=0.0, trace_stream=True):
     """Морфометрия ГОТОВОГО водосбора: словарь по REPORT_KEYS.
 
     Отличие от gauge_report в том, что маска приходит извне, а не
@@ -320,6 +383,12 @@ def mask_report(z, mask, cellsize, downstream=None, acc=None,
     Длина водотока и падение требуют решётки стока и точки замыкания.
     Нет их - соответствующие поля остаются пустыми, а площадь и отметки
     считаются всё равно: половина ответа лучше отказа.
+
+    trace_stream отделяет дорогую трассировку водотока от остального.
+    Решётка стока нужна и длине сети, поэтому подавать её приходится всегда,
+    а вот прослеживать главный водоток от створа до истока - не всегда.
+    Раньше отказ от трассировки выражался тем, что решётку просто не
+    передавали, и вместе с водотоком отключалась бы и сеть.
     """
     m = np.asarray(mask, dtype=bool)
     if nodata_mask is not None:
@@ -341,6 +410,12 @@ def mask_report(z, mask, cellsize, downstream=None, acc=None,
         rep["sp_slope_ppm"] = sp_slope_ppm(
             iso_len, n_cells * float(cellsize) ** 2, iso_interval)
 
+    if downstream is not None and acc is not None:
+        _fill_network(rep, downstream, acc, m, cellsize, net_threshold,
+                      nodata_mask)
+
+    if not trace_stream:
+        return rep
     if seed_idx is None:
         seed_idx = outlet_in_mask(z, m, acc, nodata_mask)
     if seed_idx is None or downstream is None or acc is None:
