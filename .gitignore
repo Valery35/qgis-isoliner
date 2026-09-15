@@ -179,3 +179,6 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+# Папка, куда десктопное приложение Claude складывает присланные файлы.
+# Это копии архивов и PDF из переписки, в репозитории им делать нечего.
+Claude outputs/
