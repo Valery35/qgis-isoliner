@@ -327,6 +327,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.8** — the user manual is rewritten in full, both Russian and English: long compound sentences are split into short ones, and every paragraph opens with its point. The content is the same, the reading is easier.
 - **5.13.5** — new tools 2.24 and 2.25: reading and writing LandXML. The programs that process total station surveys give their result in this format, and nothing in QGIS has read cross sections with stations until now.
 - **5.13.4** — 2.15 and 2.17 compute the length of the stream network inside the catchment and its density at a given accumulation threshold. The catchment fields now carry names in words, and the manual describes every field of the report: `sp_iso_km` is the length of the contours, not of the tributaries.
 - **5.13.3** — the way the dialog settings are written is updated in tools 1.11, 1.12 and 4.06: the former form is going away from QGIS, and on future builds their parameter window would have stopped opening.
