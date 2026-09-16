@@ -327,6 +327,11 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.13** — colloquial vocabulary and medical metaphors are removed from both manuals. The text is even and professional and says the same thing.
+- **5.13.12** — long compound sentences are split where it helps, and colons inside sentences are replaced by a comma, a full stop or a dash. The text reads more evenly and says the same thing.
+- **5.13.11** — everything about the internals of the module is gone from the manuals: how the tool list is assembled, what it is written in, which libraries it uses and what was covered by tests. What is left is what you need to do the work.
+- **5.13.10** — both manuals were checked for where the material sits: leftovers of an old tool description are gone from the introduction, the full tool list no longer splits the installation section in half, two sections on slope profiling returned to their own chapter, repeated blocks were reduced to one place, and the tool numbers in the appendix were corrected.
+- **5.13.9** — both manuals are read through end to end: the connectives between sentences are back, paragraphs that had been split in two are joined again, and hollow advice such as "this layer is worth opening" is gone. The previous edit chopped the text too finely, and it reads as continuous prose again.
 - **5.13.8** — the user manual is rewritten in full, both Russian and English: long compound sentences are split into short ones, and every paragraph opens with its point. The content is the same, the reading is easier.
 - **5.13.5** — new tools 2.24 and 2.25: reading and writing LandXML. The programs that process total station surveys give their result in this format, and nothing in QGIS has read cross sections with stations until now.
 - **5.13.4** — 2.15 and 2.17 compute the length of the stream network inside the catchment and its density at a given accumulation threshold. The catchment fields now carry names in words, and the manual describes every field of the report: `sp_iso_km` is the length of the contours, not of the tributaries.
