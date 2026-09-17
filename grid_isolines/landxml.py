@@ -438,11 +438,54 @@ class _Reader(object):
                         faces.append(tuple(idx))
                 if lost:
                     self.doc.warnings.append(
-                        "Поверхность «%s»: отброшено граней со ссылкой на "
+                        "Поверхность «%s» - отброшено граней со ссылкой на "
                         "неизвестную точку: %d" % (el.get("name") or "", lost))
+                nm = el.get("name") or ""
+                if not pts:
+                    # Поверхность задана бровками, без точек и граней. Так
+                    # выгружает трассу Trimble Business Center. Читать нечего,
+                    # но бровки это данные, и они забираются линиями.
+                    n = self._breaklines(d, nm)
+                    if n:
+                        self.doc.warnings.append(
+                            "Поверхность «%s» задана только бровками, точек и "
+                            "граней в файле нет. Бровки прочитаны линиями: %d. "
+                            "Поверхность не создана" % (nm, n))
+                    else:
+                        self.doc.warnings.append(
+                            "Поверхность «%s» пуста, точек в файле нет. "
+                            "Поверхность не создана" % nm)
+                    continue
+                if not faces:
+                    self.doc.warnings.append(
+                        "Поверхность «%s» задана точками без граней, "
+                        "триангуляции в файле нет. Стройте её отдельно по "
+                        "этим точкам" % nm)
                 self.doc.surfaces.append({
-                    "name": el.get("name") or "", "desc": el.get("desc") or "",
+                    "name": nm, "desc": el.get("desc") or "",
                     "points": pts, "faces": faces, "skipped_faces": skipped})
+
+    def _breaklines(self, definition, surface_name):
+        """Бровки поверхности в линии. Возвращает, сколько прочитано."""
+        n = 0
+        for group in _iter(definition, "Breaklines"):
+            for bl in _iter(group, "Breakline"):
+                coords = []
+                for pl in _iter(bl, "PntList3D"):
+                    v = _floats(pl.text)
+                    for i in range(0, len(v) - 2, 3):
+                        a, b = v[i] * self.k, v[i + 1] * self.k
+                        x, y = (b, a) if self.north_first else (a, b)
+                        coords.append((x, y, v[i + 2] * self.k))
+                if len(coords) < 2:
+                    continue
+                self.doc.lines.append({
+                    "name": bl.get("name") or "",
+                    "desc": bl.get("desc") or ("бровка поверхности «%s»"
+                                               % surface_name),
+                    "coords": coords})
+                n += 1
+        return n
 
     # трассы -------------------------------------------------------------
 
@@ -864,3 +907,336 @@ def dump(doc, path, application="Isoliner"):
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(dumps(doc, application))
     return path
+
+
+# --- примеры файлов для проверки чтения ----------------------------------
+#
+# Набор строится на задокументированном поведении программ, а не на
+# догадках. Источники поведения названы в поле "source" каждого варианта.
+# Геометрия у всех вариантов одна и та же, меняется только способ записи,
+# поэтому результаты чтения сопоставимы между собой.
+
+_DEMO_E0, _DEMO_N0 = 420000.0, 6180000.0   # UTM 40N, окрестности Перми
+_DEMO_EPSG = 32640
+_FT = 1200.0 / 3937.0                      # US survey foot
+
+
+def _demo_model():
+    """Общая геометрия примеров в метрах, порядок XY.
+
+    Съёмочные точки, две линии, поверхность точками и гранями, трасса с
+    прямой, круговой кривой и прямой, профиль по ней и три створа.
+    """
+    pts = []
+    for i in range(12):
+        col, row = i % 4, i // 4
+        pts.append({
+            "name": "%d" % (1001 + i),
+            "code": ("GRND" if row else "ROAD"),
+            "desc": ("поверхность земли" if row else "кромка проезжей части"),
+            "x": _DEMO_E0 + 25.0 * col + 10.0 * row,
+            "y": _DEMO_N0 + 30.0 * row,
+            "z": 118.0 + 0.4 * col + 1.1 * row})
+
+    lines = [{"name": "bank_left", "desc": "бровка слева",
+              "coords": [(_DEMO_E0 - 10.0 + 12.0 * i, _DEMO_N0 - 20.0 + 4.0 * i,
+                          117.5 + 0.2 * i) for i in range(6)]},
+             {"name": "ditch", "desc": "канава",
+              "coords": [(_DEMO_E0 + 5.0 + 15.0 * i, _DEMO_N0 - 45.0 + 2.0 * i,
+                          116.2 + 0.15 * i) for i in range(5)]}]
+
+    spts, faces = [], []
+    nx, ny = 5, 4
+    for r in range(ny):
+        for c in range(nx):
+            spts.append((_DEMO_E0 + 30.0 * c, _DEMO_N0 + 25.0 * r,
+                         115.0 + 0.9 * c + 1.4 * r))
+    for r in range(ny - 1):
+        for c in range(nx - 1):
+            a = r * nx + c
+            faces.append((a, a + 1, a + nx))
+            faces.append((a + 1, a + nx + 1, a + nx))
+
+    # трасса: прямая, круговая кривая влево, прямая
+    a_start = (_DEMO_E0 - 40.0, _DEMO_N0 - 60.0)
+    a_pi = (_DEMO_E0 + 60.0, _DEMO_N0 - 60.0)
+    a_end = (_DEMO_E0 + 160.0, _DEMO_N0 + 40.0)
+    curve = {"radius": 80.0, "rot": "ccw",
+             "start": (a_pi[0] - 40.0, a_pi[1]),
+             "centre": (a_pi[0] - 40.0, a_pi[1] + 80.0),
+             "end": (a_pi[0] + 40.0 * 0.7071, a_pi[1] + 80.0 - 80.0 * 0.7071)}
+    profile = [(0.0, 117.0), (60.0, 118.2), (140.0, 119.6), (240.0, 120.1)]
+    sects = []
+    for k, sta in enumerate((20.0, 120.0, 220.0)):
+        sects.append({
+            "sta": sta, "name": "ПК%d" % k,
+            "points": [(-12.0, 119.0 + 0.3 * k), (-4.0, 117.4 + 0.3 * k),
+                       (0.0, 117.0 + 0.3 * k), (4.0, 117.4 + 0.3 * k),
+                       (12.0, 119.2 + 0.3 * k)]})
+    return {"points": pts, "lines": lines, "spts": spts, "faces": faces,
+            "align": {"start": a_start, "pi": a_pi, "end": a_end,
+                      "curve": curve, "profile": profile, "sects": sects,
+                      "length": 240.0, "sta_start": 0.0}}
+
+
+def _demo_xy(x, y, north_first=True, k=1.0):
+    a, b = (y / k, x / k) if north_first else (x / k, y / k)
+    return "%s %s" % (_num(a), _num(b))
+
+
+def _demo_xyz(x, y, z, north_first=True, k=1.0):
+    return "%s %s" % (_demo_xy(x, y, north_first, k), _num(z / k))
+
+
+def _demo_header(units="metric", crs=True, version="1.2", app="Isoliner demo"):
+    o = ['<?xml version="1.0" encoding="UTF-8"?>',
+         '<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" '
+         'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+         'date="2026-09-17" time="09:00:00" version="%s" language="English" '
+         'readOnly="false">' % version]
+    if units == "metric":
+        o.append('<Units><Metric linearUnit="meter" areaUnit="squareMeter" '
+                 'volumeUnit="cubicMeter" temperatureUnit="celsius" '
+                 'pressureUnit="milliBars" angularUnit="decimal degrees" '
+                 'directionUnit="decimal degrees"/></Units>')
+    elif units == "imperial":
+        o.append('<Units><Imperial linearUnit="USSurveyFoot" '
+                 'areaUnit="squareFoot" volumeUnit="cubicFeet" '
+                 'temperatureUnit="fahrenheit" pressureUnit="inHG" '
+                 'angularUnit="degrees dd.mm.ss" '
+                 'directionUnit="degrees dd.mm.ss"/></Units>')
+    o.append('<Project name="Пример Isoliner"/>')
+    o.append('<Application name="%s" version="5.13" '
+             'manufacturer="Informpp"/>' % _esc(app))
+    if crs:
+        o.append('<CoordinateSystem name="UTM zone 40N" epsgCode="%d"/>'
+                 % _DEMO_EPSG)
+    return o
+
+
+def _demo_points(m, nf, k, style="full"):
+    o = ['<CgPoints name="survey">']
+    for i, p in enumerate(m["points"], start=1):
+        if style == "survey":
+            at = ('oID="%d" name="%s" state="existing" pntSurv="natural"'
+                  % (5000 + i, _esc(p["name"])))
+            body = _demo_xy(p["x"], p["y"], nf, k)
+        else:
+            at = ('name="%s" code="%s" desc="%s"'
+                  % (_esc(p["name"]), _esc(p["code"]), _esc(p["desc"])))
+            body = _demo_xyz(p["x"], p["y"], p["z"], nf, k)
+        o.append("<CgPoint %s>%s</CgPoint>" % (at, body))
+    o.append("</CgPoints>")
+    return o
+
+
+def _demo_lines(m, nf, k):
+    o = ['<PlanFeatures name="situation">']
+    for ln in m["lines"]:
+        c = ln["coords"]
+        o.append('<PlanFeature name="%s" desc="%s"><CoordGeom>'
+                 '<IrregularLine>' % (_esc(ln["name"]), _esc(ln["desc"])))
+        o.append("<Start>%s</Start>" % _demo_xyz(c[0][0], c[0][1], c[0][2],
+                                                 nf, k))
+        o.append("<PntList3D>%s</PntList3D>"
+                 % " ".join(_demo_xyz(p[0], p[1], p[2], nf, k)
+                            for p in c[1:-1]))
+        o.append("<End>%s</End>" % _demo_xyz(c[-1][0], c[-1][1], c[-1][2],
+                                             nf, k))
+        o.append("</IrregularLine></CoordGeom></PlanFeature>")
+    o.append("</PlanFeatures>")
+    return o
+
+
+def _demo_surface(m, nf, k, mode="faces"):
+    o = ['<Surfaces>', '<Surface name="existing" desc="поверхность земли">',
+         '<Definition surfType="TIN">']
+    if mode in ("faces", "points"):
+        o.append("<Pnts>")
+        for i, p in enumerate(m["spts"], start=1):
+            o.append('<P id="%d">%s</P>'
+                     % (i, _demo_xyz(p[0], p[1], p[2], nf, k)))
+        o.append("</Pnts>")
+    if mode == "faces":
+        o.append("<Faces>")
+        for j, f in enumerate(m["faces"]):
+            at = ' i="1"' if j == 0 else ""
+            o.append("<F%s>%d %d %d</F>" % (at, f[0] + 1, f[1] + 1, f[2] + 1))
+        o.append("</Faces>")
+    if mode == "breaklines":
+        o.append('<Breaklines>')
+        for ln in m["lines"]:
+            o.append('<Breakline name="%s" brkType="standard"><PntList3D>%s'
+                     '</PntList3D></Breakline>'
+                     % (_esc(ln["name"]),
+                        " ".join(_demo_xyz(p[0], p[1], p[2], nf, k)
+                                 for p in ln["coords"])))
+        o.append('</Breaklines>')
+    o.append("</Definition></Surface></Surfaces>")
+    return o
+
+
+def _demo_align(m, nf, k, geom="curve", profile=True, sects=True):
+    a = m["align"]
+    o = ['<Alignments>',
+         '<Alignment name="axis" length="%s" staStart="%s" desc="ось трассы">'
+         % (_num(a["length"] / k), _num(a["sta_start"]))]
+    o.append("<CoordGeom>")
+    st, pi, en, cv = a["start"], a["pi"], a["end"], a["curve"]
+    if geom == "line":
+        o.append("<Line><Start>%s</Start><End>%s</End></Line>"
+                 % (_demo_xy(st[0], st[1], nf, k),
+                    _demo_xy(en[0], en[1], nf, k)))
+    else:
+        o.append("<Line><Start>%s</Start><End>%s</End></Line>"
+                 % (_demo_xy(st[0], st[1], nf, k),
+                    _demo_xy(cv["start"][0], cv["start"][1], nf, k)))
+        if geom == "spiral":
+            o.append('<Spiral length="%s" radiusStart="INF" radiusEnd="%s" '
+                     'rot="%s" spiType="clothoid">'
+                     % (_num(40.0 / k), _num(cv["radius"] / k), cv["rot"]))
+            o.append("<Start>%s</Start>"
+                     % _demo_xy(cv["start"][0], cv["start"][1], nf, k))
+            o.append("<PI>%s</PI>" % _demo_xy(pi[0], pi[1], nf, k))
+            o.append("<End>%s</End>"
+                     % _demo_xy(cv["end"][0], cv["end"][1], nf, k))
+            o.append("</Spiral>")
+        else:
+            o.append('<Curve rot="%s" radius="%s">' % (cv["rot"],
+                                                       _num(cv["radius"] / k)))
+            o.append("<Start>%s</Start>"
+                     % _demo_xy(cv["start"][0], cv["start"][1], nf, k))
+            o.append("<Center>%s</Center>"
+                     % _demo_xy(cv["centre"][0], cv["centre"][1], nf, k))
+            o.append("<End>%s</End>"
+                     % _demo_xy(cv["end"][0], cv["end"][1], nf, k))
+            o.append("</Curve>")
+        o.append("<Line><Start>%s</Start><End>%s</End></Line>"
+                 % (_demo_xy(cv["end"][0], cv["end"][1], nf, k),
+                    _demo_xy(en[0], en[1], nf, k)))
+    o.append("</CoordGeom>")
+    if profile:
+        o.append('<Profile name="axis"><ProfAlign name="design">')
+        for sta, z in a["profile"]:
+            o.append("<PVI>%s %s</PVI>" % (_num(sta / k), _num(z / k)))
+        o.append("</ProfAlign></Profile>")
+    if sects:
+        o.append("<CrossSects>")
+        for cs in a["sects"]:
+            o.append('<CrossSect sta="%s" name="%s">'
+                     % (_num(cs["sta"] / k), _esc(cs["name"])))
+            o.append('<CrossSectSurf name="existing">')
+            for off, z in cs["points"]:
+                o.append("<CrossSectPnt>%s %s</CrossSectPnt>"
+                         % (_num(off / k), _num(z / k)))
+            o.append("</CrossSectSurf></CrossSect>")
+        o.append("</CrossSects>")
+    o.append("</Alignment></Alignments>")
+    return o
+
+
+# key, файл, короткая метка, что проверяет, откуда известно написание
+DEMO_VARIANTS = [
+    ("base", "landxml_base.xml",
+     "Базовый: метры, север-восток, точки и грани",
+     "Метры, координаты север-восток, поверхность точками и гранями, "
+     "трасса с круговой кривой, профиль и три створа. Одна грань помечена "
+     "невидимой (i=\"1\") и в чтение не идёт.",
+     "Схема LandXML 1.2, базовое написание."),
+    ("east_first", "landxml_east_first.xml",
+     "Обратный порядок координат: восток-север",
+     "То же, но координаты записаны восток-север. Читается верно только "
+     "при снятом флажке порядка координат.",
+     "Порядок в схеме не закреплён, поэтому в чтении есть переключатель."),
+    ("imperial", "landxml_imperial.xml",
+     "Футы (US survey foot)",
+     "Футы (US survey foot). Проверяет пересчёт в метры: без него отметки "
+     "вышли бы втрое больше.",
+     "Civil 3D пишет футы двух видов, международный и геодезический."),
+    ("no_units", "landxml_no_units.xml",
+     "Без раздела единиц",
+     "Без раздела Units. Числа берутся как есть, в журнал идёт "
+     "предупреждение.",
+     "Встречается у выгрузок, собранных вручную."),
+    ("no_crs", "landxml_no_crs.xml",
+     "Без системы координат",
+     "Без CoordinateSystem. Слои получают систему проекта, в журнал идёт "
+     "предупреждение.",
+     "CoordinateSystem в схеме необязателен."),
+    ("points_only", "landxml_points_only.xml",
+     "Поверхность точками без граней",
+     "Поверхность точками без граней. Триангуляции в файле нет, строить её "
+     "заново придётся отдельно.",
+     "Civil 3D, режим выгрузки «Points Only»."),
+    ("breaklines", "landxml_breaklines.xml",
+     "Поверхность одними бровками",
+     "Поверхность задана только бровками, без точек и граней. Читается как "
+     "линии, поверхность при этом не создаётся.",
+     "Trimble Business Center выгружает трассу поверхностью по бровкам."),
+    ("spiral", "landxml_spiral.xml",
+     "Трасса с переходной кривой",
+     "Трасса с переходной кривой. Кривая заменяется хордой, замена "
+     "считается и пишется в журнал.",
+     "Переходные кривые пишут все дорожные программы, формы записи разные."),
+    ("survey_points", "landxml_survey_points.xml",
+     "Точки без отметки, с oID и pntSurv",
+     "Точки без отметки, с атрибутами oID, state и pntSurv вместо name и "
+     "code. Отметка Z у таких точек пустая.",
+     "Написание из выгрузок съёмочных программ."),
+    ("plain_align", "landxml_plain_align.xml",
+     "Трасса без профиля и створов",
+     "Трасса одной прямой, без профиля и без створов. Проверяет, что выходы "
+     "профиля и створов при этом не создаются.",
+     "Минимальная трасса по схеме."),
+]
+
+_DEMO_BY_KEY = dict((v[0], v) for v in DEMO_VARIANTS)
+
+
+def demo_xml(key):
+    """Текст файла-примера по ключу из DEMO_VARIANTS."""
+    if key not in _DEMO_BY_KEY:
+        raise LandXmlError("Неизвестный пример: %s" % key)
+    m = _demo_model()
+    nf, k = True, 1.0
+    units, crs, ver = "metric", True, "1.2"
+    surf, geom, prof, sects, pstyle = "faces", "curve", True, True, "full"
+    if key == "east_first":
+        nf = False
+    elif key == "imperial":
+        units, k = "imperial", _FT
+    elif key == "no_units":
+        units = "none"
+    elif key == "no_crs":
+        crs = False
+    elif key == "points_only":
+        surf = "points"
+    elif key == "breaklines":
+        surf = "breaklines"
+    elif key == "spiral":
+        geom = "spiral"
+    elif key == "survey_points":
+        pstyle = "survey"
+    elif key == "plain_align":
+        geom, prof, sects = "line", False, False
+    o = _demo_header(units=units, crs=crs, version=ver)
+    o += _demo_points(m, nf, k, style=pstyle)
+    o += _demo_lines(m, nf, k)
+    o += _demo_surface(m, nf, k, mode=surf)
+    o += _demo_align(m, nf, k, geom=geom, profile=prof, sects=sects)
+    o.append("</LandXML>")
+    return "\n".join(o)
+
+
+def demo_write(folder, keys=None):
+    """Пишет примеры в папку. Возвращает список (ключ, путь, что проверяет)."""
+    import os
+    out = []
+    for key, fname, _label, what, _src in DEMO_VARIANTS:
+        if keys is not None and key not in keys:
+            continue
+        path = os.path.join(folder, fname)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(demo_xml(key))
+        out.append((key, path, what))
+    return out

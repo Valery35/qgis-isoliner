@@ -12,10 +12,16 @@ Credo, Trimble Business Center, Topcon Magnet, Leica Infinity, Civil 3D.
 модель: 6.03 принимает пары расстояние-отметка, 4.06 режет разрезом
 трёхмерные грани.
 
-Здесь проверяется ядро, без QGIS. Настоящих выгрузок на момент написания
-не было, примеры собраны по схеме 1.2 руками. Поэтому особенно важны
-проверки того, что читатель терпим: файл без пространства имён, файл в
-футах, файл с чужими разделами.
+Здесь проверяется ядро, без QGIS. Настоящих выгрузок нет, примеры
+собраны по схеме 1.2 и по задокументированному поведению программ.
+Поэтому особенно важны проверки того, что читатель терпим - файл без
+пространства имён, файл в футах, файл с чужими разделами.
+
+Набор примеров 8.03 нашёл два дефекта чтения, и оба закрыты сторожами
+внизу файла. Поверхность, заданная одними бровками (так Trimble отдаёт
+трассу), создавала пустую поверхность и теряла бровки. Поверхность
+точками без граней (выгрузка Civil 3D точками) молчала о том, что
+триангуляции в файле нет.
 
 Три ловушки, каждая из которых молча портит результат:
 
@@ -37,6 +43,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
 
 from grid_isolines import landxml  # noqa: E402
+from grid_isolines import landxml as lx  # noqa: E402
 
 HEAD = ('<?xml version="1.0"?>\n'
         '<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" '
@@ -440,3 +447,70 @@ def test_self_closing_tag_and_unquoted_attribute():
     d = _doc('<CoordinateSystem name="MSK" epsgCode=3857 />'
              '<CgPoints><CgPoint name="1">1 2 3</CgPoint></CgPoints>')
     assert d.crs["epsg"] == 3857
+
+
+# --- примеры файлов (8.03) ------------------------------------------------
+
+def test_every_demo_variant_parses():
+    """Каждый пример читается и даёт ту же геометрию, что базовый."""
+    base = lx.loads(lx.demo_xml("base"))
+    assert base.counts()["points"] == 12
+    for key, fname, label, what, src in lx.DEMO_VARIANTS:
+        assert fname.endswith(".xml") and label and what and src
+        doc = lx.loads(lx.demo_xml(key), north_first=(key != "east_first"))
+        assert not doc.is_empty(), key
+
+
+def test_demo_coordinates_match_across_variants():
+    """Порядок координат и футы меняют написание, но не саму местность."""
+    base = lx.loads(lx.demo_xml("base"))
+    for key, nf in (("east_first", False), ("imperial", True),
+                    ("no_units", True), ("no_crs", True)):
+        doc = lx.loads(lx.demo_xml(key), north_first=nf)
+        assert len(doc.points) == len(base.points), key
+        for a, b in zip(base.points, doc.points):
+            for k in ("x", "y"):
+                assert abs(a[k] - b[k]) < 1e-3, (key, k)
+
+
+def test_demo_no_units_and_no_crs_warn():
+    assert any("единиц" in w for w in lx.loads(lx.demo_xml("no_units")).warnings)
+    assert any("координат" in w for w in lx.loads(lx.demo_xml("no_crs")).warnings)
+
+
+def test_demo_spiral_is_counted():
+    doc = lx.loads(lx.demo_xml("spiral"))
+    assert doc.spirals == 1
+
+
+def test_surface_of_breaklines_becomes_lines_not_an_empty_surface():
+    """Trimble отдаёт трассу поверхностью по бровкам, точек в ней нет.
+
+    Пустую поверхность создавать нельзя, а бровки это данные и берутся
+    линиями. Дефект найден демо-набором 8.03.
+    """
+    base = lx.loads(lx.demo_xml("base"))
+    doc = lx.loads(lx.demo_xml("breaklines"))
+    assert not doc.surfaces
+    assert len(doc.lines) == len(base.lines) + 2
+    assert any("бровками" in w for w in doc.warnings)
+
+
+def test_surface_without_faces_warns():
+    """Civil 3D в режиме выгрузки точками граней не пишет."""
+    doc = lx.loads(lx.demo_xml("points_only"))
+    assert doc.surfaces and not doc.surfaces[0]["faces"]
+    assert any("без граней" in w for w in doc.warnings)
+
+
+def test_demo_write_puts_every_file_in_place(tmp_path):
+    made = lx.demo_write(str(tmp_path))
+    assert len(made) == len(lx.DEMO_VARIANTS)
+    for key, path, what in made:
+        assert os.path.getsize(path) > 500, key
+
+
+def test_demo_plain_alignment_has_no_profile_and_no_sections():
+    doc = lx.loads(lx.demo_xml("plain_align"))
+    a = doc.alignments[0]
+    assert not a["profile"] and not a["cross_sects"]

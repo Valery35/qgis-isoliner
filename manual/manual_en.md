@@ -15,6 +15,7 @@ Isoliner is a Processing provider for interpolating point data, building isoline
 - **Geological model** (beta) - consistency of a bed stack and a teaching example of a section.
 - **River hydrology** - cross-sections, rating curves and flooding.
 - **Fractal analysis** - dimensions of surfaces, masks and lines.
+- **Data exchange** - reading and writing LandXML.
 
 A few terms used below. A variogram describes how much more strongly values differ as the distance between points grows. The sill is the level it reaches (close to the data variance). The nugget (from the "nugget effect") is the jump of the variogram at zero - the scatter at arbitrarily small distances caused by measurement noise and microvariability.
 
@@ -79,8 +80,6 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `2.21` Create a demo open pit
 - `2.22` Profiling of slopes
 - `2.23` Flow lines from points, lines and outlines
-- `2.24` Read LandXML
-- `2.25` Write LandXML
 
 **2. Topography: diagnostics and repair**
 
@@ -140,7 +139,13 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `7.04` Minkowski dimension (vectors)
 - `7.05` Example for fractals (demo)
 
-_Tools in total: 73_
+**8. Data exchange**
+
+- `8.01` Read LandXML
+- `8.02` Write LandXML
+- `8.03` Create an example LandXML (demo)
+
+_Tools in total: 74_
 <!-- /TREE -->
 
 # Quick start
@@ -600,7 +605,13 @@ Smoothing of the field itself (Gaussian, over the raster) is a separate operatio
 
 ### Contour polygons (bands)
 
-Contour polygons are filled bands between neighbouring isolines. They are built not by classifying raster "steps" but by polygonizing the smoothed isolines themselves together with the outline of the raster's valid area. Line ends are snapped to the outline, the network is noded and polygonized. The level range of each band is determined by sampling the raster at a representative point of the polygon.
+Contour polygons are filled bands between neighbouring isolines. They are built not by classifying raster "steps" but by polygonizing the smoothed isolines themselves together with the outline of the raster's valid area. Line ends are snapped to the outline, the network is noded and polygonized.
+
+A band takes its level range from the elevations of the isolines that bound it. A band lies between two neighbouring isolines, their elevations are its bottom and top, and they are read exactly, with no regard to the cell size. Raster sampling remains the fallback for bands that have the area outline rather than an isoline on one side. How many bands were decided each way goes to the log.
+
+Why not by sampling. An isoline is drawn by interpolation between cell centres, while sampling returns the value of the cell itself. These are two different surfaces. While a band is wider than a cell the difference goes unnoticed. Once a band lies entirely inside one cell, that cell's value belongs to the neighbouring range and the band gets the wrong one. On the map that is a shard of an alien colour among its neighbours. At a fine interval such a band is the rule rather than the exception: a one-metre interval over a hundred-metre range on a fifty-cell grid makes almost every band thinner than a cell.
+
+A face that has no isoline on any side and is thinner than a cell is not a band. It is discarded and counted in the log. Such a face is closed by the overshoot tails at the area outline rather than by isolines.
 
 Thanks to this the polygon boundaries coincide with the isolines, and the coverage is continuous (no holes). The polygons carry the ELEV_MIN and ELEV_MAX fields and go into a temporary layer by default. To skip building them, clear the **Contour polygons** field.
 
@@ -2179,145 +2190,6 @@ Output fields. `src_id` is the number of the source object, `cells` the number o
 
 A D8 trace runs along eight directions and therefore looks like a series of steps at 45 degrees. That is a property of the method rather than an error, and smoothing rounds the polyline for the drawing while elevations do not change. A downhill trace shows the path by the topology of the terrain and accounts for neither infiltration nor backwater nor pipes.
 
-## 2.24 Read LandXML
-
-The tool reads a LandXML exchange file. The programs that process total station surveys give their result in this format - Credo, Trimble Business Center, Topcon Magnet, Leica Infinity, Civil 3D, Bentley. Schema 1.2 has held since 2008 and has hardly changed.
-
-Until this tool the data from such programs had to be reduced to tables by hand. Nothing in QGIS read cross sections with stations.
-
-### What is read
-
-| Section of the file | What it is | Output |
-|---|---|---|
-| CgPoints | survey points with a name, a code and a description | a point layer with elevations |
-| PlanFeatures | named lines with codes | a line layer with elevations |
-| Surfaces | a triangulation | a layer of 3D faces |
-| Alignments | an alignment with stationing | a line layer with the start station and the length |
-| Profile | a longitudinal profile | the alignment line with elevations from the profile |
-| CrossSects | cross sections | lines across the alignment with elevations |
-
-The outputs are optional. Switch off the ones you do not need, the file is parsed once either way.
-
-The surface comes out as 3D faces rather than as a mesh, and that is deliberate - such a layer is taken straight away by **4.06 Intersection of a TIN with a section**. Cross sections are placed on the ground across the alignment, and a line with elevations like that is what the tools of the **6. River hydrology** group take.
-
-Cadastral parcels, pipe networks, roadway objects, field observations and monuments are deliberately not read. These are other people's subject areas, and supporting them halfway is worse than not supporting them at all. When found in the file they are listed in the log.
-
-### Parameters
-
-| Parameter | What it sets | Default / hint |
-|---|---|---|
-| LandXML file | The input file. | - |
-| The file gives north first, then east | The order of the numbers in a point record. | on |
-| Coordinate reference system | Empty - taken from the file, and from the project when the file has none. | empty |
-| Curve chording tolerance, m (adv.) | The sagitta used when splitting arcs. | 0.05 |
-
-### The standard elements of the schema
-
-A LandXML file is made of top-level sections. The tool reads the ones listed below and takes the following from them.
-
-**Units** sets the units of measurement. `linearUnit` is read and the value is converted to metres. The metre, kilometre, centimetre, millimetre, international foot, US survey foot, inch, yard and mile differ by their factors. Without the section the numbers are taken as they are, with a warning.
-
-**CoordinateSystem** sets the coordinate system. `name` and `epsgCode` are read. The code is overridden by the system given in the parameters of the tool.
-
-**CgPoints** holds the survey points. Every `CgPoint` gives its `name`, `code` and `desc` attributes and the coordinates in the text of the element. The text holds two or three numbers - north, east and, when present, the elevation.
-
-**PlanFeatures** holds the named lines. `PlanFeature` gives `name` and `desc`, and the geometry is assembled from `CoordGeom` - the `Line`, `Curve`, `Spiral` and `IrregularLine` elements with `PntList2D` and `PntList3D`.
-
-**Surfaces** holds the triangulation. Inside `Definition` the tool reads `Pnts` and `Faces`. `Pnts` holds `P` elements, each with an `id` attribute and coordinates in the text. `Faces` holds `F` elements with three references to an `id`. A face with the attribute `i="1"` is taken as hidden and skipped, with a count.
-
-**Alignments** holds the alignments. `Alignment` gives `name`, `desc`, `staStart` and `length`. Inside lie `CoordGeom` with the same geometry as the lines, `Profile` with the longitudinal profile and `CrossSects` with the cross sections.
-
-**Profile** gives the longitudinal profile. `ProfAlign` is read with its `PVI` elements, each holding a station and an elevation. Without `ProfAlign` the tool reads `ProfSurf` with `PntList2D`, where the pairs run one after another.
-
-**CrossSects** gives the cross sections. `CrossSect` gives `sta` and `name`, inside lie `CrossSectSurf` with the name of the section surface, and in them `CrossSectPnt` with a pair of offset and elevation. That pair is not swapped by the "north first" rule, because the rule concerns points on the ground, while here it is an offset and an elevation.
-
-The `Parcels`, `PipeNetworks`, `Roadways`, `Survey`, `Monuments` and other sections are not read. When found in the file they are listed in the log with the number of occurrences.
-
-### The fields of the output layers
-
-| Layer | Field | What it holds |
-|---|---|---|
-| Survey points | name | the name of the point from the file |
-| | code | the survey code |
-| | desc | the description |
-| | z | the elevation, empty when the file has none |
-| Lines | name | the name of the line |
-| | desc | the description, or the name of the set of lines when there is none |
-| | npts | the number of vertices |
-| Surface | surface | the name of the surface from the file |
-| | tri | the number of the face within the surface, from one |
-| Alignments | name | the name of the alignment |
-| | desc | the description |
-| | sta_start | the start station |
-| | length_m | the length declared in the file |
-| Profile | align | the name of its alignment |
-| | npts | the number of elevations |
-| Cross sections | align | the name of the alignment |
-| | sta | the station of the cross section |
-| | name | the name from the file |
-| | surf | the name of the section surface |
-| | npts | the number of points |
-
-The length of the alignment is the one declared in the file rather than measured along the polyline, since on chorded curves the two differ.
-
-For a point without an elevation the **z** field stays empty while the geometry carries a zero. An empty field is the absence of a measurement, the zero in the geometry is what the layer format requires.
-
-Every feature of the surface layer is one triangle. One cross section in the file often holds several section surfaces, the ground and the design, and each gives its own line with its own value in the **surf** field.
-
-### The coordinate order
-
-In the schema a point is written as "north, east", that is Y before X. Some programs write it the other way round, and the wrong order gives a mirrored turn of the site. On a hundred metres of ground such a turn is harder to notice than it sounds.
-
-The tool therefore prints the extent of what was read to the log. Check it against what you expect. If the coordinates changed places, it shows in the very first line.
-
-### Units
-
-The units are taken from the header of the file and converted to metres. A file in feet reads without a single error, and without conversion it would give elevations three times smaller. So the absence of units in the file goes into the warnings, and an unknown unit name is not interpreted by guesswork.
-
-The international foot and the US survey foot differ in the sixth digit and are named differently in the file. Each is converted by its own factor.
-
-### Curves
-
-An alignment in the file is made of straight lines, circular curves and transition curves. A straight line is carried over as it is. A circular curve is split into a polyline by the given sagitta, and the ends of the arc are placed exactly. A transition curve is replaced by a chord, and the number of such replacements is printed to the log, since the length of the alignment is understated on them.
-
-A curve without a centre is also replaced by a chord. An arc is not recovered from the coordinates of its start and end alone, and there is no point in guessing it.
-
-### Cross sections on the ground
-
-A cross section in the file is given by a station and by pairs of "offset, elevation". The tool places it on the ground - it finds the point of that station on the alignment and lays the offsets across the direction of travel, positive to the right. The vertices of the line carry the elevations.
-
-When the alignment has no geometry in the file, the cross sections are skipped and their number is reported. Giving them out in local coordinates beside the other layers would be worse, one layer would end up in two coordinate systems at once.
-
-
-## 2.25 Write LandXML
-
-The tool assembles a LandXML file from the layers of the project. Credo, Trimble Business Center, Topcon Magnet, Leica Infinity and Civil 3D open such a file.
-
-### What is written
-
-| Input | What goes into the file |
-|---|---|
-| Survey points | CgPoints with the name and the code from the chosen fields |
-| Lines | PlanFeatures with the name from the chosen field |
-| Surface: a layer of 3D faces | Surfaces, as triangles |
-| Alignment (a single line) | Alignment with stationing and a longitudinal profile from the elevations of its vertices |
-| Cross sections (lines with elevations) | CrossSects, when an alignment is given |
-
-The inputs are optional, whatever is given is taken. The file is always written in metres and as the schema says, that is north first, then east. The coordinate system is taken from the first layer given and written as an EPSG code.
-
-### Cross sections and the alignment
-
-Cross sections are written only together with an alignment. The offset of a cross section point is measured from the axis, and without an axis there is nowhere to take it from. The offset comes out positive to the right along the alignment and negative to the left, as road practice has it.
-
-The station of a cross section is taken from the chosen field. Without a field it is computed as the mean station of the vertices of the line projected onto the alignment.
-
-### Limits
-
-Only a triangle counts as a face of a surface. Polygons with another vertex count are skipped and counted in the log, they have to be triangulated beforehand.
-
-Layers in degrees are refused. LandXML holds plane coordinates, and degrees in it turn into nonsense.
-
-
 # 3. Additional analysis tools
 
 ## 3.01 Categorical indicator kriging
@@ -3785,6 +3657,181 @@ A generator of study features for the whole fractal five. It gives a branching r
 | Extent | The generation area. | - |
 | Seed (Adv.) | The example repeatability. | 1 |
 
+
+# 8. Data exchange
+
+The group gathers the tools that exchange data with programs working outside GIS. At present this is LandXML, the interchange format of total-station processing and road design software. Schema 1.2 has stood since 2008 and has barely changed, so a file written by one program is read by the others.
+
+The tools of the group are neutral to the content. They carry points, lines, a surface and an alignment with cross sections, and what those objects mean is decided by the user.
+
+## 8.01 Read LandXML
+
+The tool reads a LandXML exchange file. The programs that process total station surveys give their result in this format - Credo, Trimble Business Center, Topcon Magnet, Leica Infinity, Civil 3D, Bentley. Schema 1.2 has held since 2008 and has hardly changed.
+
+Until this tool the data from such programs had to be reduced to tables by hand. Nothing in QGIS read cross sections with stations.
+
+### What is read
+
+| Section of the file | What it is | Output |
+|---|---|---|
+| CgPoints | survey points with a name, a code and a description | a point layer with elevations |
+| PlanFeatures | named lines with codes | a line layer with elevations |
+| Surfaces | a triangulation | a layer of 3D faces |
+| Alignments | an alignment with stationing | a line layer with the start station and the length |
+| Profile | a longitudinal profile | the alignment line with elevations from the profile |
+| CrossSects | cross sections | lines across the alignment with elevations |
+
+The outputs are optional. Switch off the ones you do not need, the file is parsed once either way.
+
+The surface comes out as 3D faces rather than as a mesh, and that is deliberate - such a layer is taken straight away by **4.06 Intersection of a TIN with a section**. Cross sections are placed on the ground across the alignment, and a line with elevations like that is what the tools of the **6. River hydrology** group take.
+
+Cadastral parcels, pipe networks, roadway objects, field observations and monuments are deliberately not read. These are other people's subject areas, and supporting them halfway is worse than not supporting them at all. When found in the file they are listed in the log.
+
+### Parameters
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| LandXML file | The input file. | - |
+| The file gives north first, then east | The order of the numbers in a point record. | on |
+| Coordinate reference system | Empty - taken from the file, and from the project when the file has none. | empty |
+| Curve chording tolerance, m (adv.) | The sagitta used when splitting arcs. | 0.05 |
+
+### The standard elements of the schema
+
+A LandXML file is made of top-level sections. The tool reads the ones listed below and takes the following from them.
+
+**Units** sets the units of measurement. `linearUnit` is read and the value is converted to metres. The metre, kilometre, centimetre, millimetre, international foot, US survey foot, inch, yard and mile differ by their factors. Without the section the numbers are taken as they are, with a warning.
+
+**CoordinateSystem** sets the coordinate system. `name` and `epsgCode` are read. The code is overridden by the system given in the parameters of the tool.
+
+**CgPoints** holds the survey points. Every `CgPoint` gives its `name`, `code` and `desc` attributes and the coordinates in the text of the element. The text holds two or three numbers - north, east and, when present, the elevation.
+
+**PlanFeatures** holds the named lines. `PlanFeature` gives `name` and `desc`, and the geometry is assembled from `CoordGeom` - the `Line`, `Curve`, `Spiral` and `IrregularLine` elements with `PntList2D` and `PntList3D`.
+
+**Surfaces** holds the triangulation. Inside `Definition` the tool reads `Pnts` and `Faces`. `Pnts` holds `P` elements, each with an `id` attribute and coordinates in the text. `Faces` holds `F` elements with three references to an `id`. A face with the attribute `i="1"` is taken as hidden and skipped, with a count.
+
+**Alignments** holds the alignments. `Alignment` gives `name`, `desc`, `staStart` and `length`. Inside lie `CoordGeom` with the same geometry as the lines, `Profile` with the longitudinal profile and `CrossSects` with the cross sections.
+
+**Profile** gives the longitudinal profile. `ProfAlign` is read with its `PVI` elements, each holding a station and an elevation. Without `ProfAlign` the tool reads `ProfSurf` with `PntList2D`, where the pairs run one after another.
+
+**CrossSects** gives the cross sections. `CrossSect` gives `sta` and `name`, inside lie `CrossSectSurf` with the name of the section surface, and in them `CrossSectPnt` with a pair of offset and elevation. That pair is not swapped by the "north first" rule, because the rule concerns points on the ground, while here it is an offset and an elevation.
+
+The `Parcels`, `PipeNetworks`, `Roadways`, `Survey`, `Monuments` and other sections are not read. When found in the file they are listed in the log with the number of occurrences.
+
+### The fields of the output layers
+
+| Layer | Field | What it holds |
+|---|---|---|
+| Survey points | name | the name of the point from the file |
+| | code | the survey code |
+| | desc | the description |
+| | z | the elevation, empty when the file has none |
+| Lines | name | the name of the line |
+| | desc | the description, or the name of the set of lines when there is none |
+| | npts | the number of vertices |
+| Surface | surface | the name of the surface from the file |
+| | tri | the number of the face within the surface, from one |
+| Alignments | name | the name of the alignment |
+| | desc | the description |
+| | sta_start | the start station |
+| | length_m | the length declared in the file |
+| Profile | align | the name of its alignment |
+| | npts | the number of elevations |
+| Cross sections | align | the name of the alignment |
+| | sta | the station of the cross section |
+| | name | the name from the file |
+| | surf | the name of the section surface |
+| | npts | the number of points |
+
+The length of the alignment is the one declared in the file rather than measured along the polyline, since on chorded curves the two differ.
+
+For a point without an elevation the **z** field stays empty while the geometry carries a zero. An empty field is the absence of a measurement, the zero in the geometry is what the layer format requires.
+
+Every feature of the surface layer is one triangle. One cross section in the file often holds several section surfaces, the ground and the design, and each gives its own line with its own value in the **surf** field.
+
+### The coordinate order
+
+In the schema a point is written as "north, east", that is Y before X. Some programs write it the other way round, and the wrong order gives a mirrored turn of the site. On a hundred metres of ground such a turn is harder to notice than it sounds.
+
+The tool therefore prints the extent of what was read to the log. Check it against what you expect. If the coordinates changed places, it shows in the very first line.
+
+### Units
+
+The units are taken from the header of the file and converted to metres. A file in feet reads without a single error, and without conversion it would give elevations three times smaller. So the absence of units in the file goes into the warnings, and an unknown unit name is not interpreted by guesswork.
+
+The international foot and the US survey foot differ in the sixth digit and are named differently in the file. Each is converted by its own factor.
+
+### Curves
+
+An alignment in the file is made of straight lines, circular curves and transition curves. A straight line is carried over as it is. A circular curve is split into a polyline by the given sagitta, and the ends of the arc are placed exactly. A transition curve is replaced by a chord, and the number of such replacements is printed to the log, since the length of the alignment is understated on them.
+
+A curve without a centre is also replaced by a chord. An arc is not recovered from the coordinates of its start and end alone, and there is no point in guessing it.
+
+### Cross sections on the ground
+
+A cross section in the file is given by a station and by pairs of "offset, elevation". The tool places it on the ground - it finds the point of that station on the alignment and lays the offsets across the direction of travel, positive to the right. The vertices of the line carry the elevations.
+
+When the alignment has no geometry in the file, the cross sections are skipped and their number is reported. Giving them out in local coordinates beside the other layers would be worse, one layer would end up in two coordinate systems at once.
+
+
+## 8.02 Write LandXML
+
+The tool assembles a LandXML file from the layers of the project. Credo, Trimble Business Center, Topcon Magnet, Leica Infinity and Civil 3D open such a file.
+
+### What is written
+
+| Input | What goes into the file |
+|---|---|
+| Survey points | CgPoints with the name and the code from the chosen fields |
+| Lines | PlanFeatures with the name from the chosen field |
+| Surface: a layer of 3D faces | Surfaces, as triangles |
+| Alignment (a single line) | Alignment with stationing and a longitudinal profile from the elevations of its vertices |
+| Cross sections (lines with elevations) | CrossSects, when an alignment is given |
+
+The inputs are optional, whatever is given is taken. The file is always written in metres and as the schema says, that is north first, then east. The coordinate system is taken from the first layer given and written as an EPSG code.
+
+### Cross sections and the alignment
+
+Cross sections are written only together with an alignment. The offset of a cross section point is measured from the axis, and without an axis there is nowhere to take it from. The offset comes out positive to the right along the alignment and negative to the left, as road practice has it.
+
+The station of a cross section is taken from the chosen field. Without a field it is computed as the mean station of the vertices of the line projected onto the alignment.
+
+### Limits
+
+Only a triangle counts as a face of a surface. Polygons with another vertex count are skipped and counted in the log, they have to be triangulated beforehand.
+
+Layers in degrees are refused. LandXML holds plane coordinates, and degrees in it turn into nonsense.
+
+## 8.03 Create an example LandXML (demo)
+
+The tool writes a set of LandXML files holding one and the same terrain written in different ways. It serves two purposes. To check the reading against material whose answer is known in advance, and to see what a file coming from somebody else's program looks like.
+
+The geometry is the same in every file. Twelve survey points, two lines, a surface of twenty points, an alignment 240 metres long with a circular curve, a profile and three cross sections. Only the way of writing differs, so the reading results are comparable. Read any two files and compare them, there should be no discrepancy.
+
+### The variants
+
+| File | What differs |
+|---|---|
+| `landxml_base.xml` | Metres, northing-easting order, the surface as points and faces. One face is marked invisible and is not read. |
+| `landxml_east_first.xml` | Coordinates written easting-northing. Read correctly only with the order checkbox cleared. |
+| `landxml_imperial.xml` | Feet, the US survey foot. Exercises the conversion to metres. |
+| `landxml_no_units.xml` | No units section. The numbers are taken as they are and a warning goes to the log. |
+| `landxml_no_crs.xml` | No coordinate system. The layers get the project CRS. |
+| `landxml_points_only.xml` | The surface as points without faces. There is no triangulation in the file. |
+| `landxml_breaklines.xml` | The surface given by breaklines alone. Read as lines, no surface is created. |
+| `landxml_spiral.xml` | An alignment with a transition curve. The curve is replaced by a chord and the count goes to the log. |
+| `landxml_survey_points.xml` | Points without an elevation, with the oID and pntSurv attributes instead of a name and a code. |
+| `landxml_plain_align.xml` | An alignment of one straight line, without a profile and without cross sections. |
+
+### Where the shapes come from
+
+The variants follow what the programs actually write rather than being invented. Feet and the surface as points without faces are what Civil 3D exports, its surface export mode is named after it. The surface by breaklines alone is what Trimble Business Center writes when it hands over an alignment as a surface along breaklines. The coordinate order is not fixed by the schema, so a file with the reverse order turns up regularly. The units section and the coordinate system are optional by the schema.
+
+What the set does not hold is an exact reproduction of any one program's export. That needs real files from each of them, and the set will grow once they appear.
+
+### How to work with it
+
+Write the files into a folder, feed them one by one into **8.01 Read LandXML** and check the log against the table above. For the file with the reverse coordinate order clear the order checkbox, otherwise the points land beyond the equator.
 
 # Typical situations and solutions
 

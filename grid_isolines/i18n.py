@@ -1094,6 +1094,12 @@ TRANSLATIONS = {
     'После отсева ураганных проб осталось < 2 точек.': 'After outlier removal fewer than 2 points remain.',
     'После усреднения совпадающих точек осталось < 2 узлов.': 'After averaging coincident points fewer than 2 nodes remain.',
     'Поясов получено (GEOS): %d': 'Bands produced (GEOS): %d',
+    'Отброшено граней без изолинии по сторонам: %d (площадь %.4g). Пояс граничит хотя бы с одной изолинией, она и задаёт его верх или низ. Грань без них замкнута хвостиками у контура области и поясом не является.':
+        'Faces discarded for having no isoline on any side: %d (area %.4g). A band borders at least one isoline, and that isoline sets its top or bottom. A face without one is closed by the overshoot tails at the area outline and is not a band.',
+    'Диапазоны: по уровням изолиний %d, выборкой растра %d.':
+        'Ranges: from isoline levels %d, by raster sampling %d.',
+    'Поясов, где выборка растра дала бы соседний диапазон: %d. Диапазон взят из уровней ограничивающих изолиний. Так бывает на поясе тоньше ячейки: изолиния проведена интерполяцией между центрами ячеек, а выборка отдаёт значение самой ячейки.':
+        'Bands where raster sampling would have given the neighbouring range: %d. The range is taken from the levels of the bounding isolines. This happens on a band thinner than a cell: the isoline is drawn by interpolation between cell centres, while sampling returns the value of the cell itself.',
     'Прервано пользователем.': 'Cancelled by the user.',
     'Продление открытых концов за контур…': 'Extending open ends past the outline…',
     'Пропущено точек: %d без значения «%s»%s. Прочитано: %d.': 'Points skipped: %d without a value for "%s"%s. Read: %d.',
@@ -3034,10 +3040,66 @@ TRANSLATIONS = {
         'The SP 33-101 computation at a contour interval of %.4g m: the mean slope of the hillsides Isk and the weighted mean slope of the stream. The sp_iso_km field is the total length of the CONTOURS within the catchment, the Σli factor of the formula, not the length of the streams. These quantities differ from the physical ones and make sense only within the normative method.',
     ' (назван «%s»)':
         ' (named «%s»)',
-    '2.24 Принять LandXML':
-        '2.24 Read LandXML',
-    '2.25 Записать LandXML':
-        '2.25 Write LandXML',
+    '8.01 Принять LandXML':
+        '8.01 Read LandXML',
+    '8.02 Записать LandXML':
+        '8.02 Write LandXML',
+    'Пишет набор файлов LandXML с одной и той же местностью, записанной по-разному. Нужен, чтобы проверить чтение на материале, ответ по которому известен заранее, и чтобы увидеть, как выглядит файл, пришедший из чужой программы.\n\nГеометрия во всех файлах одна: двенадцать съёмочных точек, две линии, поверхность из двадцати точек, трасса длиной 240 м с круговой кривой, продольный профиль и три створа. Различается только способ записи, поэтому результаты чтения сопоставимы между собой.\n\nВарианты отвечают тому, что программы пишут на деле. Футы выгружает Civil 3D, поверхность одними точками без граней тоже он, в режиме выгрузки точками. Поверхность одними бровками пишет Trimble Business Center, когда отдаёт трассу поверхностью. Порядок координат в схеме не закреплён, поэтому есть файл с обратным порядком. Раздел единиц и система координат по схеме необязательны, и файлы без них встречаются.\n\nПорядок работы простой. Напишите файлы, подайте их в **8.01 Принять LandXML** и сверьте журнал с описанием варианта. Для файла с обратным порядком координат снимите флажок порядка, иначе точки уедут за экватор.':
+        "Writes a set of LandXML files holding one and the same terrain written in different ways. It is needed to check the reading against material whose answer is known in advance, and to see what a file coming from somebody else's program looks like.\n\nThe geometry is the same in every file: twelve survey points, two lines, a surface of twenty points, an alignment 240 m long with a circular curve, a profile and three cross sections. Only the way of writing differs, so the reading results are comparable.\n\nThe variants follow what the programs actually write. Feet are exported by Civil 3D, and so is the surface as points without faces, in its point export mode. The surface by breaklines alone is written by Trimble Business Center when it hands over an alignment as a surface. The coordinate order is not fixed by the schema, so there is a file with the reverse order. The units section and the coordinate system are optional by the schema, and files without them turn up.\n\nThe workflow is simple. Write the files, feed them into **8.01 Read LandXML** and check the log against the variant description. For the file with the reverse coordinate order clear the order checkbox, otherwise the points land beyond the equator.",
+    '8. Обмен данными':
+        '8. Data exchange',
+    '8.03 Пример LandXML (демо)':
+        '8.03 Create an example LandXML (demo)',
+    'Варианты':
+        'Variants',
+    'Папка для файлов':
+        'Folder for the files',
+    'Не задана папка.':
+        'No folder is set.',
+    'Файлов записано: %d':
+        'Files written: %d',
+    'Подайте их в «8.01 Принять LandXML». Для файла с обратным порядком координат снимите флажок порядка.':
+        'Feed them into "8.01 Read LandXML". For the file with the reverse coordinate order clear the order checkbox.',
+    'Базовый: метры, север-восток, точки и грани':
+        'Base: metres, northing-easting, points and faces',
+    'Обратный порядок координат: восток-север':
+        'Reverse coordinate order: easting-northing',
+    'Футы (US survey foot)':
+        'Feet (US survey foot)',
+    'Без раздела единиц':
+        'Without the units section',
+    'Без системы координат':
+        'Without a coordinate system',
+    'Поверхность точками без граней':
+        'Surface as points without faces',
+    'Поверхность одними бровками':
+        'Surface by breaklines alone',
+    'Трасса с переходной кривой':
+        'Alignment with a transition curve',
+    'Точки без отметки, с oID и pntSurv':
+        'Points without an elevation, with oID and pntSurv',
+    'Трасса без профиля и створов':
+        'Alignment without a profile and cross sections',
+    'Метры, координаты север-восток, поверхность точками и гранями, трасса с круговой кривой, профиль и три створа. Одна грань помечена невидимой (i="1") и в чтение не идёт.':
+        'Metres, northing-easting order, the surface as points and faces, an alignment with a circular curve, a profile and three cross sections. One face is marked invisible (i="1") and is not read.',
+    'То же, но координаты записаны восток-север. Читается верно только при снятом флажке порядка координат.':
+        'The same, but the coordinates are written easting-northing. Read correctly only with the coordinate order checkbox cleared.',
+    'Футы (US survey foot). Проверяет пересчёт в метры: без него отметки вышли бы втрое больше.':
+        'Feet (US survey foot). Exercises the conversion to metres, without which the elevations would come out three times larger.',
+    'Без раздела Units. Числа берутся как есть, в журнал идёт предупреждение.':
+        'Without the Units section. The numbers are taken as they are and a warning goes to the log.',
+    'Без CoordinateSystem. Слои получают систему проекта, в журнал идёт предупреждение.':
+        'Without CoordinateSystem. The layers get the project CRS and a warning goes to the log.',
+    'Поверхность точками без граней. Триангуляции в файле нет, строить её заново придётся отдельно.':
+        'The surface as points without faces. There is no triangulation in the file, it has to be built separately.',
+    'Поверхность задана только бровками, без точек и граней. Читается как линии, поверхность при этом не создаётся.':
+        'The surface is given by breaklines alone, without points and faces. It is read as lines and no surface is created.',
+    'Трасса с переходной кривой. Кривая заменяется хордой, замена считается и пишется в журнал.':
+        'An alignment with a transition curve. The curve is replaced by a chord, and the replacements are counted and reported in the log.',
+    'Точки без отметки, с атрибутами oID, state и pntSurv вместо name и code. Отметка Z у таких точек пустая.':
+        'Points without an elevation, with the oID, state and pntSurv attributes instead of name and code. The Z of such points is empty.',
+    'Трасса одной прямой, без профиля и без створов. Проверяет, что выходы профиля и створов при этом не создаются.':
+        'An alignment of one straight line, without a profile and without cross sections. Checks that the profile and cross-section outputs are then not created.',
     'LandXML files (*.xml)':
         'LandXML files (*.xml)',
     'В слое трассы нет линии с двумя вершинами.':

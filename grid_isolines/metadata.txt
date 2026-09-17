@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines: 2D kriging (points to raster, GSLIB KB2D core), experimental variogram with model fitting, leave-one-out cross-validation, optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles, and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний: 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели, кросс-валидация (leave-one-out), опциональное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.13.13
+version=5.13.15
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,31 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.13.13
+changelog=5.13.15
+    - Пояс контурных полигонов больше не получает чужой диапазон уровней.
+      Диапазон берётся из отметок ограничивающих изолиний, а не выборкой
+      растра в одной точке. На частом сечении, где пояс тоньше ячейки,
+      выборка регулярно давала соседний диапазон, и на карте появлялся
+      осколок чужого цвета. На данных из поля таких поясов было 45 из 148
+      и 52 из 124.
+    - Грань, у которой ни с одной стороны нет изолинии и которая тоньше
+      ячейки, поясом не считается и отбрасывается со счётом в журнал.
+    - В журнал добавлено, сколько поясов определено по изолиниям, сколько
+      выборкой и у скольких выборка дала бы соседний диапазон.
+    5.13.14
+    - Новая группа «8. Обмен данными». Инструменты LandXML переехали в неё
+      из топографии и получили номера 8.01 и 8.02. Имена алгоритмов не
+      изменились, сохранённые модели и скрипты работают как прежде.
+    - Новый инструмент 8.03 «Пример LandXML (демо)». Пишет десять файлов с
+      одной и той же местностью, записанной по-разному: футы, обратный
+      порядок координат, поверхность без граней, поверхность одними
+      бровками, переходная кривая, точки без отметки. Написания взяты из
+      того, что программы выгружают на деле.
+    - Найдено и исправлено демо-набором: поверхность, заданная одними
+      бровками, создавала пустой слой и теряла бровки, теперь они читаются
+      линиями. Поверхность точками без граней молчала о том, что
+      триангуляции в файле нет, теперь предупреждает.
+    5.13.13
     - Из руководств убрана разговорная лексика. «Предъявить», «соблазн»,
       «свадебный торт», «лесенка», «сходит с рук», «проста до неприличия»,
       «деваться некуда», «вперемешку», «крутить параметры», «выкосит карту»

@@ -144,6 +144,8 @@ GROUP_HYDRO = _tr("6. Гидрология рек")
 GROUP_HYDRO_ID = "hydro_rivers"
 GROUP5 = _tr("7. Фрактальный анализ")
 GROUP5_ID = "fractal_analysis"
+GROUP_EXCHANGE = _tr("8. Обмен данными")
+GROUP_EXCHANGE_ID = "exchange"
 
 MODEL_LABELS = [_tr("Сферическая"), _tr("Экспоненциальная"), _tr("Гауссова"), _tr("Степенная")]
 KTYPE_LABELS = [_tr("Ординарный (OK)"), _tr("Простой (SK)")]
@@ -25227,7 +25229,7 @@ class DownhillTraceAlgorithm(IsolinerAlgorithm):
 
 
 class LandXmlReadAlgorithm(IsolinerAlgorithm):
-    """2.24 Принять LandXML: точки, линии, поверхность, трасса, створы."""
+    """8.01 Принять LandXML: точки, линии, поверхность, трасса, створы."""
 
     INPUT = "INPUT"
     NORTH_FIRST = "NORTH_FIRST"
@@ -25243,10 +25245,10 @@ class LandXmlReadAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return LandXmlReadAlgorithm()
     def name(self): return "landxml_read"
-    def displayName(self): return self.tr("2.24 Принять LandXML")
+    def displayName(self): return self.tr("8.01 Принять LandXML")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP_TOPO)
-    def groupId(self): return GROUP_TOPO_ID
+    def group(self): return self.tr(GROUP_EXCHANGE)
+    def groupId(self): return GROUP_EXCHANGE_ID
 
     def shortHelpString(self):
         return _help_version(self.tr(
@@ -25563,7 +25565,7 @@ class LandXmlReadAlgorithm(IsolinerAlgorithm):
 
 
 class LandXmlWriteAlgorithm(IsolinerAlgorithm):
-    """2.25 Записать LandXML: точки, линии, поверхность, трасса."""
+    """8.02 Записать LandXML: точки, линии, поверхность, трасса."""
 
     POINTS = "POINTS"
     P_NAME = "P_NAME"
@@ -25579,10 +25581,10 @@ class LandXmlWriteAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return LandXmlWriteAlgorithm()
     def name(self): return "landxml_write"
-    def displayName(self): return self.tr("2.25 Записать LandXML")
+    def displayName(self): return self.tr("8.02 Записать LandXML")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP_TOPO)
-    def groupId(self): return GROUP_TOPO_ID
+    def group(self): return self.tr(GROUP_EXCHANGE)
+    def groupId(self): return GROUP_EXCHANGE_ID
 
     def shortHelpString(self):
         return _help_version(self.tr(
@@ -25818,6 +25820,78 @@ class LandXmlWriteAlgorithm(IsolinerAlgorithm):
         feedback.pushInfo(self.tr("Записан файл: %s") % path)
         _save_values(self, _saved)
         return {self.OUTPUT: path}
+
+
+class LandXmlDemoAlgorithm(IsolinerAlgorithm):
+    """8.03 Пример LandXML (демо): набор файлов под разные написания."""
+
+    FOLDER = "FOLDER"
+    VARIANTS = "VARIANTS"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return LandXmlDemoAlgorithm()
+    def name(self): return "landxml_demo"
+    def displayName(self): return self.tr("8.03 Пример LandXML (демо)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_EXCHANGE)
+    def groupId(self): return GROUP_EXCHANGE_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Пишет набор файлов LandXML с одной и той же местностью, "
+            "записанной по-разному. Нужен, чтобы проверить чтение на "
+            "материале, ответ по которому известен заранее, и чтобы "
+            "увидеть, как выглядит файл, пришедший из чужой программы.\n\n"
+            "Геометрия во всех файлах одна: двенадцать съёмочных точек, "
+            "две линии, поверхность из двадцати точек, трасса длиной "
+            "240 м с круговой кривой, продольный профиль и три створа. "
+            "Различается только способ записи, поэтому результаты чтения "
+            "сопоставимы между собой.\n\n"
+            "Варианты отвечают тому, что программы пишут на деле. Футы "
+            "выгружает Civil 3D, поверхность одними точками без граней "
+            "тоже он, в режиме выгрузки точками. Поверхность одними "
+            "бровками пишет Trimble Business Center, когда отдаёт трассу "
+            "поверхностью. Порядок координат в схеме не закреплён, "
+            "поэтому есть файл с обратным порядком. Раздел единиц и "
+            "система координат по схеме необязательны, и файлы без них "
+            "встречаются.\n\n"
+            "Порядок работы простой. Напишите файлы, подайте их в "
+            "**8.01 Принять LandXML** и сверьте журнал с описанием "
+            "варианта. Для файла с обратным порядком координат снимите "
+            "флажок порядка, иначе точки уедут за экватор."))
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterEnum(
+            self.VARIANTS, self.tr("Варианты"),
+            options=[_tr(v[2]) for v in _lx.DEMO_VARIANTS],
+            allowMultiple=True, optional=True,
+            defaultValue=list(range(len(_lx.DEMO_VARIANTS)))))
+        self.addParameter(QgsProcessingParameterFolderDestination(
+            self.FOLDER, self.tr("Папка для файлов")))
+
+    def _process(self, parameters, context, feedback):
+        import os
+        _saved = dict(parameters)
+        folder = self.parameterAsString(parameters, self.FOLDER, context)
+        if not folder:
+            raise QgsProcessingException(self.tr("Не задана папка."))
+        if not os.path.isdir(folder):
+            os.makedirs(folder)
+        idx = self.parameterAsEnums(parameters, self.VARIANTS, context)
+        if not idx:
+            idx = list(range(len(_lx.DEMO_VARIANTS)))
+        keys = [_lx.DEMO_VARIANTS[i][0] for i in idx
+                if 0 <= i < len(_lx.DEMO_VARIANTS)]
+        made = _lx.demo_write(folder, keys=keys)
+        for _key, path, what in made:
+            feedback.pushInfo("%s - %s" % (os.path.basename(path),
+                                           self.tr(what)))
+        feedback.pushInfo(self.tr("Файлов записано: %d") % len(made))
+        feedback.pushInfo(self.tr(
+            "Подайте их в «8.01 Принять LandXML». Для файла с обратным "
+            "порядком координат снимите флажок порядка."))
+        _save_values(self, _saved)
+        return {self.FOLDER: folder}
 
 
 class BedGradesAtCollarsAlgorithm(IsolinerAlgorithm):
@@ -26116,6 +26190,7 @@ class BedGradesAtCollarsAlgorithm(IsolinerAlgorithm):
 ALGORITHMS = [
     LandXmlReadAlgorithm,
     LandXmlWriteAlgorithm,
+    LandXmlDemoAlgorithm,
     BedGradesAtCollarsAlgorithm,
     RatingCurveAlgorithm,
     FloodExtentAlgorithm,

@@ -327,6 +327,8 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.15** — contour polygons no longer get the wrong level range. At a fine interval, where a band is thinner than a cell, a shard of an alien colour used to appear on the map. The range is now read from the elevations of the bounding isolines. The defect was found by Dmitry Berezin on his own data.
+- **5.13.14** — the LandXML tools are gathered into a new "Data exchange" group and renumbered 8.01 and 8.02. A new 8.03 writes ten example files holding one terrain written in different ways, so the reading can be checked against a known answer. A file whose surface is given by breaklines alone no longer produces an empty layer.
 - **5.13.13** — colloquial vocabulary and medical metaphors are removed from both manuals. The text is even and professional and says the same thing.
 - **5.13.12** — long compound sentences are split where it helps, and colons inside sentences are replaced by a comma, a full stop or a dash. The text reads more evenly and says the same thing.
 - **5.13.11** — everything about the internals of the module is gone from the manuals: how the tool list is assembled, what it is written in, which libraries it uses and what was covered by tests. What is left is what you need to do the work.

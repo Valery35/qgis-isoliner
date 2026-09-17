@@ -1585,9 +1585,130 @@ def belt_thickness(geom):
     return 2.0 * float(geom.area()) / per
 
 
+def belt_band_from_levels(touch, levels, fallback=None):
+    """Индекс диапазона пояса по уровням ограничивающих его изолиний.
+
+    Возвращает пару (индекс, источник), где источник это "lines", "sample"
+    или None. Индекс той же нумерации, что у `numpy.digitize` по уровням:
+    у пояса с индексом k нижняя граница levels[k-1], верхняя levels[k].
+
+    Зачем это нужно вместо выборки растра. Геометрия пояса приходит от
+    контурера, который проводит изолинию интерполяцией МЕЖДУ центрами
+    ячеек. Диапазон же назначался выборкой значения САМОЙ ячейки. Это две
+    разные поверхности, и пока пояс шире ячейки, разница незаметна. Когда
+    пояс целиком лежит внутри одной ячейки, значение этой ячейки
+    принадлежит соседнему диапазону, и пояс получает чужой. На частом
+    сечении такой пояс не исключение, а правило: сечение в метр на
+    поверхности с размахом сто метров и сетке в пятьдесят ячеек даёт почти
+    все пояса тоньше ячейки.
+
+    Ответ лежит в самой геометрии. Пояс ограничен двумя изолиниями с
+    известными отметками, и диапазон читается из них точно, без всякой
+    зависимости от размера ячейки. Выборка остаётся запасным путём там,
+    где с одной стороны не изолиния, а контур области.
+
+    `touch` это уровни касающихся изолиний: либо список, либо словарь
+    уровень в длину общей границы. Длина нужна, чтобы отличить границу от
+    касания в одном узле: в тройном узле пояс дотрагивается до третьего
+    уровня точкой, и без веса он спорил бы с настоящими двумя.
+    """
+    if not levels:
+        return (fallback, "sample" if fallback is not None else None)
+    lv = list(levels)
+    pos = {}
+    for i, v in enumerate(lv):
+        pos.setdefault(round(float(v), 9), i)
+    if isinstance(touch, dict):
+        items = [(round(float(k), 9), float(w)) for k, w in touch.items()]
+    else:
+        items = [(round(float(k), 9), 1.0) for k in (touch or [])]
+    items = [(k, w) for k, w in items if k in pos and w > 0.0]
+    # самые длинные общие границы идут первыми: они и есть стороны пояса
+    items.sort(key=lambda kw: (-kw[1], kw[0]))
+
+    if len(items) >= 2:
+        a, b = sorted((pos[items[0][0]], pos[items[1][0]]))
+        if b - a == 1:
+            return (b, "lines")
+        # Пояс не может граничить с двумя изолиниями через уровень: между
+        # ними обязана лежать третья. Значит сеть линий нодирована не до
+        # конца, и решать по ней нельзя.
+        return (fallback, "sample" if fallback is not None else None)
+
+    if len(items) == 1:
+        k = pos[items[0][0]]
+        # Одна изолиния, с остальных сторон контур области. Пояс лежит
+        # либо под ней, либо над, третьего нет, и выборка выбирает из двух.
+        if fallback is None:
+            return (None, None)
+        if fallback in (k, k + 1):
+            return (fallback, "sample")
+        return (k if fallback < k else k + 1, "sample")
+
+    return (fallback, "sample" if fallback is not None else None)
+
+
+def _belt_level_index(lines_layer, context, tol):
+    """Пространственный индекс изолиний с их отметками.
+
+    Возвращает (индекс, карта id в (геометрия, отметка)). Нужен, чтобы по
+    каждому поясу найти ограничивающие его изолинии, не перебирая все.
+    """
+    from qgis.core import QgsSpatialIndex, QgsFeature
+    lay = _as_layer(lines_layer, context)
+    if lay is None:
+        return None, {}
+    fi = lay.fields().indexOf("ELEV")
+    if fi < 0:
+        return None, {}
+    sidx = QgsSpatialIndex()
+    store = {}
+    for f in lay.getFeatures():
+        g = f.geometry()
+        z = f.attributes()[fi]
+        if g is None or g.isEmpty() or z is None:
+            continue
+        nf = QgsFeature(f.id())
+        nf.setGeometry(g)
+        sidx.addFeature(nf)
+        store[f.id()] = (g, float(z))
+    return sidx, store
+
+
+def _touching_levels(geom, sidx, store, tol):
+    """Отметки изолиний по сторонам пояса и длина общей границы с каждой.
+
+    Вес нужен, чтобы отличить сторону от касания в узле: в тройном узле
+    пояс дотрагивается до третьего уровня точкой, и без веса точка спорила
+    бы с настоящими двумя сторонами.
+    """
+    if sidx is None:
+        return {}
+    bb = geom.boundingBox()
+    bb.grow(tol)
+    edge = geom.constGet().boundary()
+    if edge is None:
+        return {}
+    from qgis.core import QgsGeometry
+    edge = QgsGeometry(edge.clone())
+    out = {}
+    for fid in sidx.intersects(bb):
+        g, z = store.get(fid, (None, None))
+        if g is None:
+            continue
+        inter = edge.intersection(g)
+        if inter is None or inter.isEmpty():
+            continue
+        w = float(inter.length())
+        if w <= 0.0:
+            continue
+        out[z] = out.get(z, 0.0) + w
+    return out
+
+
 def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
                     final_output, context, feedback, min_thick=0.0,
-                    with_z=False, solids_output=None):
+                    with_z=False, solids_output=None, iso_lines=None):
     """Каждому поясу присваивает диапазон уровней выборкой растра в
     репрезентативной точке (point-on-surface) и сохраняет слой.
 
@@ -1670,6 +1791,12 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
     # и искали бы её глазами по карте.
     n_norep = n_nodata = 0
     a_norep = a_nodata = 0.0
+    n_by_lines = n_by_sample = n_fixed = n_orphan = 0
+    a_orphan = 0.0
+    cell = max(abs(float(gt[1])), abs(float(gt[5])), 1e-9)
+    tol = cell * 1e-4
+    sidx, store = _belt_level_index(iso_lines, context, tol) \
+        if iso_lines is not None else (None, {})
     n_total = max(poly_layer.featureCount(), 1)
     for i, feat in enumerate(poly_layer.getFeatures()):
         g = feat.geometry()
@@ -1687,11 +1814,30 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
             continue                       # полоса с разрыва, а не пояс
         p = rep.asPoint()
         val = _sample_value(arr, valid, gt, p.x(), p.y())
-        if val is None:
+        samp = None if val is None else int(np.digitize([val], lv)[0])
+        touch = _touching_levels(g, sidx, store, tol)
+        if sidx is not None and store and not touch and belt_thickness(g) < cell:
+            # Ни одной изолинии по сторонам, и грань тоньше ячейки. Пояс
+            # обязан граничить хотя бы с одной изолинией: у него это и есть
+            # верх или низ диапазона. Грань без них замкнута хвостиками
+            # овершута у контура области, то есть это слайвер, а не пояс.
+            # Классифицировать его выборкой значит рисовать на карте
+            # осколок чужого цвета.
+            n_orphan += 1
+            a_orphan += float(g.area())
+            continue
+        idx, how = belt_band_from_levels(touch, list(levels), fallback=samp)
+        if idx is None:
+            # Ни линий по сторонам, ни выборки: точка легла на nodata.
             n_nodata += 1
             a_nodata += float(g.area())
-            continue                       # точка вне валидной области
-        idx = int(np.digitize([val], lv)[0])     # 0..len(levels)
+            continue
+        if how == "lines":
+            n_by_lines += 1
+            if samp is not None and samp != idx:
+                n_fixed += 1
+        else:
+            n_by_sample += 1
         nf = QgsFeature(mem.fields())
         gg = QgsGeometry(g)
         if with_z:
@@ -1732,6 +1878,23 @@ def _belts_to_layer(processing, polys_src, arr, valid, gt, levels, crs,
                 solid_feats.append(sf)
         if i % 200 == 0:
             feedback.setProgress(int(100.0 * i / n_total))
+    if n_by_lines or n_by_sample:
+        feedback.pushInfo(_tr(
+            "Диапазоны: по уровням изолиний %d, выборкой растра %d.")
+            % (n_by_lines, n_by_sample))
+    if n_fixed:
+        feedback.pushInfo(_tr(
+            "Поясов, где выборка растра дала бы соседний диапазон: %d. "
+            "Диапазон взят из уровней ограничивающих изолиний. Так бывает "
+            "на поясе тоньше ячейки: изолиния проведена интерполяцией "
+            "между центрами ячеек, а выборка отдаёт значение самой "
+            "ячейки.") % n_fixed)
+    if n_orphan:
+        feedback.pushInfo(_tr(
+            "Отброшено граней без изолинии по сторонам: %d (площадь %.4g). "
+            "Пояс граничит хотя бы с одной изолинией, она и задаёт его "
+            "верх или низ. Грань без них замкнута хвостиками у контура "
+            "области и поясом не является.") % (n_orphan, a_orphan))
     if n_norep or n_nodata:
         feedback.pushWarning(_tr(
             "Граней выпало из покрытия: %d без репрезентативной точки "
@@ -1874,7 +2037,8 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
     polys_out = _belts_to_layer(processing, polys_src, arr, valid, gt, levels,
                                 crs, polygons_output, context, feedback,
                                 min_thick=min_thick, with_z=with_z,
-                                solids_output=solids_output)
+                                solids_output=solids_output,
+                                iso_lines=iso_for_poly)
     solids_out = None
     if isinstance(polys_out, dict):
         polys_out, solids_out = polys_out["belts"], polys_out["solids"]
