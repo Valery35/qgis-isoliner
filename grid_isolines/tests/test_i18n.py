@@ -240,6 +240,34 @@ if __name__ == "__main__":
     main()
 
 
+def test_no_mojibake_keys():
+    """Ключ прочитан как utf-8, а не как latin-1.
+
+    Файл, сохранённый однажды не в той кодировке, даёт ключ вида
+    'Ð¡ÑÐ¸ÑÐ°ÐµÑ ...'. Такой ключ не совпадёт ни с одной строкой кода
+    никогда, перевод молча мёртв, а найти его поиском по русскому слову
+    нельзя. Один такой ключ на 3667 символов так и пролежал в файле.
+    """
+    import ast
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(here, "i18n.py"), encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    bad = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        for k in node.keys:
+            if not (isinstance(k, ast.Constant) and isinstance(k.value, str)):
+                continue
+            try:
+                fixed = k.value.encode("latin1").decode("utf-8")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                continue
+            if fixed != k.value:
+                bad.append(k.value[:40])
+    assert not bad, "ключи в чужой кодировке: %s" % bad
+
+
 def test_no_duplicate_translation_keys():
     """Один ключ - один перевод.
 

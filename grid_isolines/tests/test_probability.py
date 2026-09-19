@@ -27,7 +27,7 @@ def test_norm_cdf_symmetry_and_range():
     z = np.linspace(-5, 5, 101)
     c = kb2d.norm_cdf(z)
     assert np.all(c >= 0) and np.all(c <= 1)
-    assert np.allclose(c + kb2d.norm_cdf(-z), 1.0, atol=2e-6)   # Φ(z)+Φ(−z)=1
+    assert np.allclose(c + kb2d.norm_cdf(-z), 1.0, atol=2e-6)   # Φ(z)+Φ(-z)=1
     assert np.all(np.diff(c) >= -1e-12)                         # монотонна
 
 

@@ -198,7 +198,7 @@ def test_fit_variogram_recovers_structure():
     assert f is not None
     assert f["nugget"] >= 0 and f["sill"] > 0 and f["range"] > 0
     assert f["r2"] > 0.5
-    # плато не превышает наблюдённую вариограмму (защита от «убегания» силла)
+    # плато не превышает наблюдаемую вариограмму (защита от «убегания» силла)
     assert f["nugget"] + f["sill"] <= 1.16 * float(ev["gamma"].max())
 
 
@@ -226,7 +226,7 @@ def test_model_curve_zero_at_origin():
 
 
 def test_variogram_map_symmetry_center():
-    """Вариограммная карта точечно-симметрична γ(h)=γ(−h), центр = 0."""
+    """Вариограммная карта точечно-симметрична γ(h)=γ(-h), центр = 0."""
     import numpy as np
     rng = np.random.default_rng(0)
     n = 200

@@ -91,7 +91,7 @@ def _build_dialog(parent, iface):
             self.sp_sigma.setRange(0.0, 1e7)
             self.sp_sigma.setDecimals(1)
             self.sp_sigma.setSingleStep(10.0)
-            self.sp_sigma.setToolTip(tr("0 - полуячейка"))
+            self.sp_sigma.setToolTip(tr("0 = полуячейка"))
             form.addRow(tr("Сигма по умолчанию, м"), self.sp_sigma)
 
             self.sp_cell = QDoubleSpinBox()

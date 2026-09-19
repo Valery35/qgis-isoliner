@@ -193,9 +193,9 @@ def test_report_function_exists():
 
 
 def test_diagnosis_points_to_the_cure():
-    """Вердикт 2.13 должен называть средство, а не только болезнь."""
+    """Вердикт 2.13 называет средство, а не только сам дефект."""
     src = _alg_source()
-    assert src.count("Лечится инструментом 2.14") >= 1
+    assert src.count("Устраняется инструментом 2.14") >= 1
 
 
 def test_diagnosis_and_cure_stay_separate_tools():

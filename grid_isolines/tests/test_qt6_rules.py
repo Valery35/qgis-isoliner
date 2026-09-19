@@ -112,6 +112,61 @@ def test_long_enum_forms_are_not_flagged():
         assert not re.search(pattern, sample), pattern
 
 
+# Фабрики QgsGeometry, снятые в QGIS 3. Код с ними разбирается только в
+# момент выполнения, поэтому строка может пролежать в редко вызываемой ветке
+# годами. Так и вышло с поверхностью LandXML: `fromPolygon` уехал в 5.13.5, а
+# упал на первом же настоящем файле в 5.13.15.
+#
+# Пара: что запрещено и чем заменять. Для плоской геометрии это XY-форма, для
+# геометрии с отметками кольцо через QgsPolygon, иначе Z срежется.
+GONE_FACTORIES = (
+    (r"QgsGeometry\.fromPolygon\s*\(", "QgsPolygon с setExteriorRing "
+     "(или fromPolygonXY, если отметки не нужны)"),
+    (r"QgsGeometry\.fromMultiPolygon\s*\(", "QgsMultiPolygon или "
+     "fromMultiPolygonXY"),
+    (r"QgsGeometry\.fromMultiPolyline\s*\(", "QgsMultiLineString или "
+     "fromMultiPolylineXY"),
+    (r"QgsGeometry\.fromMultiPoint\s*\(", "fromMultiPointXY"),
+    (r"QgsGeometry\.fromPoint\s*\(", "fromPointXY (QgsPoint принимает "
+     "конструктор QgsGeometry)"),
+)
+
+
+def test_no_removed_geometry_factories():
+    """Имени нет у класса, и выясняется это только на прогоне.
+
+    `fromPolyline` не запрещён: он существует и берёт QgsPoint с отметкой.
+    Запрещены именно те имена, которых у QgsGeometry нет вовсе.
+    """
+    bad = []
+    for name, code in _sources():
+        body = _strip_comments(code)
+        for pattern, hint in GONE_FACTORIES:
+            for m in re.finditer(pattern, body):
+                line = body[:m.start()].count("\n") + 1
+                bad.append("%s:%d %s -> %s"
+                           % (name, line, m.group(0).strip("("), hint))
+    assert not bad, ("такого метода у QgsGeometry нет, упадёт на прогоне:\n  "
+                     + "\n  ".join(bad))
+
+
+def test_live_factories_are_not_flagged():
+    """Контроль: существующие фабрики ловиться не должны."""
+    sample = ("QgsGeometry.fromPolylineXY(pts)\n"
+              "QgsGeometry.fromPolyline(pts)\n"
+              "QgsGeometry.fromPolygonXY(rings)\n"
+              "QgsGeometry.fromPointXY(p)\n"
+              "QgsGeometry.fromWkt(s)\n")
+    for pattern, _hint in GONE_FACTORIES:
+        assert not re.search(pattern, sample), pattern
+
+
+def test_the_landxml_case_is_caught():
+    """Строка, на которой упал 8.01, обязана ловиться."""
+    sample = "f.setGeometry(QgsGeometry.fromPolygon([QgsLineString(ring)]))"
+    assert any(re.search(p, sample) for p, _h in GONE_FACTORIES)
+
+
 def test_qvariant_types_still_allowed():
     """Типы полей (QVariant.String и подобные) проверкой не запрещены:
     тест не должен ловить их и мешать работе."""
