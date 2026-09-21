@@ -26,11 +26,11 @@ def read_metadata():
 
 
 def manual_path():
-    """Путь к PDF руководства по языку интерфейса (как кнопка «Справка»)."""
-    from .i18n import language
+    """Путь к PDF руководства по языку справки (как кнопка «Справка»)."""
+    from .i18n import help_language
     candidates = []
     try:
-        if language() == "en":
+        if help_language() == "en":
             candidates.append("Isoliner_en.pdf")
     except Exception:  # nosec
         pass

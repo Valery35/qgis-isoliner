@@ -38,6 +38,7 @@ from osgeo import gdal, osr
 from qgis.PyQt.QtCore import QUrl, QVariant
 
 from .i18n import tr as _tr  # двуязычие RU/EN (нужен до module-level констант)
+from .i18n import tr_help as _trh  # справка идёт за своим языком, не интерфейса
 from . import section_core as _sc  # чистое ядро разреза, без QGIS
 from . import drillhole_core as _dh  # чистое ядро данных бурения, без QGIS
 from . import validate_core as _vc  # чистое ядро валидации, без QGIS
@@ -173,17 +174,17 @@ DEMO_GRID_HELP = ("\n\n**Ширина, высота и размер ячейки
 
 def _seed_help():
     """Общий блок про зерно ГСЧ: повторяется у шести инструментов."""
-    return _tr(SEED_HELP)
+    return _trh(SEED_HELP)
 
 
 def _sampling_help():
     """Общий блок про способ выборки растра: 4.01, 4.03, 4.04, 4.09."""
-    return _tr(SAMPLING_HELP)
+    return _trh(SAMPLING_HELP)
 
 
 def _demo_grid_help():
     """Общий блок про размеры учебной сетки: 2.10 и 5.02."""
-    return _tr(DEMO_GRID_HELP)
+    return _trh(DEMO_GRID_HELP)
 
 
 def _junction_check(lines, tol, feedback):
@@ -216,12 +217,12 @@ def _fill_help():
     2.06, 2.07, 2.15 и 2.16 с одним и тем же смыслом. Текст один на всех,
     чтобы правка шла в одном месте и переводился он тоже один раз.
     """
-    return _tr(FILL_HELP)
+    return _trh(FILL_HELP)
 
 
 def _credit():
     """Подпись «Разработано при поддержке…» на активном языке."""
-    return _tr(CREDIT)
+    return _trh(CREDIT)
 
 
 def _advanced(param):
@@ -925,9 +926,10 @@ def _set_field_aliases(context, path, aliases):
 def _help_url():
     """file:// ссылка на руководство в комплекте (для кнопки «Справка»).
 
-    На английской локали открывается Isoliner_en.pdf, если он есть; иначе -
-    русское Isoliner.pdf. Так одна кнопка даёт справку на языке интерфейса."""
-    from .i18n import language as _lang  # текущий язык интерфейса
+    При английском языке справки открывается Isoliner_en.pdf, если он есть,
+    иначе русское Isoliner.pdf. Язык берётся справочный, а не интерфейса: их
+    развели, и PDF идёт вместе с боковой справкой."""
+    from .i18n import help_language as _lang  # язык справки, не интерфейса
     doc = os.path.join(os.path.dirname(__file__), "doc")
     candidates = []
     try:
@@ -1408,7 +1410,7 @@ def _help_version(text):
     """Дописать версию и приглашение в конец справки инструмента."""
     v = _plugin_version()
     text = "" if text is None else str(text)
-    invite = _tr("Isoliner развивается на задачах реальных предприятий. "
+    invite = _trh("Isoliner развивается на задачах реальных предприятий. "
                  "Если вашему производству не хватает функции - напишите "
                  "нам: https://www.informpp.ru/главная-страница/"
                  "предприятиям")
@@ -2765,7 +2767,7 @@ def _write_declus_report(path, title, naive, decl, best_cell, sizes, means,
         vs = np.asarray(vs, float); wts = np.asarray(wts, float)
         ncols = 2 if (sizes is not None) else 1
         fig = make_subplots(rows=1, cols=ncols, subplot_titles=(
-            [_tr("Гистограмма: сырая и взвешенная")]
+            [_tr("Гистограмма: исходная и взвешенная")]
             + ([_tr("Среднее от размера ячейки")] if ncols == 2 else [])))
         bins = np.histogram_bin_edges(vs, bins=min(20, max(5, vs.size // 5)))
         centers = 0.5 * (bins[:-1] + bins[1:])
@@ -2775,7 +2777,7 @@ def _write_declus_report(path, title, naive, decl, best_cell, sizes, means,
         tot = wsum.sum()
         wdens = wsum / (tot * widths) if tot > 0 else wsum * 0.0
         fig.add_trace(go.Bar(x=centers, y=raw, width=widths,
-                             name=_tr("сырая"), marker_color="#999999",
+                             name=_tr("исходная"), marker_color="#999999",
                              opacity=0.55), row=1, col=1)
         fig.add_trace(go.Bar(x=centers, y=wdens, width=widths,
                              name=_tr("взвешенная"), marker_color="#1f6fcc",
@@ -2867,7 +2869,7 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Когда одни блоки разбурены плотнее других, среднее и гистограмма по всем "
             "пробам смещаются в сторону переразведанных участков. Если гуще бурили "
             "богатые зоны, статистика завышена. Инструмент даёт каждой пробе вес, "
@@ -2876,21 +2878,21 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
             "участках больше. Это ячеистая декластеризация, порт GSLIB declus.\n\nРазмер "
             "ячейки подбирается свипом по размерам либо задаётся вручную. На "
             "регулярной сети декластеризация ничего не меняет, веса выходят "
-            "равными.\n\nВыход: слой точек с полем весов wt и HTML-отчёт со сводкой, "
-            "гистограммой сырой против взвешенной и кривой среднего. "
-            "Декластеризованное среднее идёт в подсчёт запасов и в поле «Среднее для "
-            "простого кригинга» инструмента 1.02. Поле wt подаётся в гауссову "
-            "симуляцию 3.06 для взвешенной гистограммы.\n\n**Цель свипа** задаёт, что "
-            "считать правильным при переборе размера ячейки. Минимум среднего берут, "
-            "когда сгущение сети попало в богатую зону. Без весов среднее тогда "
-            "завышено, и правильным считается тот размер, при котором оно минимально. "
-            "Максимум среднего это зеркальный случай, когда разбурена бедная зона. "
-            "Выбирают не наугад, а по карте сети, глядя, где скважины стоят "
-            "гуще.\n\n**Смещений начала сетки** сглаживает произвол в положении сетки. "
-            "Веса зависят от того, где именно легла её граница, поэтому расчёт "
-            "повторяется несколько раз со сдвинутым началом, а веса усредняются. "
-            "Четыре смещения дают устойчивый результат, больше восьми почти ничего не "
-            "добавляют.")
+            "равными.\n\nВыход: слой точек с полем весов wt и HTML-отчёт. В отчёте "
+            "сводка, две гистограммы значений, исходная и взвешенная, и кривая "
+            "среднего от размера ячейки. Декластеризованное среднее идёт в подсчёт "
+            "запасов и в поле «Среднее для простого кригинга» инструмента 1.02. Поле "
+            "wt подаётся в гауссову симуляцию 3.06 для взвешенной гистограммы.\n\n**Цель "
+            "свипа** задаёт, что считать правильным при переборе размера ячейки. "
+            "Минимум среднего берут, когда сгущение сети попало в богатую зону. Без "
+            "весов среднее тогда завышено, и правильным считается тот размер, при "
+            "котором оно минимально. Максимум среднего это зеркальный случай, когда "
+            "разбурена бедная зона. Выбирают не наугад, а по карте сети, глядя, где "
+            "скважины стоят гуще.\n\n**Смещений начала сетки** сглаживает произвол в "
+            "положении сетки. Веса зависят от того, где именно легла её граница, "
+            "поэтому расчёт повторяется несколько раз со сдвинутым началом, а веса "
+            "усредняются. Четыре смещения дают устойчивый результат, больше восьми "
+            "почти ничего не добавляют.")
             + _credit())
 
     def initAlgorithm(self, config=None):
@@ -3061,7 +3063,7 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Ординарный или простой кригинг 2D по точечному слою (ядро GSLIB KB2D). "
             "Вариограмма: наггет плюс структура (сферическая, экспоненциальная, "
             "гауссова или степенная) с азимутом и анизотропией. Подходит для отметок "
@@ -3173,7 +3175,7 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
             options=[self.tr("нет"),
                      self.tr("ln (для лог-нормальных, напр. K, T)")],
             defaultValue=_dv(self, self.TRANSFORM, 0))
-        tf.setHelp(self.tr(
+        tf.setHelp(_trh(
             "Для величин с разбросом на порядки: коэффициент фильтрации, "
             "водопроводимость, содержания с длинным правым хвостом. Кригуется ln(Z), а "
             "оценка возвращается через exp и потому выходит медианной, а не средней. "
@@ -3189,7 +3191,7 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
             self.DETREND_DEG, self.tr("Степень тренда"),
             options=[self.tr("1 (плоскость)"), self.tr("2 (квадратичная)")],
             defaultValue=_dv(self, self.DETREND_DEG, 0))
-        deg.setHelp(self.tr(
+        deg.setHelp(_trh(
             "Включайте для отметок пласта и мощностей с общим падением, а для химии "
             "без тренда толку почти нет. Тренд снимается МНК до кригинга, кригуются "
             "остатки, и тренд возвращается к оценке. Степени 1 обычно хватает. Степень "
@@ -3199,7 +3201,7 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
         block = QgsProcessingParameterBoolean(
             self.BLOCK, self.tr("Блочный кригинг"),
             defaultValue=_dv(self, self.BLOCK, False))
-        block.setHelp(self.tr(
+        block.setHelp(_trh(
             "Оценивает среднее по ячейке грида, а не значение в её центре. Ячейка "
             "разбивается на N×N точек, ковариации усредняются по блоку. Поверхность "
             "выходит глаже, стандартная ошибка ниже точечной, и это то, что нужно для "
@@ -3211,7 +3213,7 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
             self.BLOCK_DISC, self.tr("Дискретизация блока, N×N на ячейку"),
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.BLOCK_DISC, 4), minValue=2, maxValue=10)
-        disc.setHelp(self.tr(
+        disc.setHelp(_trh(
             "Четыре на четыре хватает почти всегда, больше - точнее и медленнее. Это "
             "точек на сторону ячейки, всего N×N. Действует только при включённом "
             "блочном кригинге."))
@@ -3232,7 +3234,7 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
         se = QgsProcessingParameterRasterDestination(
             self.OUTPUT_STDERR, self.tr("Стандартная ошибка кригинга"),
             optional=True, createByDefault=False)
-        se.setHelp(self.tr(
+        se.setHelp(_trh(
             "Мера неопределённости оценки: мала у скважин, растёт вдали от данных. "
             "Необязательный растр, корень из дисперсии ошибки."))
         self.addParameter(se)
@@ -3300,7 +3302,7 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return CategoricalIndicatorAlgorithm()
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Индикаторный кригинг по категориальному полю (минтип, литотип, класс). На "
             "каждый класс строится индикатор 0/1, кригуется отдельно (ядро GSLIB "
             "KB2D), оценка обрезается в 0-1, затем вероятности по классам нормируются "
@@ -3376,7 +3378,7 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.NUGGET, None),
             minValue=0.0, maxValue=1.0, optional=True)
-        nug.setHelp(self.tr(
+        nug.setHelp(_trh(
             "Ноль делает кригинг точным в точках замеров. Вероятность в узле со "
             "скважиной равна тогда её собственному индикатору, а не сглаженному "
             "среднему по соседям. Задаётся долей от нуля до единицы, пустое поле "
@@ -3410,7 +3412,7 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
         lv = QgsProcessingParameterString(
             self.PROB_LEVELS, self.tr("Уровни вероятности (через пробел)"),
             defaultValue=_dv(self, self.PROB_LEVELS, "0.25 0.5 0.75"))
-        lv.setHelp(self.tr(
+        lv.setHelp(_trh(
             "Уровни для векторных границ, доли от нуля до единицы. По умолчанию это "
             "0.25, 0.5 и 0.75, и получаются полосы «уверенно нет», «спорно» с двух "
             "сторон и «уверенно да». При двух классах уровень 0.5 совпадает с границей "
@@ -3422,7 +3424,7 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
         pc = QgsProcessingParameterString(
             self.PROB_CLASS, self.tr("Класс для контуров (пусто = все)"),
             defaultValue=_dv(self, self.PROB_CLASS, ""), optional=True)
-        pc.setHelp(self.tr(
+        pc.setHelp(_trh(
             "Имя класса ровно как в поле классов. При двух классах вписывайте тот, "
             "который интересует. Вероятности дополняют друг друга до единицы, и второй "
             "набор выйдет зеркальным дублем первого."))
@@ -3925,7 +3927,7 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Строит изолинии из растра: равномерный шаг или явные уровни (через "
             "пробел), главные (утолщённые) изолинии флагом is_index, фильтр коротких "
             "линий.\n\nСкругление линий (Chaikin) слегка сглаживает контуры и убирает "
@@ -4654,7 +4656,7 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
         return "grid_isolines"
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Скользящий контроль (leave-one-out): каждая скважина по очереди "
             "исключается, её значение предсказывается кригингом по остальным, и "
             "сравнивается с фактическим. Помогает подобрать вариограмму (наггет, "
@@ -4704,7 +4706,7 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
             self.DETREND_DEG, self.tr("Степень тренда"),
             options=[self.tr("1 (плоскость)"), self.tr("2 (квадратичная)")],
             defaultValue=_dv(self, self.DETREND_DEG, 0))
-        deg.setHelp(self.tr(
+        deg.setHelp(_trh(
             "Включайте для отметок пласта и мощностей с общим падением, а для химии "
             "без тренда толку почти нет. Тренд снимается МНК до кригинга, кригуются "
             "остатки, и тренд возвращается к оценке. Степени 1 обычно хватает. Степень "
@@ -5013,7 +5015,7 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
         return "grid_isolines"
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Создаёт точечный слой скважин со случайными координатами в пределах "
             "области. Значение абстрактного компонента (X, %) раскладывается по "
             "площади не случайно, а с пространственной структурой, поэтому набор "
@@ -5115,7 +5117,7 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
             self.OUTPUT_DRIFT,
             self.tr("Поверхность дрейфа (растр) + поле dz, для внешнего дрейфа"),
             optional=True, createByDefault=False)
-        dr.setHelp(self.tr(
+        dr.setHelp(_trh(
             "Даёт готовую пару для кригинга с внешним дрейфом. Это растр гладкой "
             "сторонней поверхности s, известной всюду, и поле dz скважин, линейно с "
             "ней связанное. Дальше запустите «Кригинг с внешним дрейфом» по полю dz с "
@@ -5558,7 +5560,7 @@ class GeophysProfilesDemoAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return GeophysProfilesDemoAlgorithm()
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Создаёт точечный слой геофизических профилей для обучения и проверки "
             "инструментов без реальных данных. Профили идут параллельно, точки стоят "
             "по пикетам. Режима два, электроразведка и оседания.\n\nЭлектроразведка: "
@@ -5818,7 +5820,7 @@ class MbaGridAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Строит поверхность по разбросанным точкам мультисеточными B-сплайнами "
             "(метод Ли, Волберга и Шина, 1997).\n\nУстройство. Берётся грубая решётка "
             "контрольных точек, по ней строится сплайн, приближающий данные. Он "
@@ -6139,7 +6141,7 @@ class SurfaceGraftAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return SurfaceGraftAlgorithm()
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Сшивает подробную поверхность с региональной в одну. Подробная съёмка в "
             "открытую ЦМР, куст разведочных скважин в региональную модель кровли, "
             "детальный участок опробования в общую карту содержаний. Устройство одно, "
@@ -6467,27 +6469,25 @@ class VariableSupportDensityAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return VariableSupportDensityAlgorithm()
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Оценка плотности, где замер задан не точкой, а носителем конечного "
             "размера: точка с сигмой неопределённости, отрезок линии (коридор "
-            "полуширины), полигон. Единичная масса замера размазывается по "
-            "носителю. Масса сохраняется, плотность обратна площади носителя, "
-            "поэтому грубые привязки (регион, «где-то на Каме») самоослабляются "
-            "геометрически, без порогов.\n\nЭто оценка плотности (сколько и "
-            "где), не интерполяция значения - для значений остаётся кригинг. "
-            "Тип геометрии один на запуск, смешение - серией запусков в один "
-            "растр (дописывание).\n\nПоля: масса (по умолчанию 1 на объект), "
-            "точность (для точек сигма в единицах карты, для линий полуширина "
-            "коридора), для линий from_m/to_m - вырезка интервала по линейной "
-            "привязке.\n\nВыход - трёхканальный растр: канал 1 плотность (масса "
-            "на км², не зависит от размера ячейки), каналы 2-3 служебные (Σm·σ и "
-            "Σm), чтобы дописывание и карта эффективной сигмы были точны. "
-            "Необязательный второй растр - средневзвешенная сигма по ячейке "
-            "(карта эффективной точности, аналог кригинговой дисперсии).\n\n"
-            "Инвариант: интеграл плотности равен сумме масс входа, пишется в "
-            "лог. Дазиметрия для полигонов - масса пропорциональна "
-            "вспомогательному растру (население и т.п.), при пустом растре "
-            "внутри полигона откат на равномерное. Слой должен быть в "
+            "полуширины), полигон. Единичная масса замера размазывается по носителю. "
+            "Масса сохраняется, плотность обратна площади носителя, поэтому грубые "
+            "привязки (регион, «где-то на Каме») самоослабляются геометрически, без "
+            "порогов.\n\nЭто оценка плотности (сколько и где), не интерполяция значения "
+            "- для значений остаётся кригинг. Тип геометрии один на запуск, смешение - "
+            "серией запусков в один растр (дописывание).\n\nПоля: масса (по умолчанию 1 "
+            "на объект), точность (для точек сигма в единицах карты, для линий "
+            "полуширина коридора), для линий from_m/to_m - вырезка интервала по "
+            "линейной привязке.\n\nВыход - трёхканальный растр: канал 1 плотность (масса "
+            "на км², не зависит от размера ячейки), каналы 2-3 служебные (Σm·σ и Σm), "
+            "чтобы дописывание и карта эффективной сигмы были точны. Необязательный "
+            "второй растр - средневзвешенная сигма по ячейке (карта эффективной "
+            "точности, аналог кригинговой дисперсии).\n\nИнвариант: интеграл плотности "
+            "равен сумме масс входа, пишется в журнал. Дазиметрия для полигонов - "
+            "масса пропорциональна вспомогательному растру (население и т.п.), при "
+            "пустом растре внутри полигона откат на равномерное. Слой должен быть в "
             "метрической системе координат."))
 
     def initAlgorithm(self, config=None):
@@ -6738,7 +6738,7 @@ class DensityDemoAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return DensityDemoAlgorithm()
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Синтетический набор для инструмента 3.07 с заранее известной суммарной "
             "массой. Точки (масса 500, сигмы от долей ячейки до крупных), линии (масса "
             "200, у одной вырезка интервала from_m/to_m), полигоны (масса 300, один "
@@ -6892,7 +6892,7 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Строит изотропную экспериментальную полувариограмму по точкам. Облако пар "
             "усредняется по шагам расстояния. По ней видна структура данных, и наггет "
             "с радиусом берутся с графика, а не угадываются.\n\n**Поле группировки** "
@@ -7340,7 +7340,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return VariogramMapAlgorithm()
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Строит вариограммную карту - поверхность γ(h_x, h_y): для всех пар "
             "берётся вектор разноса (dx, dy) и полудисперсия 0.5·(Δz)², значения "
             "усредняются по двумерной сетке расстояний. Анизотропия видна как эллипс. "
@@ -7630,7 +7630,7 @@ class FlowGradientAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP2_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "По растру напора (пьезометрической поверхности) строит гидравлический "
             "градиент и направление потока. Вход - растр напора, например результат "
             "«2D Kriging» по уровням в скважинах.\n\nВыходы: растр модуля градиента |∇h| "
@@ -7795,7 +7795,7 @@ class ExternalDriftKrigingAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP2_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Кригинг с внешним дрейфом (External Drift) оценивает поле по точкам там, "
             "где оно закономерно связано со сторонней величиной, известной всюду в "
             "виде растра. Такой величиной бывает структурная поверхность соседнего "
@@ -7825,7 +7825,7 @@ class ExternalDriftKrigingAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.ZFIELD, None)))
         dr = QgsProcessingParameterRasterLayer(
             self.DRIFT_RASTER, self.tr("Растр внешнего дрейфа (известен всюду)"))
-        dr.setHelp(self.tr(
+        dr.setHelp(_trh(
             "Растр, известный всюду, за которым тянется оценка: соседний пласт, "
             "структурная поверхность, грубая модель, сейсмический атрибут. Значение "
             "поля Z регрессируется на него, кригуются остатки, а дрейф возвращается из "
@@ -7840,7 +7840,7 @@ class ExternalDriftKrigingAlgorithm(IsolinerAlgorithm):
             self.DRIFT_DEG, self.tr("Степень дрейфа"),
             options=[self.tr("1 (линейный)"), self.tr("2 (квадратичный)")],
             defaultValue=_dv(self, self.DRIFT_DEG, 0))
-        ddeg.setHelp(self.tr(
+        ddeg.setHelp(_trh(
             "Степень 1 задаёт линейную связь значения с внешней величиной, m = a0 + "
             "a1·s, и это обычный выбор для External Drift. Степень 2 описывает "
             "изогнутую связь m = a0 + a1·s + a2·s², но может вобрать в дрейф часть "
@@ -7860,7 +7860,7 @@ class ExternalDriftKrigingAlgorithm(IsolinerAlgorithm):
         se = QgsProcessingParameterRasterDestination(
             self.OUTPUT_STDERR, self.tr("Стандартная ошибка кригинга"),
             optional=True, createByDefault=False)
-        se.setHelp(self.tr(
+        se.setHelp(_trh(
             "Мера неопределённости оценки по остаткам. Дрейф детерминирован и своей "
             "погрешности к ней не добавляет. Необязательный растр, корень из дисперсии."))
         self.addParameter(se)
@@ -7917,7 +7917,7 @@ class ExceedanceProbabilityAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP2_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Карта вероятности превышения порога по растрам оценки и стандартной "
             "ошибки кригинга. Локальное распределение принимается нормальным, Z ~ "
             "N(оценка, ошибка²), и вероятность считается одной формулой P(Z>порог) = "
@@ -8066,7 +8066,7 @@ class DarcyFluxAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP2_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Удельный расход подземного потока по закону Дарси. К геометрии "
             "потока (градиент напора и направление) добавляет свойства пласта, "
             "переводя безразмерный градиент в физический поток.\n\nВходы: растр "
@@ -8342,7 +8342,7 @@ class PlastReferenceTemplateAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Кладёт в проект поставляемый образец справочника пластов - тот, что "
             "читают инструменты 4.01 и 4.02. Это таблица без геометрии: одна строка на "
             "пласт или междупластье, сверху вниз по разрезу, с кодом, порядком "
@@ -8425,7 +8425,7 @@ class AttitudeFromTraceAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Считает угол и азимут падения по трёхмерному следу выхода границы на "
             "поверхность. Если граница пласта или разлома оцифрована с отметками, "
             "плоскость по ней восстанавливается однозначно, а из плоскости выпадают оба "
@@ -8603,7 +8603,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Готовый пример для инструментов разреза. Строит шесть гладких "
             "поверхностей, лежащих стопкой, с региональным падением и волнистой "
             "переменной мощностью. Между ними пять пластов в переслаивании: три "
@@ -9356,7 +9356,7 @@ class SectionAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Геологический разрез по линии из набора поверхностей. Поверхности "
             "задаются списком и упорядочиваются сверху вниз (кровля, подошва, "
             "следующая кровля и так далее). Пласты строятся как полосы между соседними "
@@ -10172,7 +10172,7 @@ class CompositionOnSectionAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Красит полосу одного пласта на разрезе по гриду состава вдоль линии. "
             "Берёт кровлю, подошву и грид состава, свой кригинг не делает.\n\n"
             "Режим «непрерывное» (содержание KCl, нерастворимый остаток): полоса "
@@ -10581,7 +10581,7 @@ class SectionGridIntersectAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Наносит поверхности-гриды на разрез линиями в осях расстояние-высота. "
             "Каждый грид выбирается вдоль линии разреза, и его сечение ложится на "
             "чертёж рядом с пластами.\n\nЛиния и вертикальный масштаб берутся из "
@@ -10732,7 +10732,7 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Наносит векторные объекты на разрез по точному пересечению с линией "
             "разреза, в осях расстояние-высота.\n\nПравило по типу объекта. Линия БЕЗ "
             "отметки высоты (плоская в плане - разлом, граница, контур) даёт вертикаль "
@@ -11423,7 +11423,7 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Режет TIN (поверхность из 3D-треугольников) разрезом и кладёт трассу на "
             "чертёж в осях расстояние-высота.\n\nГлавное отличие от «Пересечения "
             "поверхностей» (4.04, гриды): грид это z = f(x,y), одно значение на точку, "
@@ -11768,7 +11768,7 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Проецирует объекты (точки, линии, полигоны) на разрез. Для каждой вершины "
             "горизонталь - расстояние вдоль линии до её проекции, высота - отметка из "
             "3D-геометрии или из выбранного поля.\n\nЛиния и вертикальный масштаб "
@@ -11987,7 +11987,7 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Возвращает объекты, нарисованные на чертеже разреза, в реальные "
             "координаты. Горизонтальная координата вершины читается как расстояние "
             "вдоль линии (даёт план X, Y), высота - как отметка Z = высота / "
@@ -12177,7 +12177,7 @@ class ShaftUnwrapAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Цилиндрический разрез - развёртка стенки шахтного ствола. Вокруг оси "
             "ствола на заданном радиусе берётся окружность с угловым шагом (по "
             "умолчанию 1 градус), и поверхности-гриды выбираются вдоль неё.\n\nРазвёртка "
@@ -12349,7 +12349,7 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Кладёт скважины на чертежи разрезов из пары слоёв модели бурения: устья "
             "collar (hole_id, z, eoh, точки) и таблица интервалов interval (hole_id, "
             "from, to, code, глубины по стволу от устья). Таблица интервалов тоже "
@@ -13189,7 +13189,7 @@ class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
     def helpUrl(self): return _help_url()
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Последовательная гауссова симуляция: ансамбль равновероятных реализаций "
             "вместо одной сглаженной оценки кригинга. Каждая реализация воспроизводит "
             "гистограмму и вариограмму данных и проходит через скважины, поэтому по "
@@ -13472,7 +13472,7 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Поверхность ведёт себя как тонкая упругая пластина, натянутая на данные. "
             "Она проходит через пробы и гнётся при этом как можно меньше, а формально "
             "это решение бигармонического уравнения. Через пробы метод проходит "
@@ -13724,7 +13724,7 @@ class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Скользящий контроль (leave-one-out) для метода гридирования, кригинга или "
             "минимальной кривизны. Точка по очереди исключается. Её значение "
             "предсказывается методом по остальным и сравнивается с фактом, а по "
@@ -14163,7 +14163,7 @@ class StackBuildAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_GEO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Собирает колонку сверху вниз: от рельефа, тело за телом по справочнику. "
             "Для каждого тела строится растр мощности по скважинам, подошва получается "
             "вычитанием мощности из вышележащей поверхности, и она же служит верхом "
@@ -14530,7 +14530,7 @@ class StackFixAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_GEO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Правит унаследованную пачку, которую никто не станет пересобирать заново. "
             "Приём известен из практики. По замерам считается статистика мощности "
             "каждого тела, берётся доверительный интервал, и мощности на гриде "
@@ -14747,7 +14747,7 @@ class ManifestAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_GEO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Записывает, какую роль играет каждый слой проекта: опорная поверхность, "
             "контакт тела, зеркало, устья, интервалы, замеры оси, справочник, наземные "
             "наблюдения.\n\n**Зачем.** После сборки проект превращается в набор растров "
@@ -14877,7 +14877,7 @@ class FoldMapAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_GEO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Считает, насколько поверхность смята, по разбросу отметок вокруг местного "
             "наклона.\n\n**Складчатость мерится по поверхности, а не по мощности.** "
             "Цилиндрическая складка с постоянной истинной мощностью существует и по "
@@ -15045,7 +15045,7 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_GEO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Строит учебный разрез верхнекамского типа: полная колонка из справочника "
             "пластов, от покровных отложений до нижней соли, со складкой, "
             "выклиниванием, соляным куполом и скважинами, которые всё это "
@@ -15521,7 +15521,7 @@ class StackCheckAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_GEO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Проверяет, согласована ли пачка кровель и подошв между собой. Ничего не "
             "исправляет. Считает и показывает, а решение остаётся за "
             "геологом.\n\n**Откуда берётся несогласованность.** Кровли и подошвы обычно "
@@ -15827,7 +15827,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_HYDRO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Строит по створу зависимость расхода от отметки - то, чем обосновывают "
             "затопление. Связь работает в обе стороны. По расходу видно, до какой "
             "отметки поднимается вода, по отметке в створе считается "
@@ -16882,7 +16882,7 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_HYDRO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Строит учебную цепочку створов с известным ответом: долина с руслом и "
             "двумя поймами, отметки в Z вершин, поля участков, шероховатости, уклона и "
             "километража заполнены.\n\nРусло и поймы имеют разную шероховатость, поэтому "
@@ -17120,7 +17120,7 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_HYDRO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Отрезает поверхность отметкой воды и выдаёт контур затопления и "
             "глубину.\n\n**Желаемый расход по готовой кривой.** Кривая не зависит от "
             "расхода,\nона характеристика створа. Поэтому для любого расхода, а не "
@@ -17503,7 +17503,7 @@ class ImportSectionTableAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_HYDRO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Превращает таблицу промеров в створы с отметками в "
             "вершинах.\n\nСуществующие программы держат профиль парами расстояние от "
             "начала створа и абсолютная отметка, и за годы работы таких таблиц "
@@ -17760,7 +17760,7 @@ class FractalDimensionAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP5_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Считает карту фрактальной размерности поверхности вариограммным методом. "
             "В скользящем окне строится лог-лог вариограмма по шагам от одной до N "
             "ячеек (шаг один это соседние ячейки, шаг четыре это ячейки через три). Её "
@@ -17867,7 +17867,7 @@ class BoxCountingAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP5_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Классический box-counting: растр бинаризуется порогом (объект - значения "
             "больше порога), маска покрывается ячейками убывающего размера, а наклон "
             "log N от log(1/размер) даёт одну размерность D на всю маску.\n\nЛинейный "
@@ -17942,7 +17942,7 @@ class LineDimensionAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP5_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Считает размерность каждой линии методом циркуля (Ричардсона): линия "
             "проходится хордами убывающего раствора, наклон log N от log r даёт D. "
             "Прямая даёт 1, изрезанная линия - больше. для изолиний это диагностика "
@@ -18049,7 +18049,7 @@ class MinkowskiDimensionAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP5_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Box-counting напрямую по векторам. Линии и границы полигонов покрываются "
             "сеткой убывающего размера, наклон log N от log(1/размер) даёт размерность "
             "Минковского. Прямая линия и гладкая граница дают D около 1, речная сеть - "
@@ -18198,7 +18198,7 @@ class FractalDemoAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP5_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Генерирует учебные объекты для фрактальных инструментов: ветвящуюся "
             "речную сеть (поле order - порядок притока), полигон водосбора с "
             "изрезанной границей и отдельную береговую линию (срединные "
@@ -18361,7 +18361,7 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Загружает ЦМР по рамке из открытого хранилища, без регистрации и ключей. "
             "Источника два.\n\nCopernicus GLO-30 это модель поверхности (DSM), то есть "
             "высоты по кронам и кровлям, плиточной мозаикой без швов. GEDTM30 это "
@@ -18608,7 +18608,7 @@ class TopobaseDownloadAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Загружает по рамке из OpenStreetMap слои для работы с рельефом. Это "
             "водотоки, водоёмы, вершины с отметками, обрывы с насыпями и береговая "
             "линия.\n\nКаждый слой приходит в том виде, в каком его ждут инструменты "
@@ -18782,7 +18782,7 @@ class TopoFillDepressionsAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Готовит ЦМР к анализу двумя независимыми модификациями, каждая своим "
             "флажком. Сглаживание рельефа (FPDEMS, метод Линдсея и др. 2019) убирает "
             "избыточную шероховатость спутниковых моделей, но сохраняет бровки, стенки "
@@ -18932,7 +18932,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Создаёт синтетический рельеф: наклонная равнина, холмы, извилистая долина "
             "с постоянным падением. Рельеф детерминирован по зерну. Между холмами "
             "осознанно остаются локальные понижения, чтобы инструменту заполнения было "
@@ -19534,7 +19534,7 @@ class FlowD8Algorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Считает направления стока D8 (Jenson-Domingue) и аккумуляцию: сколько "
             "ячеек стекает в каждую, включая её саму. Направления кодируются как в "
             "ArcGIS: E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128, сток=0. "
@@ -19612,7 +19612,7 @@ class RiverNetworkAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Извлекает речную сеть. Ячейки с аккумуляцией не ниже порога связываются в "
             "звенья от истоков и слияний вниз по течению. Вершины линий идут вниз по "
             "течению, как водотоки в OSM, выход годится тальвегами для Topo2Raster. "
@@ -19706,7 +19706,7 @@ class BasinsAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Делит территорию на бассейны. С точками замыкания каждая точка "
             "притягивается к ячейке с наибольшей аккумуляцией в радиусе притяжки и "
             "собирает весь свой водосбор. Без точек бассейны строятся от устьев: "
@@ -19954,7 +19954,7 @@ class GaugeReportAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Морфометрия водосбора от створа - точки замыкания на водотоке. Каждая "
             "точка притягивается к ячейке наибольшей аккумуляции в радиусе (механика "
             "«Бассейнов»). От неё собирается полный водосбор и считается инженерный "
@@ -20309,7 +20309,7 @@ class CatchmentStatsAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Считает морфометрию по ГОТОВЫМ полигонам водосборов: площадь, среднюю и "
             "крайние отметки, средний уклон бассейна, длину главного водотока и "
             "падение.\n\nНужен там, где водосбор уже есть: нарисован вручную, взят из "
@@ -20592,7 +20592,7 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Площадь водосбора приёмника: нагорной канавы, лотка, кювета дороги или "
             "контура карьера. Отвечает на вопрос, какую площадь приёмник "
             "перехватывает, когда самого приёмника на ЦМР нет.\n\nВходом служат линии "
@@ -20968,7 +20968,7 @@ class SlopeAspectAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Уклон в градусах и экспозиция по ядру Horn 3x3, как в gdaldem. Экспозиция "
             "- азимут спуска в градусах от севера по часовой стрелке, у плоских ячеек "
             "-1. Ячейки nodata и их соседи тоже получают nodata, потому что ядро через "
@@ -21046,7 +21046,7 @@ class PeaksAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Находит вершины и ямы: ячейки, самые высокие или самые низкие в "
             "квадратном окне заданного радиуса, с перепадом к противоположному краю "
             "окна не меньше порога. Радиус отсекает второстепенные макушки рядом с "
@@ -21153,7 +21153,7 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Строит рельеф из векторных данных мультисеточной интерполяцией от грубой "
             "сетки к тонкой, по мотивам ANUDEM. Каждый тип входа работает своим "
             "ограничением: точки высот и изолинии - жёсткие узлы, тальвеги - "
@@ -21898,7 +21898,7 @@ class ContourSplitAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPODIAG_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Делит горизонтали на два набора: по одному строят рельеф, по второму "
             "проверяют результат.\n\nДелится не по объектам, а по **отметкам**. Убрать "
             "из построения отдельные звенья одной горизонтали бессмысленно. Соседние "
@@ -22041,7 +22041,7 @@ class ContourResidualAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPODIAG_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Измеряет, насколько построенная ЦМР воспроизводит исходные горизонтали. В "
             "точках вдоль горизонтали берётся значение растра и сравнивается с "
             "отметкой горизонтали. Невязка положительна там, где ЦМР ниже "
@@ -22379,7 +22379,7 @@ class TerracingCheckAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPODIAG_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Рельеф, построенный по горизонталям, часто выходит ступенчатым. Склон "
             "идёт полками - у самой горизонтали площадка, между горизонталями резкий "
             "сброс. На отмывке это система концентрических полок, на профиле лестница. "
@@ -22653,7 +22653,7 @@ class TerraceSmoothAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPODIAG_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Убирает ступени с рельефа, построенного по горизонталям, не сдвигая сами "
             "горизонтали.\n\nПоверхность сглаживается итеративно, но каждой точке "
             "запрещено уходить от исходного значения дальше заданной доли сечения. По "
@@ -22932,7 +22932,7 @@ class CutFillAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Считает объёмы земляных работ между двумя поверхностями: что насыпано, "
             "что снято и сходится ли баланс.\n\nФормула простая: разность отметок по "
             "ячейкам, умноженная на площадь ячейки. Знак принят такой - разность "
@@ -23349,7 +23349,7 @@ class BreaklineCandidatesAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Находит кандидатов структурных линий: места, где уклон меняется быстрее "
             "всего. Бровки и подошвы уступов, борта карьеров, кромки насыпей и врезов. "
             "Признаком служит градиент уклона, гребни признака утоньшаются и "
@@ -23476,7 +23476,7 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Превращает линии бровок и подошв в рабочие структурные линии: снимает "
             "отметки с ЦМР, собирает формы бровка-подошва и раскладывает их по двум "
             "слоям, Верх и Низ, с общим полем связи. Выход подаётся дальше как есть, "
@@ -23812,7 +23812,7 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Даёт немым линиям профиль по горизонталям, которые к ним примыкают. У "
             "бровки в топографическом чертеже своей отметки нет, но горизонтали по "
             "нормативу доводятся до линии описания объекта с формированием узловых "
@@ -24244,7 +24244,7 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Создаёт учебный карьер: волнистое основание, эллиптический карьер с "
             "уступами и бермами, съезд, прорезающий уступы, отвал с плоским верхом и "
             "сходящуюся нагорную канаву. Всё детерминировано зерном, поэтому один и "
@@ -24471,7 +24471,7 @@ class DownhillTraceAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_TOPO_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Куда стечёт вода из заданного места. От каждой стартовой ячейки "
             "инструмент идёт вниз по склону по направлениям стока D8 и рисует "
             "пройденный путь линией.\n\nСтартом служит любая геометрия. Точка даёт одну "
@@ -24828,7 +24828,7 @@ class LandXmlReadAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_EXCHANGE_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Читает обменный файл LandXML, который пишут программы обработки "
             "тахеометрической съёмки: Credo, Trimble Business Center, Topcon Magnet, "
             "Leica Infinity, Civil 3D.\n\nИз файла берутся точки съёмки с именем и "
@@ -25156,7 +25156,7 @@ class LandXmlWriteAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_EXCHANGE_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Собирает обменный файл LandXML из слоёв проекта. Файл открывают программы "
             "обработки съёмки: Credo, Trimble Business Center, Topcon Magnet, Leica "
             "Infinity, Civil 3D.\n\nВходы необязательные, берётся то, что задано. "
@@ -25395,7 +25395,7 @@ class LandXmlDemoAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP_EXCHANGE_ID
 
     def shortHelpString(self):
-        return _help_version(self.tr(
+        return _help_version(_trh(
             "Пишет набор файлов LandXML с одной и той же местностью, "
             "записанной по-разному. Нужен, чтобы проверить чтение на "
             "материале, ответ по которому известен заранее, и чтобы "
@@ -25482,7 +25482,7 @@ class BedGradesAtCollarsAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP3_ID
 
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(_trh(
             "Средневзвешенные содержания по одному пласту, вынесенные в точки устьев "
             "скважин.\n\nНа входе три таблицы модели бурения: устья collar, интервалы "
             "interval с кодами пластов и пробы опробования chem с содержаниями. Проба "
@@ -25498,7 +25498,7 @@ class BedGradesAtCollarsAlgorithm(IsolinerAlgorithm):
             "компонентов у разных предприятий разный, поэтому выбирается из полей "
             "самой таблицы, а не задан списком.\n\nВыход это точечный слой устьев: "
             "содержания, охват по каждому компоненту, мощность пласта по стволу и "
-            "количество задевших проб. Слой готов ко входу 1.02 кригинга.")
+            "количество задевших проб. Слой готов ко входу 1.02 кригинга."))
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)

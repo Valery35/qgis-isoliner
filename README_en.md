@@ -105,7 +105,7 @@ interpolation, then Isoliner3D on the display.
 
 ### "7. Fractal analysis" group
 
-- **7.01 Fractal dimension** — a D = 3 − H map by the variogram method in a moving window: contrasts highlight faults and block boundaries.
+- **7.01 Fractal dimension** — a D = 3 - H map by the variogram method in a moving window: contrasts highlight faults and block boundaries.
 - **7.02 Box-counting of masks** — one D per binary mask: replacement and workings outlines compared by a number.
 - **7.03 Dimension of lines and boundaries** — D of each line by the divider method: diagnostics of oversmoothed isolines.
 - **7.04 Minkowski dimension (vectors)** — box-counting directly over lines and polygon boundaries, without rasterization.
@@ -282,8 +282,8 @@ corners are extrapolation beyond the data. Enable "Clip to well hull" in kriging
 
 Polygons are built not by classifying raster "steps" but by polygonizing the
 smoothed isolines themselves together with the contour of the raster's valid
-area: line ends are snapped to the contour (snap of end points only), the network
-is noded (`splitwithlines`) and polygonized. The level range of each band is
+area. Line ends are snapped to the contour (snap of end points only), the
+network is noded (`splitwithlines`) and polygonized. The level range of each band is
 determined by sampling the raster at a representative point of the polygon. That
 is why polygon boundaries coincide with the lines, including at the very edge.
 
@@ -327,6 +327,17 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.26** — a language button on the toolbar.
+- **5.13.25** — the interface language and the help language are chosen separately, under Plugins - Isoliner - Language. They change at once, with no restart of QGIS.
+- **5.13.24** — the last "log" removed from the help, and a guard added for the terms visible in the dialog.
+- **5.13.23** — in the declustering help and report the histogram is called original and weighted rather than "raw".
+- **5.13.22** — the manual has been reconciled with the dialog. The parameter labels in the chapter tables differed from what the dialog shows in twenty-two places. The PDFs have been rebuilt.
+- **5.13.21** — a full proofreading pass over the help texts and parameter labels of the whole module. Broken tool cross-references have been fixed, the labels brought to a single form, and the parameter names used in the help checked against the ones shown in the dialog.
+- **5.13.20** — the parameter hints and the help of four tools have been reworked. A hint now opens with the answer to "switch it on or not".
+- **5.13.19** — the English manual, quick start and README have been proofread. Sixty-one sentences in the manual were comma splices rather than long sentences.
+- **5.13.18** — the catalogue description, the quick start page and the README have been proofread. Wording in the manual was tightened as well.
+- **5.13.17** — the user manual has been proofread. Long sentences are split, colloquial wording is gone, and the parameter labels in the text match the panel.
+- **5.13.16** — the in-program help of every tool has been proofread. Colloquial wording and judgements about what matters more are gone, sentences are shorter, and a few parameter labels are reworded. The English help of tool 2.18 is taken from its own dictionary entry again.
 - **5.13.15** — contour polygons no longer get the wrong level range. At a fine interval, where a band is thinner than a cell, a shard of an alien colour used to appear on the map. The range is now read from the elevations of the bounding isolines. The defect was found by Dmitry Berezin on his own data.
 - **5.13.14** — the LandXML tools are gathered into a new "Data exchange" group and renumbered 8.01 and 8.02. A new 8.03 writes ten example files holding one terrain written in different ways, so the reading can be checked against a known answer. A file whose surface is given by breaklines alone no longer produces an empty layer.
 - **5.13.13** — colloquial vocabulary and medical metaphors are removed from both manuals. The text is even and professional and says the same thing.

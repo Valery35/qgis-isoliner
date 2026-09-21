@@ -53,7 +53,9 @@ Minimum: the **DEM** from step 1, **Search radius** in cells.
 *You get:* points of local maxima with elevations.
 
 **Step 6.** **2.02 Download topographic base by extent**
-Minimum: the same **Extent**. From OSM take areal water bodies and dry channels, but not rivers and peaks: those are already computed from the relief in steps 4 and 5 and agree with it, whereas from OSM they come from another source and may not match the matrix.
+Minimum: the same **Extent**. From OSM take areal water bodies and dry channels, but not rivers and peaks.
+Those are already computed from the relief in steps 4 and 5 and agree with it.
+From OSM they would come from another source and may not match the matrix.
 *You get:* up to five layers in the Topography group.
 
 **Step 7.** **2.03 Topo2Raster (relief from vectors)**
@@ -74,7 +76,9 @@ Needed only if the previous step found terracing. Minimum: **DEM with steps**, *
 
 If you want to test the method rather than your data, replace the first step with **2.10 Demo relief** and its **Gully network** tick. Then the true surface is known in advance and it is plain to see what gets lost in the building. Gullies are lost first.
 
-There are two ways to check against the truth. By eye: build isolines over the restored relief with the same interval and lay them over the contours of step 2 in another colour, the lines should coincide and part only on the summits above the last contour. By number: the raster calculator, the expression "restored minus truth", and the statistics of the difference in the layer properties. At an interval of 5 m expect a mean near zero and a spread of about a metre, with the largest discrepancies on the peaks. Adding the peak points from step 5 into step 7 shrinks those summit discrepancies noticeably, and that is exactly the answer to why topographers write peak elevations on maps.
+There are two ways to check against the truth. By eye: build isolines over the restored relief with the same interval and lay
+them over the contours of step 2 in another colour. The lines should coincide
+and part only on the summits above the last contour. By number: the raster calculator, the expression "restored minus truth", and the statistics of the difference in the layer properties. At an interval of 5 m expect a mean near zero and a spread of about a metre, with the largest discrepancies on the peaks. Adding the peak points from step 5 into step 7 shrinks those summit discrepancies noticeably, and that is exactly the answer to why topographers write peak elevations on maps.
 
 ---
 
@@ -118,7 +122,10 @@ This path is for those who already have data. It also answers the question of wh
 
 **What is worth adding as fields.** `div_l` and `div_r` for the part boundaries as distances along the profile, `n_left`, `n_channel`, `n_right` for the roughness, `slope` for the slope, `km` for the chainage, `sec` for the name. The fields are picked up by these names on their own.
 
-Without them the computation goes through, but the whole profile is treated as one channel with defaults, and the discharges come out several times too large: a floodplain hundreds of metres wide gets the roughness of a channel. This is the most frequent cause of implausible numbers.
+Without them the computation goes through, but the whole profile is treated as
+one channel with defaults. The discharges then come out several times too
+large, because a floodplain hundreds of metres wide gets the roughness of a
+channel. This is the most frequent cause of implausible numbers.
 
 **Step 1.** **6.03 Import section tables** - if the profiles are kept as tables of distance and elevation pairs.
 Minimum: the **Table of soundings**. If the sections are already digitized on the map, supply them as a layer - the soundings will lie along the real lines.

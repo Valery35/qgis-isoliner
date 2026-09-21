@@ -3,10 +3,10 @@ name=Isoliner - грид и изолинии
 qgisMinimumVersion=3.16
 qgisMaximumVersion=4.99
 description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in QGIS. Кригинг 2D (GSLIB KB2D) и построение изолиний/контурных полигонов в QGIS.
-about=A Processing toolset for point-data interpolation and isolines. It holds 2D kriging (points to raster, GSLIB KB2D core), the experimental variogram with model fitting and leave-one-out cross-validation. Next come optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled, opened by the language of the QGIS interface. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
+about=A Processing toolset for point-data interpolation and isolines. It holds 2D kriging (points to raster, GSLIB KB2D core), the experimental variogram with model fitting and leave-one-out cross-validation. Next come optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled. The interface language and the help language can be chosen separately and by default follow QGIS. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
-    Группа команд Processing для интерполяции точечных данных и построения изолиний. В набор входят 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели и кросс-валидация (leave-one-out). Дальше идут необязательное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте, открывается по языку интерфейса QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.13.22
+    Группа команд Processing для интерполяции точечных данных и построения изолиний. В набор входят 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели и кросс-валидация (leave-one-out). Дальше идут необязательное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте. Язык интерфейса и язык справки выбираются отдельно и по умолчанию идут за QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
+version=5.13.26
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,28 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.13.22
+changelog=5.13.26
+    - Окно выбора языка открывается и кнопкой на панели инструментов Isoliner,
+      с буквами А и Я на иконке.
+    5.13.25
+    - Язык интерфейса и язык справки выбираются отдельно, в новом пункте меню
+      Модули - Isoliner - Язык. Можно держать английский интерфейс QGIS и
+      читать справку по-русски, и наоборот. Справка это правая панель
+      диалога, подсказки полей и руководство PDF, они меняются вместе.
+    - Меню и названия инструментов в панели Обработки перестраиваются сразу,
+      перезапускать QGIS не нужно.
+    - По умолчанию оба языка идут за языком QGIS, как и раньше.
+    - Справка 4.13 кончалась без версии модуля, теперь как у остальных.
+    5.13.24
+    - В справке плотности осталось «пишется в лог». Панель называется
+      журналом, исправлено.
+    - Заведён сторож терминов, действующих в окне, но не в коде: «лог»,
+      «дырка», «зерно генератора» и запись пояснения нуля.
+    5.13.23
+    - В отчёте декластеризации гистограмма называлась «сырой». Прилагательное
+      стояло без существительного, и было непонятно, сырой чего. Теперь
+      «исходная и взвешенная», и так же подписаны столбики на графике.
+    5.13.22
     - Руководство сведено с окном. Подписи параметров в таблицах глав
       расходились с тем, что стоит в диалоге, в двадцати двух местах.
     - В руководстве стояла ссылка на инструмент 1.1, которого нет. Та же

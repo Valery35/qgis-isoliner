@@ -39,6 +39,13 @@ SCAN_FILES = sorted(f for f in os.listdir(PKG)
 # значит забыть очередную константу и не заметить пропажу перевода.
 CONST_NAMES = None   # заполняется в collect_keys по вызовам перевода
 
+# Имена функций перевода. Справка переводится своей функцией tr_help (в коде
+# _trh), потому что языки интерфейса и справки разведены. Без этих имён весь
+# текст справки молча выпал бы из проверки покрытия переводом, и тест остался
+# бы зелёным, ничего не проверяя.
+TR_NAMES = ("_tr", "tr", "_trh", "tr_help")
+TR_ATTRS = ("tr", "tr_help")
+
 
 def _translated_names(tree):
     """Имена, которые куда-то передают в перевод: _tr(SEED_HELP), _tr(GROUP)."""
@@ -47,8 +54,8 @@ def _translated_names(tree):
         if not isinstance(node, ast.Call):
             continue
         f = node.func
-        is_tr = (isinstance(f, ast.Name) and f.id in ("_tr", "tr")) \
-            or (isinstance(f, ast.Attribute) and f.attr == "tr")
+        is_tr = (isinstance(f, ast.Name) and f.id in TR_NAMES) \
+            or (isinstance(f, ast.Attribute) and f.attr in TR_ATTRS)
         if is_tr and node.args and isinstance(node.args[0], ast.Name):
             names.add(node.args[0].id)
     return names
@@ -104,8 +111,8 @@ def collect_keys():
                 f = node.func
                 # в окнах перевод зовут просто tr(...), а не _tr(...):
                 # без этого имени строки окон в проверку не попадали
-                is_tr = (isinstance(f, ast.Name) and f.id in ("_tr", "tr")) \
-                    or (isinstance(f, ast.Attribute) and f.attr == "tr")
+                is_tr = (isinstance(f, ast.Name) and f.id in TR_NAMES) \
+                    or (isinstance(f, ast.Attribute) and f.attr in TR_ATTRS)
                 if is_tr and node.args:
                     a0 = node.args[0]
                     if isinstance(a0, ast.Constant) and isinstance(a0.value, str):

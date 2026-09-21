@@ -112,7 +112,10 @@ def _shared_blocks(tree):
                 continue
             call = st.value
             if (isinstance(call, ast.Call)
-                    and getattr(call.func, "id", None) == "_tr"
+                    # справка переводится своей функцией _trh, общие блоки
+                    # идут через неё же. Со старым именем _tr сторож перестал
+                    # видеть блоки и счёл немыми зерно, epsilon и сетку демо
+                    and getattr(call.func, "id", None) in ("_tr", "_trh")
                     and call.args
                     and isinstance(call.args[0], ast.Name)
                     and call.args[0].id in consts):

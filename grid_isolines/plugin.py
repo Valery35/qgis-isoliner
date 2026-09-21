@@ -116,6 +116,14 @@ class GridIsolinesPlugin:
     def initGui(self):
         self.initProcessing()
         self._start_log()
+        self._build_gui()
+
+    def _build_gui(self):
+        """Меню и панель инструментов на текущем языке интерфейса.
+
+        Вынесено из initGui, потому что при смене языка их пересобирают на
+        ходу, без перезапуска QGIS.
+        """
         try:
             from qgis.PyQt.QtGui import QIcon
             try:
@@ -130,6 +138,7 @@ class GridIsolinesPlugin:
             icon_log = QIcon(os.path.join(here, "icon_log.svg"))
             icon_den = QIcon(os.path.join(here, "icon_density.svg"))
             icon_map = QIcon(os.path.join(here, "icon_basemap.svg"))
+            icon_lang = QIcon(os.path.join(here, "icon_language.svg"))
 
             win = self.iface.mainWindow()
             self.toolbar = self.iface.addToolBar(tr("Isoliner"))
@@ -158,6 +167,12 @@ class GridIsolinesPlugin:
             a_about.triggered.connect(lambda: about.show_about(win))
             self._add(a_about, toolbar=True)
 
+            # Язык интерфейса и справки, общий для модулей Информ++
+            a_lang = QAction(icon_lang, tr("Язык…"), win)
+            a_lang.setToolTip(tr("Язык интерфейса и язык справки"))
+            a_lang.triggered.connect(self._choose_language)
+            self._add(a_lang, toolbar=True)
+
             # Журнал
             a_log = QAction(icon_log, tr("Журнал…"), win)
             a_log.setToolTip(tr("Открыть файл журнала Isoliner"))
@@ -166,13 +181,8 @@ class GridIsolinesPlugin:
         except Exception as e:
             _log("Интерфейс плагина не создан: %s" % e)
 
-    def _add(self, action, toolbar=False):
-        self.iface.addPluginToMenu("Isoliner", action)
-        if toolbar and self.toolbar is not None:
-            self.toolbar.addAction(action)
-        self.actions.append(action)
-
-    def unload(self):
+    def _teardown_gui(self):
+        """Снять меню и панель, провайдер не трогать."""
         for a in getattr(self, "actions", []):
             try:
                 self.iface.removePluginMenu("Isoliner", a)
@@ -185,6 +195,44 @@ class GridIsolinesPlugin:
             except Exception:  # nosec
                 pass
             self.toolbar = None
+
+    def _choose_language(self):
+        """Окно выбора языков. При смене интерфейса пересобрать его на ходу.
+
+        Справка перечитывается сама при каждом открытии инструмента. Меню,
+        панель и названия инструментов в панели Обработки собраны заранее,
+        поэтому их пересобирают: снимают меню и панель и ставят заново,
+        а провайдер пересоздаёт алгоритмы, и панель Обработки их перерисовывает.
+        """
+        from . import i18n, langdialog
+        got = langdialog.ask(self.iface.mainWindow())
+        if got is None:
+            return
+        before = i18n.language()
+        i18n.save_choices(*got)
+        after = i18n.language()
+        _log("Язык интерфейса %s, язык справки %s (выбор %s, %s)."
+             % (after, i18n.help_language(), got[0], got[1]))
+        if after == before:
+            return
+        self._teardown_gui()
+        self._build_gui()
+        prov = self.provider or QgsApplication.processingRegistry() \
+            .providerById(PROVIDER_ID)
+        if prov is not None:
+            try:
+                prov.refreshAlgorithms()
+            except Exception as e:
+                _log("Названия инструментов не пересобраны: %s" % e)
+
+    def _add(self, action, toolbar=False):
+        self.iface.addPluginToMenu("Isoliner", action)
+        if toolbar and self.toolbar is not None:
+            self.toolbar.addAction(action)
+        self.actions.append(action)
+
+    def unload(self):
+        self._teardown_gui()
         reg = QgsApplication.processingRegistry()
         prov = self.provider or reg.providerById(PROVIDER_ID)
         if prov is not None:
