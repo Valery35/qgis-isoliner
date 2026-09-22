@@ -3466,4 +3466,167 @@ TRANSLATIONS = {
     'Язык справки': 'Help language',
     "Интерфейс - это меню, названия инструментов и подписи полей. Справка - это боковая справка инструмента, подсказки полей и руководство PDF. Выбор хранится в общих настройках модулей Информ++.":
         'The interface is the menus, the tool names and the field labels. The help is the side help of a tool, the field hints and the PDF manual. The choice is kept in the shared settings of the Inform++ plugins.',
+    # 9. Сдвижение (5.13.28)
+    "Задайте растр кривизны, измеренные интервалы или то и другое.":
+        "Set a curvature raster, measured intervals, or both.",
+    "ε = mₑ·K·L (действующие Указания)":
+        "ε = mₑ·K·L (current Instructions)",
+    "Сверка по %d профилям. Расхождение грида с реперами по наклону %.4g мм/м (СКО), по кривизне %.4g 10⁻⁶ 1/м (СКО).":
+        "Check over %d profiles. Grid against benchmarks, tilt %.4g mm/m (RMS), curvature %.4g 10⁻⁶ 1/m (RMS).",
+    "Формула оценки":
+        "Estimation formula",
+    "Поле оседания реперов":
+        "Benchmark subsidence field",
+    "Длина полумульды задана: L = %.1f м.":
+        "Half-trough length given: L = %.1f m.",
+    "Демо-мульда: оседание, мм":
+        "Demo trough: subsidence, mm",
+    "Грид оседаний":
+        "Subsidence grid",
+    "9.03 Пример мульды (демо)":
+        "9.03 Example subsidence trough (demo)",
+    "Сдвижение":
+        "Subsidence",
+    "Измеренные интервалы (линии)":
+        "Measured intervals (lines)",
+    "База разностей %.4g м, ячейка %.4g м, qᵢ = %.4f, qₖ = %.4f.":
+        "Difference base %.4g m, cell %.4g m, qᵢ = %.4f, qₖ = %.4f.",
+    "В гриде оседаний нет ни одного значения.":
+        "The subsidence grid holds no value at all.",
+    "В растре кривизны нет значений, оценка пустая.":
+        "The curvature raster holds no values, the estimate is empty.",
+    "миллиметры":
+        "millimetres",
+    "Грид в градусах. Наклон и кривизна считаются в метрах, перепроецируйте грид в метрическую СК.":
+        "The grid is in degrees. Tilt and curvature are computed in metres, reproject the grid into a metric CRS.",
+    "постоянная (δ₀ = 55°)":
+        "permanent (δ₀ = 55°)",
+    "Реперов без значения или без геометрии: %d, они пропущены.":
+        "Benchmarks without a value or a geometry: %d, skipped.",
+    "оседание со знаком минус (разность отметок)":
+        "subsidence with a minus sign (elevation difference)",
+    "Кривизна вдоль наклона, 10⁻⁶ 1/м":
+        "Curvature along the tilt, 10⁻⁶ 1/m",
+    "Поле имени репера":
+        "Benchmark name field",
+    "Реперов на двух профилях: %d, шаг %.2f м.":
+        "Benchmarks on two profiles: %d, spacing %.2f m.",
+    "Поле начальной длины (пусто = длина линии)":
+        "Initial length field (empty = line length)",
+    "Профиль I-I по формулам Указаний: наибольший наклон %.4g мм/м, кривизна от %.4g до %.4g 10⁻⁶ 1/м.":
+        "Profile I-I by the formulas of the Instructions: largest tilt %.4g mm/m, curvature from %.4g to %.4g 10⁻⁶ 1/m.",
+    "Горизонтальные деформации земной поверхности, растяжение и сжатие, двумя путями. Растяжение идёт со знаком плюс, сжатие со знаком минус.\n\n**Оценка по кривизне.** Там, где интервалы между реперами не измеряются, деформация оценивается по формуле 4.34 Указаний, ε = mₑ·K·L. Кривизна K берётся из выхода 9.01 (**Кривизна**, 10⁻⁶ 1/м). Коэффициент mₑ зависит от величины кривизны и считается по п. 4.27. Знак деформации идёт от кривизны.\n\n**Длина полумульды** L задаётся числом или вычисляется по глубине, которую задаёт **Глубина разработки** H, L = (ctg δ₀ + ctg ψ)·H. Угол полных сдвижений ψ = 55°. Граничный угол δ₀ выбирается параметром **Граница выработанного пространства**, 55° у постоянных границ и 65° у временных и длительно остановленных.\n\n**Формула оценки** по умолчанию та, что в действующих Указаниях, с длиной полумульды L. В редакции 2014 года вместо L стоял **Интервал l₀** между точками, и та же кривизна давала деформацию примерно на порядок меньше. Вариант оставлен для пересчёта старых отчётов.\n\n**Измеренные интервалы** это линии между соседними реперами. Длины берутся из полей, которые задают **Поле начальной длины** и **Поле текущей длины**. Деформация интервала считается по формуле 4.27 как относительное изменение длины. Флажок **Приводить к 15-метровому интервалу** умножает её на q_ε. Если растр кривизны тоже задан, в каждый интервал пишется и оценка в его середине, а расхождение печатается в журнал. Так проверяется, насколько оценка по кривизне годится на этом участке.\n\nВыходы: растр оценки в мм/м и линейный слой деформаций по интервалам с полями l0_m, l1_m, eps (мм/м), eps_est (оценка) и d_eps (разность).":
+        "Horizontal strain of the ground surface, extension and compression, in two ways. Extension goes with a plus sign, compression with a minus sign.\n\n**Estimate from curvature.** Where the intervals between benchmarks are not measured, the strain is estimated by formula 4.34 of the Instructions, ε = mₑ·K·L. The curvature K is taken from the output of 9.01 (**Curvature**, 10⁻⁶ 1/m). The coefficient mₑ depends on the magnitude of the curvature and is computed by clause 4.27. The sign of the strain follows the curvature.\n\n**The half-trough length** L is given as a number or computed from the **Mining depth** H, L = (ctg δ₀ + ctg ψ)·H. The angle of full subsidence ψ = 55°. The limit angle δ₀ is chosen by the **Boundary of the mined-out space** parameter, 55° at permanent boundaries and 65° at temporary and long stopped ones.\n\n**The estimation formula** by default is the one of the current Instructions, with the half-trough length L. In the 2014 edition the **Interval l₀** between points stood in place of L, and the same curvature gave a strain about an order of magnitude smaller. The option is kept for recomputing old reports.\n\n**Measured intervals** are lines between neighbouring benchmarks with an **Initial length field** and a **Current length field**. The strain of an interval is computed by formula 4.27 as the relative change of length. The **Reduce to a 15-metre interval** box multiplies it by q_ε. If the curvature raster is set as well, the estimate at the middle of each interval is written too, and the difference is printed to the log. This shows how well the curvature estimate works on this site.\n\nOutputs: a raster of the estimate in mm/m and a line layer of strain by interval with the fields l0_m, l1_m, eps (mm/m), eps_est (estimate) and d_eps (difference).",
+    "Поле профиля (пусто = один профиль)":
+        "Profile field (empty = one profile)",
+    "Оценка по кривизне против замеров: среднее расхождение %.4g мм/м, СКО %.4g мм/м по %d интервалам.":
+        "Curvature estimate against measurements: mean difference %.4g mm/m, RMS %.4g mm/m over %d intervals.",
+    "плюс":
+        "plus",
+    "Максимальное оседание, м":
+        "Maximum subsidence, m",
+    "определить по данным":
+        "detect from the data",
+    "Длина полумульды по глубине: H = %.1f м, δ₀ = %.0f°, ψ = %.0f°, L = %.1f м.":
+        "Half-trough length from the depth: H = %.1f m, δ₀ = %.0f°, ψ = %.0f°, L = %.1f m.",
+    "Реперы профильных линий (демо)":
+        "Profile line benchmarks (demo)",
+    "Знак оседания определён по данным: %s. Размах от %.4g до %.4g м.":
+        "Subsidence sign detected from the data: %s. Range from %.4g to %.4g m.",
+    "Мульда оседания над прямоугольной выработкой, построенная по типовой функции S(z) из таблицы Указаний. Наклон и кривизна такой мульды известны заранее, поэтому на ней проверяются 9.01 и 9.02.\n\n**Глубина разработки** H, **Длина выработки** D11 и **Ширина выработки** D12 задают мульду. Выработка стоит в центре, длинной стороной с запада на восток. Длина полумульды L = (ctg δ₀ + ctg ψ)·H, граничный угол δ₀ выбирается параметром **Граница выработанного пространства**, угол полных сдвижений ψ = 55°. Пример рассчитан на полную подработку, D ≥ 1.4H. Тогда у мульды есть плоское дно, а от его края идёт полумульда длиной L. Неполную подработку Указания считают иначе, и демо её не моделирует, а только предупреждает.\n\n**Максимальное оседание** задаётся в метрах. Оседание в растре пишется в миллиметрах со знаком минус, как разность отметок в журнале нивелирования, чтобы 9.01 проверялся и на знаке.\n\nВторой выход это реперы двух профильных линий по главным сечениям I-I и II-II через центр мульды, с полями profile, order, reper, eta_mm и z (относительная координата в полумульде). **Шаг реперов** по умолчанию L/10, как в п. 4.26.2 Указаний. При таком шаге наклоны и кривизна по реперам совпадают с формулами Указаний точно, а при H около 357 м (L = 500 м) и оседании 1 м повторяют таблицу 2 редакции 2014 года. В её строке z = 0.20 кривизна напечатана с ошибкой, по формуле выходит -0.450·10⁻⁴ 1/м.\n\n**Размер ячейки** растра выбирается мельче шага реперов. **Куда положить** только сдвигает пример, размер он не меняет. **СК выхода** должна быть метрической.":
+        "A subsidence trough over a rectangular working, built from the typical function S(z) of the table of the Instructions. The tilt and curvature of such a trough are known in advance, so 9.01 and 9.02 are checked on it.\n\nThe **Mining depth** H, the **Working length** D11 and the **Working width** D12 set the trough. The working stands in the centre, its long side running west to east. The half-trough length L = (ctg δ₀ + ctg ψ)·H, the limit angle δ₀ is chosen by the **Boundary of the mined-out space** parameter, the angle of full subsidence ψ = 55°. The example assumes full undermining, D ≥ 1.4H. Then the trough has a flat bottom, and a half-trough of length L runs from its edge. The Instructions treat incomplete undermining differently, and the demo does not model it, it only warns.\n\n**The maximum subsidence** is given in metres. Subsidence in the raster is written in millimetres with a minus sign, as the elevation difference in a levelling log, so that 9.01 is checked on the sign as well.\n\nThe second output is the benchmarks of two profile lines along the main sections I-I and II-II through the trough centre, with the fields profile, order, reper, eta_mm and z (relative coordinate in the half-trough). **Benchmark spacing** is L/10 by default, as in clause 4.26.2 of the Instructions. With this spacing the tilt and curvature by benchmarks match the formulas of the Instructions exactly, and with H about 357 m (L = 500 m) and a subsidence of 1 m they repeat table 2 of the 2014 edition. In its row z = 0.20 the curvature is misprinted, the formula gives -0.450·10⁻⁴ 1/m.\n\n**The cell size** of the raster is chosen smaller than the benchmark spacing. **Where to place it** only shifts the example and does not change its size. **The output CRS** must be metric.",
+    "Наибольший наклон %.4g мм/м в точке %.1f %.1f, медиана %.4g мм/м.":
+        "Largest tilt %.4g mm/m at %.1f %.1f, median %.4g mm/m.",
+    "Кривизна в реперах":
+        "Curvature at benchmarks",
+    "Горизонтальные деформации по интервалам":
+        "Horizontal strain by interval",
+    "Азимут наклона, градусы":
+        "Tilt azimuth, degrees",
+    "Главная кривизна наибольшая, 10⁻⁶ 1/м":
+        "Principal curvature, largest, 10⁻⁶ 1/m",
+    "Длина выработки D11, м":
+        "Working length D11, m",
+    "Длина полумульды L, м (0 = по глубине)":
+        "Half-trough length L, m (0 = from the depth)",
+    "Горизонтальная деформация (оценка), мм/м":
+        "Horizontal strain (estimate), mm/m",
+    "Главная кривизна наименьшая, 10⁻⁶ 1/м":
+        "Principal curvature, smallest, 10⁻⁶ 1/m",
+    "Кривизна вдоль наклона от %.4g до %.4g 10⁻⁶ 1/м. Наименьший радиус %.3g км.":
+        "Curvature along the tilt from %.4g to %.4g 10⁻⁶ 1/m. Smallest radius %.3g km.",
+    "Формула редакции 2014 года, ε = mₑ·K·l₀ при l₀ = %.1f м. Действующие Указания дают по той же кривизне деформацию в L/l₀ раз больше.":
+        "Formula of the 2014 edition, ε = mₑ·K·l₀ with l₀ = %.1f m. The current Instructions give L/l₀ times larger strain for the same curvature.",
+    "Интервалы заданы, а поле текущей длины нет.":
+        "Intervals are given, but the current length field is not.",
+    "оседание со знаком плюс":
+        "subsidence with a plus sign",
+    "Подработка неполная (D/H = %.2f и %.2f, нужно не меньше 1.4). Указания уменьшают для неё максимальное оседание и меняют угол полных сдвижений, демо этого не делает.":
+        "Undermining is incomplete (D/H = %.2f and %.2f, at least 1.4 is needed). The Instructions reduce the maximum subsidence and change the angle of full subsidence for it, the demo does not.",
+    "Кривизна (выход 9.01), 10⁻⁶ 1/м":
+        "Curvature (output of 9.01), 10⁻⁶ 1/m",
+    "Растр вышел бы %d x %d ячеек. Увеличьте размер ячейки.":
+        "The raster would be %d x %d cells. Increase the cell size.",
+    "Реперы для сверки (точки)":
+        "Benchmarks for the check (points)",
+    "Приводить к 15-метровому интервалу (qᵢ, qₖ)":
+        "Reduce to a 15-metre interval (qᵢ, qₖ)",
+    "База %.4g м меньше ячейки %.4g м. Разности берутся внутри одной ячейки, и кривизна покажет ступени интерполяции.":
+        "The base %.4g m is smaller than the cell %.4g m. Differences are taken inside one cell, and the curvature will show interpolation steps.",
+    "Мульда: H = %.1f м, L = %.1f м, дно %.1f x %.1f м, растр %d x %d ячеек по %.2f м.":
+        "Trough: H = %.1f m, L = %.1f m, flat bottom %.1f x %.1f m, raster %d x %d cells of %.2f m.",
+    "Поле порядка реперов (пусто = по положению)":
+        "Benchmark order field (empty = by position)",
+    "9.01 Наклоны и кривизна по оседаниям":
+        "9.01 Tilt and curvature from subsidence",
+    "Приводить к 15-метровому интервалу (q_ε)":
+        "Reduce to a 15-metre interval (q_ε)",
+    "временная или длительно остановленная (δ₀ = 65°)":
+        "temporary or long stopped (δ₀ = 65°)",
+    "Наклоны по интервалам реперов":
+        "Tilt by benchmark interval",
+    "9. Сдвижение":
+        "9. Subsidence",
+    "Единицы оседаний":
+        "Subsidence units",
+    "Поле текущей длины":
+        "Current length field",
+    "Оценка деформации: сжатие до %.4g мм/м, растяжение до %.4g мм/м.":
+        "Strain estimate: compression down to %.4g mm/m, extension up to %.4g mm/m.",
+    "Глубина разработки H, м":
+        "Mining depth H, m",
+    "Не задан грид оседаний.":
+        "The subsidence grid is not set.",
+    "Наклон, мм/м":
+        "Tilt, mm/m",
+    "Ширина выработки D12, м":
+        "Working width D12, m",
+    "ε = mₑ·K·l₀ (редакция 2014 года)":
+        "ε = mₑ·K·l₀ (2014 edition)",
+    "минус, разность отметок":
+        "minus, elevation difference",
+    "метры":
+        "metres",
+    "Деформации посчитаны по %d интервалам.":
+        "Strain computed over %d intervals.",
+    "9.02 Горизонтальные деформации":
+        "9.02 Horizontal strain",
+    "База разностей, м":
+        "Difference base, m",
+    "Интервал l₀, м (для редакции 2014 года)":
+        "Interval l₀, m (for the 2014 edition)",
+    "Кривизна не посчитана ни в одной ячейке. Грид меньше двух баз или весь в пропусках.":
+        "Curvature was not computed in any cell. The grid is smaller than two bases or entirely in gaps.",
+    "Интервалов без длины или с нулевой начальной длиной: %d, они пропущены.":
+        "Intervals without a length or with a zero initial length: %d, skipped.",
+    "Шаг реперов, м (0 = L/10)":
+        "Benchmark spacing, m (0 = L/10)",
+    "Ни в одном профиле нет двух реперов, сверять нечего.":
+        "No profile has two benchmarks, there is nothing to check.",
+    "Реперы заданы, а поле оседания реперов нет.":
+        "Benchmarks are given, but the benchmark subsidence field is not.",
+    "Наклон и кривизна земной поверхности по гриду оседаний. Грид строится заранее по оседаниям в реперах, например кригингом 1.02 или сплайнами 1.12. Оседание берётся разностью отметок в репере, а не вычитанием двух гридов.\n\nРасчёт идёт по формулам раздела 4 Указаний по охране подрабатываемых объектов на Верхнекамском месторождении. Наклон это разность оседаний, отнесённая к расстоянию. Кривизна это разность наклонов соседних интервалов, отнесённая к средней длине интервала. Разности берутся не по соседним ячейкам, а на расстоянии, которое задаёт **База разностей**, как между реперами. Ячейка грида мельче базы только уточняет положение и на величину не влияет. Без базы кривизна по ячейке 5 м и по интервалу 15 м отличалась бы в разы, и сравнивать её с допусками было бы нельзя.\n\nФлажок **Приводить к 15-метровому интервалу** умножает наклон на qᵢ, а кривизну на qᵢ·qₖ, как требуют Указания. При базе 15 м и меньше оба коэффициента равны единице. База наблюдений, у которой приведения нет, сверяется со снятым флажком. Коэффициенты перегрузки инструмент не применяет. Для существующих объектов фактические деформации сравниваются с допусками без них.\n\n**Единицы оседаний** в растре бывают миллиметрами или метрами. **Знак оседания** определяется по данным или задаётся явно. В журналах нивелирования оседание идёт разностью отметок со знаком минус, в таблицах деформаций со знаком плюс. Принятое решение печатается в журнал.\n\nВыходы: наибольший наклон в мм/м и его азимут, кривизна вдоль направления наибольшего наклона и главные кривизны в 10⁻⁶ 1/м, как в базе наблюдений. Азимут смотрит в сторону роста оседания, к центру мульды. Кривизна отрицательна в центральной части мульды, где поверхность сжата, и положительна у края, где растянута. Радиус кривизны в километрах равен 1000, делённой на кривизну в 10⁻⁶ 1/м.\n\n**Реперы для сверки** проверяют грид по профильным линиям. **Поле профиля** делит реперы на профили, **Поле порядка реперов** выстраивает их вдоль линии, а без него реперы идут по положению. **Поле оседания реперов** задаётся в тех же единицах и с тем же знаком, что и растр. **Поле имени репера** переносится в выход. Наклон интервала идёт со знаком по ходу профиля, как в ведомости базы наблюдений. По каждому профилю наклоны и кривизна считаются дважды, по замерам в реперах и по гриду в тех же точках, и расхождение идёт в атрибуты и в журнал. Большое расхождение значит, что грид срезает мульду между профилями или ячейка слишком крупная.":
+        "Tilt and curvature of the ground surface from a subsidence grid. The grid is built beforehand from subsidence at benchmarks, for example by kriging 1.02 or by splines 1.12. Subsidence is taken as the elevation difference at a benchmark, not by subtracting two grids.\n\nThe computation follows the formulas of section 4 of the Instructions on the protection of undermined objects at the Verkhnekamskoye deposit. Tilt is the subsidence difference divided by the distance. Curvature is the difference of the tilts of neighbouring intervals divided by the mean interval length. Differences are taken not between neighbouring cells but over the **Difference base**, as between benchmarks. A grid cell smaller than the base only refines the position and does not affect the value. Without the base the curvature over a 5 m cell and over a 15 m interval would differ several times, and comparing it with tolerances would be impossible.\n\nThe **Reduce to a 15-metre interval** box multiplies the tilt by qᵢ and the curvature by qᵢ·qₖ, as the Instructions require. With a base of 15 m or less both coefficients equal one. An observation database that does not apply the reduction is checked with the box cleared. The tool does not apply overload factors. For existing objects the actual deformations are compared with the tolerances without them.\n\n**Subsidence units** in the raster are millimetres or metres. **The subsidence sign** is detected from the data or given explicitly. In levelling logs subsidence goes as an elevation difference with a minus sign, in deformation tables with a plus sign. The accepted choice is printed to the log.\n\nOutputs: the largest tilt in mm/m and its azimuth, the curvature along the direction of the largest tilt and the principal curvatures in 10⁻⁶ 1/m, as in the observation database. The azimuth points to where subsidence grows, towards the trough centre. Curvature is negative in the central part of the trough, where the surface is compressed, and positive at the edge, where it is stretched. The radius of curvature in kilometres equals 1000 divided by the curvature in 10⁻⁶ 1/m.\n\n**Benchmarks for the check** test the grid along the profile lines. **The profile field** splits the benchmarks into profiles, **the benchmark order field** orders them along the line, and without it the benchmarks go by position. **The benchmark subsidence field** is given in the same units and with the same sign as the raster. **The benchmark name field** is carried into the output. The tilt of an interval goes with a sign along the profile, as in the statement of the observation database. For every profile the tilt and curvature are computed twice, from the measurements at the benchmarks and from the grid at the same points, and the difference goes into the attributes and the log. A large difference means that the grid cuts the trough between profiles or that the cell is too coarse.",
+    "Граница выработанного пространства":
+        "Boundary of the mined-out space",
 }

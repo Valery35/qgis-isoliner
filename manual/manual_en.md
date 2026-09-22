@@ -153,7 +153,13 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `8.02` Write LandXML
 - `8.03` Example LandXML (demo)
 
-_Tools in total: 74_
+**9. Subsidence**
+
+- `9.01` Tilt and curvature from subsidence
+- `9.02` Horizontal strain
+- `9.03` Example subsidence trough (demo)
+
+_Tools in total: 77_
 <!-- /TREE -->
 
 # Quick start
@@ -3980,6 +3986,110 @@ What the set does not hold is an exact reproduction of any one program's export.
 ### How to work with it
 
 Write the files into a folder, feed them one by one into **8.01 Read LandXML** and check the log against the table above. For the file with the reverse coordinate order clear the order checkbox, otherwise the points land beyond the equator.
+
+# 9. Subsidence
+
+The group computes deformations of the ground surface from the subsidence of benchmarks. The formulas are taken from the "Instructions on protecting mines from flooding and protecting undermined objects at the Verkhnekamskoye deposit" (Mining Institute, Ural Branch of the Russian Academy of Sciences), section 4. The sixth edition for Uralkali and the 2024 Instructions of the Talitsky mining complex agree in this part.
+
+Subsidence is taken as the elevation difference at a benchmark over the chosen period, not by subtracting two grids. The difference at a benchmark is exact, while each grid carries its own interpolation error, and subtraction adds them up. Besides, the set of benchmarks changes from cycle to cycle. So the subsidence at the benchmarks comes first, a grid is built from it (**1.02**, **1.03** or **1.12**), and the group works on that grid.
+
+The units are those of the observation database. Tilt and horizontal strain go in mm/m, curvature in 10⁻⁶ 1/m. The radius of curvature in kilometres equals 1000 divided by the curvature in 10⁻⁶ 1/m.
+
+## 9.01 Tilt and curvature from subsidence
+
+The tool builds, from a subsidence grid, rasters of the largest tilt, its azimuth, the curvature along the tilt and the principal curvatures.
+
+### How it is computed
+
+Tilt by formula 4.22 of the Instructions is the subsidence difference divided by the distance. Curvature by formula 4.24 is the difference of the tilts of neighbouring intervals divided by the mean interval length.
+
+On a grid the differences are taken not between neighbouring cells but over the **Difference base**, as between benchmarks. Tilt uses two points half a base to either side, curvature three points a base apart. A cell smaller than the base only refines the position and does not affect the value. This matters. Curvature over a 5 m cell and over a 15 m interval differs several times, and the tolerances are set for a 15-metre interval.
+
+The **Reduce to a 15-metre interval** box multiplies the tilt by qᵢ and the curvature by qᵢ·qₖ. By clause 4.24 curvature is taken from tilts already reduced to 15 m and is reduced once more itself. With a base of 15 m or less both coefficients equal one.
+
+The tool does not apply overload factors. For existing objects the actual deformations along profile lines are compared with the tolerances without them (clause 5.4).
+
+### Sign
+
+In a levelling log subsidence goes as an elevation difference with a minus sign, in deformation statements with a plus sign. **The subsidence sign** is detected from the data or given explicitly, and the accepted choice is printed to the log.
+
+Curvature is computed as the second difference of subsidence taken positive downwards. In the central part of the trough it is negative, and the surface is compressed there. At the edge of the trough curvature is positive and the surface is stretched. The tilt azimuth points to where subsidence grows, towards the trough centre.
+
+### Check against profile lines
+
+When **Benchmarks for the check** are given, the tool tests the grid along the profile lines. **The profile field** splits the benchmarks into profiles, **the benchmark order field** orders them along the line, and without it the benchmarks go by position.
+
+For every profile the tilt and curvature are computed twice, from the measurements at the benchmarks and from the grid at the same points. Two layers come out. The interval lines carry the tilt with a sign along the profile, as in the statement of the observation database. The benchmark points carry the curvature and the radius. Both layers hold the grid value and the difference next to it, and the overall difference is printed to the log.
+
+A large difference means that the grid cuts the trough between profiles or that the cell is too coarse. Then take another interpolation model or a smaller cell.
+
+The UKK observation database computes tilt and curvature without the reduction to 15 m. To match its numbers, clear the reduction box.
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Subsidence grid | A raster of subsidence over the period, built from benchmarks. | - |
+| Subsidence units | Millimetres or metres. | millimetres |
+| Subsidence sign | Detect from the data, plus or minus. | from the data |
+| Difference base, m | The distance over which differences are taken. | 15 |
+| Reduce to a 15-metre interval (qᵢ, qₖ) | Reduction coefficients of the Instructions. | yes |
+| Benchmarks for the check (points) | Benchmarks of profile lines. | - |
+| Benchmark subsidence field | Subsidence in the same units and with the same sign as the grid. | - |
+| Profile field | Splitting benchmarks into profiles. | one profile |
+| Benchmark order field | Order along the profile. | by position |
+| Benchmark name field | Benchmark name for the output. | - |
+
+## 9.02 Horizontal strain
+
+The tool computes horizontal strain, extension and compression, in two ways. Extension goes with a plus sign, compression with a minus sign, as in the observation database.
+
+### Estimate from curvature
+
+Where intervals are not measured, the strain is estimated by formula 4.34 of the Instructions, ε = mₑ·K·L. The curvature K is taken from the output of **9.01**. The coefficient mₑ depends on the magnitude of the curvature and is computed by clause 4.27.
+
+The half-trough length L is given as a number or computed from the **Mining depth** H, L = (ctg δ₀ + ctg ψ)·H. The angle of full subsidence ψ is 55°. The limit angle δ₀ is 55° at permanent boundaries of the mined-out space and 65° at temporary and long stopped ones.
+
+In the 2014 edition of the Instructions the interval l₀ between the points of the half-trough stood in place of L, and the same curvature gave a strain about an order of magnitude smaller. The current editions write L. The l₀ option is kept in the **Estimation formula** parameter for recomputing old reports.
+
+### From measured intervals
+
+When **Measured intervals** are given, the strain of each is computed by formula 4.27 as the relative change of length. The reduction box multiplies it by q_ε. When the curvature raster is given too, the estimate at the middle of each interval is written as well, and the mean difference and RMS are printed to the log. This shows how well the curvature estimate works on this site.
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Curvature (output of 9.01) | A curvature raster in 10⁻⁶ 1/m. | - |
+| Estimation formula | Current Instructions (L) or the 2014 edition (l₀). | L |
+| Half-trough length L, m | Half-trough length, 0 - from the depth. | 0 |
+| Mining depth H, m | Depth for computing L. | 300 |
+| Boundary of the mined-out space | Permanent (55°) or temporary (65°). | permanent |
+| Interval l₀, m (Adv.) | The interval for the 2014 formula. | 15 |
+| Measured intervals (lines) | Lines between neighbouring benchmarks. | - |
+| Initial length field | Initial length, empty - line length. | - |
+| Current length field | Length in the current cycle. | - |
+| Reduce to a 15-metre interval (q_ε) | Reduction coefficient. | yes |
+
+## 9.03 Example subsidence trough (demo)
+
+The tool builds a subsidence trough over a rectangular working from the typical function S(z) of table 1 of the Instructions. The tilt and curvature of such a trough are known in advance, and **9.01** and **9.02** are checked on it.
+
+The working stands in the centre, its long side running west to east. The example assumes full undermining, when the working is at least 1.4H in size. Then the trough has a flat bottom, and a half-trough of length L runs from its edge. The Instructions treat incomplete undermining differently, and the demo does not model it, it only warns. Subsidence in the raster is written in millimetres with a minus sign, as an elevation difference, so that the sign choice in **9.01** is checked too.
+
+The second output is the benchmarks of two profile lines along the main sections I-I and II-II through the trough centre. The benchmark spacing is L/10 by default, as in clause 4.26.2 of the Instructions. With this spacing the tilt and curvature by benchmarks match the formulas of the Instructions exactly. With a depth of about 357 m (L = 500 m) and a subsidence of 1 m they repeat table 2 of the 2014 edition, except the row z = 0.20. There the curvature is misprinted, the formula gives -0.450·10⁻⁴ 1/m instead of -0.630.
+
+### How to check
+
+Build the example and feed the raster into **9.01**, and the demo benchmarks into the check with the eta_mm field. The difference of tilt and curvature between the grid and the benchmarks must be small. Then feed the curvature into **9.02** and compare the estimate with the numbers in the log.
+
+| Parameter | What it sets | Default |
+|---|---|---|
+| Mining depth H, m | The depth, L depends on it. | 350 |
+| Working length D11, m | Size from west to east. | 1200 |
+| Working width D12, m | Size from south to north. | 900 |
+| Maximum subsidence, m | Subsidence at the trough bottom. | 1.0 |
+| Boundary of the mined-out space | Limit angle 55° or 65°. | permanent |
+| Benchmark spacing, m | Spacing of benchmarks on the profiles, 0 - L/10. | 0 |
+| Cell size, m (Adv.) | Raster cell, smaller than the benchmark spacing. | 5 |
+| Output CRS (metric) | Coordinate system of the example. | EPSG:32640 |
+| Where to place it (extent, optional) | Shifts the example without changing its size. | - |
 
 # Typical situations and solutions
 

@@ -119,6 +119,7 @@ from . import volumes as _vol
 from . import topo_flow, topo_gauge, topo_surface, topo_t2r, topo_smooth
 from . import topo_break, demo_pit, topo_form, topo_snapz, attitude, stack_check, demo_stack
 from . import variogram_table
+from . import subsidence  # деформации по оседаниям, без QGIS
 from . import palette_lfc  # чтение палитры Leapfrog, без QGIS
 from . import plast_reference  # справочник пластов, без QGIS
 
@@ -147,6 +148,8 @@ GROUP5 = _tr("7. Фрактальный анализ")
 GROUP5_ID = "fractal_analysis"
 GROUP_EXCHANGE = _tr("8. Обмен данными")
 GROUP_EXCHANGE_ID = "exchange"
+GROUP_SUBS = _tr("9. Сдвижение")
+GROUP_SUBS_ID = "subsidence"
 
 MODEL_LABELS = [_tr("Сферическая"), _tr("Экспоненциальная"), _tr("Гауссова"), _tr("Степенная")]
 KTYPE_LABELS = [_tr("Ординарный (OK)"), _tr("Простой (SK)")]
@@ -25733,6 +25736,810 @@ class BedGradesAtCollarsAlgorithm(IsolinerAlgorithm):
         _save_values(self, _saved)
         return {self.OUTPUT: dest}
 
+
+# --- 9. Сдвижение ------------------------------------------------------------
+
+def _subs_sign_and_scale(z, units, sign, tr, feedback):
+    """Привести растр оседаний к метрам со знаком «плюс вниз».
+
+    Журналы нивелирования дают оседание разностью отметок, то есть со
+    знаком минус, а в таблицах деформаций его пишут положительным. Ядро
+    работает с оседанием вниз как с плюсом, поэтому знак определяется по
+    данным или задаётся явно, и принятое решение печатается в журнал.
+    """
+    k = 0.001 if units == 0 else 1.0
+    z = z * k
+    good = z[np.isfinite(z)]
+    if sign == 0:
+        lo = float(np.min(good)) + 0.0 if good.size else 0.0
+        hi = float(np.max(good)) + 0.0 if good.size else 0.0
+        flip = abs(lo) > abs(hi)
+        feedback.pushInfo(tr(
+            "Знак оседания определён по данным: %s. Размах от %.4g до %.4g м.")
+            % (tr("минус, разность отметок") if flip else tr("плюс"), lo, hi))
+    else:
+        flip = sign == 2
+    return -z if flip else z, flip
+
+
+class SubsidenceTiltCurvatureAlgorithm(IsolinerAlgorithm):
+    """9.01 Наклоны и кривизна по оседаниям (п. 4.22-4.24 Указаний)."""
+
+    INPUT = "INPUT"
+    UNITS = "UNITS"
+    SIGN = "SIGN"
+    BASE = "BASE"
+    REDUCE = "REDUCE"
+    REPERS = "REPERS"
+    REP_FIELD = "REP_FIELD"
+    PROF_FIELD = "PROF_FIELD"
+    ORDER_FIELD = "ORDER_FIELD"
+    NAME_FIELD = "NAME_FIELD"
+    OUT_TILT = "OUT_TILT"
+    OUT_AZ = "OUT_AZ"
+    OUT_KDIR = "OUT_KDIR"
+    OUT_KMAX = "OUT_KMAX"
+    OUT_KMIN = "OUT_KMIN"
+    OUT_INT = "OUT_INT"
+    OUT_PTS = "OUT_PTS"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return SubsidenceTiltCurvatureAlgorithm()
+    def name(self): return "subsidence_tilt_curvature"
+    def displayName(self):
+        return self.tr("9.01 Наклоны и кривизна по оседаниям")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_SUBS)
+    def groupId(self): return GROUP_SUBS_ID
+
+    def shortHelpString(self):
+        return _help_version(_trh(
+            "Наклон и кривизна земной поверхности по гриду оседаний. Грид строится "
+            "заранее по оседаниям в реперах, например кригингом 1.02 или сплайнами "
+            "1.12. Оседание берётся разностью отметок в репере, а не вычитанием двух "
+            "гридов.\n\nРасчёт идёт по формулам раздела 4 Указаний по охране "
+            "подрабатываемых объектов на Верхнекамском месторождении. Наклон это "
+            "разность оседаний, отнесённая к расстоянию. Кривизна это разность "
+            "наклонов соседних интервалов, отнесённая к средней длине интервала. "
+            "Разности берутся не по соседним ячейкам, а на расстоянии, которое задаёт "
+            "**База разностей**, как между реперами. Ячейка грида мельче базы только "
+            "уточняет положение и на величину не влияет. Без базы кривизна по ячейке 5 "
+            "м и по интервалу 15 м отличалась бы в разы, и сравнивать её с допусками "
+            "было бы нельзя.\n\nФлажок **Приводить к 15-метровому интервалу** умножает "
+            "наклон на qᵢ, а кривизну на qᵢ·qₖ, как требуют Указания. При базе 15 м и "
+            "меньше оба коэффициента равны единице. База наблюдений, у которой "
+            "приведения нет, сверяется со снятым флажком. Коэффициенты перегрузки "
+            "инструмент не применяет. Для существующих объектов фактические деформации "
+            "сравниваются с допусками без них.\n\n**Единицы оседаний** в растре бывают "
+            "миллиметрами или метрами. **Знак оседания** определяется по данным или "
+            "задаётся явно. В журналах нивелирования оседание идёт разностью отметок "
+            "со знаком минус, в таблицах деформаций со знаком плюс. Принятое решение "
+            "печатается в журнал.\n\nВыходы: наибольший наклон в мм/м и его азимут, "
+            "кривизна вдоль направления наибольшего наклона и главные кривизны в 10⁻⁶ "
+            "1/м, как в базе наблюдений. Азимут смотрит в сторону роста оседания, к "
+            "центру мульды. Кривизна отрицательна в центральной части мульды, где "
+            "поверхность сжата, и положительна у края, где растянута. Радиус кривизны "
+            "в километрах равен 1000, делённой на кривизну в 10⁻⁶ 1/м.\n\n**Реперы для "
+            "сверки** проверяют грид по профильным линиям. **Поле профиля** делит "
+            "реперы на профили, **Поле порядка реперов** выстраивает их вдоль линии, а "
+            "без него реперы идут по положению. **Поле оседания реперов** задаётся в "
+            "тех же единицах и с тем же знаком, что и растр. **Поле имени репера** "
+            "переносится в выход. Наклон интервала идёт со знаком по ходу профиля, как "
+            "в ведомости базы наблюдений. По каждому профилю наклоны и кривизна "
+            "считаются дважды, по замерам в реперах и по гриду в тех же точках, и "
+            "расхождение идёт в атрибуты и в журнал. Большое расхождение значит, что "
+            "грид срезает мульду между профилями или ячейка слишком крупная.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.INPUT, self.tr("Грид оседаний")))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.UNITS, self.tr("Единицы оседаний"),
+            options=[self.tr("миллиметры"), self.tr("метры")],
+            defaultValue=_dv(self, self.UNITS, 0)))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.SIGN, self.tr("Знак оседания"),
+            options=[self.tr("определить по данным"),
+                     self.tr("оседание со знаком плюс"),
+                     self.tr("оседание со знаком минус (разность отметок)")],
+            defaultValue=_dv(self, self.SIGN, 0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.BASE, self.tr("База разностей, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.BASE, 15.0), minValue=0.1))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.REDUCE, self.tr("Приводить к 15-метровому интервалу (qᵢ, qₖ)"),
+            defaultValue=_dv(self, self.REDUCE, True)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.REPERS, self.tr("Реперы для сверки (точки)"),
+            [QgsProcessing.SourceType.TypeVectorPoint], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.REP_FIELD, self.tr("Поле оседания реперов"),
+            parentLayerParameterName=self.REPERS,
+            type=QgsProcessingParameterField.DataType.Numeric, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.PROF_FIELD, self.tr("Поле профиля (пусто = один профиль)"),
+            parentLayerParameterName=self.REPERS, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.ORDER_FIELD,
+            self.tr("Поле порядка реперов (пусто = по положению)"),
+            parentLayerParameterName=self.REPERS,
+            type=QgsProcessingParameterField.DataType.Numeric, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.NAME_FIELD, self.tr("Поле имени репера"),
+            parentLayerParameterName=self.REPERS, optional=True))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_TILT, self.tr("Наклон, мм/м")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_AZ, self.tr("Азимут наклона, градусы"),
+            optional=True, createByDefault=False))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_KDIR, self.tr("Кривизна вдоль наклона, 10⁻⁶ 1/м")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_KMAX, self.tr("Главная кривизна наибольшая, 10⁻⁶ 1/м"),
+            optional=True, createByDefault=False))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_KMIN, self.tr("Главная кривизна наименьшая, 10⁻⁶ 1/м"),
+            optional=True, createByDefault=False))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUT_INT, self.tr("Наклоны по интервалам реперов"),
+            QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUT_PTS, self.tr("Кривизна в реперах"),
+            QgsProcessing.SourceType.TypeVectorPoint, optional=True,
+            createByDefault=True))
+        # Реперы для сверки не подставляются из прошлого запуска: слой
+        # проверки, приехавший сам, молча меняет смысл прогона.
+        _restore_layer_defaults(self, (self.INPUT,))
+
+    def _process(self, parameters, context, feedback):
+        _mem = {}
+        _remember_layers(self, parameters, context, _mem,
+                         single=(self.INPUT,))
+        _save_values(self, _mem)
+        layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
+        units = self.parameterAsEnum(parameters, self.UNITS, context)
+        sign = self.parameterAsEnum(parameters, self.SIGN, context)
+        base = self.parameterAsDouble(parameters, self.BASE, context)
+        reduce = self.parameterAsBoolean(parameters, self.REDUCE, context)
+        feedback.pushInfo(_version_line())
+        if layer is None:
+            raise QgsProcessingException(self.tr("Не задан грид оседаний."))
+        z, mask, gt, proj, cell = _topo_read_dem(layer, self.tr)
+        z = np.where(mask, np.nan, z)
+        if not np.isfinite(z).any():
+            raise QgsProcessingException(self.tr(
+                "В гриде оседаний нет ни одного значения."))
+        if layer.crs().isGeographic():
+            raise QgsProcessingException(self.tr(
+                "Грид в градусах. Наклон и кривизна считаются в метрах, "
+                "перепроецируйте грид в метрическую СК."))
+        eta, flip = _subs_sign_and_scale(z, units, sign, self.tr, feedback)
+        if base < cell:
+            feedback.pushWarning(self.tr(
+                "База %.4g м меньше ячейки %.4g м. Разности берутся внутри одной "
+                "ячейки, и кривизна покажет ступени интерполяции.") % (base, cell))
+        qi = subsidence.q_tilt(base) if reduce else 1.0
+        qk = subsidence.q_curv(base) if reduce else 1.0
+        feedback.pushInfo(self.tr(
+            "База разностей %.4g м, ячейка %.4g м, qᵢ = %.4f, qₖ = %.4f.")
+            % (base, cell, qi, qk))
+        res = subsidence.grid_deformations(eta, cell, base, reduce=reduce)
+        nd = -9999.0
+
+        def out(key, arr, scale):
+            path = self.parameterAsOutputLayer(parameters, key, context)
+            if not path:
+                return None
+            a = np.where(np.isfinite(arr), arr * scale, nd).astype(np.float32)
+            _topo_write_raster(path, a, gt, proj, gdal.GDT_Float32, nodata=nd)
+            _topo_group_layer(context, path, self.tr("Сдвижение"))
+            return path
+
+        results = {}
+        for key, name, scale in ((self.OUT_TILT, "tilt", 1000.0),
+                                 (self.OUT_AZ, "azimuth", 1.0),
+                                 (self.OUT_KDIR, "k_dir", 1e6),
+                                 (self.OUT_KMAX, "k_max", 1e6),
+                                 (self.OUT_KMIN, "k_min", 1e6)):
+            p = out(key, res[name], scale)
+            if p:
+                results[key] = p
+        t = res["tilt"] * 1000.0
+        k = res["k_dir"] * 1e6
+        ok = np.isfinite(t)
+        if ok.any():
+            r, c = np.unravel_index(int(np.nanargmax(t)), t.shape)
+            x, y = _topo_cell_xy(gt, r, c)
+            feedback.pushInfo(self.tr(
+                "Наибольший наклон %.4g мм/м в точке %.1f %.1f, медиана %.4g мм/м.")
+                % (float(t[r, c]), x, y, float(np.nanmedian(t))))
+        if np.isfinite(k).any():
+            feedback.pushInfo(self.tr(
+                "Кривизна вдоль наклона от %.4g до %.4g 10⁻⁶ 1/м. Наименьший "
+                "радиус %.3g км.")
+                % (float(np.nanmin(k)), float(np.nanmax(k)),
+                   1000.0 / max(float(np.nanmax(np.abs(k))), 1e-12)))
+        else:
+            feedback.pushWarning(self.tr(
+                "Кривизна не посчитана ни в одной ячейке. Грид меньше двух баз "
+                "или весь в пропусках."))
+
+        src = self.parameterAsSource(parameters, self.REPERS, context)
+        if src is not None:
+            results.update(self._check_profiles(
+                parameters, context, feedback, src, eta, gt, units, flip,
+                reduce, layer.crs()))
+        return results
+
+    def _check_profiles(self, parameters, context, feedback, src, eta, gt,
+                        units, flip, reduce, crs):
+        fval = self.parameterAsString(parameters, self.REP_FIELD, context)
+        fprof = self.parameterAsString(parameters, self.PROF_FIELD, context)
+        ford = self.parameterAsString(parameters, self.ORDER_FIELD, context)
+        fname = self.parameterAsString(parameters, self.NAME_FIELD, context)
+        if not fval:
+            raise QgsProcessingException(self.tr(
+                "Реперы заданы, а поле оседания реперов нет."))
+        k = 0.001 if units == 0 else 1.0
+        groups = {}
+        skipped = 0
+        for f in src.getFeatures():
+            g = f.geometry()
+            v = f[fval]
+            if g is None or g.isEmpty() or v is None:
+                skipped += 1
+                continue
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                skipped += 1
+                continue
+            p = g.asPoint() if not g.isMultipart() else g.asMultiPoint()[0]
+            key = _field_text(f[fprof]) if fprof else ""
+            order = None
+            if ford:
+                try:
+                    order = float(f[ford])
+                except (TypeError, ValueError):
+                    order = None
+            name = _field_text(f[fname]) if fname else str(f.id())
+            eta_r = (-v if flip else v) * k
+            groups.setdefault(key, []).append((order, p.x(), p.y(), eta_r, name))
+        if skipped:
+            feedback.pushWarning(self.tr(
+                "Реперов без значения или без геометрии: %d, они пропущены.")
+                % skipped)
+
+        fi = QgsFields()
+        for nm, tp in (("profile", QVariant.String), ("rep1", QVariant.String),
+                       ("rep2", QVariant.String), ("length_m", QVariant.Double),
+                       ("tilt", QVariant.Double), ("tilt_grid", QVariant.Double),
+                       ("d_tilt", QVariant.Double)):
+            fi.append(QgsField(nm, tp))
+        fp = QgsFields()
+        for nm, tp in (("profile", QVariant.String), ("reper", QVariant.String),
+                       ("dist_m", QVariant.Double), ("eta_mm", QVariant.Double),
+                       ("curv", QVariant.Double), ("curv_grid", QVariant.Double),
+                       ("d_curv", QVariant.Double), ("radius_km", QVariant.Double)):
+            fp.append(QgsField(nm, tp))
+        isink, idest = self.parameterAsSink(
+            parameters, self.OUT_INT, context, fi, QgsWkbTypes.Type.LineString,
+            crs)
+        psink, pdest = self.parameterAsSink(
+            parameters, self.OUT_PTS, context, fp, QgsWkbTypes.Type.Point, crs)
+
+        def rnd(v, n):
+            return None if v is None or not np.isfinite(v) else round(float(v), n)
+
+        d_t, d_k, n_prof = [], [], 0
+        for key, reps in sorted(groups.items()):
+            if len(reps) < 2:
+                continue
+            xy = np.array([(r[1], r[2]) for r in reps])
+            if all(r[0] is not None for r in reps):
+                idx = sorted(range(len(reps)), key=lambda i: reps[i][0])
+            else:
+                # порядок по положению: проекция на главную ось облака точек
+                cxy = xy - xy.mean(axis=0)
+                _u, _s, vt = np.linalg.svd(cxy, full_matrices=False)
+                proj_ = cxy @ vt[0]
+                idx = list(np.argsort(proj_))
+            reps = [reps[i] for i in idx]
+            xy = xy[idx]
+            seg = np.hypot(*np.diff(xy, axis=0).T)
+            dist = np.concatenate([[0.0], np.cumsum(seg)])
+            e_rep = np.array([r[3] for r in reps])
+            e_grid = subsidence.sample_along(eta, gt, xy)
+            t_rep, c_rep = subsidence.profile_deformations(dist, e_rep, reduce)
+            t_grd, c_grd = subsidence.profile_deformations(dist, e_grid, reduce)
+            n_prof += 1
+            for j in range(len(reps) - 1):
+                dt = t_grd[j] - t_rep[j]
+                if np.isfinite(dt):
+                    d_t.append(dt * 1000.0)
+                if isink is not None:
+                    ft = QgsFeature(fi)
+                    ft.setGeometry(QgsGeometry.fromPolylineXY(
+                        [QgsPointXY(*xy[j]), QgsPointXY(*xy[j + 1])]))
+                    ft.setAttributes([key, reps[j][4], reps[j + 1][4],
+                                      rnd(seg[j], 3), rnd(t_rep[j] * 1e3, 4),
+                                      rnd(t_grd[j] * 1e3, 4), rnd(dt * 1e3, 4)])
+                    isink.addFeature(ft)
+            for j, r in enumerate(reps):
+                dc = c_grd[j] - c_rep[j]
+                if np.isfinite(dc):
+                    d_k.append(dc * 1e6)
+                if psink is not None:
+                    ft = QgsFeature(fp)
+                    ft.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(*xy[j])))
+                    radius = (1.0 / abs(c_rep[j]) / 1000.0
+                              if np.isfinite(c_rep[j]) and c_rep[j] != 0 else None)
+                    ft.setAttributes([key, r[4], rnd(dist[j], 3),
+                                      rnd(r[3] * 1000.0, 3),
+                                      rnd(c_rep[j] * 1e6, 4),
+                                      rnd(c_grd[j] * 1e6, 4),
+                                      rnd(dc * 1e6, 4), rnd(radius, 3)])
+                    psink.addFeature(ft)
+        out = {}
+        if not n_prof:
+            feedback.pushWarning(self.tr(
+                "Ни в одном профиле нет двух реперов, сверять нечего."))
+        else:
+            def rms(a):
+                return float(np.sqrt(np.mean(np.square(a)))) if a else float("nan")
+            feedback.pushInfo(self.tr(
+                "Сверка по %d профилям. Расхождение грида с реперами по наклону "
+                "%.4g мм/м (СКО), по кривизне %.4g 10⁻⁶ 1/м (СКО).")
+                % (n_prof, rms(d_t), rms(d_k)))
+        if idest:
+            _set_output_name(context, idest,
+                             self.tr("Наклоны по интервалам реперов"))
+            _topo_group_layer(context, idest, self.tr("Сдвижение"),
+                              collapse=False)
+            out[self.OUT_INT] = idest
+        if pdest:
+            _set_output_name(context, pdest, self.tr("Кривизна в реперах"))
+            _topo_group_layer(context, pdest, self.tr("Сдвижение"),
+                              collapse=False)
+            out[self.OUT_PTS] = pdest
+        return out
+
+
+class SubsidenceHorizontalAlgorithm(IsolinerAlgorithm):
+    """9.02 Горизонтальные деформации: оценка по кривизне и замеры."""
+
+    CURV = "CURV"
+    FORMULA = "FORMULA"
+    HALF_L = "HALF_L"
+    DEPTH = "DEPTH"
+    BOUNDARY = "BOUNDARY"
+    L0 = "L0"
+    INTERVALS = "INTERVALS"
+    LEN0 = "LEN0"
+    LEN1 = "LEN1"
+    REDUCE = "REDUCE"
+    OUT_EPS = "OUT_EPS"
+    OUT_MEAS = "OUT_MEAS"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return SubsidenceHorizontalAlgorithm()
+    def name(self): return "subsidence_horizontal"
+    def displayName(self):
+        return self.tr("9.02 Горизонтальные деформации")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_SUBS)
+    def groupId(self): return GROUP_SUBS_ID
+
+    def shortHelpString(self):
+        return _help_version(_trh(
+            "Горизонтальные деформации земной поверхности, растяжение и сжатие, двумя "
+            "путями. Растяжение идёт со знаком плюс, сжатие со знаком минус.\n\n**Оценка "
+            "по кривизне.** Там, где интервалы между реперами не измеряются, "
+            "деформация оценивается по формуле 4.34 Указаний, ε = mₑ·K·L. Кривизна K "
+            "берётся из выхода 9.01 (**Кривизна**, 10⁻⁶ 1/м). Коэффициент mₑ зависит "
+            "от величины кривизны и считается по п. 4.27. Знак деформации идёт от "
+            "кривизны.\n\n**Длина полумульды** L задаётся числом или вычисляется по "
+            "глубине, которую задаёт **Глубина разработки** H, L = (ctg δ₀ + ctg ψ)·H. "
+            "Угол полных сдвижений ψ = 55°. Граничный угол δ₀ выбирается параметром "
+            "**Граница выработанного пространства**, 55° у постоянных границ и 65° у "
+            "временных и длительно остановленных.\n\n**Формула оценки** по умолчанию та, "
+            "что в действующих Указаниях, с длиной полумульды L. В редакции 2014 года "
+            "вместо L стоял **Интервал l₀** между точками, и та же кривизна давала "
+            "деформацию примерно на порядок меньше. Вариант оставлен для пересчёта "
+            "старых отчётов.\n\n**Измеренные интервалы** это линии между соседними "
+            "реперами. Длины берутся из полей, которые задают **Поле начальной длины** "
+            "и **Поле текущей длины**. Деформация интервала считается по формуле 4.27 "
+            "как относительное изменение длины. Флажок **Приводить к 15-метровому "
+            "интервалу** умножает её на q_ε. Если растр кривизны тоже задан, в каждый "
+            "интервал пишется и оценка в его середине, а расхождение печатается в "
+            "журнал. Так проверяется, насколько оценка по кривизне годится на этом "
+            "участке.\n\nВыходы: растр оценки в мм/м и линейный слой деформаций по "
+            "интервалам с полями l0_m, l1_m, eps (мм/м), eps_est (оценка) и d_eps "
+            "(разность).")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.CURV, self.tr("Кривизна (выход 9.01), 10⁻⁶ 1/м"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.FORMULA, self.tr("Формула оценки"),
+            options=[self.tr("ε = mₑ·K·L (действующие Указания)"),
+                     self.tr("ε = mₑ·K·l₀ (редакция 2014 года)")],
+            defaultValue=_dv(self, self.FORMULA, 0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.HALF_L, self.tr("Длина полумульды L, м (0 = по глубине)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.HALF_L, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.DEPTH, self.tr("Глубина разработки H, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.DEPTH, 300.0), minValue=1.0))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.BOUNDARY, self.tr("Граница выработанного пространства"),
+            options=[self.tr("постоянная (δ₀ = 55°)"),
+                     self.tr("временная или длительно остановленная (δ₀ = 65°)")],
+            defaultValue=_dv(self, self.BOUNDARY, 0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.L0, self.tr("Интервал l₀, м (для редакции 2014 года)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.L0, 15.0), minValue=0.1)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INTERVALS, self.tr("Измеренные интервалы (линии)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.LEN0, self.tr("Поле начальной длины (пусто = длина линии)"),
+            parentLayerParameterName=self.INTERVALS,
+            type=QgsProcessingParameterField.DataType.Numeric, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.LEN1, self.tr("Поле текущей длины"),
+            parentLayerParameterName=self.INTERVALS,
+            type=QgsProcessingParameterField.DataType.Numeric, optional=True))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.REDUCE, self.tr("Приводить к 15-метровому интервалу (q_ε)"),
+            defaultValue=_dv(self, self.REDUCE, True)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_EPS, self.tr("Горизонтальная деформация (оценка), мм/м"),
+            optional=True, createByDefault=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUT_MEAS, self.tr("Горизонтальные деформации по интервалам"),
+            QgsProcessing.SourceType.TypeVectorLine, optional=True,
+            createByDefault=True))
+        # Необязательные входы не подставляются из прошлого запуска: иначе
+        # инструмент молча считал бы то, чего в этот раз не просили.
+        _restore_layer_defaults(self, ())
+
+    def _process(self, parameters, context, feedback):
+        _mem = {}
+        _save_values(self, _mem)
+        feedback.pushInfo(_version_line())
+        curv_layer = self.parameterAsRasterLayer(parameters, self.CURV, context)
+        src = self.parameterAsSource(parameters, self.INTERVALS, context)
+        if curv_layer is None and src is None:
+            raise QgsProcessingException(self.tr(
+                "Задайте растр кривизны, измеренные интервалы или то и другое."))
+        formula = self.parameterAsEnum(parameters, self.FORMULA, context)
+        half_l = self.parameterAsDouble(parameters, self.HALF_L, context)
+        depth = self.parameterAsDouble(parameters, self.DEPTH, context)
+        boundary = self.parameterAsEnum(parameters, self.BOUNDARY, context)
+        l0 = self.parameterAsDouble(parameters, self.L0, context)
+        reduce = self.parameterAsBoolean(parameters, self.REDUCE, context)
+        results = {}
+        eps = gt = None
+        if curv_layer is not None:
+            if formula == 0:
+                if half_l > 0:
+                    length = half_l
+                    feedback.pushInfo(self.tr(
+                        "Длина полумульды задана: L = %.1f м.") % length)
+                else:
+                    delta = (subsidence.DELTA_PERMANENT if boundary == 0
+                             else subsidence.DELTA_TEMPORARY)
+                    length = subsidence.half_trough_length(depth, delta)
+                    feedback.pushInfo(self.tr(
+                        "Длина полумульды по глубине: H = %.1f м, δ₀ = %.0f°, "
+                        "ψ = %.0f°, L = %.1f м.")
+                        % (depth, delta, subsidence.PSI_FULL, length))
+            else:
+                length = l0
+                feedback.pushInfo(self.tr(
+                    "Формула редакции 2014 года, ε = mₑ·K·l₀ при l₀ = %.1f м. "
+                    "Действующие Указания дают по той же кривизне деформацию "
+                    "в L/l₀ раз больше.") % length)
+            kz, mask, gt, proj, cell = _topo_read_dem(curv_layer, self.tr)
+            kz = np.where(mask, np.nan, kz) * 1e-6
+            eps = subsidence.eps_from_curvature(kz, length)
+            path = self.parameterAsOutputLayer(parameters, self.OUT_EPS, context)
+            if path:
+                nd = -9999.0
+                a = np.where(np.isfinite(eps), eps * 1000.0, nd).astype(np.float32)
+                _topo_write_raster(path, a, gt, proj, gdal.GDT_Float32, nodata=nd)
+                _topo_group_layer(context, path, self.tr("Сдвижение"))
+                results[self.OUT_EPS] = path
+            if np.isfinite(eps).any():
+                feedback.pushInfo(self.tr(
+                    "Оценка деформации: сжатие до %.4g мм/м, растяжение до %.4g "
+                    "мм/м.") % (float(np.nanmin(eps)) * 1000.0,
+                                float(np.nanmax(eps)) * 1000.0))
+            else:
+                feedback.pushWarning(self.tr(
+                    "В растре кривизны нет значений, оценка пустая."))
+        if src is not None:
+            results.update(self._measured(parameters, context, feedback, src,
+                                          eps, gt, reduce))
+        return results
+
+    def _measured(self, parameters, context, feedback, src, eps, gt, reduce):
+        f0 = self.parameterAsString(parameters, self.LEN0, context)
+        f1 = self.parameterAsString(parameters, self.LEN1, context)
+        if not f1:
+            raise QgsProcessingException(self.tr(
+                "Интервалы заданы, а поле текущей длины нет."))
+        fields = QgsFields()
+        for nm in ("l0_m", "l1_m", "eps", "eps_est", "d_eps"):
+            fields.append(QgsField(nm, QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUT_MEAS, context, fields,
+            QgsWkbTypes.Type.LineString, src.sourceCrs())
+
+        def rnd(v, n):
+            return None if v is None or not np.isfinite(v) else round(float(v), n)
+
+        n, skipped, diffs = 0, 0, []
+        for f in src.getFeatures():
+            g = f.geometry()
+            try:
+                l1 = float(f[f1])
+                l0v = float(f[f0]) if f0 else g.length()
+            except (TypeError, ValueError):
+                skipped += 1
+                continue
+            if not (l0v > 0) or g is None or g.isEmpty():
+                skipped += 1
+                continue
+            q = subsidence.q_eps(l0v) if reduce else 1.0
+            e = (l1 - l0v) / l0v * q
+            est = None
+            if eps is not None:
+                c = g.interpolate(g.length() / 2.0).asPoint()
+                est = float(subsidence.sample_along(eps, gt, [(c.x(), c.y())])[0])
+                if np.isfinite(est):
+                    diffs.append((est - e) * 1000.0)
+            if sink is not None:
+                ft = QgsFeature(fields)
+                ft.setGeometry(QgsGeometry(g))
+                ft.setAttributes([rnd(l0v, 4), rnd(l1, 4), rnd(e * 1000.0, 4),
+                                  rnd(None if est is None else est * 1000.0, 4),
+                                  rnd(None if est is None else (est - e) * 1000.0,
+                                      4)])
+                sink.addFeature(ft)
+            n += 1
+        if skipped:
+            feedback.pushWarning(self.tr(
+                "Интервалов без длины или с нулевой начальной длиной: %d, они "
+                "пропущены.") % skipped)
+        feedback.pushInfo(self.tr("Деформации посчитаны по %d интервалам.") % n)
+        if diffs:
+            a = np.array(diffs)
+            feedback.pushInfo(self.tr(
+                "Оценка по кривизне против замеров: среднее расхождение %.4g "
+                "мм/м, СКО %.4g мм/м по %d интервалам.")
+                % (float(a.mean()), float(np.sqrt(np.mean(a * a))), a.size))
+        out = {}
+        if dest:
+            _set_output_name(context, dest,
+                             self.tr("Горизонтальные деформации по интервалам"))
+            _topo_group_layer(context, dest, self.tr("Сдвижение"),
+                              collapse=False)
+            out[self.OUT_MEAS] = dest
+        return out
+
+
+class SubsidenceDemoAlgorithm(IsolinerAlgorithm):
+    """9.03 Пример мульды (демо) по типовой функции Указаний."""
+
+    DEPTH = "DEPTH"
+    D11 = "D11"
+    D12 = "D12"
+    ETA = "ETA"
+    BOUNDARY = "BOUNDARY"
+    CELL = "CELL"
+    STEP = "STEP"
+    CRS = "CRS"
+    EXTENT = "EXTENT"
+    OUTPUT = "OUTPUT"
+    REPERS = "REPERS"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return SubsidenceDemoAlgorithm()
+    def name(self): return "subsidence_demo"
+    def displayName(self):
+        return self.tr("9.03 Пример мульды (демо)")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_SUBS)
+    def groupId(self): return GROUP_SUBS_ID
+
+    def shortHelpString(self):
+        return _help_version(_trh(
+            "Мульда оседания над прямоугольной выработкой, построенная по типовой "
+            "функции S(z) из таблицы Указаний. Наклон и кривизна такой мульды "
+            "известны заранее, поэтому на ней проверяются 9.01 и 9.02.\n\n"
+            "**Глубина разработки** H, **Длина выработки** D11 и **Ширина выработки** "
+            "D12 задают мульду. Выработка стоит в центре, длинной стороной с запада на "
+            "восток. Длина полумульды L = (ctg δ₀ + ctg ψ)·H, граничный угол δ₀ "
+            "выбирается параметром **Граница выработанного пространства**, угол полных "
+            "сдвижений ψ = 55°. Пример рассчитан на полную подработку, D ≥ 1.4H. Тогда "
+            "у мульды есть плоское дно, а от его края идёт полумульда длиной L. "
+            "Неполную подработку Указания считают иначе, и демо её не моделирует, а "
+            "только предупреждает.\n\n**Максимальное оседание** задаётся в метрах. "
+            "Оседание в растре пишется в миллиметрах со знаком минус, как разность "
+            "отметок в журнале нивелирования, чтобы 9.01 проверялся и на знаке.\n\n"
+            "Второй выход это реперы двух профильных линий по главным сечениям I-I и "
+            "II-II через центр мульды, с полями profile, order, reper, eta_mm и z "
+            "(относительная координата в полумульде). **Шаг реперов** по умолчанию "
+            "L/10, как в п. 4.26.2 Указаний. При таком шаге наклоны и кривизна по "
+            "реперам совпадают с формулами Указаний точно, а при H около 357 м (L = "
+            "500 м) и оседании 1 м повторяют таблицу 2 редакции 2014 года. В её "
+            "строке z = 0.20 кривизна напечатана с ошибкой, по формуле выходит "
+            "-0.450·10⁻⁴ 1/м.\n\n**Размер ячейки** растра выбирается мельче шага "
+            "реперов. **Куда положить** только сдвигает пример, размер он не меняет. "
+            "**СК выхода** должна быть метрической.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterNumber(
+            self.DEPTH, self.tr("Глубина разработки H, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.DEPTH, 350.0), minValue=10.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.D11, self.tr("Длина выработки D11, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.D11, 1200.0), minValue=10.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.D12, self.tr("Ширина выработки D12, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.D12, 900.0), minValue=10.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.ETA, self.tr("Максимальное оседание, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.ETA, 1.0), minValue=0.001))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.BOUNDARY, self.tr("Граница выработанного пространства"),
+            options=[self.tr("постоянная (δ₀ = 55°)"),
+                     self.tr("временная или длительно остановленная (δ₀ = 65°)")],
+            defaultValue=_dv(self, self.BOUNDARY, 0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.STEP, self.tr("Шаг реперов, м (0 = L/10)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.STEP, 0.0), minValue=0.0))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.CELL, self.tr("Размер ячейки, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.CELL, 5.0), minValue=0.5)))
+        self.addParameter(QgsProcessingParameterCrs(
+            self.CRS, self.tr("СК выхода (метрическая)"),
+            defaultValue="EPSG:32640"))
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Куда положить (охват)"), optional=True))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Демо-мульда: оседание, мм")))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.REPERS, self.tr("Реперы профильных линий (демо)"),
+            QgsProcessing.SourceType.TypeVectorPoint))
+
+    def _process(self, parameters, context, feedback):
+        depth = self.parameterAsDouble(parameters, self.DEPTH, context)
+        d11 = self.parameterAsDouble(parameters, self.D11, context)
+        d12 = self.parameterAsDouble(parameters, self.D12, context)
+        eta_max = self.parameterAsDouble(parameters, self.ETA, context)
+        boundary = self.parameterAsEnum(parameters, self.BOUNDARY, context)
+        step = self.parameterAsDouble(parameters, self.STEP, context)
+        cell = self.parameterAsDouble(parameters, self.CELL, context)
+        crs = self.parameterAsCrs(parameters, self.CRS, context)
+        out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+        feedback.pushInfo(_version_line())
+        if crs.isGeographic():
+            raise QgsProcessingException(self.tr("Нужна метрическая СК."))
+        delta = (subsidence.DELTA_PERMANENT if boundary == 0
+                 else subsidence.DELTA_TEMPORARY)
+        ctg_d = 1.0 / math.tan(math.radians(delta))
+        L = subsidence.half_trough_length(depth, delta)
+        half_x = d11 / 2.0 + ctg_d * depth
+        half_y = d12 / 2.0 + ctg_d * depth
+        nx = int(math.ceil(2.2 * half_x / cell))
+        ny = int(math.ceil(2.2 * half_y / cell))
+        if nx * ny > 16000000:
+            raise QgsProcessingException(self.tr(
+                "Растр вышел бы %d x %d ячеек. Увеличьте размер ячейки.")
+                % (nx, ny))
+        eta, info = subsidence.demo_trough(nx, ny, cell, depth, d11, d12,
+                                           eta_max, delta=delta)
+        if min(info["chi_x"], info["chi_y"]) < 1.4:
+            feedback.pushWarning(self.tr(
+                "Подработка неполная (D/H = %.2f и %.2f, нужно не меньше 1.4). "
+                "Указания уменьшают для неё максимальное оседание и меняют угол "
+                "полных сдвижений, демо этого не делает.")
+                % (info["chi_x"], info["chi_y"]))
+        auth = crs.authid()
+        epsg = int(auth.split(":")[1]) if auth.startswith("EPSG:") else None
+        wkt = None if epsg is not None else crs.toWkt()
+        cx, cy = 500000.0, 6500000.0
+        ext = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        if ext is not None and not ext.isEmpty():
+            cx, cy = ext.center().x(), ext.center().y()
+        else:
+            pext = _project_extent_in(context, crs)
+            if pext is not None:
+                cx, cy = pext.center().x(), pext.center().y()
+        origin_x = cx - nx * cell / 2.0
+        origin_y = cy + ny * cell / 2.0
+        demo_relief.write_geotiff((-eta * 1000.0).astype(np.float32), out_path,
+                                  gdal, osr, cell=cell, epsg=epsg, wkt=wkt,
+                                  origin_x=origin_x, origin_y=origin_y)
+        _set_output_name(context, out_path,
+                         self.tr("Демо-мульда: оседание, мм"))
+        _topo_group_layer(context, out_path, self.tr("Сдвижение"))
+        feedback.pushInfo(self.tr(
+            "Мульда: H = %.1f м, L = %.1f м, дно %.1f x %.1f м, растр %d x %d "
+            "ячеек по %.2f м.")
+            % (depth, L, info["plateau_x"], info["plateau_y"], nx, ny, cell))
+
+        if step <= 0:
+            step = L / 10.0
+        fields = QgsFields()
+        for nm, tp in (("profile", QVariant.String), ("order", QVariant.Int),
+                       ("reper", QVariant.String), ("eta_mm", QVariant.Double),
+                       ("z", QVariant.Double)):
+            fields.append(QgsField(nm, tp))
+        sink, dest = self.parameterAsSink(
+            parameters, self.REPERS, context, fields, QgsWkbTypes.Type.Point, crs)
+        n_rep = 0
+        for prof, half_plateau, axis in (("I-I", info["plateau_x"] / 2.0, 0),
+                                         ("II-II", info["plateau_y"] / 2.0, 1)):
+            pos = [0.0]
+            k0 = -int(math.floor(half_plateau / step))
+            k = k0
+            while half_plateau + k * step <= half_plateau + L + 1e-6:
+                v = half_plateau + k * step
+                if v > 1e-6:
+                    pos.append(v)
+                k += 1
+            pos = sorted(set([-p for p in pos] + pos))
+            dist, e_ref = [], []
+            for i, p in enumerate(pos):
+                zrel = max(0.0, abs(p) - half_plateau) / L
+                e = eta_max * subsidence.s_func(min(zrel, 1.0))
+                x = cx + (p if axis == 0 else 0.0)
+                y = cy + (p if axis == 1 else 0.0)
+                ft = QgsFeature(fields)
+                ft.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
+                ft.setAttributes([prof, i + 1, "%s-%d" % (prof, i + 1),
+                                  round(-e * 1000.0, 3), round(min(zrel, 1.0), 4)])
+                sink.addFeature(ft)
+                n_rep += 1
+                if p >= 0:
+                    dist.append(p)
+                    e_ref.append(e)
+            if prof == "I-I" and len(dist) > 2:
+                t, kc = subsidence.profile_deformations(dist, e_ref, True)
+                t = np.abs(t)
+                imax = int(np.nanargmax(t))
+                feedback.pushInfo(self.tr(
+                    "Профиль I-I по формулам Указаний: наибольший наклон %.4g мм/м, "
+                    "кривизна от %.4g до %.4g 10⁻⁶ 1/м.")
+                    % (float(t[imax]) * 1000.0, float(np.nanmin(kc)) * 1e6,
+                       float(np.nanmax(kc)) * 1e6))
+        feedback.pushInfo(self.tr("Реперов на двух профилях: %d, шаг %.2f м.")
+                          % (n_rep, step))
+        _set_output_name(context, dest, self.tr("Реперы профильных линий (демо)"))
+        _topo_group_layer(context, dest, self.tr("Сдвижение"), collapse=False)
+        return {self.OUTPUT: out_path, self.REPERS: dest}
+
+
 ALGORITHMS = [
     LandXmlReadAlgorithm,
     LandXmlWriteAlgorithm,
@@ -25808,4 +26615,7 @@ ALGORITHMS = [
     LineDimensionAlgorithm,
     MinkowskiDimensionAlgorithm,
     FractalDemoAlgorithm,
+    SubsidenceTiltCurvatureAlgorithm,
+    SubsidenceHorizontalAlgorithm,
+    SubsidenceDemoAlgorithm,
 ]

@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines. It holds 2D kriging (points to raster, GSLIB KB2D core), the experimental variogram with model fitting and leave-one-out cross-validation. Next come optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled. The interface language and the help language can be chosen separately and by default follow QGIS. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний. В набор входят 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели и кросс-валидация (leave-one-out). Дальше идут необязательное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте. Язык интерфейса и язык справки выбираются отдельно и по умолчанию идут за QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.13.27
+version=5.13.28
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,18 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.13.27
+changelog=5.13.28
+    - Новая группа «9. Сдвижение». Деформации земной поверхности по
+      оседаниям реперов по формулам Указаний для Верхнекамского
+      месторождения.
+    - 9.01 Наклоны и кривизна по оседаниям. Разности берутся на базе
+      15 м, как между реперами, с приведением к 15-метровому интервалу.
+      Сверка грида с реперами профильных линий.
+    - 9.02 Горизонтальные деформации. Оценка по кривизне и деформации по
+      измеренным интервалам между реперами.
+    - 9.03 Пример мульды (демо) по типовой функции Указаний, с реперами
+      по главным сечениям.
+    5.13.27
     - Справка 6.01 сведена с тем, что инструмент выдаёт. Уклона в промилле,
       обратной шероховатости и отдельных слоёв профиля, уровней и отметок
       земли в выходе нет, и справка их больше не обещает. Повторявшийся
@@ -87,12 +98,5 @@ changelog=5.13.27
       грамматика не допускает вовсе. Теперь таких нет.
     - Вычитаны английский быстрый старт и английский README.
     - В справке убраны три цепочки коротких предложений подряд.
-    5.13.18
-    - Описание плагина для каталога QGIS вычитано. Первое предложение было
-      в сорок два слова, теперь их три, и средняя длина по описанию 15 слов.
-    - Руководство: счётное «число» заменено на «количество» в пятидесяти
-      местах, убраны медицинские сравнения («лечится», «лечение») и оценки.
-      «Число» осталось там, где это величина и где это тип поля в таблице.
-    - Страница быстрого старта вычитана по тем же правилам.
     Более ранние версии: файл CHANGELOG.md в репозитории,
     https://github.com/Valery35/qgis-isoliner/blob/main/CHANGELOG.md

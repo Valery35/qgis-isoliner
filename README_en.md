@@ -111,6 +111,12 @@ interpolation, then Isoliner3D on the display.
 - **7.04 Minkowski dimension (vectors)** — box-counting directly over lines and polygon boundaries, without rasterization.
 - **7.05 Example for fractals (demo)** — a river network with tributary orders, a catchment with a ragged boundary, a coastline.
 
+### "9. Subsidence" group
+
+- **9.01 Tilt and curvature from subsidence** — tilt and curvature from a subsidence grid by the formulas of the Verkhnekamskoye deposit Instructions, over a 15 m base, checked against profile line benchmarks.
+- **9.02 Horizontal strain** — an estimate from curvature and strain from measured intervals between benchmarks.
+- **9.03 Example subsidence trough (demo)** — a trough from the typical function of the Instructions with benchmarks along the main sections.
+
 Suitable for bed elevations, thicknesses, rock properties, chemistry and any numeric attribute.
 
 ## Installation
@@ -327,6 +333,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.28** — a new "9. Subsidence" group with tilt and curvature from subsidence, horizontal strain and an example trough by the formulas of the Verkhnekamskoye deposit Instructions.
 - **5.13.27** — the 6.01 help and manual section match what the tool outputs, the English names of the demo tools follow one pattern.
 - **5.13.26** — a language button on the toolbar.
 - **5.13.25** — the interface language and the help language are chosen separately, under Plugins - Isoliner - Language. They change at once, with no restart of QGIS.
