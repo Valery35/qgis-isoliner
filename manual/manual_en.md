@@ -56,16 +56,16 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 
 - `1.01` Declustering (weights)
 - `1.02` 2D Kriging (points → raster)
-- `1.03` Minimum curvature (points -> raster)
+- `1.03` Minimum curvature (points → raster)
 - `1.04` Isolines from raster
 - `1.05` Variogram (experimental)
 - `1.06` Variogram map (anisotropy)
 - `1.07` Variogram cross-validation
 - `1.08` Method cross-validation (LOO)
-- `1.09` Create sample wells (demo)
-- `1.10` Create a geophysical-profiles example (demo)
+- `1.09` Example wells (demo)
+- `1.10` Example geophysical profiles (demo)
 - `1.11` Graft a detailed surface into a regional one
-- `1.12` MBA: multilevel B-splines (points to raster)
+- `1.12` MBA: multilevel B-splines (points → raster)
 
 **2. Topography**
 
@@ -85,7 +85,7 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `2.18` Cut and fill (earthwork volumes)
 - `2.19` Crest and toe candidates
 - `2.20` Crests and toes into work
-- `2.21` Create a demo open pit
+- `2.21` Example open pit (demo)
 - `2.22` Profiling of slopes
 - `2.23` Flow lines from points, lines and outlines
 
@@ -105,7 +105,7 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `3.05` Specific discharge (Darcy law)
 - `3.06` Gaussian simulation (SGS)
 - `3.07` Density from measurements (variable support)
-- `3.08` Create a density example (demo)
+- `3.08` Example for density (demo)
 
 **4. Cross-sections**
 
@@ -118,7 +118,7 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `4.07` Project objects onto the section
 - `4.08` Unproject from the section
 - `4.09` Shaft wall unwrap (beta)
-- `4.10` Create a section example
+- `4.10` Example for a section (demo)
 - `4.11` Bed reference template
 - `4.12` Attitude from an outcrop trace
 - `4.13` Bed grades at the collars
@@ -151,7 +151,7 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 
 - `8.01` Read LandXML
 - `8.02` Write LandXML
-- `8.03` Create an example LandXML (demo)
+- `8.03` Example LandXML (demo)
 
 _Tools in total: 74_
 <!-- /TREE -->
@@ -170,9 +170,9 @@ The commonest task and the oldest - turn points with measurements into a surface
 
 Along with the surface the tool produces the **kriging error map**. Always look at it. The surface itself looks equally smooth where the boreholes are dense and where the result rests on a single distant measurement, and only the error map shows the difference.
 
-**1.04 Isolines from a raster** turns the surface into contours with labels and, if wanted, into polygons of ranges. The interval is set as a number or as a step. For terrain there is a topographic labels checkbox there too: the labels are turned so that their top faces the high side.
+**1.04 Isolines from raster** turns the surface into contours with labels and, if wanted, into polygons of ranges. The interval is set as a number or as a step. For terrain there is a topographic labels checkbox there too: the labels are turned so that their top faces the high side.
 
-It can be tried without your own data. **1.09 Create sample wells (demo)** produces a ready set of points with a realistic spatial structure.
+It can be tried without your own data. **1.09 Example wells (demo)** produces a ready set of points with a realistic spatial structure.
 
 **Further on, when justification is required.** The parameters of the model need not be guessed by eye. **1.05 Variogram** derives them from the data themselves and draws a plot that shows whether there is any spatial relation in the data at all. If the experimental points fall without any pattern, no method will create one. **1.06 Variogram map** shows the anisotropy - the similarity reaches further along one direction than across it, and that has to be taken into account. **1.08 Method cross-validation (LOO)** removes each borehole in turn, predicts its value from the rest and prints the discrepancy. That is a direct answer to how far the map can be trusted. A successful set of parameters is stored as a profile, so it need not be typed again.
 
@@ -194,7 +194,7 @@ Everything gathered at the previous steps goes into **2.03 Topo2Raster**, each a
 
 The contours from **1.04** are needed twice in this chain. First as a way of looking at the country, then as an input to the recomputation. Take the interval by the scale and the character of the country - five metres on a plain, twenty five in the mountains. The tool prints the range of elevations to the log. Too fine an interval only does harm here. It carries the noise of the original raster into the new terrain, the very thing the work was meant to remove.
 
-To check that it became better rather than merely different, use the same tools as in the next scenario, **2.12 Contour residuals against a DEM** and **2.13 Terracing diagnostics**. And **2.05 Flow** over the new terrain should give rivers without breaks and without false lakes. That is the most telling check of all.
+To check that it became better rather than merely different, use the same tools as in the next scenario, **2.12 Contour residuals against the DEM** and **2.13 Terracing check of a DEM**. And **2.05 Flow** over the new terrain should give rivers without breaks and without false lakes. That is the most telling check of all.
 
 ## A topographic plan with contours on hand, terrain wanted
 
@@ -204,7 +204,7 @@ The task is the reverse of the first one. Here you do not build a surface from s
 
 Set the cell explicitly, otherwise the default may turn out coarser than what you want to see. This is the first of the common mistakes. On a kilometre-wide area the automatic size gives a thirty-metre cell, and a seven-metre bench simply does not exist in such a grid. The tool warns about it in the log, but it is better to set the cell at once.
 
-The result must not be checked by eye. **2.11 Split the contours for a check** holds part of the lines back. **2.12 Contour residuals against a DEM** measures how far the built surface departed from the ones held back. This is the same device as cross-validation in kriging, and it answers the same question. Separately there is **2.13 Terracing diagnostics**, which looks for the characteristic defect of interpolation over contours, where the surface steps along the original lines, and **2.14** removes it.
+The result must not be checked by eye. **2.11 Split contours for validation** holds part of the lines back. **2.12 Contour residuals against the DEM** measures how far the built surface departed from the ones held back. This is the same device as cross-validation in kriging, and it answers the same question. Separately there is **2.13 Terracing check of a DEM**, which looks for the characteristic defect of interpolation over contours, where the surface steps along the original lines, and **2.14** removes it.
 
 ## A dense survey on hand, crests and toes wanted
 
@@ -216,7 +216,7 @@ Two parameters here are not obvious. The **probe base** is the half-width of the
 
 Next, **2.20 Crests and toes into work** takes the elevations off the terrain and assembles the forms. The pairs are determined by descending the slope rather than by proximity. Water from a crest runs exactly to its toe, while on a curved wall with narrow berms the nearest toe by distance often belongs to the neighbouring bench. A form comes out as one toe with several crests at it, because the tracing cuts a long crest into pieces, yet all the pieces descend to the same toe. Unpaired lines do not vanish, they go into a separate layer where the attribute records the reason - the descent did not reach a toe, or it scattered over different toes.
 
-The whole chain can be checked on synthetic data. **2.21 Create a demo open pit** builds a pit with benches, berms, a ramp, a dump and a ditch, and along with it the true structural lines. The completeness of the detector is measured as a number against them, not by eye.
+The whole chain can be checked on synthetic data. **2.21 Example open pit (demo)** builds a pit with benches, berms, a ramp, a dump and a ditch, and along with it the true structural lines. The completeness of the detector is measured as a number against them, not by eye.
 
 ## A quarry on a topographic plan with no contours inside
 
@@ -236,7 +236,7 @@ The vertical exaggeration is set in three ways, and the choice is not obvious. A
 
 Then the content is placed onto the section. **4.02** puts the boreholes with their sampling intervals. **4.04** draws surfaces from rasters. **4.05** places vector objects by their exact intersection with the line. The last one has a rule by object type. A flat line gives a vertical, because the where is known and the depth is not, a three-dimensional one gives a point at the real height, and a polygon gives a vertical band. When the dip and the dip direction are given, the vertical turns into an inclined trace and the band into a parallelogram.
 
-The easiest start is the demo. **4.10 Create an example for the section** produces six surfaces, five beds, three section lines, boreholes, zones and the layers for checking the dips. The whole chain runs through it in five minutes, and there is nowhere to go wrong.
+The easiest start is the demo. **4.10 Example for a section (demo)** produces six surfaces, five beds, three section lines, boreholes, zones and the layers for checking the dips. The whole chain runs through it in five minutes, and there is nowhere to go wrong.
 
 ## Volumes of work wanted
 
@@ -519,7 +519,7 @@ What that means in practice is this. Near the line the weights of the neighbours
 
 ### How to try it on teaching data
 
-The tool **1.09 Create sample wells** can create a fault by itself. The **Fault throw** field sets the size of the shift. The generator draws a line across the area without bringing it to the edges and adds the throw to the value at every well on one side. Above the end of the line both sides are equal, so the teaching data contain both the break and its dying end.
+The tool **1.09 Example wells** can create a fault by itself. The **Fault throw** field sets the size of the shift. The generator draws a line across the area without bringing it to the edges and adds the throw to the value at every well on one side. Above the end of the line both sides are equal, so the teaching data contain both the break and its dying end.
 
 The line is produced as a separate output **Fault (demo)**. Supply it to **Faults** here, then the same line to 1.04, and the whole chain comes together.
 
@@ -528,7 +528,7 @@ To test the barrier itself take a throw noticeably larger than the correlation r
 The `throw` attribute in the output fault layer is for reference. The tools do not read it, their barrier is purely geometric and knows nothing of the size of the displacement.
 
 
-## 1.03 Minimum curvature (points -> raster)
+## 1.03 Minimum curvature (points → raster)
 
 The tool builds a grid by minimum curvature. The surface behaves like a thin elastic plate passing through the data with the least bending, that is a solution of the biharmonic equation. The method is not exact and the data are honored approximately, but the
 surface comes out as smooth as possible. That is why it is traditionally used
@@ -1117,9 +1117,9 @@ For minimum curvature each point is re-estimated from a warm start off the full 
 The **wt** weight field from **1.01 Declustering** works here the same way as in 1.07. The summary of metrics is weighted, while the leave-one-out estimate itself does not change.
 
 
-## 1.09 Create sample wells (demo)
+## 1.09 Example wells (demo)
 
-The **Create sample wells (demo)** tool builds a point layer with random
+The **Example wells (demo)** tool builds a point layer with random
 coordinates and three structured fields. These are the absolute roof elevation
 (roof), the thickness (thick) and the grade of an abstract component X (%). The roof and thickness ranges are set after the model of an industrial seam (KrII). The tool is meant for learning and testing kriging, isolines and cross-validation without real data.
 
@@ -1172,7 +1172,7 @@ The field set covers all the plugin tools. Interpolate roof and thick with ordin
 
 The full list of output-layer fields is in the **Sample wells (demo)** appendix section ("Demo-layer fields" at the end of the manual).
 
-## 1.10 Create a geophysical-profiles example (demo)
+## 1.10 Example geophysical profiles (demo)
 
 The tool creates a point layer of geophysical profiles for learning and testing without real data. Several parallel profiles with pickets are built. There are two modes.
 
@@ -1294,7 +1294,7 @@ against a terrain background of 2.18 m.
 
 If empty cells do end up in the result, their count is reported in the log. A cell can be empty only where neither of the two surfaces exists, and usually the regional one does not cover the given extent.
 
-## 1.12 MBA: multilevel B-splines (points to raster)
+## 1.12 MBA: multilevel B-splines (points → raster)
 
 The third way to get a surface from points, after kriging (1.02) and minimum curvature (1.03). Read it together with them, and the number simply comes last because the tool appeared later.
 
@@ -2182,7 +2182,7 @@ With a DEM the former descent is used. On a curved wall with narrow berms it is 
 
 The **Top** and **Bottom** outputs are LineStringZ with the kind and link fields, the elevations taken off the DEM into the geometry. These are ready inputs for surface building and for an export as 3D lines into AutoCAD and Credo.
 
-## 2.21 Create a demo open pit
+## 2.21 Example open pit (demo)
 
 Builds a demo pit and, more importantly, the true structural lines for it. The raster-lines pair serves as a reference for 2.19, as an input for surface building and as a teaching example, all without closed data.
 
@@ -2332,7 +2332,7 @@ Another virtue shows itself on data with outliers. Ordinary kriging has to inter
 
 The categorical approach is convenient because it needs no boundary drawn in advance. There is no need to decide whether partial replacement counts as dangerous. All types are mapped as they are, and the required combination of classes is assembled later from the probabilities. Rare classes with few boreholes give a noisy variogram, the tool warns about this in the log, so read the probability of such a class with caution.
 
-To learn the tool without real data, switch on **Add a categorical mineral-type field** in **Create sample wells (demo)**. A mintype field is added to the layer with a silvinite background and replacement spots after a mine, ready to run the tool on.
+To learn the tool without real data, switch on **Add a categorical mineral-type field** in **Example wells (demo)**. A mintype field is added to the layer with a silvinite background and replacement spots after a mine, ready to run the tool on.
 
 With an uneven network you can set the optional **wt** weight field from tool **1.01 Declustering**. Each class indicator is then kriged toward its declustered proportion rather than zero, so far from the data the probability tends to the representative class proportion. Without weights the behaviour is unchanged.
 
@@ -2479,7 +2479,7 @@ Fields of the flow-vector layer:
 
 ### The learning cycle
 
-To walk the whole path without real data, switch on **Add a head field** in **Create sample wells (demo)**. A head field with a pronounced regional slope is added to the layer. Build a grid from it in **2D Kriging**, feed the raster here, and the arrows follow the head downhill. The same end-to-end scenario as for the other tools, only about hydrogeology.
+To walk the whole path without real data, switch on **Add a head field** in **Example wells (demo)**. A head field with a pronounced regional slope is added to the layer. Build a grid from it in **2D Kriging**, feed the raster here, and the arrows follow the head downhill. The same end-to-end scenario as for the other tools, only about hydrogeology.
 
 ## 3.05 Specific discharge (Darcy law)
 
@@ -2653,7 +2653,7 @@ The **Demo** button creates a training set with tool 3.08. The **Write raster** 
 pseudocolour with transparent zeros, density isolines and an effective-sigma
 layer as a trust map. The Processing form remains for models and batch runs, and the result is the same.
 
-## 3.08 Create a density example (demo)
+## 3.08 Example for density (demo)
 
 The tool creates a synthetic set for 3.07 with a known total mass, so that the invariant can be checked by the numbers. Ten points with different sigmas, from fractions of a cell to large, carry
 mass 500. Two lines carry mass 200 with an interval cut on one, and two
@@ -2837,7 +2837,7 @@ Each bed gets attributes - a number, the roof and floor names, the mean thicknes
 
 ### Trying it on a demo
 
-A ready training set is produced by the **Create a section example** tool (4.10). It gives six surfaces top to bottom, three section lines, a pair of drilling-model layers collar and interval, and multiband bed grids. It arranges the surfaces in the tree by stratigraphy itself. The three lines differ in length and in the number of bends, which is handy for looking at the layout and the common vertical scale. Run it, then feed the surfaces and the line here. The collar and interval pair goes with the definition into **Boreholes on the section**, and the bed grid (bands 1/2/3) goes into **Bed composition on the section**. The full contents of the set are in section 4.10.
+A ready training set is produced by the **Example for a section (demo)** tool (4.10). It gives six surfaces top to bottom, three section lines, a pair of drilling-model layers collar and interval, and multiband bed grids. It arranges the surfaces in the tree by stratigraphy itself. The three lines differ in length and in the number of bends, which is handy for looking at the layout and the common vertical scale. Run it, then feed the surfaces and the line here. The collar and interval pair goes with the definition into **Boreholes on the section**, and the bed grid (bands 1/2/3) goes into **Bed composition on the section**. The full contents of the set are in section 4.10.
 
 ### Relation to QGIS
 
@@ -2851,7 +2851,7 @@ The **Boreholes on the section** tool places boreholes onto section drawings fro
 
 Boreholes are described by two tables following the minimal model of the mining packages (Leapfrog, Micromine, Datamine, Surpac). **collar** is a point layer of collars with the **hole_id** (identifier, string), **z** (collar elevation) and **eoh** (end-of-hole depth downhole) fields. **interval** is a plain interval table with the **hole_id**, **from**, **to** and **code** fields, where the code is what we colour by, a bed index, a lithotype or a class. Depths are measured downhole from the collar, positive downwards, not as elevations, so inclined holes do not break the model. Any other columns of the interval table travel into the drawing attributes as they are.
 
-Such a pair is produced by **Create a section example** (4.10) and by a corporate export. The tool finds the fields of both tables by the contract names and common synonyms (Hole_ID, elev, depth_from, litho) itself, case does not matter. The field pickers are hidden under the advanced parameters and are needed only for non-standard layers. What was found is printed to the log in one line.
+Such a pair is produced by **Example for a section (demo)** (4.10) and by a corporate export. The tool finds the fields of both tables by the contract names and common synonyms (Hole_ID, elev, depth_from, litho) itself, case does not matter. The field pickers are hidden under the advanced parameters and are needed only for non-standard layers. What was found is printed to the log in one line.
 
 ### Inclined holes
 
@@ -3226,9 +3226,9 @@ The **Shaft wall unwrap** tool builds a cylindrical section. Around the shaft ax
 
 Each marker surface gives the line of its intersection with the shaft wall - where the beds dip the lines are tilted and wavy. The axis is set by a collar point layer, the radius is in map units, the vertical scale is as in the section.
 
-## 4.10 Create a section example
+## 4.10 Example for a section (demo)
 
-The **Create a section example** tool prepares a complete training set for the **Cross-sections** group, so its tools can be tried without kriging real data. In the panel it stands last in the **Cross-sections** group.
+The **Example for a section (demo)** tool prepares a complete training set for the **Cross-sections** group, so its tools can be tried without kriging real data. In the panel it stands last in the **Cross-sections** group.
 
 A single run outputs the whole data set for the section group:
 
@@ -3245,7 +3245,7 @@ The pair of drilling-model layers is produced ready, by the same contract Geocon
 
 The demo reference does not colour the bed bands in 4.01, and that is how the lookup works rather than an omission. There a bed is determined by the names of the roof and floor layers, the role is stripped from a layer named **KpII_top**, the code **КрII** remains, and the reference is queried by it. The demo surfaces are named by plain numbers and carry no bed code, so the bands keep their default colours. On your own data, where the layers are named by bed codes, the same reference colours both the bands and the columns. **Collars** is a point layer with the collar elevation and the end of hole. **Intervals** is an ordinary table with depths along the hole from the collar and the bed code.
 
-So tool **4.02 Boreholes on the section** can be tried without your own data and without touching a database. Run 4.10, then 4.01 along any of the three lines, then 4.02 with that pair, the section definition and the demo reference, and the borehole columns get their colour and legend order. The boreholes stand along all three lines, so the columns land on any drawing. The same pair suits three-dimensional viewing unchanged, where the depth goes straight into Z, without a vertical scale or a layout offset.
+So tool **4.02 Boreholes on sections** can be tried without your own data and without touching a database. Run 4.10, then 4.01 along any of the three lines, then 4.02 with that pair, the section definition and the demo reference, and the borehole columns get their colour and legend order. The boreholes stand along all three lines, so the columns land on any drawing. The same pair suits three-dimensional viewing unchanged, where the depth goes straight into Z, without a vertical scale or a layout offset.
 
 ![The multiband bed-grid convention: bands 1-2 carry the geometry (roof and bottom), bands 3+ the parameters; one file feeds tool 4.03.](images/bed_grid_scheme_en.png){width=70%}
 
@@ -3579,19 +3579,23 @@ The table of probability discharges carries `prob` in percent and `q` in cubic m
 
 The curve on output carries `level` m, `area` m2, `width` m, `perim` m, `radius` m, `v` m/s, `q` m3/s, `n` dimensionless and `slope` m/m.
 
-The drawing footer holds the same and more. `depth_avg` is the mean depth in metres, `slope_ppm` the slope in per mille, `n_inv` the inverse of the roughness. `q_pct` is the share of the total discharge in percent, `part_no` the number of the part.
+The section drawing carries the fields `sec`, `km`, `kind` (the part of the drawing), `part`, `row`, `text` and `value`. A part line in it also carries the properties at the footer level:
 
-Ground elevations carry `dist` (the distance along the section in metres), `elev` (the elevation in metres) and `step` (the distance to the previous point in metres).
+- `level`, `width`, `area`, `perim`, `radius`, `v`, `q`, `n` and `slope` in the same units as the curve;
+- `depth_avg` - the mean depth in metres;
+- `q_pct` - the share of the total discharge in percent;
+- `part_no` - the number of the part;
+- `soil` and `cover` - soil and cover, they come empty and are filled in manually.
 
-Levels carry `level` m, `q` m3/s, `prob` percent, `label` (the caption) and `kind` (the kind of level, `prob` computed, `obs` observed).
+Ground elevations do not come out as a separate layer. The elevation lies in the Z of the profile vertices, and the labels are taken by a style from the geometry.
+
+Levels at the sections on the map carry `sec`, `level` m, `q` m3/s, `prob` percent, `label` (the caption) and `kind` (the kind of level, `prob` computed, `obs` observed).
 
 #### In what units
 
-The slope is dimensionless, the ratio of the fall to the length, metre per metre. In the fields and the parameters it is set exactly so, 0.0004 rather than in per mille. In the drawing footer the same slope is output as a separate field in per mille, because that is how report tables are written. 15.30 per mille in the footer is 0.0153 in the field of the section.
+The slope is dimensionless, the ratio of the fall to the length, metre per metre. In the fields and the parameters it is set exactly so, 0.0004 rather than in per mille.
 
 The roughness is set as the Manning coefficient, 0.030 for a clean channel and 0.070 for an overgrown floodplain. Strictly speaking the coefficient is not dimensionless, the dimension hides inside the formula, and that is why the formula is metric. The discharge comes out in cubic metres per second at an area in square metres and a radius in metres, while for feet the formula would require its own factor.
-
-In the footer the inverse of the coefficient goes next to it, because that is what is printed on a gauging section. 10.00 in the footer corresponds to 0.100 in the field of the section.
 
 Fields with the names of the contract are picked up without the user - sec, km, div_l, div_r, n_left, n_channel, n_right, slope. The picked ones are printed to the log. An explicit choice is always senior to what has been found.
 
@@ -3599,23 +3603,21 @@ Fields with the names of the contract are picked up without the user - sec, km, 
 
 Probability discharges - 1, 5, 10 percent - are supplied as a table of probability and discharge pairs. The tool does not compute them from observation series, that is hydrological statistics. For every discharge a level is found along the curve. The levels come out as lines in drawing coordinates, with ready labels of the UVV1% kind, the way they are put on a gauging section. A discharge above the curve gives a warning rather than an extrapolation.
 
-Observed levels are supplied by their own table, an elevation and a label. This is a measurement rather than a computation, it does not rely on the curve and lies next to the computed ones, in the manner of UV 472.90 X/2021. In the layer of levels such rows are marked kind=obs, the computed ones kind=prob, and the field gives them different styling.
+Observed levels are supplied by their own table, an elevation and a label. This is a measurement rather than a computation, it does not rely on the curve and lies next to the computed ones, in the manner of UV 472.90 X/2021. In the layer of levels on the map such rows are marked kind=obs, the computed ones kind=prob. In the section drawing they correspond to kind=level_obs and kind=level, and the field gives them different styling.
 
 ### The section drawing as one layer
 
-The whole drawing of a gauging section comes out as one layer - the profile, the division boundaries, the levels and the footer. The parts are told apart by the **kind** field, and the presentation is attached to it by a style. The sheet is set up once, and after that only the data change.
+The whole drawing of a gauging section comes out as one layer. It holds the profile by parts, the level lines and the vertical elevation scale, and a style draws the footer from the fields of the part lines. The parts are told apart by the **kind** field, and the presentation is attached to it by a style. The sheet is set up once, and after that only the data change.
 
-The ground elevation lies in the Z of the profile vertices, so a separate point layer for the labels is not needed. The vertical exaggeration is set by the **Vertical to horizontal scale ratio** parameter, ten by default, as gauging sections are drawn. The drawing is built in its own engineering coordinate system and is not tied to the terrain.
+The ground elevation lies in the Z of the profile vertices, so a separate point layer for the labels is not needed. The vertical exaggeration is set by the **Ratio of the scales, vertical to horizontal** parameter, ten by default, as gauging sections are drawn. The drawing is built in its own engineering coordinate system and is not tied to the terrain.
 
 ### The drawing footer
 
-The footer is not assembled from separate cells. The characteristics of a part at the footer level hang in the attributes of the part line itself. These are the width, mean depth, flow area, wetted perimeter and hydraulic
-radius. Then come the slope in per mille, the roughness coefficient and its
-inverse, the velocity, the discharge and the share of the total. The footer rows are drawn by a style over those fields, so editing the data needs no reassembly of the sheet.
+The footer is not assembled from separate cells. The characteristics of a part at the footer level hang in the attributes of the part line itself. These are the width, mean depth, flow area, wetted perimeter and hydraulic radius. Then come the slope, the roughness coefficient, the velocity, the discharge and the share of the total. The footer rows are drawn by a style over those fields, so editing the data needs no reassembly of the sheet.
 
-The level is set by the **Footer level** parameter. Without it the highest of the computed levels is taken, since a footer is computed on high water. The accepted level is printed to the log.
+The level is set by the **Level for the drawing footer** parameter. Without it the highest of the computed levels is taken, since a footer is computed on high water. The accepted level is printed to the log.
 
-Next to it go the ground elevations and distances - the bottom rows of the same drawing. The sheet is assembled by a print layout, the tool gives the data and the design lives in the template.
+The ground elevations are labelled by a style from the Z of the profile vertices. The sheet is assembled by a print layout, the tool gives the data and the design lives in the template.
 
 ### What matters about the method
 
@@ -3626,9 +3628,7 @@ The slope enters the discharge under a square root, so an error in it tells dire
 ### What comes out
 
 Out comes a table of the curve by parts and in total, with the area, width,
-perimeter, radius, velocity and discharge at every level. With it come the
-section profiles, the levels, the footer and the ground elevations as separate
-layers in drawing coordinates.
+perimeter, radius, velocity and discharge at every level. With it come **Section drawing as one layer** in drawing coordinates and **Levels at the sections on the map (for 6.02)** in map coordinates. **Rating curve plot (drawing)** is switched on separately.
 
 An HTML report is made for every section. It holds the profile with the levels and the division boundaries drawn on it.
 Then come a graph of discharge against level with the probability lines, a
@@ -3712,7 +3712,7 @@ The tool computes a fractal-dimension map of a surface by the variogram method, 
 
 A log-log variogram over lags of one to N cells is built in a sliding window. Its slope gives the Hurst exponent H, and the dimension is D = 3 - H. Smooth differentiable areas give D near 2, rugged and noisy ones tend to 3. The D values give the level of ruggedness, while their steps show the boundaries, bringing out zones of tectonic disturbance, block boundaries and changes of the roof relief character.
 
-The output is a D grid that feeds straight into **1.04 Isolines from a raster** for dimension isolines, and an advanced checkbox adds H as band 2. The global D and H over the whole surface are printed to the log.
+The output is a D grid that feeds straight into **1.04 Isolines from raster** for dimension isolines, and an advanced checkbox adds H as band 2. The global D and H over the whole surface are printed to the log.
 
 ### Reading the map
 
@@ -3726,7 +3726,7 @@ A small window (5-8 cells) reveals the microstructure and local disturbances, a 
 
 ### Workflow
 
-A bed roof from kriging → **7.01** with a window of 8 → the D grid. Then **1.04 Isolines from a raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS, and the demo surfaces fit as they are.
+A bed roof from kriging → **7.01** with a window of 8 → the D grid. Then **1.04 Isolines from raster** (band 1) → dimension isolines with belts over the structural plan. The global D from the log is one number per surface to compare areas or beds with each other. The raster must be in a metric CRS, and the demo surfaces fit as they are.
 
 ### Parameters
 
@@ -3831,7 +3831,7 @@ Until this tool the data from such programs had to be reduced to tables by hand.
 
 The outputs are optional. Switch off the ones you do not need, the file is parsed once either way.
 
-The surface comes out as 3D faces rather than as a mesh, and that is deliberate - such a layer is taken straight away by **4.06 Intersection of a TIN with a section**. Cross sections are placed on the ground across the alignment, and a line with elevations like that is what the tools of the **6. River hydrology** group take.
+The surface comes out as 3D faces rather than as a mesh, and that is deliberate - such a layer is taken straight away by **4.06 Intersect a TIN with the section**. Cross sections are placed on the ground across the alignment, and a line with elevations like that is what the tools of the **6. River hydrology** group take.
 
 Cadastral parcels, pipe networks, roadway objects, field observations and monuments are deliberately not read. These are other people's subject areas, and supporting them halfway is worse than not supporting them at all. When found in the file they are listed in the log.
 
@@ -3950,7 +3950,7 @@ Only a triangle counts as a face of a surface. Polygons with another vertex coun
 
 Layers in degrees are refused. LandXML holds plane coordinates, and degrees in it turn into nonsense.
 
-## 8.03 Create an example LandXML (demo)
+## 8.03 Example LandXML (demo)
 
 The tool writes a set of LandXML files holding one and the same terrain written in different ways. It serves two purposes. To check the reading against material whose answer is known in advance, and to see what a file coming from somebody else's program looks like.
 
@@ -4005,11 +4005,11 @@ After every step there is a line saying what should come out. If something else 
 
 Five minutes. Boreholes, samples, measurements, any irregular network of observations.
 
-**Step 1.** **1.10 Create sample boreholes (demo)**
+**Step 1.** **1.09 Example wells (demo)**
 Minimum - nothing to set, defaults are fine. If you have points of your own, skip the step.
 *You get* - a point layer in the project.
 
-**Step 2.** **1.02 2D Kriging (points to raster)**
+**Step 2.** **1.02 2D Kriging (points → raster)**
 Minimum - **Points**, **Value field**, **Cell size**. The rest by default.
 *You get* - a raster and a layer of standard error. The error grows where the points are sparse, and that is the first thing to look at.
 
@@ -4045,11 +4045,11 @@ Minimum - the accumulation raster from step 3, **Catchment threshold** in cells.
 Minimum - the **DEM** from step 1, **Search radius** in cells.
 *You get* - points of local maxima with elevations.
 
-**Step 6.** **2.02 Download topographic base by extent**
+**Step 6.** **2.02 Download base topography by extent**
 Minimum - the same **Extent**. From OSM take areal water bodies and dry channels, but not rivers and peaks. Those are already computed from the relief in steps 4 and 5 and agree with it, while from OSM they come from another source and may not match the matrix.
 *You get* - up to five layers in the Topography group.
 
-**Step 7.** **2.03 Topo2Raster (relief from vectors)**
+**Step 7.** **2.03 Topo2Raster (terrain from vectors)**
 Minimum - **Contours** from step 2 and the **elevation field**, **Streamlines** from step 4. Then **Spot heights** from step 5 and the elevation field, **Lakes and shoreline** from step 6 and the shoreline elevation field, and **Cell size**. Supply cliffs if the topographic base holds any.
 *You get* - a new relief raster built from typed vectors rather than from contours alone.
 
@@ -4075,7 +4075,7 @@ There are two ways to check against the truth. By eye - build isolines over the 
 
 Three minutes.
 
-**Step 1.** **4.10 Create a sample for the section**
+**Step 1.** **4.10 Example for a section (demo)**
 Minimum - nothing to set, defaults are fine.
 *You get* - a set of layers in the Section sample group.
 
@@ -4205,7 +4205,7 @@ A walkthrough of tools 3.07 and 3.08 from demo generation to a finished result, 
 
 ## Step 1. Generate the demo (3.08)
 
-Run **3.08 Create a density example (demo)**.
+Run **3.08 Example for density (demo)**.
 
 - **Extent** - the generation bounds. Set a rectangle on the map or by a layer. Any metric extent works, for example a square a few kilometres across.
 - **Auxiliary raster cell, m** - the step of the auxiliary raster for dasymetry. Default 50, enough for the demo.

@@ -24,15 +24,15 @@ interpolation, then Isoliner3D on the display.
 ### "1. Grid and isolines" group
 
 - **1.01 Declustering (weights)** — cell declustering (GSLIB declus): weights inverse to local density, a representative mean for reserves and SK. Auto or manual cell size, HTML report.
-- **1.02 2D Kriging (points -> raster)** — ordinary/simple kriging, point or block, with trend removal, the kriging standard error and outlier trimming. The core is GSLIB KB2D.
-- **1.03 Minimum curvature (points -> raster)** — a deterministic alternative to kriging without a variogram: biharmonic with tension, anisotropy. Common for geophysical field maps.
+- **1.02 2D Kriging (points → raster)** — ordinary/simple kriging, point or block, with trend removal, the kriging standard error and outlier trimming. The core is GSLIB KB2D.
+- **1.03 Minimum curvature (points → raster)** — a deterministic alternative to kriging without a variogram: biharmonic with tension, anisotropy. Common for geophysical field maps.
 - **1.04 Isolines from raster** — isolines (lines), contour polygons (bands between isolines) whose boundaries coincide with the lines, and belt solids as closed shells for volumes and the 3D scene.
 - **1.05 Variogram (experimental)** — an isotropic experimental variogram with model fitting (nugget, sill, range) and an HTML report. Accepts weights from 1.01.
 - **1.06 Variogram map (anisotropy)** — the γ(h_x, h_y) surface: anisotropy shows as an ellipse. Estimates the azimuth, the anisotropy ratio and the range for kriging.
 - **1.07 Variogram cross-validation** — leave-one-out control: tuning kriging parameters by the ME/RMSE/MSDR/R metrics rather than by eye.
 - **1.08 Method cross-validation (LOO)** — comparing methods (kriging or minimum curvature) Surfer-style: a random subset, area filters, a neighbor exclusion buffer, an HTML report.
-- **1.09 Create sample wells (demo)** — a training point layer: roof, thickness, grade, rock type, head, a drift surface.
-- **1.10 Create a geophysical-profiles example (demo)** — two modes: resistivity survey (an apparent-resistivity anomaly spot, SP, IP) and subsidence (a trough by survey rounds).
+- **1.09 Example wells (demo)** — a training point layer: roof, thickness, grade, rock type, head, a drift surface.
+- **1.10 Example geophysical profiles (demo)** — two modes: resistivity survey (an apparent-resistivity anomaly spot, SP, IP) and subsidence (a trough by survey rounds).
 
 ### "2. Topography" group
 
@@ -47,16 +47,16 @@ interpolation, then Isoliner3D on the display.
 - **2.09 Peaks and pits** — local extremes of both signs with two filters: the radius suppresses secondary tops, the relief threshold cuts off bumps and puddles. The elevation is written into the geometry Z: the spot points go to DXF together with the contours and remove the flat caps of a surface at closed contours.
 - **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Outputs gauge points for 2.15, ditch traces for 2.16 and, optionally, a pair of surfaces with work areas for 2.18.
 - **2.11 Split contours for validation** — splits a contour layer into a working and a held-out part for strict evaluation of the build: held-out lines do not go into the interpolation.
-- **2.12 Contour residuals against a DEM** — compares contour elevations with the built surface: reproduction and held-out control, a summary and a map of deviations.
-- **2.13 DEM terracing diagnostics** — vertical curvature as a marker of steps from contour lines: where the surface goes in terraces, it was built from contours with no relief in between.
+- **2.12 Contour residuals against the DEM** — compares contour elevations with the built surface: reproduction and held-out control, a summary and a map of deviations.
+- **2.13 Terracing check of a DEM** — vertical curvature as a marker of steps from contour lines: where the surface goes in terraces, it was built from contours with no relief in between.
 - **2.14 Remove steps (clamped smoothing)** — smoothing clamped by a tolerance to the source elevations, with an HTML report before and after: the steps go while the surface does not drift.
 - **2.15 Gauge point report** — watershed morphometry from a closure point: area, elevations, mean basin slope, length, fall and slope of the main stream. Polygons with attributes and an HTML report.
-- **2.16 Catchment. Lines and outlines (ditches, open pits)** — the area intercepted by a hillside ditch, a gutter or an open pit outline. A line is rasterised and taken as the intake, a polygon is treated as an intake in its entirety, the catchment is collected by flow. Burning the trace is a separate checkbox.
+- **2.16 Catchment of a line or an outline (ditches, open pits)** — the area intercepted by a hillside ditch, a gutter or an open pit outline. A line is rasterised and taken as the intake, a polygon is treated as an intake in its entirety, the catchment is collected by flow. Burning the trace is a separate checkbox.
 - **2.18 Cut and fill (earthwork volumes)** — volumes between two surfaces, or a surface and an elevation: fill, cut, balance. Grids are aligned bilinearly, the dead band cuts background noise, work areas are counted separately. A difference raster and an HTML statement.
 - **2.19 Crest and toe candidates** - the places where the slope changes fastest, traced into lines with the drop, the length and the kind in the attributes.
 - **2.20 Crests and toes into work** - elevations off the DEM, crest-toe forms by descending the slope, ready Top and Bottom inputs.
-- **2.21 Create a demo open pit** - a pit with benches, a ramp, a dump and a ditch plus the true structural lines as a reference.
-- **2.22 Elevations from adjoining contours** — elevations for structural lines from the contours they adjoin: an input for mute crests and toes without a DEM.
+- **2.21 Example open pit (demo)** - a pit with benches, a ramp, a dump and a ditch plus the true structural lines as a reference.
+- **2.22 Profiling of slopes** — elevations for structural lines from the contours they adjoin: an input for mute crests and toes without a DEM.
 - **2.23 Flow lines from points, lines and outlines** — where the water will run from a given place: downhill along D8 from every starting cell, stopping at a water body, at a watercourse by the accumulation threshold, at the edge of the sheet or at a merge with a trace already walked. It answers where the water from a dump or a site will go.
 
 ### "3. Additional analysis tools" group
@@ -68,12 +68,12 @@ interpolation, then Isoliner3D on the display.
 - **3.05 Specific discharge (Darcy law)** — from a head raster and K, T rasters computes the filtration velocity and the discharge per width.
 - **3.06 Gaussian simulation (SGS)** — an ensemble of equally probable realizations: E-type, standard deviation, P10/P50/P90 quantiles, exceedance probability.
 - **3.07 Density from measurements (variable support)** — a measurement is spread over its support (point+sigma, line corridor, polygon mask) with mass preserved, dasymetric refinement, effective sigma.
-- **3.08 Create a density example (demo)** — points, lines and polygons with a round total mass to verify the invariant.
+- **3.08 Example for density (demo)** — points, lines and polygons with a round total mass to verify the invariant.
 
 ### "4. Cross-sections" group
 
 - **4.01 Cross-section along a line** — a geological section along a line and a stack of surfaces: beds as bands, a distance×elevation drawing, a 3D fence of PolygonZ and surface lines. A single surface is a legitimate case: a section over the terrain without beds, with the frame bottom set by elevation. The order of the surfaces comes from the project layer tree. By default it builds a section for every line of the layer, with a layout of the drawings and a common vertical scale, the sections being told apart by the sec and sec_id fields.
-- **4.02 Boreholes on the section (drilling model)** — boreholes from a collar and interval layer pair (the minimal mining-package model) onto every drawing of the definition at once. Fields are found automatically by the contract names, collars are reprojected into the definition CRS, the tolerant reader reports a summary to the log, colours and a legend by code, clipping by the frame and by the drawing bands, collar labels from number, an optional 3D output.
+- **4.02 Boreholes on sections (drilling model)** — boreholes from a collar and interval layer pair (the minimal mining-package model) onto every drawing of the definition at once. Fields are found automatically by the contract names, collars are reprojected into the definition CRS, the tolerant reader reports a summary to the log, colours and a legend by code, clipping by the frame and by the drawing bands, collar labels from number, an optional 3D output.
 - **4.03 Bed composition on the section** — paints the bed band by a composition grid: continuous grade as slices, categorical rock type as facies zones.
 - **4.04 Intersect surfaces with the section** — surface grids onto the section as lines (aquifers, marker surfaces).
 - **4.05 Vector intersection with the section** — lines and polygons by exact intersection: a line without Z as a vertical, with Z as a point, a polygon as a band. Clipping from above by the terrain line and from below by the bottom line of the drawing, a per-feature bottom from a field, the attributes of the source layers carried onto the drawing.
@@ -81,7 +81,7 @@ interpolation, then Isoliner3D on the display.
 - **4.07 Project objects onto the section** — points, lines and polygons onto the section drawing, the elevation from 3D or a field.
 - **4.08 Unproject from the section** — the reverse projection of objects drawn on the section back into real coordinates with Z.
 - **4.09 Shaft wall unwrap (beta)** — a cylindrical section around an axis in arc-elevation axes.
-- **4.10 Create a section example** — a stack of surfaces, a line and boreholes with elevation fields, to try the section without kriging.
+- **4.10 Example for a section (demo)** — a stack of surfaces, a line and boreholes with elevation fields, to try the section without kriging.
 - **4.11 Bed reference template** — adds the bundled bed reference to the project (37 rows of the Verkhnekamskoye deposit): code, bedding order, body kind and colour. It is read by 4.01 and 4.02, and the band and column colours come from it.
 - **4.12 Attitude from an outcrop trace** — dip azimuth and dip angle from the trace of a surface on the relief: three trace points give a plane, the attitude goes into the attributes.
 
@@ -226,7 +226,7 @@ panel shows a short hint. The manual and the changelog are also reachable from t
 - **Save profile as** — save the validated model (with the set anisotropy) and
   outliers as a processing profile.
 
-### Create sample wells (demo)
+### Example wells (demo)
 - **Area (extent)** — by layer, by map canvas, by coordinates or by drawing.
 - **Number of wells**. **Min/max of value X**. Roof and thickness ranges
   (defaults as for the Kr-II seam).
@@ -327,6 +327,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.27** — the 6.01 help and manual section match what the tool outputs, the English names of the demo tools follow one pattern.
 - **5.13.26** — a language button on the toolbar.
 - **5.13.25** — the interface language and the help language are chosen separately, under Plugins - Isoliner - Language. They change at once, with no restart of QGIS.
 - **5.13.24** — the last "log" removed from the help, and a guard added for the terms visible in the dialog.
@@ -409,7 +410,7 @@ the last ten versions. The user manual (PDF) is
 - **4.37.0** — the style of the output layers is no longer overwritten by the grouping in the layer tree.
 - **4.36.0** — the styling of structural lines moved from QML into code, the drop probe base in 2.19 raised to 8 cells.
 - **4.35.0** — 2.20 "Crests and toes into work": elevations off the DEM, pairs by descending the slope, ready inputs for surface building.
-- **4.34.0** — 2.19 "Crest and toe candidates" and 2.21 "Create a demo open pit": the start of the structural-lines branch.
+- **4.34.0** — 2.19 "Crest and toe candidates" and 2.21 "Example open pit (demo)": the start of the structural-lines branch.
 - **4.33.0** — two checkboxes in 4.05: keep the name and keep the style of the source layer. A categorised geology colouring lands on the section as it is.
 - **4.32.0** — 3.01 got a "Nugget share" parameter: zero makes the estimate exact next to the data, and a borehole keeps its class in its own cell. The fitted nugget and range per class are printed to the log.
 - **4.31.0** — 4.05 clips zones and faults from below by the bottom line of the drawing, a pair to the clipping from above. The "beta" mark is off 4.07 and 4.08.
@@ -452,7 +453,7 @@ the last ten versions. The user manual (PDF) is
 - **4.3.0** — 4.02: column clipping by the drawing frame zmin and zmax from the definition, with a tolerance and a switch.
 - **4.2.0** — 4.02: the collar label comes from the number field of the collar layer, name and label are synonyms, hole_id stays in the attributes.
 - **4.1.1** — 4.02: collars are reprojected into the definition CRS on reading, with CRS and nearest collar diagnostics on screen.
-- **4.1.0** — the collar and interval drilling-data model and the new batch 4.02 Boreholes on the section (drilling model) tool: fields found automatically, a tolerant reader with a log summary, colours and a legend by code, input memory, a 3D output. Demo 4.10 outputs the collar and interval pair. The former 4.02 on the h1...h6 fields is removed.bilingual (EN/RU).
+- **4.1.0** — the collar and interval drilling-data model and the new batch 4.02 Boreholes on sections (drilling model) tool: fields found automatically, a tolerant reader with a log summary, colours and a legend by code, input memory, a 3D output. Demo 4.10 outputs the collar and interval pair. The former 4.02 on the h1...h6 fields is removed.bilingual (EN/RU).
 
 - **4.0.2** — fixed cross-section output (group 4): the drawing no longer falls off the map canvas in projects with local CRSs. Drawing layers now get an engineering CRS instead of an empty one. In 4.01 the surface order is taken from the project layer tree by default (manual order stays available via a checkbox).
 - **4.0.1** — fixed DEM georeferencing in 2.01 for CRSs with northing-easting axis order (GSK-2011 and other Gauss-Kruger, Krassovsky): the raster no longer flies to a mirror location, and "Zoom to layer" works. UTM was not affected.
@@ -474,7 +475,7 @@ the last ten versions. The user manual (PDF) is
 - **2.63.2** - adaptive output layer names on generation (1.11 by mode, section demo wells distinct from 1.10).
 - **2.63.1** - subsidence (1.11) capped at 2 m, uniform sign by choice, strict zeros at the edges.
 - **2.63.0** - tool 1.11 extended: electrical-prospecting mode (rho_k as a spot, SP, IP, z, rho_true) and subsidence mode (a trough across tours). The anomaly is now a spot, not a stripe.
-- **2.62.0** - new tool 1.11 "Create a geophysical-profiles example (demo)": electrical-prospecting profiles with pickets, rho_k (Ohm*m) and SP (mV), with a low-resistivity anomaly.
+- **2.62.0** - new tool 1.11 "Example geophysical profiles (demo)": electrical-prospecting profiles with pickets, rho_k (Ohm*m) and SP (mV), with a low-resistivity anomaly.
 - **2.61.0** — fractal tools moved into a separate group "5. Fractal analysis" (5.01-5.05), formerly in group 2. No logic changes.
 - **2.60.0** — declustering weights now also in cross-validations (1.07, 1.08 - weighted metrics) and indicator kriging (2.01 - indicator toward the declustered class proportion).
 - **2.59.0** — declustering weights (the wt field from 1.01) are now accepted by the variogram (1.05) and variogram map (1.06): pairs are weighted so clusters do not inflate the near lags.
@@ -483,7 +484,7 @@ the last ten versions. The user manual (PDF) is
 - **2.57.0** — cross-validation report (1.5, 1.9): a Best-fit regression line on the estimate-vs-fact plot plus its slope/intercept/angle in the metrics (a range-bias indicator).
 - **2.56.1** — trimmed unused subpackages from the bundled pyqtgraph (console, flowchart, multiprocess, exporters, configfile), clearing security-scanner warnings.
 - **2.56.0** — new tool 1.9 "Method cross-validation (LOO)": leave-one-out control for kriging and minimum curvature, with an error layer and an HTML report.
-- **2.55.0** — new tool 1.8 "Minimum curvature (points -> raster)": biharmonic-with-tension gridding, a deterministic alternative to kriging.
+- **2.55.0** — new tool 1.8 "Minimum curvature (points → raster)": biharmonic-with-tension gridding, a deterministic alternative to kriging.
 - **2.54.0** — tool 4.07: the suite loads as separate per-bed layers (visibility control) with gentler folds; the standalone "Folded bed" example was removed.
 - **2.53.0** — tool 4.07: the suite is now folded beds, each a separate feature coloured individually in 3D, with adaptive layer names. 3D viewer: framing accounts for the exaggerated height.
 - **2.52.0** — 3D viewer: a section contour of bodies cut by the section plane, and boreholes drawn as cylinders with intervals coloured by lithology.
@@ -582,8 +583,8 @@ the last ten versions. The user manual (PDF) is
 - **2.13.0** — a new tool **Bed composition on a section** (3.4): colours a bed band by a composition grid along the line (continuous content as a gradient, categorical mineral type as facies zones). The section demo now also outputs composition grids of the industrial beds.
 - **2.12.1** — the section demo was extended to six surfaces (five beds: three host and two industrial).
 - **2.12.0** — a new tool **Boreholes on a section** (3.3): projects boreholes onto the line and draws columns of bed intervals on top of the drawing. The section example generator now also outputs boreholes.
-- **2.11.1** — the section tools were moved to a new **"Cross-sections"** group: Cross-section along a line is now 3.1, Create a section example is 3.2.
-- **2.11.0** — a new tool **Create a section example** (1.8): prepares surfaces and a line for a quick try of the cross-section along a line.
+- **2.11.1** — the section tools were moved to a new **"Cross-sections"** group: Cross-section along a line is now 3.1, Example for a section (demo) is 3.2.
+- **2.11.0** — a new tool **Example for a section (demo)** (1.8): prepares surfaces and a line for a quick try of the cross-section along a line.
 - **2.10.0** — a new tool **Cross-section along a line** (2.6): from a line and a set of surfaces it builds a geological section (beds between roof and floor). Two outputs: a distance × elevation drawing for a layout and a 3D fence for the 3D Map View.
 - **2.9.3** — the "Value transform" (ln) list in 2D Kriging was moved under the Z field, closer and more visible.
 - **2.9.2** — downhill hachures (the "hachures down" style): fixed direction on QGIS 4 (the line-offset sign convention changed there relative to QGIS 3). QGIS 3 unchanged.

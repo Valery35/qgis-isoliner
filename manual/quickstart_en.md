@@ -12,11 +12,11 @@ After every step there is a line saying what should come out. If something else 
 
 Five minutes. Boreholes, samples, measurements, any irregular network of observations.
 
-**Step 1.** **1.10 Create sample boreholes (demo)**
+**Step 1.** **1.09 Example wells (demo)**
 Minimum: nothing to set, defaults are fine. If you have points of your own, skip the step.
 *You get:* a point layer in the project.
 
-**Step 2.** **1.02 2D Kriging (points to raster)**
+**Step 2.** **1.02 2D Kriging (points → raster)**
 Minimum: **Points**, **Value field**, **Cell size**. The rest by default.
 *You get:* a raster and a layer of standard error. The error grows where the points are sparse, and that is the first thing worth looking at.
 
@@ -52,13 +52,13 @@ Minimum: the accumulation raster from step 3, **Catchment threshold** in cells. 
 Minimum: the **DEM** from step 1, **Search radius** in cells.
 *You get:* points of local maxima with elevations.
 
-**Step 6.** **2.02 Download topographic base by extent**
+**Step 6.** **2.02 Download base topography by extent**
 Minimum: the same **Extent**. From OSM take areal water bodies and dry channels, but not rivers and peaks.
 Those are already computed from the relief in steps 4 and 5 and agree with it.
 From OSM they would come from another source and may not match the matrix.
 *You get:* up to five layers in the Topography group.
 
-**Step 7.** **2.03 Topo2Raster (relief from vectors)**
+**Step 7.** **2.03 Topo2Raster (terrain from vectors)**
 Minimum: **Contours** from step 2 and the **elevation field**, **Streamlines** from step 4, **Spot heights** from step 5 and the elevation field, **Lakes and shoreline** from step 6 and the shoreline elevation field, **Cell size**. Supply cliffs if the topographic base holds any.
 *You get:* a new relief raster built from typed vectors rather than from contours alone.
 
@@ -66,7 +66,7 @@ Minimum: **Contours** from step 2 and the **elevation field**, **Streamlines** f
 Minimum: **Contours** from step 2, the **elevation field**, the **DEM** from step 7.
 *You get:* a point layer of residuals and an HTML report. Look at the mean offset and at the share of points that missed by more than half the interval.
 
-**Step 9.** **2.13 DEM terracing check**
+**Step 9.** **2.13 Terracing check of a DEM**
 Minimum: the **DEM** from step 7 and the **Contour interval**, the same as in step 2.
 *You get:* the index of attraction of elevations to the levels. Near one means there are no steps, two and above means terracing.
 
@@ -86,11 +86,11 @@ and part only on the summits above the last contour. By number: the raster calcu
 
 Three minutes.
 
-**Step 1.** **4.10 Create a sample for the section**
+**Step 1.** **4.10 Example for a section (demo)**
 Minimum: nothing to set, defaults are fine.
 *You get:* a set of layers in the Section sample group.
 
-**Step 2.** **4.01 Section along a line**
+**Step 2.** **4.01 Cross-section along a line**
 Minimum: **Section line**, **Surfaces top to bottom**, **Vertical scale**.
 *You get:* a section drawing in engineering coordinates, with axes, elevations and bands of the beds.
 
