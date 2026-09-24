@@ -148,7 +148,7 @@ GROUP5 = _tr("7. Фрактальный анализ")
 GROUP5_ID = "fractal_analysis"
 GROUP_EXCHANGE = _tr("8. Обмен данными")
 GROUP_EXCHANGE_ID = "exchange"
-GROUP_SUBS = _tr("9. Сдвижение")
+GROUP_SUBS = _tr("9. Сдвижения")
 GROUP_SUBS_ID = "subsidence"
 
 MODEL_LABELS = [_tr("Сферическая"), _tr("Экспоненциальная"), _tr("Гауссова"), _tr("Степенная")]
@@ -425,9 +425,136 @@ _KEEP_ALIVE = []
 _PP_PATHS = set()    # пути выходов, на которые уже повешен пост-процессор
 
 
-def _finalize_layer(layer, history):
+def _apply_field_labels(layer, labels):
+    """Русские (или английские, по языку интерфейса) псевдонимы полей.
+
+    Имена полей не меняются: на них ссылаются выражения, подписи и стили, и
+    проект, собранный в русском QGIS, обязан открываться в английском.
+    Псевдоним ставится на уровне слоя, поэтому работает и для временных
+    слоёв. Поле, у которого псевдоним уже есть, не трогается."""
+    if not labels or layer is None:
+        return
+    try:
+        flds = layer.fields()
+    except (AttributeError, RuntimeError):
+        return
+    for name, label in labels.items():
+        try:
+            if name.endswith("*"):
+                # поля с переменным хвостом: cov_kcl, cov_mgcl2 и т. п.
+                prefix = name[:-1]
+                for i in range(flds.count()):
+                    fname = flds.at(i).name()
+                    if fname.startswith(prefix) and len(fname) > len(prefix) \
+                            and not layer.attributeAlias(i):
+                        layer.setFieldAlias(i, label % fname[len(prefix):])
+                continue
+            i = flds.indexOf(name)
+            if i >= 0 and not layer.attributeAlias(i):
+                layer.setFieldAlias(i, label)
+        except (AttributeError, RuntimeError, TypeError):
+            continue
+
+
+def _input_field_names(alg, parameters, context):
+    """Поля всех векторных входов прогона: имя -> псевдоним ("" если нет).
+
+    Поле с именем, как у входного, модуль своей подписью не подписывает:
+    это поле пользователя, или оно пришло транзитом из другого слоя. Если у
+    входного поля псевдоним есть, выход получает тот же. Так подпись идёт
+    за полем по цепочке (4.01 -> 4.02, 9.03 -> 9.01), а поле пользователя
+    остаётся подписанным так, как подписал его пользователь."""
+    names = {}
+
+    def _take(layer_like):
+        flds = layer_like.fields()
+        for i in range(flds.count()):
+            nm = flds.at(i).name()
+            alias = ""
+            try:
+                alias = layer_like.attributeAlias(i) or ""
+            except (AttributeError, RuntimeError):
+                alias = flds.at(i).alias() or ""
+            if alias or nm not in names:
+                names[nm] = alias
+
+    for pdef in alg.parameterDefinitions():
+        if pdef.isDestination():
+            continue
+        try:
+            lyr = None
+            if isinstance(pdef, (QgsProcessingParameterFeatureSource,
+                                 QgsProcessingParameterVectorLayer)):
+                lyr = alg.parameterAsVectorLayer(parameters, pdef.name(),
+                                                 context)
+                if lyr is None and isinstance(
+                        pdef, QgsProcessingParameterFeatureSource):
+                    lyr = alg.parameterAsSource(parameters, pdef.name(),
+                                                context)
+                if lyr is not None:
+                    _take(lyr)
+            elif isinstance(pdef, QgsProcessingParameterMultipleLayers):
+                for lyr in alg.parameterAsLayerList(parameters, pdef.name(),
+                                                    context) or []:
+                    if hasattr(lyr, "fields"):
+                        _take(lyr)
+        except Exception:  # nosec - вход без полей или недоступен
+            continue
+    return names
+
+
+def _pending_loads(context):
+    """Ключи слоёв, ждущих загрузки по окончании прогона."""
+    try:
+        return set(context.layersToLoadOnCompletion().keys())
+    except (AttributeError, RuntimeError):
+        return set()
+
+
+def _attach_field_labels(alg, parameters, context, result, before=None):
+    """Повесить псевдонимы полей из FIELD_LABELS инструмента на все его
+    загружаемые выходы.
+
+    Выходы берутся двумя путями: из словаря результатов и из списка слоёв,
+    которые встали в очередь загрузки за этот прогон. Второй путь ловит
+    выходы, которых в словаре нет (слой отсеянных проб, слой пропусков).
+    Поле с именем, как у входного, получает псевдоним входа или ничего."""
+    labels = getattr(alg, "FIELD_LABELS", None) or {}
+    inputs = _input_field_names(alg, parameters, context)
+    table = {k: _tr(v) for k, v in labels.items() if k not in inputs}
+    table.update({k: a for k, a in inputs.items() if a})
+    if not table:
+        return
+    targets = []
+    if isinstance(result, dict):
+        targets = [v for v in result.values() if isinstance(v, str) and v]
+    if before is not None:
+        targets += sorted(_pending_loads(context) - set(before))
+    seen = set()
+    for value in targets:
+        if value in seen:
+            continue
+        seen.add(value)
+        try:
+            if not context.willLoadLayerOnCompletion(value):
+                continue
+            det = context.layerToLoadOnCompletionDetails(value)
+            pp = det.postProcessor()
+            if pp is None:
+                pp = _FinalizePostProcessor([])
+                _KEEP_ALIVE.append(pp)
+                det.setPostProcessor(pp)
+                _PP_PATHS.add(value)
+            pp.field_labels = table
+        except (AttributeError, RuntimeError, TypeError):
+            continue
+
+
+def _finalize_layer(layer, history, labels=None):
     """Общее для всех выходов: свернуть узел растра в дереве (чтобы стопка гридов
-    не раздувала панель слоёв) и записать историю создания в метаданные слоя."""
+    не раздувала панель слоёв), записать историю создания в метаданные слоя и
+    поставить псевдонимы полей."""
+    _apply_field_labels(layer, labels)
     try:
         from qgis.core import QgsRasterLayer
         if isinstance(layer, QgsRasterLayer):
@@ -457,7 +584,7 @@ class _FinalizePostProcessor(QgsProcessingLayerPostProcessorInterface):
         self.group = group
 
     def postProcessLayer(self, layer, context, feedback):
-        _finalize_layer(layer, self.history)
+        _finalize_layer(layer, self.history, getattr(self, "field_labels", None))
         if self.order is None or not self.group:
             return
         try:
@@ -531,7 +658,8 @@ class _RolePostProcessor(QgsProcessingLayerPostProcessorInterface):
     def postProcessLayer(self, layer, context, feedback):
         # только запоминаем id и откладываем перестановку на после загрузки
         # всех слоёв (через очередь событий) - так дерево стабильно
-        _finalize_layer(layer, getattr(self, "history", []))
+        _finalize_layer(layer, getattr(self, "history", []),
+                        getattr(self, "field_labels", None))
         try:
             if self.role == "lines":
                 self.state.lines_id = layer.id()
@@ -578,7 +706,8 @@ class _StylePostProcessor(QgsProcessingLayerPostProcessorInterface):
         self.renderer = renderer
 
     def postProcessLayer(self, layer, context, feedback):
-        _finalize_layer(layer, getattr(self, "history", []))
+        _finalize_layer(layer, getattr(self, "history", []),
+                        getattr(self, "field_labels", None))
         try:
             if self.style_path and os.path.exists(self.style_path):
                 layer.loadNamedStyle(self.style_path)
@@ -636,7 +765,8 @@ class _CategorizedPostProcessor(QgsProcessingLayerPostProcessorInterface):
         self.cats = cats            # список (значение, '#rrggbb', подпись)
 
     def postProcessLayer(self, layer, context, feedback):
-        _finalize_layer(layer, getattr(self, "history", []))
+        _finalize_layer(layer, getattr(self, "history", []),
+                        getattr(self, "field_labels", None))
         try:
             if self.style_path and os.path.exists(self.style_path):
                 layer.loadNamedStyle(self.style_path)
@@ -703,7 +833,8 @@ class _BreakStylePostProcessor(QgsProcessingLayerPostProcessorInterface):
         return sym
 
     def postProcessLayer(self, layer, context, feedback):
-        _finalize_layer(layer, getattr(self, "history", []))
+        _finalize_layer(layer, getattr(self, "history", []),
+                        getattr(self, "field_labels", None))
         try:
             if self.solid:
                 from qgis.core import QgsSingleSymbolRenderer
@@ -832,7 +963,8 @@ class _GradedPostProcessor(QgsProcessingLayerPostProcessorInterface):
         self.digits = digits
 
     def postProcessLayer(self, layer, context, feedback):
-        _finalize_layer(layer, getattr(self, "history", []))
+        _finalize_layer(layer, getattr(self, "history", []),
+                        getattr(self, "field_labels", None))
         try:
             if self.style_path and os.path.exists(self.style_path):
                 layer.loadNamedStyle(self.style_path)
@@ -891,20 +1023,20 @@ def _attach_gradient(context, path, style_path, field, vmin, vmax):
 
 
 class _AliasPostProcessor(QgsProcessingLayerPostProcessorInterface):
-    """Ставит псевдонимы полей на загруженный слой - но только если слой
-    постоянный. Временные (memory) слои псевдонимы не хранят и QGIS на каждую
-    попытку пишет предупреждение «не совместимы с временными слоями»; для них
-    оставляем исходные имена полей (они и так читаемые)."""
+    """Ставит псевдонимы полей на загруженный слой, постоянный или временный.
+
+    Предупреждение «не совместимы с временными слоями» QGIS пишет, когда
+    псевдоним стоит на поле в приёмнике (QgsField.setAlias до записи). Здесь
+    псевдоним ставится слою после загрузки, это свойство слоя в проекте, и
+    временному слою оно не мешает. Проверено с 5.13.31."""
     def __init__(self, aliases):
         super().__init__()
         self.aliases = aliases
 
     def postProcessLayer(self, layer, context, feedback):
-        _finalize_layer(layer, getattr(self, "history", []))
+        _finalize_layer(layer, getattr(self, "history", []),
+                        getattr(self, "field_labels", None))
         try:
-            prov = layer.dataProvider()
-            if prov is not None and prov.name() == "memory":
-                return
             flds = layer.fields()
             for name, alias in self.aliases.items():
                 i = flds.indexOf(name)
@@ -2824,7 +2956,9 @@ class IsolinerAlgorithm(QgsProcessingAlgorithm):
         trace.data("Параметры: %s" % self._short_params(parameters))
         started = time.time()
         try:
+            pending = _pending_loads(context)
             result = self._process(parameters, context, feedback)
+            _attach_field_labels(self, parameters, context, result, pending)
             trace.step("Готово за %.1f с" % (time.time() - started))
             return result
         except Exception as exc:
@@ -2863,6 +2997,12 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
 
     _MODES = ("auto", "manual")
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "wt": "Вес декластеризации",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return DeclusteringAlgorithm()
     def name(self): return "declustering"
@@ -2879,14 +3019,14 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
             "обратный локальной плотности, и считает представительное "
             "декластеризованное среднее. В скоплении вес меньше, на разрежённых "
             "участках больше. Это ячеистая декластеризация, порт GSLIB declus.\n\nРазмер "
-            "ячейки подбирается свипом по размерам либо задаётся вручную. На "
+            "ячейки подбирается перебором размеров либо задаётся вручную. На "
             "регулярной сети декластеризация ничего не меняет, веса выходят "
             "равными.\n\nВыход: слой точек с полем весов wt и HTML-отчёт. В отчёте "
             "сводка, две гистограммы значений, исходная и взвешенная, и кривая "
             "среднего от размера ячейки. Декластеризованное среднее идёт в подсчёт "
             "запасов и в поле «Среднее для простого кригинга» инструмента 1.02. Поле "
             "wt подаётся в гауссову симуляцию 3.06 для взвешенной гистограммы.\n\n**Цель "
-            "свипа** задаёт, что считать правильным при переборе размера ячейки. "
+            "перебора** задаёт, что считать правильным при переборе размера ячейки. "
             "Минимум среднего берут, когда сгущение сети попало в богатую зону. Без "
             "весов среднее тогда завышено, и правильным считается тот размер, при "
             "котором оно минимально. Максимум среднего это зеркальный случай, когда "
@@ -2910,7 +3050,7 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.ZFIELD, None), optional=True))
         self.addParameter(QgsProcessingParameterEnum(
             self.MODE, self.tr("Размер ячейки"),
-            options=[self.tr("Авто (свип по размеру)"),
+            options=[self.tr("Авто (перебор размеров)"),
                      self.tr("Ручной размер")],
             defaultValue=_dv(self, self.MODE, 0)))
         self.addParameter(QgsProcessingParameterNumber(
@@ -2918,12 +3058,12 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.CELL_SIZE, 0.0), minValue=0.0))
         self.addParameter(_advanced(QgsProcessingParameterEnum(
-            self.OBJECTIVE, self.tr("Цель свипа"),
+            self.OBJECTIVE, self.tr("Цель перебора"),
             options=[self.tr("Минимум среднего (скопления в богатом)"),
                      self.tr("Максимум среднего (скопления в бедном)")],
             defaultValue=_dv(self, self.OBJECTIVE, 0))))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.NCELL, self.tr("Количество размеров в свипе"),
+            self.NCELL, self.tr("Сколько размеров перебрать"),
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.NCELL, 24), minValue=3, maxValue=200)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
@@ -3055,6 +3195,12 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
     BLOCK, BLOCK_DISC = "BLOCK", "BLOCK_DISC"
 
     SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "reason": "Причина отбраковки",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return Kriging2DAlgorithm()
@@ -3294,6 +3440,17 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
     PROB_LEVELS, PROB_CLASS = "PROB_LEVELS", "PROB_CLASS"
     PROB_DENSIFY, PROB_SMOOTH = "PROB_DENSIFY", "PROB_SMOOTH"
     OUTPUT_LINES, OUTPUT_BANDS = "OUTPUT_LINES", "OUTPUT_BANDS"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "ID": "Номер",
+        "P": "Вероятность",
+        "class": "Класс",
+        "P_MIN": "Вероятность от",
+        "P_MAX": "Вероятность до",
+        "band": "Номер пояса",
+    }
 
     def tr(self, s): return _tr(s)
     def helpUrl(self): return _help_url()
@@ -3919,6 +4076,20 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
     _STYLE_MAP = [None, "iso_structure", "iso_depression"]
     _STYLE_LABELS = ["Без стиля", "Структура / гипсометрия",
                      "Депрессия (штрихи вниз)"]
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "ID": "Номер",
+        "ELEV": "Значение изолинии",
+        "is_index": "Утолщённая (1 = да)",
+        "ELEV_MIN": "Нижняя граница пояса",
+        "ELEV_MAX": "Верхняя граница пояса",
+        "shell": "Замкнутое тело (1 = да)",
+        "drop_min": "Наименьший перепад на ячейку",
+        "drop_mean": "Средний перепад на ячейку",
+        "lowconf": "Слабые данные (1 = да)",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return RasterToIsolinesAlgorithm()
@@ -5002,6 +5173,22 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
     OUTPUT_FAULT = "OUTPUT_FAULT"
     OUTPUT_DRIFT = "OUTPUT_DRIFT"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "well": "Скважина",
+        "roof": "Отметка кровли, м",
+        "thick": "Мощность, м",
+        "X": "Содержание X, %",
+        "head": "Напор, м",
+        "K": "Коэффициент фильтрации K, м/сут",
+        "T": "Водопроводимость T, м²/сут",
+        "mintype": "Минеральный тип",
+        "dz": "Значение для дрейфа dz",
+        "name": "Название",
+        "throw": "Амплитуда разлома",
+    }
+
     def tr(self, s): return _tr(s)
 
     def helpUrl(self): return _help_url()
@@ -5338,11 +5525,15 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
                 "поверхностью. Запустите «Кригинг с внешним дрейфом» по полю dz "
                 "с этим растром как дрейфом - сравните с обычным «2D Kriging» "
                 "по dz без дрейфа."))
+        if fsink is not None:
+            results[self.OUTPUT_FAULT] = fdest
         _set_output_name(context, dest, _tr("Скважины (демо)"))
-        # псевдонимы полей на демо-слое не ставим: этот слой создан, чтобы
-        # подавать его в кригинг/кросс-валидацию, а псевдонимы на временном
-        # слое вызывают предупреждения «не совместимы с временными слоями»
-        # при дальнейшей обработке. Имена полей (well, roof, thick, X) понятны.
+        # Псевдонимы полей (FIELD_LABELS) ставятся и временному слою. Цена
+        # известна: если такой слой подать в инструмент, который копирует
+        # поля во временный выход (буфер, выборка), QGIS пишет по каждому
+        # полю «Aliases are not compatible with scratch layers». Это только
+        # предупреждение, расчёт идёт. Русские подписи в таблице важнее, а
+        # кому предупреждения мешают, сохраняет демо-слой в файл.
         feedback.setProgress(100)
         _set_group(context, GRP_WELLS_DEMO, list(results.values()), history=_provenance(self, parameters))
         return results
@@ -5552,6 +5743,22 @@ class GeophysProfilesDemoAlgorithm(IsolinerAlgorithm):
     OUTPUT = "OUTPUT"
 
     _MODES = ("electro", "subsidence")
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "profile": "Профиль",
+        "picket_m": "Пикет, м",
+        "pk": "Пикет (ПК)",
+        "z": "Отметка z, м",
+        "rho_k": "ρк, Ом·м",
+        "rho_true": "ρк без шума, Ом·м",
+        "sp": "ЕП, мВ",
+        "vp": "ВП, мВ/В",
+        "tour": "Тур",
+        "settle": "Оседание, мм",
+        "settle_true": "Оседание без шума, мм",
+    }
 
     def tr(self, s): return _tr(s)
     def helpUrl(self): return _help_url()
@@ -6731,6 +6938,16 @@ class DensityDemoAlgorithm(IsolinerAlgorithm):
     OUT_POLYGONS, OUT_AUX = "OUT_POLYGONS", "OUT_AUX"
     CELL_AUX = "CELL_AUX"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "mass": "Масса",
+        "prec": "Размытие σ, м",
+        "from_m": "Начало участка, м",
+        "to_m": "Конец участка, м",
+        "dasy": "Дазиметрия (1 = да)",
+    }
+
     def tr(self, s): return _tr(s)
     def helpUrl(self): return _help_url()
     def name(self): return "densitydemo"
@@ -6880,6 +7097,29 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
 
     FIT_LABELS = [_tr("Авто (лучшая по R²)"), _tr("Сферическая"),
                   _tr("Экспоненциальная"), _tr("Гауссова")]
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "series": "Серия",
+        "lag": "Лаг (расстояние)",
+        "gamma": "Полувариограмма γ",
+        "npairs": "Пар точек",
+        "profile": "Профиль обработки",
+        "field": "Поле значения",
+        "struct": "Номер структуры",
+        "model": "Модель (код)",
+        "sill": "Силл",
+        "range": "Радиус влияния",
+        "azimuth": "Азимут, °",
+        "anis": "Анизотропия",
+        "nugget": "Наггет C0",
+        "val_pct": "Перцентиль обрезки проб, %",
+        "val_cap": "Срезать к границе",
+        "fitted": "Дата подбора",
+        "author": "Автор",
+        "note": "Примечание",
+    }
 
     def tr(self, s): return _tr(s)
 
@@ -7622,6 +7862,13 @@ class FlowGradientAlgorithm(IsolinerAlgorithm):
     VECTOR_STEP = "VECTOR_STEP"
     OUTPUT, OUTPUT_AZIMUTH, OUTPUT_VECTORS = "OUTPUT", "OUTPUT_AZIMUTH", "OUTPUT_VECTORS"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "az": "Азимут потока, °",
+        "grad": "Градиент, м/м",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return FlowGradientAlgorithm()
     def name(self): return "flow_gradient"
@@ -7786,6 +8033,12 @@ class ExternalDriftKrigingAlgorithm(IsolinerAlgorithm):
     CELL_SIZE, EXTENT, OUTPUT = "CELL_SIZE", "EXTENT", "OUTPUT"
     OUTPUT_STDERR = "OUTPUT_STDERR"
     SMOOTH, SMOOTH_RADIUS = "SMOOTH", "SMOOTH_RADIUS"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "reason": "Причина отбраковки",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return ExternalDriftKrigingAlgorithm()
@@ -8057,6 +8310,15 @@ class DarcyFluxAlgorithm(IsolinerAlgorithm):
     SMOOTH_RADIUS, VECTOR_STEP = "SMOOTH_RADIUS", "VECTOR_STEP"
     OUTPUT_Q, OUTPUT_QW = "OUTPUT_Q", "OUTPUT_QW"
     OUTPUT_AZIMUTH, OUTPUT_VECTORS = "OUTPUT_AZIMUTH", "OUTPUT_VECTORS"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "az": "Азимут потока, °",
+        "q": "Удельный расход",
+        "kind": "Вид величины",
+        "units": "Единицы",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return DarcyFluxAlgorithm()
@@ -8335,6 +8597,17 @@ class PlastReferenceTemplateAlgorithm(IsolinerAlgorithm):
 
     OUTPUT = "OUTPUT"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "code": "Код пласта",
+        "order": "Порядок в колонке",
+        "body": "Вид тела",
+        "color": "Цвет",
+        "strata": "Толща",
+        "note": "Примечание",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return PlastReferenceTemplateAlgorithm()
     def name(self): return "plast_reference_template"
@@ -8417,6 +8690,17 @@ class AttitudeFromTraceAlgorithm(IsolinerAlgorithm):
     MINPLAN = "MINPLAN"
     OUTPUT = "OUTPUT"
     SKIPPED = "SKIPPED"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "dip": "Угол падения, °",
+        "dip_az": "Азимут падения, °",
+        "planar": "Плоскостность (0-1)",
+        "rms": "Отклонение от плоскости, м",
+        "n_pts": "Точек",
+        "reason": "Причина пропуска",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return AttitudeFromTraceAlgorithm()
@@ -8597,6 +8881,38 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
     FAULT, MARKER, ZONE = "FAULT", "MARKER", "ZONE"
     TIN = "TIN"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "name": "Название",
+        "dip": "Угол падения, °",
+        "dip_az": "Азимут падения, °",
+        "app_exp": "Ожидаемый видимый угол, °",
+        "dip_true": "Истинный угол падения, °",
+        "az_true": "Истинный азимут падения, °",
+        "note": "Примечание",
+        "hole_id": "Скважина",
+        "z": "Отметка устья, м",
+        "eoh": "Глубина забоя, м",
+        "from": "Глубина от, м",
+        "to": "Глубина до, м",
+        "code": "Код пласта",
+        "kcl": "KCl, %",
+        "md": "Глубина по стволу, м",
+        "azi": "Азимут, °",
+        "inc": "Зенитный угол, °",
+        "order": "Порядок в колонке",
+        "body": "Вид тела",
+        "color": "Цвет",
+        "strata": "Толща",
+        "h1": "Поверхность 1, м",
+        "h2": "Поверхность 2, м",
+        "h3": "Поверхность 3, м",
+        "h4": "Поверхность 4, м",
+        "h5": "Поверхность 5, м",
+        "h6": "Поверхность 6, м",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionDemoAlgorithm()
     def name(self): return "section_demo"
@@ -8770,6 +9086,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             "4.01 он не красит. Там пласт ищется по именам слоёв поверхностей, а "
             "поверхности демо кода пласта не несут.")
             % len(codes))
+        return dest
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
@@ -9064,7 +9381,10 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
         codes = ["Q", "В1", "Пр1", "В2", "Пр2", "В3"]
         if not _step(feedback, 55, _tr("Разрезы и структурные элементы готовы.")):
             return {}
-        self._write_demo_reference(parameters, context, feedback, codes)
+        ref_dest = self._write_demo_reference(parameters, context, feedback,
+                                              codes)
+        if ref_dest:
+            results[self.REFDEMO] = ref_dest
 
         if csink is not None and isink is not None:
             kcl_of = {"Пр1": grade1, "Пр2": grade2}
@@ -9351,6 +9671,36 @@ class SectionAlgorithm(IsolinerAlgorithm):
     ZTOP = "ZTOP"
     TICK_STEP = "TICK_STEP"
     OUTPUT_TABLE = "OUTPUT_TABLE"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "sec": "Разрез",
+        "sec_id": "Номер разреза",
+        "bed": "Номер пласта",
+        "top": "Поверхность кровли",
+        "bot": "Поверхность подошвы",
+        "t_mean": "Средняя мощность, м",
+        "seclen": "Длина разреза, м",
+        "color": "Цвет",
+        "elev": "Отметка, м",
+        "label": "Подпись",
+        "num": "Номер",
+        "name": "Название",
+        "pos": "Положение",
+        "d": "Расстояние по разрезу, м",
+        "x": "X",
+        "y": "Y",
+        "az": "Азимут, °",
+        "vex": "Вертикальное преувеличение",
+        "step": "Шаг выборки, м",
+        "zmin": "Низ рамки, м",
+        "zmax": "Верх рамки, м",
+        "ox": "Сдвиг чертежа по X",
+        "oy": "Сдвиг чертежа по Y",
+        "kind": "Вид строки",
+        "text": "Текст",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionAlgorithm()
@@ -10168,6 +10518,15 @@ class CompositionOnSectionAlgorithm(IsolinerAlgorithm):
     DEF = "DEF"
     OUTPUT_2D, OUTPUT_3D = "OUTPUT_2D", "OUTPUT_3D"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "value": "Среднее значение",
+        "class": "Класс",
+        "d0": "Начало среза по разрезу, м",
+        "d1": "Конец среза по разрезу, м",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return CompositionOnSectionAlgorithm()
     def name(self): return "composition_on_section"
@@ -10577,6 +10936,14 @@ class SectionGridIntersectAlgorithm(IsolinerAlgorithm):
     LINE_DEF, GRIDS, STEP, SAMPLING = "LINE_DEF", "GRIDS", "STEP", "SAMPLING"
     OUTPUT, OUTPUT_3D = "OUTPUT", "OUTPUT_3D"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "sec": "Разрез",
+        "sec_id": "Номер разреза",
+        "surface": "Поверхность",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionGridIntersectAlgorithm()
     def name(self): return "section_intersect_grids"
@@ -10727,6 +11094,22 @@ class SectionVectorIntersectAlgorithm(IsolinerAlgorithm):
     TRACELEN = "TRACELEN"
     THIN = "THIN"
     OUT_LINES, OUT_POINTS, OUT_BANDS = "OUT_LINES", "OUT_POINTS", "OUT_BANDS"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "sec": "Разрез",
+        "sec_id": "Номер разреза",
+        "src": "Исходный слой",
+        "label": "Подпись",
+        "d": "Расстояние по разрезу, м",
+        "z": "Отметка, м",
+        "dip": "Истинный угол падения, °",
+        "dip_az": "Азимут падения, °",
+        "app_dip": "Видимый угол падения, °",
+        "d1": "Начало по разрезу, м",
+        "d2": "Конец по разрезу, м",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionVectorIntersectAlgorithm()
@@ -11419,6 +11802,17 @@ class SectionTinIntersectAlgorithm(IsolinerAlgorithm):
     FIELDS = "FIELDS"
     SNAP_TOL = "SNAP_TOL"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "sec": "Разрез",
+        "sec_id": "Номер разреза",
+        "src": "Исходный слой",
+        "closed": "Замкнуто (1 = да)",
+        "gap": "Зазор в концах",
+        "area": "Площадь сечения",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionTinIntersectAlgorithm()
     def name(self): return "section_intersect_tin"
@@ -11764,6 +12158,14 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
     KEEPNAME, KEEPSTYLE = "KEEPNAME", "KEEPSTYLE"
     ALL_SECTIONS = "ALL_SECTIONS"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "sec": "Разрез",
+        "sec_id": "Номер разреза",
+        "offset": "Отступ от линии разреза, м",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionProjectAlgorithm()
     def name(self): return "section_project_objects"
@@ -11983,6 +12385,15 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
     LINE_DEF, INPUT, OUTPUT = "LINE_DEF", "INPUT", "OUTPUT"
     AS_POINTS, SRC_FIELD = "AS_POINTS", "SRC_FIELD"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "sec": "Разрез",
+        "sec_id": "Номер разреза",
+        "offset": "Отступ от линии разреза, м",
+        "src": "Исходный слой",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return SectionUnprojectAlgorithm()
     def name(self): return "section_unproject"
@@ -12173,6 +12584,12 @@ class ShaftUnwrapAlgorithm(IsolinerAlgorithm):
     ASTEP, VMODE, VEXAG, SAMPLING = "ASTEP", "VMODE", "VEXAG", "SAMPLING"
     OUTPUT = "OUTPUT"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "surface": "Поверхность",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return ShaftUnwrapAlgorithm()
     def name(self): return "shaft_unwrap"
@@ -12344,6 +12761,24 @@ class DrillholesOnSectionAlgorithm(IsolinerAlgorithm):
     OUTPUT, OUTPUT_STICKS = "OUTPUT", "OUTPUT_STICKS"
     OUTPUT_LABELS, OUTPUT_3D = "OUTPUT_LABELS", "OUTPUT_3D"
     OUTPUT_ANCHORS = "OUTPUT_ANCHORS"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "sec": "Разрез",
+        "sec_id": "Номер разреза",
+        "ztop": "Отметка кровли интервала, м",
+        "zbot": "Отметка подошвы интервала, м",
+        "offset": "Отступ от линии разреза, м",
+        "ccolor": "Цвет интервала",
+        "label": "Подпись",
+        "hole_id": "Скважина",
+        "z": "Отметка устья, м",
+        "eoh": "Глубина забоя, м",
+        "from": "Глубина от, м",
+        "to": "Глубина до, м",
+        "code": "Код пласта",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return DrillholesOnSectionAlgorithm()
@@ -14159,6 +14594,14 @@ class StackBuildAlgorithm(IsolinerAlgorithm):
     CONTACT, CONTACT_CODE, THIN = "CONTACT", "CONTACT_CODE", "THIN"
     FOLDER, OUTPUT_THICK = "FOLDER", "OUTPUT_THICK"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "hole_id": "Скважина",
+        "code": "Код пласта",
+        "thick": "Мощность, м",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return StackBuildAlgorithm()
     def name(self): return "stack_build"
@@ -14743,6 +15186,15 @@ class ManifestAlgorithm(IsolinerAlgorithm):
     LAYERS, WRITE, CLEAR = "LAYERS", "WRITE", "CLEAR"
     OUTPUT = "OUTPUT"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "layer": "Слой",
+        "layer_id": "Код слоя",
+        "role": "Роль",
+        "source": "Источник",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return ManifestAlgorithm()
     def name(self): return "model_manifest"
@@ -15039,6 +15491,30 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
     SURVEY = "SURVEY"
     OUTCROP, OUTCROP_LINE = "OUTCROP", "OUTCROP_LINE"
     CONTACT_LINE = "CONTACT_LINE"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "hole_id": "Скважина",
+        "z": "Отметка, м",
+        "eoh": "Глубина забоя, м",
+        "azimuth": "Азимут, °",
+        "dip": "Наклон оси, °",
+        "kind": "Вид",
+        "from": "Глубина от, м",
+        "to": "Глубина до, м",
+        "code": "Код пласта",
+        "entry": "Номер вскрытия",
+        "md": "Глубина по стволу, м",
+        "weight": "Вес",
+        "npt": "Точек в линии",
+        "source": "Источник",
+        "bed": "Пласт",
+        "note": "Примечание",
+        "order": "Порядок в колонке",
+        "body": "Вид тела",
+        "color": "Цвет",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return StackDemoAlgorithm()
@@ -15821,6 +16297,39 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
     PLOT_STEP_H, PLOT_STEP_Q = "PLOT_STEP_H", "PLOT_STEP_Q"
     OUTPUT_DRAW = "OUTPUT_DRAW"
     VEXAG = "VEXAG"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "sec": "Створ",
+        "km": "Километраж, км",
+        "div_l": "Граница левой поймы, м",
+        "div_r": "Граница правой поймы, м",
+        "n_left": "Шероховатость левой поймы",
+        "n_channel": "Шероховатость русла",
+        "n_right": "Шероховатость правой поймы",
+        "slope": "Уклон",
+        "level": "Уровень, м",
+        "part": "Часть сечения",
+        "area": "Площадь сечения, м²",
+        "width": "Ширина, м",
+        "perim": "Смоченный периметр, м",
+        "radius": "Гидравлический радиус, м",
+        "n": "Шероховатость n",
+        "v": "Скорость, м/с",
+        "q": "Расход, м³/с",
+        "kind": "Вид элемента",
+        "row": "Строка подвала",
+        "text": "Текст",
+        "value": "Значение",
+        "depth_avg": "Средняя глубина, м",
+        "q_pct": "Доля расхода, %",
+        "part_no": "Номер участка",
+        "soil": "Грунт",
+        "cover": "Покрытие",
+        "prob": "Обеспеченность, %",
+        "label": "Подпись",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return RatingCurveAlgorithm()
@@ -16869,6 +17378,27 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
     OUTPUT_DEM, OUTPUT_TABLE = "OUTPUT_DEM", "OUTPUT_TABLE"
     OUTPUT_PROB, OUTPUT_OBS = "OUTPUT_PROB", "OUTPUT_OBS"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "sec": "Створ",
+        "km": "Километраж, км",
+        "div_l": "Граница левой поймы, м",
+        "div_r": "Граница правой поймы, м",
+        "n_left": "Шероховатость левой поймы",
+        "n_channel": "Шероховатость русла",
+        "n_right": "Шероховатость правой поймы",
+        "slope": "Уклон",
+        "z_bed": "Отметка дна, м",
+        "dist": "Расстояние, м",
+        "elev": "Отметка, м",
+        "level": "Уровень, м",
+        "area": "Площадь сечения, м²",
+        "q": "Расход, м³/с",
+        "label": "Подпись",
+        "prob": "Обеспеченность, %",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return DemoRiverAlgorithm()
     def name(self): return "demo_river"
@@ -17107,6 +17637,14 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
     CURVE, Q, SECFLD = "CURVE", "Q", "SECFLD"
     MIN_AREA = "MIN_AREA"
     OUTPUT, OUTPUT_DEPTH = "OUTPUT", "OUTPUT_DEPTH"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "level": "Уровень воды, м",
+        "area_m2": "Площадь, м²",
+        "dmax": "Наибольшая глубина, м",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return FloodExtentAlgorithm()
@@ -17490,6 +18028,20 @@ class ImportSectionTableAlgorithm(IsolinerAlgorithm):
     KMFLD, AZIMUTH, CRS, EXTENT = "KMFLD", "AZIMUTH", "CRS", "EXTENT"
     SPACING = "SPACING"
     OUTPUT = "OUTPUT"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "sec": "Створ",
+        "km": "Километраж, км",
+        "div_l": "Граница левой поймы, м",
+        "div_r": "Граница правой поймы, м",
+        "n_left": "Шероховатость левой поймы",
+        "n_channel": "Шероховатость русла",
+        "n_right": "Шероховатость правой поймы",
+        "slope": "Уклон",
+        "npt": "Точек в профиле",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return ImportSectionTableAlgorithm()
@@ -17929,6 +18481,13 @@ class LineDimensionAlgorithm(IsolinerAlgorithm):
     LINES = "LINES"
     OUTPUT = "OUTPUT"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "D": "Размерность D",
+        "steps": "Шагов циркуля",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return LineDimensionAlgorithm()
     def name(self): return "line_dimension"
@@ -18035,6 +18594,13 @@ class MinkowskiDimensionAlgorithm(IsolinerAlgorithm):
     N_SIZES, OFFSETS, DENSIFY = "N_SIZES", "OFFSETS", "DENSIFY"
     OUTPUT = "OUTPUT"
     OUT_D, OUT_R2 = "OUT_D", "OUT_R2"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "D_mink": "Размерность Минковского",
+        "D_r2": "Качество аппроксимации R²",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return MinkowskiDimensionAlgorithm()
@@ -18184,6 +18750,13 @@ class FractalDemoAlgorithm(IsolinerAlgorithm):
     EXTENT = "EXTENT"
     SEED = "SEED"
     OUT_RIVERS, OUT_BASIN, OUT_COAST = "OUT_RIVERS", "OUT_BASIN", "OUT_COAST"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "order": "Порядок притока",
+        "name": "Название",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return FractalDemoAlgorithm()
@@ -18595,6 +19168,17 @@ class TopobaseDownloadAlgorithm(IsolinerAlgorithm):
     OUT_BREAKS = "OUT_BREAKS"
     OUT_COASTLINE = "OUT_COASTLINE"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "name": "Название",
+        "osm_id": "Код объекта OSM",
+        "waterway": "Тип водотока",
+        "water": "Тип водоёма",
+        "ele": "Отметка, м",
+        "kind": "Вид",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return TopobaseDownloadAlgorithm()
     def name(self): return "topobase_download"
@@ -18918,6 +19502,12 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
     WORKZONES = "WORKZONES"
     PAD_FRAC = "PAD_FRAC"
     PAD_DZ = "PAD_DZ"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "name": "Название",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return TopoDemoReliefAlgorithm()
@@ -19285,6 +19875,7 @@ class _CollapseNodePostProcessor(QgsProcessingLayerPostProcessorInterface):
     свой экземпляр (см. _topo_group_layer)."""
 
     def postProcessLayer(self, layer, context, feedback):
+        _apply_field_labels(layer, getattr(self, "field_labels", None))
         try:
             project = context.project()
             if project is None or layer is None:
@@ -19336,6 +19927,7 @@ class _OrderInGroupPostProcessor(QgsProcessingLayerPostProcessorInterface):
         self.collapse = collapse
 
     def postProcessLayer(self, layer, context, feedback):
+        _apply_field_labels(layer, getattr(self, "field_labels", None))
         try:
             project = context.project()
             if project is None or layer is None:
@@ -19599,6 +20191,14 @@ class RiverNetworkAlgorithm(IsolinerAlgorithm):
     EPSILON = "EPSILON"
     OUTPUT = "OUTPUT"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "order": "Порядок Стралера",
+        "acc_out": "Аккумуляция в замыкании, ячеек",
+        "length_m": "Длина, м",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return RiverNetworkAlgorithm()
     def name(self): return "river_network"
@@ -19692,6 +20292,13 @@ class BasinsAlgorithm(IsolinerAlgorithm):
     EPSILON = "EPSILON"
     OUT_POLY = "OUT_POLY"
     OUT_RASTER = "OUT_RASTER"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "basin": "Бассейн",
+        "area_m2": "Площадь, м²",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return BasinsAlgorithm()
@@ -19940,6 +20547,13 @@ class GaugeReportAlgorithm(IsolinerAlgorithm):
     EPSILON = "EPSILON"
     OUT_POLY = "OUT_POLY"
     OUTPUT_HTML = "OUTPUT_HTML"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "gauge": "Створ",
+        "src_id": "Номер исходного объекта",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return GaugeReportAlgorithm()
@@ -20297,6 +20911,14 @@ class CatchmentStatsAlgorithm(IsolinerAlgorithm):
     STREAM = "STREAM"
     OUT_POLY = "OUT_POLY"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "basin": "Водосбор",
+        "area_m2": "Площадь, м²",
+        "outlet": "Замыкание водосбора",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return CatchmentStatsAlgorithm()
     def name(self): return "catchment_stats"
@@ -20578,6 +21200,22 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
     KEEP_FIELDS = "KEEP_FIELDS"
     OUT_POLY = "OUT_POLY"
     OUTPUT_HTML = "OUTPUT_HTML"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "ditch": "Объект",
+        "src_id": "Номер исходного объекта",
+        "trace_km": "Длина трассы или контура, км",
+        "seed_km2": "Площадь приёмника, км²",
+        "trace_cells": "Ячеек приёмника",
+        "area_km2": "Площадь водосбора, км²",
+        "z_mean": "Средняя высота, м",
+        "z_min": "Минимальная высота, м",
+        "z_max": "Максимальная высота, м",
+        "slope_deg": "Средний уклон водосбора, градусы",
+        "cells": "Ячеек в водосборе",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return DitchCatchmentAlgorithm()
@@ -21032,6 +21670,14 @@ class PeaksAlgorithm(IsolinerAlgorithm):
     RADIUS = "RADIUS"
     MIN_DROP = "MIN_DROP"
     OUTPUT = "OUTPUT"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "z": "Отметка, м",
+        "drop": "Перепад, м",
+        "kind": "Вершина или яма",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return PeaksAlgorithm()
@@ -21885,6 +22531,12 @@ class ContourSplitAlgorithm(IsolinerAlgorithm):
     EVERY, OFFSET = "EVERY", "OFFSET"
     OUTPUT_BUILD, OUTPUT_CHECK = "OUTPUT_BUILD", "OUTPUT_CHECK"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "hold": "Для проверки (1 = да)",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return ContourSplitAlgorithm()
     def name(self): return "contoursplit"
@@ -22027,6 +22679,17 @@ class ContourResidualAlgorithm(IsolinerAlgorithm):
     CONTOURS, FIELD, DEM = "CONTOURS", "FIELD", "DEM"
     BAND, STEP, SAMPLING, INTERVAL = "BAND", "STEP", "SAMPLING", "INTERVAL"
     OUTPUT, OUTPUT_HTML = "OUTPUT", "OUTPUT_HTML"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "fid_src": "Номер горизонтали",
+        "elev": "Отметка горизонтали, м",
+        "z_dem": "Отметка ЦМР, м",
+        "resid": "Невязка, м",
+        "abs_resid": "Модуль невязки, м",
+        "hold": "Для проверки (1 = да)",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return ContourResidualAlgorithm()
@@ -22919,6 +23582,20 @@ class CutFillAlgorithm(IsolinerAlgorithm):
     OUTPUT_DIFF = "OUTPUT_DIFF"
     OUTPUT_HTML = "OUTPUT_HTML"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "fill_vol": "Объём насыпи, м³",
+        "cut_vol": "Объём выемки, м³",
+        "net_vol": "Баланс, м³",
+        "fill_area": "Площадь насыпи, м²",
+        "cut_area": "Площадь выемки, м²",
+        "max_fill": "Наибольшая насыпь, м",
+        "max_cut": "Наибольшая выемка, м",
+        "cells": "Ячеек",
+        "verdict": "Вывод",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return CutFillAlgorithm()
     def name(self): return "cutfill"
@@ -23336,6 +24013,15 @@ class BreaklineCandidatesAlgorithm(IsolinerAlgorithm):
     PROBE = "PROBE"
     OUTPUT = "OUTPUT"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "kind": "Вид линии",
+        "drop": "Перепад поперёк, м",
+        "length_m": "Длина, м",
+        "slope_deg": "Средний уклон сторон, °",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return BreaklineCandidatesAlgorithm()
     def name(self): return "breakline_candidates"
@@ -23462,6 +24148,14 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
     TOP = "TOP"
     BOTTOM = "BOTTOM"
     ORPHANS = "ORPHANS"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "kind": "Вид линии",
+        "link": "Пара",
+        "reason": "Причина",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return BreaklinePairsAlgorithm()
@@ -23798,6 +24492,13 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
     OUTPUT = "OUTPUT"
     SKIPPED = "SKIPPED"
     KEEP_GEOM = "KEEP_GEOM"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "n_samples": "Опорных точек",
+        "reason": "Причина пропуска",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return SnapElevationsAlgorithm()
@@ -24231,6 +24932,13 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
     OUTPUT = "OUTPUT"
     TRUTH = "TRUTH"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "kind": "Тип линии",
+        "link": "Пара",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return TopoDemoPitAlgorithm()
     def name(self): return "topo_demo_pit"
@@ -24457,6 +25165,20 @@ class DownhillTraceAlgorithm(IsolinerAlgorithm):
     SMOOTH = "SMOOTH"
     KEEP_FIELDS = "KEEP_FIELDS"
     OUTPUT = "OUTPUT"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "src_id": "Номер исходного объекта",
+        "cells": "Ячеек",
+        "steep_m": "Крутой участок, м",
+        "length_m": "Длина пути, м",
+        "drop_m": "Перепад, м",
+        "slope": "Средний уклон",
+        "z_start": "Отметка начала, м",
+        "z_end": "Отметка конца, м",
+        "reason": "Причина остановки",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return DownhillTraceAlgorithm()
@@ -24815,6 +25537,23 @@ class LandXmlReadAlgorithm(IsolinerAlgorithm):
     OUT_ALIGN = "OUT_ALIGN"
     OUT_PROFILE = "OUT_PROFILE"
     OUT_XSECT = "OUT_XSECT"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "name": "Имя",
+        "code": "Код съёмки",
+        "desc": "Описание",
+        "z": "Отметка, м",
+        "npts": "Точек",
+        "surface": "Поверхность",
+        "tri": "Номер грани",
+        "sta_start": "Пикет начала",
+        "length_m": "Длина, м",
+        "align": "Трасса",
+        "sta": "Пикет",
+        "surf": "Поверхность сечения",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return LandXmlReadAlgorithm()
@@ -25467,6 +26206,17 @@ class BedGradesAtCollarsAlgorithm(IsolinerAlgorithm):
                                          "COMPONENTS")
     BED, MIN_COVER, OUTPUT = "BED", "MIN_COVER", "OUTPUT"
 
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "hole_id": "Скважина",
+        "bed": "Пласт",
+        "len_m": "Мощность по стволу, м",
+        "cover": "Охват пробами, доля",
+        "n_samp": "Проб",
+        "cov_*": "Охват по %s, доля",
+    }
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return BedGradesAtCollarsAlgorithm()
     def name(self): return "bed_grades_at_collars"
@@ -25737,7 +26487,7 @@ class BedGradesAtCollarsAlgorithm(IsolinerAlgorithm):
         return {self.OUTPUT: dest}
 
 
-# --- 9. Сдвижение ------------------------------------------------------------
+# --- 9. Сдвижения ------------------------------------------------------------
 
 def _subs_sign_and_scale(z, units, sign, tr, feedback):
     """Привести растр оседаний к метрам со знаком «плюс вниз».
@@ -25782,6 +26532,25 @@ class SubsidenceTiltCurvatureAlgorithm(IsolinerAlgorithm):
     OUT_KMIN = "OUT_KMIN"
     OUT_INT = "OUT_INT"
     OUT_PTS = "OUT_PTS"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "profile": "Профильная линия",
+        "rep1": "Репер начала",
+        "rep2": "Репер конца",
+        "length_m": "Длина интервала, м",
+        "tilt": "Наклон по реперам, мм/м",
+        "tilt_grid": "Наклон по гриду, мм/м",
+        "d_tilt": "Расхождение наклона, мм/м",
+        "reper": "Репер",
+        "dist_m": "Расстояние по профилю, м",
+        "eta_mm": "Оседание, мм",
+        "curv": "Кривизна по реперам, 10⁻⁶ 1/м",
+        "curv_grid": "Кривизна по гриду, 10⁻⁶ 1/м",
+        "d_curv": "Расхождение кривизны, 10⁻⁶ 1/м",
+        "radius_km": "Радиус кривизны, км",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return SubsidenceTiltCurvatureAlgorithm()
@@ -25935,7 +26704,7 @@ class SubsidenceTiltCurvatureAlgorithm(IsolinerAlgorithm):
                 return None
             a = np.where(np.isfinite(arr), arr * scale, nd).astype(np.float32)
             _topo_write_raster(path, a, gt, proj, gdal.GDT_Float32, nodata=nd)
-            _topo_group_layer(context, path, self.tr("Сдвижение"))
+            _topo_group_layer(context, path, self.tr("Сдвижения"))
             return path
 
         results = {}
@@ -26097,12 +26866,12 @@ class SubsidenceTiltCurvatureAlgorithm(IsolinerAlgorithm):
         if idest:
             _set_output_name(context, idest,
                              self.tr("Наклоны по интервалам реперов"))
-            _topo_group_layer(context, idest, self.tr("Сдвижение"),
+            _topo_group_layer(context, idest, self.tr("Сдвижения"),
                               collapse=False)
             out[self.OUT_INT] = idest
         if pdest:
             _set_output_name(context, pdest, self.tr("Кривизна в реперах"))
-            _topo_group_layer(context, pdest, self.tr("Сдвижение"),
+            _topo_group_layer(context, pdest, self.tr("Сдвижения"),
                               collapse=False)
             out[self.OUT_PTS] = pdest
         return out
@@ -26123,6 +26892,16 @@ class SubsidenceHorizontalAlgorithm(IsolinerAlgorithm):
     REDUCE = "REDUCE"
     OUT_EPS = "OUT_EPS"
     OUT_MEAS = "OUT_MEAS"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "l0_m": "Начальная длина, м",
+        "l1_m": "Текущая длина, м",
+        "eps": "Деформация по интервалу, мм/м",
+        "eps_est": "Оценка по кривизне, мм/м",
+        "d_eps": "Расхождение, мм/м",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return SubsidenceHorizontalAlgorithm()
@@ -26258,7 +27037,7 @@ class SubsidenceHorizontalAlgorithm(IsolinerAlgorithm):
                 nd = -9999.0
                 a = np.where(np.isfinite(eps), eps * 1000.0, nd).astype(np.float32)
                 _topo_write_raster(path, a, gt, proj, gdal.GDT_Float32, nodata=nd)
-                _topo_group_layer(context, path, self.tr("Сдвижение"))
+                _topo_group_layer(context, path, self.tr("Сдвижения"))
                 results[self.OUT_EPS] = path
             if np.isfinite(eps).any():
                 feedback.pushInfo(self.tr(
@@ -26333,7 +27112,7 @@ class SubsidenceHorizontalAlgorithm(IsolinerAlgorithm):
         if dest:
             _set_output_name(context, dest,
                              self.tr("Горизонтальные деформации по интервалам"))
-            _topo_group_layer(context, dest, self.tr("Сдвижение"),
+            _topo_group_layer(context, dest, self.tr("Сдвижения"),
                               collapse=False)
             out[self.OUT_MEAS] = dest
         return out
@@ -26349,10 +27128,25 @@ class SubsidenceDemoAlgorithm(IsolinerAlgorithm):
     BOUNDARY = "BOUNDARY"
     CELL = "CELL"
     STEP = "STEP"
+    PERIOD = "PERIOD"
+    PREV = "PREV"
     CRS = "CRS"
     EXTENT = "EXTENT"
     OUTPUT = "OUTPUT"
+    OUT_RATE = "OUT_RATE"
     REPERS = "REPERS"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "profile": "Профильная линия",
+        "order": "Номер по профилю",
+        "reper": "Репер",
+        "eta_mm": "Оседание, мм",
+        "eta_prev_mm": "Оседание в предыдущем туре, мм",
+        "rate_mm_y": "Скорость оседания, мм/год",
+        "z": "Относительная координата z",
+    }
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return SubsidenceDemoAlgorithm()
@@ -26378,8 +27172,15 @@ class SubsidenceDemoAlgorithm(IsolinerAlgorithm):
             "только предупреждает.\n\n**Максимальное оседание** задаётся в метрах. "
             "Оседание в растре пишется в миллиметрах со знаком минус, как разность "
             "отметок в журнале нивелирования, чтобы 9.01 проверялся и на знаке.\n\n"
-            "Второй выход это реперы двух профильных линий по главным сечениям I-I и "
-            "II-II через центр мульды, с полями profile, order, reper, eta_mm и z "
+            "**Срок между турами** и **Доля предыдущего тура** добавляют к примеру "
+            "скорости. Предыдущий тур берётся как та же мульда, умноженная на долю, "
+            "поэтому за срок мульда углубилась на оставшуюся часть. Скорость идёт "
+            "вторым растром в миллиметрах в год и полем rate_mm_y у реперов, знак "
+            "тот же, что у оседания. При доле 0 вся мульда считается образовавшейся "
+            "за один срок.\n\n"
+            "Третий выход это реперы двух профильных линий по главным сечениям I-I и "
+            "II-II через центр мульды, с полями profile, order, reper, eta_mm, "
+            "eta_prev_mm, rate_mm_y и z "
             "(относительная координата в полумульде). **Шаг реперов** по умолчанию "
             "L/10, как в п. 4.26.2 Указаний. При таком шаге наклоны и кривизна по "
             "реперам совпадают с формулами Указаний точно, а при H около 357 м (L = "
@@ -26416,6 +27217,15 @@ class SubsidenceDemoAlgorithm(IsolinerAlgorithm):
             self.STEP, self.tr("Шаг реперов, м (0 = L/10)"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.STEP, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.PERIOD, self.tr("Срок между турами, мес"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.PERIOD, 12.0), minValue=0.1))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.PREV, self.tr("Доля предыдущего тура"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.PREV, 0.9), minValue=0.0,
+            maxValue=0.999)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.CELL, self.tr("Размер ячейки, м"),
             QgsProcessingParameterNumber.Type.Double,
@@ -26427,6 +27237,8 @@ class SubsidenceDemoAlgorithm(IsolinerAlgorithm):
             self.EXTENT, self.tr("Куда положить (охват)"), optional=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Демо-мульда: оседание, мм")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_RATE, self.tr("Демо-мульда: скорость оседания, мм/год")))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.REPERS, self.tr("Реперы профильных линий (демо)"),
             QgsProcessing.SourceType.TypeVectorPoint))
@@ -26438,9 +27250,12 @@ class SubsidenceDemoAlgorithm(IsolinerAlgorithm):
         eta_max = self.parameterAsDouble(parameters, self.ETA, context)
         boundary = self.parameterAsEnum(parameters, self.BOUNDARY, context)
         step = self.parameterAsDouble(parameters, self.STEP, context)
+        period = self.parameterAsDouble(parameters, self.PERIOD, context)
+        prev_k = self.parameterAsDouble(parameters, self.PREV, context)
         cell = self.parameterAsDouble(parameters, self.CELL, context)
         crs = self.parameterAsCrs(parameters, self.CRS, context)
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+        rate_path = self.parameterAsOutputLayer(parameters, self.OUT_RATE, context)
         feedback.pushInfo(_version_line())
         if crs.isGeographic():
             raise QgsProcessingException(self.tr("Нужна метрическая СК."))
@@ -26482,7 +27297,19 @@ class SubsidenceDemoAlgorithm(IsolinerAlgorithm):
                                   origin_x=origin_x, origin_y=origin_y)
         _set_output_name(context, out_path,
                          self.tr("Демо-мульда: оседание, мм"))
-        _topo_group_layer(context, out_path, self.tr("Сдвижение"))
+        _topo_group_layer(context, out_path, self.tr("Сдвижения"))
+        years = period / 12.0
+        rate = eta * (1.0 - prev_k) / years
+        demo_relief.write_geotiff((-rate * 1000.0).astype(np.float32), rate_path,
+                                  gdal, osr, cell=cell, epsg=epsg, wkt=wkt,
+                                  origin_x=origin_x, origin_y=origin_y)
+        _set_output_name(context, rate_path,
+                         self.tr("Демо-мульда: скорость оседания, мм/год"))
+        _topo_group_layer(context, rate_path, self.tr("Сдвижения"))
+        feedback.pushInfo(self.tr(
+            "Скорость: предыдущий тур %.0f %% мульды, срок %.1f мес, наибольшая "
+            "скорость %.1f мм/год.")
+            % (prev_k * 100.0, period, float(rate.max()) * 1000.0 + 0.0))
         feedback.pushInfo(self.tr(
             "Мульда: H = %.1f м, L = %.1f м, дно %.1f x %.1f м, растр %d x %d "
             "ячеек по %.2f м.")
@@ -26493,6 +27320,8 @@ class SubsidenceDemoAlgorithm(IsolinerAlgorithm):
         fields = QgsFields()
         for nm, tp in (("profile", QVariant.String), ("order", QVariant.Int),
                        ("reper", QVariant.String), ("eta_mm", QVariant.Double),
+                       ("eta_prev_mm", QVariant.Double),
+                       ("rate_mm_y", QVariant.Double),
                        ("z", QVariant.Double)):
             fields.append(QgsField(nm, tp))
         sink, dest = self.parameterAsSink(
@@ -26518,7 +27347,10 @@ class SubsidenceDemoAlgorithm(IsolinerAlgorithm):
                 ft = QgsFeature(fields)
                 ft.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
                 ft.setAttributes([prof, i + 1, "%s-%d" % (prof, i + 1),
-                                  round(-e * 1000.0, 3), round(min(zrel, 1.0), 4)])
+                                  round(-e * 1000.0, 3),
+                                  round(-e * prev_k * 1000.0, 3),
+                                  round(-e * (1.0 - prev_k) * 1000.0 / years, 3),
+                                  round(min(zrel, 1.0), 4)])
                 sink.addFeature(ft)
                 n_rep += 1
                 if p >= 0:
@@ -26536,8 +27368,9 @@ class SubsidenceDemoAlgorithm(IsolinerAlgorithm):
         feedback.pushInfo(self.tr("Реперов на двух профилях: %d, шаг %.2f м.")
                           % (n_rep, step))
         _set_output_name(context, dest, self.tr("Реперы профильных линий (демо)"))
-        _topo_group_layer(context, dest, self.tr("Сдвижение"), collapse=False)
-        return {self.OUTPUT: out_path, self.REPERS: dest}
+        _topo_group_layer(context, dest, self.tr("Сдвижения"), collapse=False)
+        return {self.OUTPUT: out_path, self.OUT_RATE: rate_path,
+                self.REPERS: dest}
 
 
 ALGORITHMS = [

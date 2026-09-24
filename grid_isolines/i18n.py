@@ -1263,7 +1263,7 @@ TRANSLATIONS = {
     "Создаёт синтетический рельеф: наклонная равнина, холмы, извилистая долина с постоянным падением. Рельеф детерминирован по зерну. Между холмами осознанно остаются локальные понижения, чтобы инструменту заполнения было что показывать. Служебный инструмент для примеров руководства и работы без сети, живые данные даёт инструмент 2.01. Выход: GeoTIFF float32 (или int16 флажком) в группе Топография.\n\nФлажок **Овражно-балочная сеть** врезает в рельеф тальвеги с крутыми бортами и отвершками под острым углом. Это самая трудная проверка для построения рельефа по горизонталям. Узкий врез между соседними горизонталями срезается, и на профиле поперёк оврага это видно сразу. Такой рельеф нужен как проверочный набор для инструментов 2.11 и 2.12.\n\nЗаодно выдаются три демо-точки створов возле тальвегов, нарочно сдвинутые в сторону от водотока. Это готовый вход для инструмента 2.15 «Отчёт по створу» и наглядная проверка притяжки. Рядом идут две демо-трассы канав поперёк тальвегов для инструмента 2.16 «Водосбор линии».\n\nДва необязательных выхода дают готовую пару для инструмента 2.18 «Насыпи и выемки»: проектную поверхность и полигоны участков работ. Площадка горизонтальная, её отметка берётся медианой рельефа внутри области. Это не произвольный выбор. Объём есть сумма разностей, и нетто обращается в ноль ровно при отметке, равной среднему, поэтому демо сразу даёт сошедшийся баланс. Сдвиг отметки в дополнительных параметрах уводит его в привозной или вывозной грунт. По умолчанию оба выхода выключены.\n\n**Компактный int16** пишет высоты целыми числами вместо вещественных. Файл выходит вдвое меньше, а высоты округляются до метра. Нужен для поставки демо-данных в комплекте, для работы берите обычный вещественный выход.": 'Creates a synthetic relief: a tilted plain, hills, a winding valley with a steady fall. The relief is deterministic by seed. Local depressions are deliberately left between the hills so the filling tool has something to show. A service tool for the manual examples and for work without a network, live data come from tool 2.01. Output: a float32 GeoTIFF (or int16 by a tick) in the Topography group.\n\nThe **Gully and ravine network** tick cuts thalwegs with steep sides and tributaries at an acute angle into the relief. This is the hardest test for building a relief from contours: a narrow cut between adjacent contours is shaved off, and on a profile across the gully this shows at once. Such a relief is needed as a validation set for tools 2.11 and 2.12.\n\nThree demo gauge points near the thalwegs are also produced, deliberately shifted aside from the stream - ready food for the 2.15 Gauge point report tool and a visual check of the snapping, plus two demo ditch traces across the thalwegs for the 2.16 Catchment of a line tool.\n\nTwo optional outputs give a ready pair for tool 2.18 Cut and fill: a design surface and work area polygons. The pad is horizontal and its elevation is the mean of the relief inside the area. That is not a matter of taste: volume is a sum of differences, and the net turns to zero exactly at the mean, so the demo comes out with a balance that closes. The elevation offset in the advanced parameters moves it into imported or exported soil. Both outputs are off by default.\n\n**Compact int16** writes the elevations as integers instead of floating point. The file comes out half the size and the elevations are rounded to a metre. It is meant for shipping demo data with the plugin, for real work take the ordinary floating point output.',
     "Цилиндрический разрез - развёртка стенки шахтного ствола. Вокруг оси ствола на заданном радиусе берётся окружность с угловым шагом (по умолчанию 1 градус), и поверхности-гриды выбираются вдоль неё.\n\nРазвёртка ложится в оси длина дуги по окружности - высота. Каждая маркирующая поверхность даёт линию своего пересечения со стенкой ствола. При падении пластов линии наклонены и волнисты.\n\nОсь задаётся точечным слоем (устье), радиус - в единицах карты. Вертикальный масштаб как у разреза.\n\n**Угловой шаг** задаёт подробность развёртки по окружности ствола. Один градус даёт 360 столбцов на оборот, этого хватает для большинства задач. Мельче стоит брать только под тонкие наклонные структуры, счёт и объём выхода растут пропорционально.": 'A cylindrical section - the unwrapped wall of a mine shaft. Around the shaft axis at a given radius a circle is taken with an angular step (1 degree by default), and the surface grids are sampled along it.\n\nThe unwrap lies in axes of arc length along the circle and elevation. Each marker surface gives the line of its intersection with the shaft wall: where the beds dip the lines are tilted and wavy.\n\nThe axis is set by a point layer (the collar), the radius is in map units. The vertical scale is as in the section.\n\n**Angular step** sets the detail of the unrolling around the circumference of the hole. One degree gives 360 columns per turn, which is enough for most tasks. Going finer makes sense only for thin inclined structures, the run time and the size of the output grow in proportion.',
     "Создаёт точечный слой скважин со случайными координатами в пределах области. Значение абстрактного компонента (X, %) раскладывается по площади не случайно, а с пространственной структурой, поэтому набор годится для обучения и для проверки инструментов без реальных данных.\n\nОбласть задаётся экстентом (можно по слою, по холсту карты, вручную координатами или рисованием). «Гладкость» задаёт радиус корреляции как долю охвата (больше - крупнее «пятна»). «Доля наггета» задаёт долю дисперсии, приходящуюся на короткомасштабный шум (чем больше, тем меньше предсказуемость). В Журнал выводится стартовая вариограмма - её уточняют кросс-валидацией.\n\nПоля результата: номер скважины, абсолютная отметка кровли (roof), мощность (thick) и содержание X. Диапазоны кровли и мощности по умолчанию близки к реальным калийным данным, их можно изменить в разделе «Дополнительно».\n\nНеобязательные галки добавляют поля для смежных инструментов: напор (head) для градиента потока и категориальный минтип для индикаторного кригинга. Галка K и T добавляет напор и лог-нормальные поля K (коэф. фильтрации) и T = K·мощность для «Удельного расхода (Дарси)». Включённый вывод «Поверхность дрейфа» даёт растр сторонней поверхности и поле dz, линейно с ней связанное, для кригинга с внешним дрейфом.\n\n**Амплитуда разлома** задаёт учебный разрыв. Генератор проводит линию поперёк площади, не доводя её до краёв, и прибавляет амплитуду к значению у всех скважин по одну сторону. Прибавка действует только в пределах длины линии, поэтому выше её конца обе стороны одинаковы и поверхность там обязана смыкаться. Линия выдаётся отдельным выходом **Разлом (демо)** и подаётся дальше в 1.02, 1.03 и 1.04.\n\nПри нуле линия всё равно выдаётся, но сдвига нет. Разлом есть геометрически и отсутствует по значениям. Это удобный контрольный прогон - барьер работает, а рвать нечего.\n\nДля проверки барьера берите амплитуду заметно больше радиуса корреляции, тогда скачок очевиден. Для проверки коридора в 1.04 хватит амплитуды порядка сечения изолиний.\n\nЗначение амплитуды пишется в атрибут throw выходного слоя разлома. Атрибут справочный. Инструменты его не читают, барьер у них геометрический и о величине смещения не знает.\n\n**Добавить поле напора** дописывает к скважинам поле head с напором подземных вод, связанным с рельефом кровли. Оно нужно инструменту 3.04, который считает гидравлический градиент и направление потока. Без этого поля проверить его не на чем.": 'Creates a point "wells" layer with random coordinates within an area and a value of an abstract component (X, %), with a spatial structure. Intended for learning and testing the tools without real data.\n\nThe area is set by an extent (by layer, by map canvas, manually by coordinates or by drawing). "Smoothness" sets the correlation range as a fraction of the extent (larger - bigger "patches"). "Nugget fraction" sets the share of variance due to short-range noise (larger - less predictable). The Log prints the starting variogram - refine it with cross-validation.\n\nResult fields: well number, absolute roof elevation (roof), thickness (thick) and grade X. The default roof and thickness ranges are close to real potash data; you can change them under "Advanced".\n\nOptional checkboxes add fields for the neighbouring tools: head for the flow gradient and a categorical mineral type for indicator kriging. The K and T checkbox adds head and log-normal K (conductivity) and T = K·thickness fields for the \'Specific discharge (Darcy law)\' tool. Enabling the "Drift surface" output gives a raster of a secondary surface and a dz field linearly related to it, for external drift kriging.\n\n**Fault throw** sets a teaching break. The generator draws a line across the area without bringing it to the edges and adds the throw to the value at every well on one side. The addition acts only within the length of the line, so above its end both sides are equal and the surface must close up there. The line is produced as a separate output **Fault (demo)** and is fed further into 1.02, 1.03 and 1.04.\n\nAt zero the line is still produced but there is no shift: the fault exists geometrically and is absent in the values. That is a convenient control run - the barrier works and there is nothing to tear.\n\nTo check the barrier take a throw noticeably larger than the correlation range, then the jump is obvious. To check the corridor in 1.04 a throw of the order of the contour interval is enough.\n\nThe value of the throw is written into the throw attribute of the output fault layer. The attribute is for reference: the tools do not read it, their barrier is purely geometric and knows nothing of the size of the displacement.\n\n**Add a head field** appends a head field to the wells with a groundwater head tied to the relief of the roof. It is needed by tool 3.04, which computes the hydraulic gradient and the direction of flow: without this field there is nothing to test it on.',
-    "Когда одни блоки разбурены плотнее других, среднее и гистограмма по всем пробам смещаются в сторону переразведанных участков. Если гуще бурили богатые зоны, статистика завышена. Инструмент даёт каждой пробе вес, обратный локальной плотности, и считает представительное декластеризованное среднее. В скоплении вес меньше, на разрежённых участках больше. Это ячеистая декластеризация, порт GSLIB declus.\n\nРазмер ячейки подбирается свипом по размерам либо задаётся вручную. На регулярной сети декластеризация ничего не меняет, веса выходят равными.\n\nВыход: слой точек с полем весов wt и HTML-отчёт. В отчёте сводка, две гистограммы значений, исходная и взвешенная, и кривая среднего от размера ячейки. Декластеризованное среднее идёт в подсчёт запасов и в поле «Среднее для простого кригинга» инструмента 1.02. Поле wt подаётся в гауссову симуляцию 3.06 для взвешенной гистограммы.\n\n**Цель свипа** задаёт, что считать правильным при переборе размера ячейки. Минимум среднего берут, когда сгущение сети попало в богатую зону. Без весов среднее тогда завышено, и правильным считается тот размер, при котором оно минимально. Максимум среднего это зеркальный случай, когда разбурена бедная зона. Выбирают не наугад, а по карте сети, глядя, где скважины стоят гуще.\n\n**Смещений начала сетки** сглаживает произвол в положении сетки. Веса зависят от того, где именно легла её граница, поэтому расчёт повторяется несколько раз со сдвинутым началом, а веса усредняются. Четыре смещения дают устойчивый результат, больше восьми почти ничего не добавляют.": 'Cell declustering (a port of GSLIB declus). When samples are clustered unevenly - some blocks drilled denser - the naive global statistics shift toward the over-sampled areas: if rich zones were drilled denser, the mean and histogram are overstated. The tool gives each sample a weight inversely proportional to the local density (less in a cluster, more on its own) and computes a representative declustered mean.\n\nThe cell size is chosen automatically (a sweep over sizes, picking the minimum declustered mean) or set manually. On a regular grid declustering changes nothing - the weights are equal.\n\nOutput: a point layer with a wt weight field and an HTML report (summary, a histogram of the values, original and weighted, and the curve of the mean against cell size). The declustered mean is a ready estimate for reserve calculation and for the Mean of simple kriging (1.1). The wt field feeds the Gaussian simulation (3.06) for a weighted histogram.\n\n**Sweep objective** sets what counts as right while the cell size is swept. The minimum of the mean is taken when the clustering of the network fell into a rich zone: without weights the mean is overstated, and the right size is the one at which it is lowest. The maximum of the mean is the mirror case, where a poor zone was drilled densely. The choice is not made blindly: look at the map of the network and at where the holes stand closer together.\n\n**Grid origin offsets** smooth out the arbitrariness in the position of the grid. The weights depend on where its boundary happened to fall, so the computation is repeated several times with a shifted origin and the weights are averaged. Four offsets give a stable result, beyond eight there is almost nothing to gain.',
+    "Когда одни блоки разбурены плотнее других, среднее и гистограмма по всем пробам смещаются в сторону переразведанных участков. Если гуще бурили богатые зоны, статистика завышена. Инструмент даёт каждой пробе вес, обратный локальной плотности, и считает представительное декластеризованное среднее. В скоплении вес меньше, на разрежённых участках больше. Это ячеистая декластеризация, порт GSLIB declus.\n\nРазмер ячейки подбирается перебором размеров либо задаётся вручную. На регулярной сети декластеризация ничего не меняет, веса выходят равными.\n\nВыход: слой точек с полем весов wt и HTML-отчёт. В отчёте сводка, две гистограммы значений, исходная и взвешенная, и кривая среднего от размера ячейки. Декластеризованное среднее идёт в подсчёт запасов и в поле «Среднее для простого кригинга» инструмента 1.02. Поле wt подаётся в гауссову симуляцию 3.06 для взвешенной гистограммы.\n\n**Цель перебора** задаёт, что считать правильным при переборе размера ячейки. Минимум среднего берут, когда сгущение сети попало в богатую зону. Без весов среднее тогда завышено, и правильным считается тот размер, при котором оно минимально. Максимум среднего это зеркальный случай, когда разбурена бедная зона. Выбирают не наугад, а по карте сети, глядя, где скважины стоят гуще.\n\n**Смещений начала сетки** сглаживает произвол в положении сетки. Веса зависят от того, где именно легла её граница, поэтому расчёт повторяется несколько раз со сдвинутым началом, а веса усредняются. Четыре смещения дают устойчивый результат, больше восьми почти ничего не добавляют.": 'Cell declustering (a port of GSLIB declus). When samples are clustered unevenly - some blocks drilled denser - the naive global statistics shift toward the over-sampled areas: if rich zones were drilled denser, the mean and histogram are overstated. The tool gives each sample a weight inversely proportional to the local density (less in a cluster, more on its own) and computes a representative declustered mean.\n\nThe cell size is chosen automatically (a sweep over sizes, picking the minimum declustered mean) or set manually. On a regular grid declustering changes nothing - the weights are equal.\n\nOutput: a point layer with a wt weight field and an HTML report (summary, a histogram of the values, original and weighted, and the curve of the mean against cell size). The declustered mean is a ready estimate for reserve calculation and for the Mean of simple kriging (1.1). The wt field feeds the Gaussian simulation (3.06) for a weighted histogram.\n\n**Sweep objective** sets what counts as right while the cell size is swept. The minimum of the mean is taken when the clustering of the network fell into a rich zone: without weights the mean is overstated, and the right size is the one at which it is lowest. The maximum of the mean is the mirror case, where a poor zone was drilled densely. The choice is not made blindly: look at the map of the network and at where the holes stand closer together.\n\n**Grid origin offsets** smooth out the arbitrariness in the position of the grid. The weights depend on where its boundary happened to fall, so the computation is repeated several times with a shifted origin and the weights are averaged. Four offsets give a stable result, beyond eight there is almost nothing to gain.',
     "Делит горизонтали на два набора: по одному строят рельеф, по второму проверяют результат.\n\nДелится не по объектам, а по **отметкам**. Убрать из построения отдельные звенья одной горизонтали бессмысленно. Соседние звенья того же уровня подскажут ответ, и проверка окажется завышенной. Отложенный уровень исчезает целиком, и восстановить его интерполятор может только по соседним уровням, а это и есть предсказание.\n\nКрайние отметки набора всегда остаются в построении. За пределами набора интерполятор экстраполирует, и невязка там измеряла бы не то, ради чего проверка затевалась.\n\nОба выхода получают поле **hold**: 0 для построения, 1 для проверки. Инструмент **Невязка горизонталей против ЦМР** это поле узнаёт сам и печатает две цифры отдельно.\n\nРабочий порядок: разделить, построить рельеф по набору для построения (например **Topo2Raster**), затем измерить невязку по проверочному набору.\n\n**Сдвиг выбора** меняет, какие именно линии уйдут в проверку при том же шаге. При шаге 5 и сдвиге 0 отложится каждая пятая начиная с первой, при сдвиге 2 - начиная с третьей. Это нужно для повторной проверки на другом наборе. Одна выборка может случайно попасть на удачные или неудачные горизонтали, и совпадение двух прогонов с разным сдвигом даёт куда больше уверенности.": 'Splits the contours into two sets: one is used to build the relief, the other to check the result.\n\nThe split is by **elevation**, not by feature. Holding out individual pieces of a single contour is pointless: the neighbouring pieces of the same level give the answer away and the check comes out flattering. A held-out level disappears entirely, and the interpolator can only restore it from the neighbouring levels, which is what prediction means.\n\nThe extreme levels of the set always stay in the building set: beyond the range the interpolator extrapolates, and a residual there would measure something other than what the check is for.\n\nBoth outputs get a **hold** field: 0 for building, 1 for validation. The **Contour residuals against the DEM** tool recognises this field by itself and prints the two figures separately.\n\nWorking order: split, build the relief from the building set (with **Topo2Raster** for instance), then measure the residual on the validation set.\n\n**Selection offset** changes which lines go into the check at the same step. With a step of 5 and an offset of 0 every fifth line is set aside starting from the first, with an offset of 2 starting from the third. This is needed for a repeat check on another set: one sample may happen to fall on lucky or unlucky contours, and an agreement between two runs with different offsets carries far more weight.',
     "Строит рельеф из векторных данных мультисеточной интерполяцией от грубой сетки к тонкой, по мотивам ANUDEM. Каждый тип входа работает своим ограничением: точки высот и изолинии - жёсткие узлы, тальвеги - принудительное падение вниз по течению (вершины линий должны идти вниз по течению, водотоки OSM и выход инструмента 2.06 подходят как есть), обрывы - барьер **Урез** работает в двух режимах. Плоскость заливает всю площадь внутри\nровной отметкой - это зеркало озера или пруда. Изолиния закрепляет\nтолько линию берега, а поверхность внутри остаётся за точками и\nструктурными линиями. Так строится русло с дном по промерам и\nтальвегу. Переключается галочкой **Урез как плоскость**.\n\nУрез-изолиния и **Заполнить понижения в итоге** работают навстречу друг другу. Первое строит русло, второе его заравнивает, потому что для заполнения русло это обычная яма. Заполнение нужно рельефу суши, чтобы вода стекала, и вредно ЦМР с дном. При таком сочетании инструмент предупреждает в журнале.\n\nсглаживания, поверхности по сторонам независимы, урез воды - по трём приоритетам на каждый объект: у полигона с трёхмерными вершинами урез интерполируется по их высотам и наклоняется вдоль русла, у полигона с отметкой в поле держится плоскостью, без того и другого уровень берётся по минимуму берега. Разнотипные объекты в одном слое разбираются каждый своей веткой. Нужен хотя бы один слой с высотами: точки или изолинии. Все слои приводятся к СК первого заданного слоя, она должна быть метрической. Финальное заполнение понижений флажком. Выход: GeoTIFF float32, высоты в метрах, nodata -9999, слой в группе Топография.\n\n**Трёхмерные тальвеги.** Если у линии тальвега есть отметки вершин, они становятся жёсткими узлами, а не только условием падения. Промер по руслу перестаёт быть подсказкой и начинает задавать дно. Отметки при этом один раз приводятся к падающим вниз по течению, потому что измерения шумят, и вершина, ушедшая вверх, спорила бы с принуждением падения каждую итерацию. Правка идёт только вниз, наибольшая её величина печатается в журнал. Линия без отметок ведёт себя как прежде, разнотипный слой разбирается по объектам.\n\n**Вес измеренных отметок** решает спор в общей ячейке. Точки высот и вершины уплотнённых изолиний идут одним потоком жёстких узлов, и при совпадении в ячейке простое среднее уравнивает их в правах. Измеренная отметка снята прибором, а вершина горизонтали нарисована по линии сечения и уклоняется на пределах половины сечения, поэтому вес больше единицы отдаёт ячейку измерению. Единица (по умолчанию) сохраняет прежнее поведение, старые прогоны воспроизводятся.\n\n**Граница области построения** ограничивает поверхность полигоном, как outer boundary в САПР. Маска накладывается после интерполяции, а не отсечением входа. Данные снаружи продолжают формировать поверхность у самой границы, и края не заворачиваются. Слой границы можно подавать в любой системе координат, геометрия переводится сама.\n\n**Размер ячейки** задаётся в метрах. Он определяет, какие формы рельефа сохранятся. Ячейка должна быть заметно мельче расстояния между соседними горизонталями, иначе склон между ними ляжет в одну-две ячейки и станет ступенькой. Для топоплана масштаба 1:2000 с сечением 1 м разумный старт от двух до пяти метров.\n\n**Функция формы поперёк** задаёт, как поверхность идёт между верхней и нижней линией формы. Линейная даёт прямой откос постоянного уклона, это проектная геометрия отвала или уступа. Плавная скругляет переход у кромок, что ближе к естественному виду отработанного откоса.": 'The **water edge** works in two modes. A plane fills the whole area inside with a flat elevation - that is the mirror of a lake or a pond. A contour fixes only the shore line, while the surface inside stays with the points and the structural lines: this is how a channel with a bed is built from soundings and a thalweg. Switched by the **Water edge as a plane** checkbox.\n\nA contour water edge and **Fill depressions at the end** work against each other: the first builds a channel, the second levels it out, because for the filling a channel is an ordinary pit. The filling is needed for the relief of the land so that water runs off, and it is harmful to a DEM with a bed. With such a combination the tool warns in the log.\n\nBuilds terrain from vector data by multigrid interpolation from a coarse grid to a fine one, in the spirit of ANUDEM. Every input type works as its own constraint: elevation points and contours are hard nodes, streamlines force a downstream drop (line vertices must run downstream, OSM watercourses and the output of tool 2.06 fit as is), cliffs are smoothing barriers with independent surfaces on both sides, the water edge follows three priorities per feature: a polygon with three-dimensional vertices gets its edge interpolated from their heights and sloped along the channel, a polygon with an elevation field is held as a plane, and without either the level is taken from the shore minimum. Mixed feature types in one layer are handled each by its own branch. At least one layer with elevations is required: points or contours. All layers are brought to the CRS of the first given layer, which must be metric. Final depression filling by checkbox. Output: a float32 GeoTIFF, elevations in meters, nodata -9999, the layer in the Topography group.\n\n**Three-dimensional thalwegs.** When a thalweg line carries vertex elevations, they become hard nodes rather than merely a fall condition: a survey along the channel stops being a hint and starts setting the bed. The elevations are brought once to a downstream fall, because measurements are noisy and a vertex that goes uphill would fight the fall enforcement on every iteration. The correction only goes downwards and its largest value is printed to the log. A line without elevations behaves as before, and a mixed layer is handled object by object.\n\nThe **The weight of measured elevations** settles the dispute inside a shared cell. Spot heights and the vertices of densified contours go as one stream of hard nodes, and when they land in the same cell a plain average puts them on an equal footing. A measured elevation was taken with an instrument, while a contour vertex was drawn along a section line and errs within half a contour interval, so a weight above one gives the cell to the measurement. One (the default) keeps the previous behaviour and old runs reproduce.\n\n**Boundary of the build area** limits the surface to a polygon, like the outer boundary in a CAD system. The mask is applied after the interpolation rather than by clipping the input: data outside keep shaping the surface right at the boundary, so the edges do not curl. The boundary layer may be supplied in any coordinate system, the geometry is transformed automatically.\n\n**Cell size** is given in metres and matters more here than in the loaders: it decides which landforms survive at all. The cell has to be noticeably finer than the spacing between neighbouring contours, otherwise the slope between them falls into one or two cells and turns into a step. For a 1:2000 plan with a 1 m interval a reasonable start is two to five metres.\n\n**Cross-section shape function** sets how the surface runs between the upper and the lower form line. Linear gives a straight slope of constant gradient, the design geometry of a dump or a bench. Smooth rounds the transition at the edges, which is closer to the natural look of a worked slope.',
     "Строит изолинии из растра: равномерный шаг или явные уровни (через пробел), главные (утолщённые) изолинии флагом is_index, фильтр коротких линий.\n\nСкругление линий (Chaikin) слегка сглаживает контуры и убирает «октагоны» от грубого грида. Сглаживание самого поля выполняется в инструменте 2D Kriging.\n\nБикубическое сглаживание (сгущение грида ×2…×4) даёт гладкие изолинии без «октагонов» от грубой сетки - это основной способ сглаживания, сильнее скругления линий (Chaikin). Работает и для линий, и для контурных полигонов. Границы поясов совпадают с изолиниями.\n\nПо умолчанию строит и контурные полигоны (пояса между изолиниями) во временный слой - их границы СОВПАДАЮТ с изолиниями, покрытие сплошное. Чтобы их не строить - очистите поле «Контурные полигоны».\n\nПоля: линии - значение уровня (по умолчанию ELEV) и is_index (1 у главных), полигоны - ELEV_MIN/ELEV_MAX (диапазон пояса).\n\nФлажок **Топографические подписи** задаёт линиям одно направление относительно склона, и тогда верх цифры всегда смотрит вверх по склону, как на топокарте. QGIS отсчитывает верх подписи от направления линии, поэтому поворот текста задавать не нужно. В слое остаётся поле up_side: 1 означает, что линия оставлена как была, 0 что развёрнута.\n\nВажно: в настройках подписей слоя должно быть разрешено показывать перевёрнутые подписи. Иначе QGIS доворачивает текст ради читаемости и сводит разворот линий на нет. В стилях **Структура** и **Депрессия** это уже настроено. Если подписываете своим стилем, включите в разделе отрисовки подписей показ перевёрнутых. Топографическая подпись по определению бывает перевёрнутой. На склоне, обращённом на юг, цифра читается вверх ногами.\n\n**Разломы** подаются линиями и режут изолинии точно по линии, а не по ячейкам. Линия входит и в сеть построения поясов, поэтому граница пояса идёт ровно по разлому. Разрыв живёт в векторной части. Грид при этом сплошной, дыр в нём нет.\n\n**Ширина коридора у разлома** задаётся в ячейках, умолчание одна. Зачем она нужна: значения по разные стороны разлома отличаются на всю амплитуду, а скачок приходится на пару соседних ячеек. Контурер рисует в этом промежутке все промежуточные уровни разом, и вдоль линии получается полоса частых изолиний. Геологического смысла у неё нет, это интерполяция поперёк разрыва, которого пласт не знает. Полоса вырезается, а концы освободившихся изолиний притягиваются к самой линии.\n\nНоль отключает вырезание. Меньше ячейки брать незачем, скачок занимает ровно ячейку. Заметно больше - начнут пропадать изолинии, идущие вдоль разлома по делу.\n\nУ затухающего конца разлома остаётся короткий участок частых изолиний длиной около ширины коридора. Это верно по смыслу. Разрыв там сошёл на нет, поверхность смыкается, и рвать её нечем. Изолинии, огибающие конец, сходятся в узкий пучок - так затухающий разлом и выглядит на структурной карте.\n\n**Наименьшая толщина полигона** задаётся в ячейках и отсекает узкие полосы поясов. Толщина считается как удвоенная площадь на периметр. Порог задуман против обрывков у разрыва там, где линии разломов не поданы: у карьеров, обрывов и края области. Пользоваться им надо осторожно. На крутой поверхности с частым сечением нормальный пояс между соседними уровнями сам по себе уже ячейки, и порог в ячейку уберёт с карты почти всё. Инструмент предупреждает в журнале, если отсеял больше половины поясов. Умолчание ноль, то есть отсева нет.\n\n**Уверенность горизонталей** размечает участки, где линия проведена по слабым данным. Разбор приёма и полей drop_min и drop_mean ниже, в разделе про подозрительные участки.": 'Builds isolines from a raster: a uniform step or explicit levels (space-separated), index (thicker) isolines via the is_index flag, a short-line filter.\n\nLine rounding (Chaikin) lightly smooths the contours and removes "octagons" from a coarse grid. Smoothing of the field itself is done in the 2D Kriging tool.\n\nBicubic smoothing (grid densification ×2…×4) gives smooth isolines without "octagons" from a coarse grid - it is the main smoothing method, stronger than line rounding (Chaikin). It works for both lines and contour polygons: band boundaries coincide with the isolines.\n\nBy default it also builds contour polygons (bands between isolines) into a temporary layer - their boundaries COINCIDE with the isolines, coverage is continuous. To skip them - clear the "Contour polygons" field.\n\nFields: lines - the level value (default ELEV) and is_index (1 on index lines); polygons - ELEV_MIN/ELEV_MAX (band range). The **Topographic labels** tick gives the lines a single direction relative to the slope, so that the top of the figure always faces up the slope, as on a topographic map. QGIS measures the top of a label from the direction of the line, so no text rotation needs to be set. The layer keeps an up_side field: 1 means the line was left as it was, 0 that it was reversed.\n\nImportant: the layer labelling must be allowed to show upside-down labels. Otherwise QGIS turns the text around for readability and cancels the effect of reversing the lines. In the **Structure** and **Depression** styles this is already set. If you label with a style of your own, enable showing upside-down labels in the label rendering section. A topographic label is upside down by definition on a slope facing south.\n\n**Faults** are supplied as lines and cut the isolines exactly along the line, not along cell edges. The line also enters the network used to build the belts, so the boundary of a belt runs exactly along the fault. The break lives in the vector part: the grid itself stays solid, with no holes in it.\n\n**Corridor width at a fault** is given in cells, the default is one. Why it is needed: the values on the two sides of a fault differ by the whole throw, while the jump falls on a pair of neighbouring cells. The contourer draws every intermediate level at once in that gap, and a strip of crowded isolines appears along the line. It carries no geological meaning, it is interpolation across a break the bed does not know about. The strip is cut out, and the ends of the freed isolines are snapped to the line itself.\n\nZero switches the cutting off. There is no point taking less than a cell: the jump occupies exactly one cell. Noticeably more and isolines that run along the fault for a reason will start to disappear.\n\nAt the dying end of a fault a short stretch of crowded isolines remains, about the width of the corridor, and that is right in meaning: the break has come to nothing there, the surface closes up and there is nothing to tear. Isolines going round the end converge into a narrow bundle, which is exactly how a dying fault looks on a structural map.\n\n**Smallest polygon thickness** is given in cells and filters out narrow strips of belts. The thickness is taken as twice the area over the perimeter. The threshold is meant against fragments at a break where fault lines have not been supplied: at open pits, cliffs and the edge of the area. It must be used with care. On a steep surface with a fine interval a normal belt between neighbouring levels is itself narrower than a cell, and a threshold of one cell will mow the map down. The tool warns in the log if it has filtered out more than half of the belts. The default is zero, that is, no filtering.\n\n**Contour confidence** marks the stretches where a line was drawn over weak data. The device itself and the drop_min and drop_mean fields are covered below, in the section on suspicious stretches.',
@@ -2400,7 +2400,7 @@ TRANSLATIONS = {
         'The declustered mean is a representative estimate for reserve calculation and for the Mean of simple kriging. The wt weight field feeds SGS (3.06) for a weighted histogram.',
     '== Декластеризация ==': '== Declustering ==',
     'plotly недоступен, отчёт без графиков (%s).': 'plotly unavailable, report without charts (%s).',
-    'Авто (свип по размеру)': 'Auto (size sweep)',
+    'Авто (перебор размеров)': 'Auto (size sweep)',
     'Вес декластеризации': 'Declustering weight',
     'Веса декластеризации (%s)': 'Declustering weights (%s)',
     'Гистограмма строится с весами декластеризации (поле «%s»).': 'The histogram is built with declustering weights (field "%s").',
@@ -2430,8 +2430,8 @@ TRANSLATIONS = {
     'Среднее от размера ячейки': 'Mean vs cell size',
     'Точек: %d, размер ячейки: %.4g': 'Points: %d, cell size: %.4g',
     'Точки с весами декластеризации': 'Points with declustering weights',
-    'Цель свипа': 'Sweep objective',
-    'Количество размеров в свипе': 'Number of sizes in the sweep',
+    'Цель перебора': 'Sweep objective',
+    'Сколько размеров перебрать': 'Number of sizes in the sweep',
     'Это среднее ставьте в «Среднее» простого кригинга, а поле wt - в поле весов SGS.':
         'Put this mean into the Mean of simple kriging, and the wt field into the SGS weight field.',
     'взвешенная': 'weighted',
@@ -3466,7 +3466,447 @@ TRANSLATIONS = {
     'Язык справки': 'Help language',
     "Интерфейс - это меню, названия инструментов и подписи полей. Справка - это боковая справка инструмента, подсказки полей и руководство PDF. Выбор хранится в общих настройках модулей Информ++.":
         'The interface is the menus, the tool names and the field labels. The help is the side help of a tool, the field hints and the PDF manual. The choice is kept in the shared settings of the Inform++ plugins.',
-    # 9. Сдвижение (5.13.28)
+    # псевдонимы полей демо-слоёв (5.13.31)
+    "Скважина":
+        "Borehole",
+    "Отметка кровли, м":
+        "Roof elevation, m",
+    "Мощность, м":
+        "Thickness, m",
+    "Содержание X, %":
+        "Grade X, %",
+    "Напор, м":
+        "Head, m",
+    "Коэффициент фильтрации K, м/сут":
+        "Hydraulic conductivity K, m/day",
+    "Водопроводимость T, м²/сут":
+        "Transmissivity T, m²/day",
+    "Минеральный тип":
+        "Mineral type",
+    "Значение для дрейфа dz":
+        "Drift value dz",
+    "Название":
+        "Name",
+    "Амплитуда разлома":
+        "Fault throw",
+    "Масса":
+        "Mass",
+    "Размытие σ, м":
+        "Spread σ, m",
+    "Начало участка, м":
+        "Segment start, m",
+    "Конец участка, м":
+        "Segment end, m",
+    "Дазиметрия (1 = да)":
+        "Dasymetry (1 = yes)",
+    "Тип линии":
+        "Line type",
+    "Пара":
+        "Pair",
+    "Угол падения, °":
+        "Dip, °",
+    "Азимут падения, °":
+        "Dip direction, °",
+    "Ожидаемый видимый угол, °":
+        "Expected apparent dip, °",
+    "Истинный угол падения, °":
+        "True dip, °",
+    "Истинный азимут падения, °":
+        "True dip direction, °",
+    "Примечание":
+        "Note",
+    "Отметка устья, м":
+        "Collar elevation, m",
+    "Глубина забоя, м":
+        "End of hole, m",
+    "Глубина от, м":
+        "Depth from, m",
+    "Глубина до, м":
+        "Depth to, m",
+    "KCl, %":
+        "KCl, %",
+    "Глубина по стволу, м":
+        "Measured depth, m",
+    "Азимут, °":
+        "Azimuth, °",
+    "Зенитный угол, °":
+        "Inclination from vertical, °",
+    "Порядок в колонке":
+        "Order in the column",
+    "Вид тела":
+        "Body kind",
+    "Цвет":
+        "Colour",
+    "Толща":
+        "Sequence",
+    "Поверхность 1, м":
+        "Surface 1, m",
+    "Поверхность 2, м":
+        "Surface 2, m",
+    "Поверхность 3, м":
+        "Surface 3, m",
+    "Поверхность 4, м":
+        "Surface 4, m",
+    "Поверхность 5, м":
+        "Surface 5, m",
+    "Поверхность 6, м":
+        "Surface 6, m",
+    "Наклон оси, °":
+        "Axis dip, °",
+    "Вид":
+        "Kind",
+    "Номер вскрытия":
+        "Penetration number",
+    "Вес":
+        "Weight",
+    "Точек в линии":
+        "Points in the line",
+    "Источник":
+        "Source",
+    "Пласт":
+        "Bed",
+    "Километраж, км":
+        "Chainage, km",
+    "Граница левой поймы, м":
+        "Left floodplain boundary, m",
+    "Граница правой поймы, м":
+        "Right floodplain boundary, m",
+    "Шероховатость левой поймы":
+        "Left floodplain roughness",
+    "Шероховатость русла":
+        "Channel roughness",
+    "Шероховатость правой поймы":
+        "Right floodplain roughness",
+    "Уклон":
+        "Slope",
+    "Отметка дна, м":
+        "Bed elevation, m",
+    "Уровень, м":
+        "Level, m",
+    "Площадь сечения, м²":
+        "Flow area, m²",
+    "Подпись":
+        "Label",
+    "Обеспеченность, %":
+        "Exceedance probability, %",
+    "Порядок притока":
+        "Stream order",
+    "Профильная линия":
+        "Profile line",
+    "Номер по профилю":
+        "Order along the profile",
+    "Репер":
+        "Benchmark",
+    "Оседание в предыдущем туре, мм":
+        "Subsidence at the previous survey, mm",
+    "Скорость оседания, мм/год":
+        "Subsidence rate, mm/yr",
+    "Относительная координата z":
+        "Relative coordinate z",
+    # псевдонимы полей выходных слоёв (5.13.32)
+    "Причина отбраковки":
+        "Reason for rejection",
+    "Номер":
+        "Number",
+    "Значение изолинии":
+        "Contour value",
+    "Утолщённая (1 = да)":
+        "Index contour (1 = yes)",
+    "Нижняя граница пояса":
+        "Band lower bound",
+    "Верхняя граница пояса":
+        "Band upper bound",
+    "Замкнутое тело (1 = да)":
+        "Closed solid (1 = yes)",
+    "Наименьший перепад на ячейку":
+        "Smallest drop per cell",
+    "Средний перепад на ячейку":
+        "Mean drop per cell",
+    "Слабые данные (1 = да)":
+        "Weak data (1 = yes)",
+    "Серия":
+        "Series",
+    "Лаг (расстояние)":
+        "Lag (distance)",
+    "Полувариограмма γ":
+        "Semivariance γ",
+    "Пар точек":
+        "Point pairs",
+    "Профиль обработки":
+        "Processing profile",
+    "Номер структуры":
+        "Structure number",
+    "Модель (код)":
+        "Model (code)",
+    "Силл":
+        "Sill",
+    "Радиус влияния":
+        "Range",
+    "Перцентиль обрезки проб, %":
+        "Sample clipping percentile, %",
+    "Срезать к границе":
+        "Cap to the bound",
+    "Дата подбора":
+        "Fit date",
+    "Автор":
+        "Author",
+    "Вероятность":
+        "Probability",
+    "Класс":
+        "Class",
+    "Вероятность от":
+        "Probability from",
+    "Вероятность до":
+        "Probability to",
+    "Номер пояса":
+        "Band number",
+    "Азимут потока, °":
+        "Flow azimuth, °",
+    "Градиент, м/м":
+        "Gradient, m/m",
+    "Вид величины":
+        "Quantity",
+    "Единицы":
+        "Units",
+    "Код объекта OSM":
+        "OSM object id",
+    "Тип водотока":
+        "Watercourse type",
+    "Тип водоёма":
+        "Water body type",
+    "Порядок Стралера":
+        "Strahler order",
+    "Аккумуляция в замыкании, ячеек":
+        "Accumulation at the outlet, cells",
+    "Длина, м":
+        "Length, m",
+    "Бассейн":
+        "Basin",
+    "Перепад, м":
+        "Drop, m",
+    "Вершина или яма":
+        "Peak or pit",
+    "Для проверки (1 = да)":
+        "Held out for checking (1 = yes)",
+    "Номер горизонтали":
+        "Contour number",
+    "Отметка горизонтали, м":
+        "Contour elevation, m",
+    "Отметка ЦМР, м":
+        "DEM elevation, m",
+    "Невязка, м":
+        "Residual, m",
+    "Модуль невязки, м":
+        "Absolute residual, m",
+    "Номер исходного объекта":
+        "Source feature number",
+    "Объект":
+        "Feature",
+    "Водосбор":
+        "Catchment",
+    "Замыкание водосбора":
+        "Catchment outlet",
+    "Объём насыпи, м³":
+        "Fill volume, m³",
+    "Объём выемки, м³":
+        "Cut volume, m³",
+    "Баланс, м³":
+        "Net balance, m³",
+    "Площадь насыпи, м²":
+        "Fill area, m²",
+    "Площадь выемки, м²":
+        "Cut area, m²",
+    "Наибольшая насыпь, м":
+        "Largest fill, m",
+    "Наибольшая выемка, м":
+        "Largest cut, m",
+    "Ячеек":
+        "Cells",
+    "Вывод":
+        "Verdict",
+    "Вид линии":
+        "Line kind",
+    "Перепад поперёк, м":
+        "Drop across, m",
+    "Средний уклон сторон, °":
+        "Mean side slope, °",
+    "Причина":
+        "Reason",
+    "Опорных точек":
+        "Support points",
+    "Причина пропуска":
+        "Reason for skipping",
+    "Крутой участок, м":
+        "Steep stretch, m",
+    "Длина пути, м":
+        "Path length, m",
+    "Средний уклон":
+        "Mean slope",
+    "Отметка начала, м":
+        "Start elevation, m",
+    "Отметка конца, м":
+        "End elevation, m",
+    "Причина остановки":
+        "Reason for stopping",
+    "Номер разреза":
+        "Section number",
+    "Номер пласта":
+        "Bed number",
+    "Поверхность кровли":
+        "Roof surface",
+    "Поверхность подошвы":
+        "Floor surface",
+    "Средняя мощность, м":
+        "Mean thickness, m",
+    "Длина разреза, м":
+        "Section length, m",
+    "Положение":
+        "Position",
+    "Расстояние по разрезу, м":
+        "Distance along the section, m",
+    "X":
+        "X",
+    "Y":
+        "Y",
+    "Шаг выборки, м":
+        "Sampling step, m",
+    "Низ рамки, м":
+        "Frame bottom, m",
+    "Верх рамки, м":
+        "Frame top, m",
+    "Сдвиг чертежа по X":
+        "Drawing offset X",
+    "Сдвиг чертежа по Y":
+        "Drawing offset Y",
+    "Вид строки":
+        "Row kind",
+    "Текст":
+        "Text",
+    "Отметка кровли интервала, м":
+        "Interval top elevation, m",
+    "Отметка подошвы интервала, м":
+        "Interval bottom elevation, m",
+    "Отступ от линии разреза, м":
+        "Offset from the section line, m",
+    "Цвет интервала":
+        "Interval colour",
+    "Среднее значение":
+        "Mean value",
+    "Начало среза по разрезу, м":
+        "Slice start along the section, m",
+    "Конец среза по разрезу, м":
+        "Slice end along the section, m",
+    "Исходный слой":
+        "Source layer",
+    "Видимый угол падения, °":
+        "Apparent dip, °",
+    "Начало по разрезу, м":
+        "Start along the section, m",
+    "Конец по разрезу, м":
+        "End along the section, m",
+    "Замкнуто (1 = да)":
+        "Closed (1 = yes)",
+    "Зазор в концах":
+        "End gap",
+    "Площадь сечения":
+        "Section area",
+    "Плоскостность (0-1)":
+        "Planarity (0-1)",
+    "Отклонение от плоскости, м":
+        "Deviation from the plane, m",
+    "Мощность по стволу, м":
+        "Thickness along the hole, m",
+    "Охват пробами, доля":
+        "Sample coverage, fraction",
+    "Проб":
+        "Samples",
+    "Охват по %s, доля":
+        "Coverage of %s, fraction",
+    "Слой":
+        "Layer",
+    "Код слоя":
+        "Layer id",
+    "Роль":
+        "Role",
+    "Часть сечения":
+        "Part of the section",
+    "Смоченный периметр, м":
+        "Wetted perimeter, m",
+    "Вид элемента":
+        "Element kind",
+    "Строка подвала":
+        "Footer row",
+    "Номер участка":
+        "Part number",
+    "Покрытие":
+        "Cover",
+    "Уровень воды, м":
+        "Water level, m",
+    "Наибольшая глубина, м":
+        "Largest depth, m",
+    "Точек в профиле":
+        "Points in the profile",
+    "Шагов циркуля":
+        "Divider steps",
+    "Размерность Минковского":
+        "Minkowski dimension",
+    "Качество аппроксимации R²":
+        "Fit quality R²",
+    "Имя":
+        "Name",
+    "Код съёмки":
+        "Survey code",
+    "Описание":
+        "Description",
+    "Номер грани":
+        "Face number",
+    "Пикет начала":
+        "Start station",
+    "Трасса":
+        "Alignment",
+    "Поверхность сечения":
+        "Section surface",
+    "Репер начала":
+        "Start benchmark",
+    "Репер конца":
+        "End benchmark",
+    "Длина интервала, м":
+        "Interval length, m",
+    "Наклон по реперам, мм/м":
+        "Tilt by benchmarks, mm/m",
+    "Наклон по гриду, мм/м":
+        "Tilt by the grid, mm/m",
+    "Расхождение наклона, мм/м":
+        "Tilt difference, mm/m",
+    "Расстояние по профилю, м":
+        "Distance along the profile, m",
+    "Кривизна по реперам, 10⁻⁶ 1/м":
+        "Curvature by benchmarks, 10⁻⁶ 1/m",
+    "Кривизна по гриду, 10⁻⁶ 1/м":
+        "Curvature by the grid, 10⁻⁶ 1/m",
+    "Расхождение кривизны, 10⁻⁶ 1/м":
+        "Curvature difference, 10⁻⁶ 1/m",
+    "Радиус кривизны, км":
+        "Radius of curvature, km",
+    "Начальная длина, м":
+        "Initial length, m",
+    "Текущая длина, м":
+        "Current length, m",
+    "Деформация по интервалу, мм/м":
+        "Strain by interval, mm/m",
+    "Оценка по кривизне, мм/м":
+        "Estimate from curvature, mm/m",
+    "Расхождение, мм/м":
+        "Difference, mm/m",
+    # 9. Сдвижения (5.13.28)
+    "Срок между турами, мес":
+        "Interval between surveys, months",
+    "Доля предыдущего тура":
+        "Share of the previous survey",
+    "Демо-мульда: скорость оседания, мм/год":
+        "Demo trough: subsidence rate, mm/yr",
+    "Скорость: предыдущий тур %.0f %% мульды, срок %.1f мес, наибольшая скорость %.1f мм/год.":
+        "Rate: previous survey %.0f %% of the trough, interval %.1f months, largest rate %.1f mm/yr.",
     "Задайте растр кривизны, измеренные интервалы или то и другое.":
         "Set a curvature raster, measured intervals, or both.",
     "ε = mₑ·K·L (действующие Указания)":
@@ -3485,7 +3925,7 @@ TRANSLATIONS = {
         "Subsidence grid",
     "9.03 Пример мульды (демо)":
         "9.03 Example subsidence trough (demo)",
-    "Сдвижение":
+    "Сдвижения":
         "Subsidence",
     "Измеренные интервалы (линии)":
         "Measured intervals (lines)",
@@ -3533,8 +3973,8 @@ TRANSLATIONS = {
         "Profile line benchmarks (demo)",
     "Знак оседания определён по данным: %s. Размах от %.4g до %.4g м.":
         "Subsidence sign detected from the data: %s. Range from %.4g to %.4g m.",
-    "Мульда оседания над прямоугольной выработкой, построенная по типовой функции S(z) из таблицы Указаний. Наклон и кривизна такой мульды известны заранее, поэтому на ней проверяются 9.01 и 9.02.\n\n**Глубина разработки** H, **Длина выработки** D11 и **Ширина выработки** D12 задают мульду. Выработка стоит в центре, длинной стороной с запада на восток. Длина полумульды L = (ctg δ₀ + ctg ψ)·H, граничный угол δ₀ выбирается параметром **Граница выработанного пространства**, угол полных сдвижений ψ = 55°. Пример рассчитан на полную подработку, D ≥ 1.4H. Тогда у мульды есть плоское дно, а от его края идёт полумульда длиной L. Неполную подработку Указания считают иначе, и демо её не моделирует, а только предупреждает.\n\n**Максимальное оседание** задаётся в метрах. Оседание в растре пишется в миллиметрах со знаком минус, как разность отметок в журнале нивелирования, чтобы 9.01 проверялся и на знаке.\n\nВторой выход это реперы двух профильных линий по главным сечениям I-I и II-II через центр мульды, с полями profile, order, reper, eta_mm и z (относительная координата в полумульде). **Шаг реперов** по умолчанию L/10, как в п. 4.26.2 Указаний. При таком шаге наклоны и кривизна по реперам совпадают с формулами Указаний точно, а при H около 357 м (L = 500 м) и оседании 1 м повторяют таблицу 2 редакции 2014 года. В её строке z = 0.20 кривизна напечатана с ошибкой, по формуле выходит -0.450·10⁻⁴ 1/м.\n\n**Размер ячейки** растра выбирается мельче шага реперов. **Куда положить** только сдвигает пример, размер он не меняет. **СК выхода** должна быть метрической.":
-        "A subsidence trough over a rectangular working, built from the typical function S(z) of the table of the Instructions. The tilt and curvature of such a trough are known in advance, so 9.01 and 9.02 are checked on it.\n\nThe **Mining depth** H, the **Working length** D11 and the **Working width** D12 set the trough. The working stands in the centre, its long side running west to east. The half-trough length L = (ctg δ₀ + ctg ψ)·H, the limit angle δ₀ is chosen by the **Boundary of the mined-out space** parameter, the angle of full subsidence ψ = 55°. The example assumes full undermining, D ≥ 1.4H. Then the trough has a flat bottom, and a half-trough of length L runs from its edge. The Instructions treat incomplete undermining differently, and the demo does not model it, it only warns.\n\n**The maximum subsidence** is given in metres. Subsidence in the raster is written in millimetres with a minus sign, as the elevation difference in a levelling log, so that 9.01 is checked on the sign as well.\n\nThe second output is the benchmarks of two profile lines along the main sections I-I and II-II through the trough centre, with the fields profile, order, reper, eta_mm and z (relative coordinate in the half-trough). **Benchmark spacing** is L/10 by default, as in clause 4.26.2 of the Instructions. With this spacing the tilt and curvature by benchmarks match the formulas of the Instructions exactly, and with H about 357 m (L = 500 m) and a subsidence of 1 m they repeat table 2 of the 2014 edition. In its row z = 0.20 the curvature is misprinted, the formula gives -0.450·10⁻⁴ 1/m.\n\n**The cell size** of the raster is chosen smaller than the benchmark spacing. **Where to place it** only shifts the example and does not change its size. **The output CRS** must be metric.",
+    "Мульда оседания над прямоугольной выработкой, построенная по типовой функции S(z) из таблицы Указаний. Наклон и кривизна такой мульды известны заранее, поэтому на ней проверяются 9.01 и 9.02.\n\n**Глубина разработки** H, **Длина выработки** D11 и **Ширина выработки** D12 задают мульду. Выработка стоит в центре, длинной стороной с запада на восток. Длина полумульды L = (ctg δ₀ + ctg ψ)·H, граничный угол δ₀ выбирается параметром **Граница выработанного пространства**, угол полных сдвижений ψ = 55°. Пример рассчитан на полную подработку, D ≥ 1.4H. Тогда у мульды есть плоское дно, а от его края идёт полумульда длиной L. Неполную подработку Указания считают иначе, и демо её не моделирует, а только предупреждает.\n\n**Максимальное оседание** задаётся в метрах. Оседание в растре пишется в миллиметрах со знаком минус, как разность отметок в журнале нивелирования, чтобы 9.01 проверялся и на знаке.\n\n**Срок между турами** и **Доля предыдущего тура** добавляют к примеру скорости. Предыдущий тур берётся как та же мульда, умноженная на долю, поэтому за срок мульда углубилась на оставшуюся часть. Скорость идёт вторым растром в миллиметрах в год и полем rate_mm_y у реперов, знак тот же, что у оседания. При доле 0 вся мульда считается образовавшейся за один срок.\n\nТретий выход это реперы двух профильных линий по главным сечениям I-I и II-II через центр мульды, с полями profile, order, reper, eta_mm, eta_prev_mm, rate_mm_y и z (относительная координата в полумульде). **Шаг реперов** по умолчанию L/10, как в п. 4.26.2 Указаний. При таком шаге наклоны и кривизна по реперам совпадают с формулами Указаний точно, а при H около 357 м (L = 500 м) и оседании 1 м повторяют таблицу 2 редакции 2014 года. В её строке z = 0.20 кривизна напечатана с ошибкой, по формуле выходит -0.450·10⁻⁴ 1/м.\n\n**Размер ячейки** растра выбирается мельче шага реперов. **Куда положить** только сдвигает пример, размер он не меняет. **СК выхода** должна быть метрической.":
+        "A subsidence trough over a rectangular working, built from the typical function S(z) of the table of the Instructions. The tilt and curvature of such a trough are known in advance, so 9.01 and 9.02 are checked on it.\n\nThe **Mining depth** H, the **Working length** D11 and the **Working width** D12 set the trough. The working stands in the centre, its long side running west to east. The half-trough length L = (ctg δ₀ + ctg ψ)·H, the limit angle δ₀ is chosen by the **Boundary of the mined-out space** parameter, the angle of full subsidence ψ = 55°. The example assumes full undermining, D ≥ 1.4H. Then the trough has a flat bottom, and a half-trough of length L runs from its edge. The Instructions treat incomplete undermining differently, and the demo does not model it, it only warns.\n\n**The maximum subsidence** is given in metres. Subsidence in the raster is written in millimetres with a minus sign, as the elevation difference in a levelling log, so that 9.01 is checked on the sign as well.\n\n**Interval between surveys** and **Share of the previous survey** add rates to the example. The previous survey is taken as the same trough multiplied by the share, so over the interval the trough deepened by the remaining part. The rate goes out as a second raster in millimetres per year and as the rate_mm_y field of the benchmarks, with the same sign as subsidence. With a share of 0 the whole trough is taken to have formed within one interval.\n\nThe third output is the benchmarks of two profile lines along the main sections I-I and II-II through the trough centre, with the fields profile, order, reper, eta_mm, eta_prev_mm, rate_mm_y and z (relative coordinate in the half-trough). **Benchmark spacing** is L/10 by default, as in clause 4.26.2 of the Instructions. With this spacing the tilt and curvature by benchmarks match the formulas of the Instructions exactly, and with H about 357 m (L = 500 m) and a subsidence of 1 m they repeat table 2 of the 2014 edition. In its row z = 0.20 the curvature is misprinted, the formula gives -0.450·10⁻⁴ 1/m.\n\n**The cell size** of the raster is chosen smaller than the benchmark spacing. **Where to place it** only shifts the example and does not change its size. **The output CRS** must be metric.",
     "Наибольший наклон %.4g мм/м в точке %.1f %.1f, медиана %.4g мм/м.":
         "Largest tilt %.4g mm/m at %.1f %.1f, median %.4g mm/m.",
     "Кривизна в реперах":
@@ -3585,7 +4025,7 @@ TRANSLATIONS = {
         "temporary or long stopped (δ₀ = 65°)",
     "Наклоны по интервалам реперов":
         "Tilt by benchmark interval",
-    "9. Сдвижение":
+    "9. Сдвижения":
         "9. Subsidence",
     "Единицы оседаний":
         "Subsidence units",

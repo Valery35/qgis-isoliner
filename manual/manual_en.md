@@ -268,6 +268,16 @@ A call from the model designer or from a script is different. There the paramete
 
 Hence the rule for models. Set in the call every parameter whose value matters for the result. The declared default of a tool is known and written down in this manual, while the memory of the window is known only to the machine where it was formed.
 
+## Field names
+
+The fields of the layers the tools produce have short Latin names: **eta_mm**, **hole_id**, **roof**. Expressions, labels, styles and the next tools in a chain refer to these names. That is why they do not depend on the QGIS language, and a project built in a Russian QGIS opens in an English one without breaking.
+
+Such names are awkward to read in a table, so the fields carry aliases. In an English QGIS the attribute table, the forms and the identify window show "Subsidence, mm", "Borehole", "Roof elevation, m", and in a Russian one the Russian names. The fields of every tool that produces vector layers are labelled this way.
+
+Only a field the plugin created gets an alias of its own. A field with the same name as a field of an input layer is taken to be yours. If it has an alias in the input layer, the output gets the same one, and if not, the field is left as it is. That is why a label follows a field along a chain: benchmarks from 9.03 arrive in 9.01 already labelled, and the section definition from 4.01 is labelled in 4.02 as well. Your own field with your own label keeps it in the output too.
+
+Temporary layers carry the aliases too. If such a layer is fed into a tool that copies fields into a temporary output, for example a buffer or an extract by attribute, QGIS writes the warning "Aliases are not compatible with scratch layers" for every field. The computation goes on as usual, and to avoid the warnings save the temporary layer to a file.
+
 ## The basemap
 
 The **Isoliner** toolbar carries a **Basemap** button - a map or satellite imagery under the data in one move. Tick the sources you need, press **Add**, and the layers go into the project. The window stays open, because basemaps are chosen while looking at the map. Add one, look, add another.
@@ -4073,7 +4083,9 @@ The tool builds a subsidence trough over a rectangular working from the typical 
 
 The working stands in the centre, its long side running west to east. The example assumes full undermining, when the working is at least 1.4H in size. Then the trough has a flat bottom, and a half-trough of length L runs from its edge. The Instructions treat incomplete undermining differently, and the demo does not model it, it only warns. Subsidence in the raster is written in millimetres with a minus sign, as an elevation difference, so that the sign choice in **9.01** is checked too.
 
-The second output is the benchmarks of two profile lines along the main sections I-I and II-II through the trough centre. The benchmark spacing is L/10 by default, as in clause 4.26.2 of the Instructions. With this spacing the tilt and curvature by benchmarks match the formulas of the Instructions exactly. With a depth of about 357 m (L = 500 m) and a subsidence of 1 m they repeat table 2 of the 2014 edition, except the row z = 0.20. There the curvature is misprinted, the formula gives -0.450·10⁻⁴ 1/m instead of -0.630.
+On top of subsidence the example adds rates. The previous survey is taken as the same trough multiplied by the **Share of the previous survey**, and over the **Interval between surveys** the trough deepened by the remaining part. The subsidence rate goes out as a second raster in millimetres per year, with the same sign as subsidence. That raster is fed into **9.01** just like subsidence and gives the rates of tilt and curvature.
+
+The third output is the benchmarks of two profile lines along the main sections I-I and II-II through the trough centre. The benchmark spacing is L/10 by default, as in clause 4.26.2 of the Instructions. Each benchmark carries the subsidence of the current survey **eta_mm**, of the previous one **eta_prev_mm** and the rate **rate_mm_y**. With this spacing the tilt and curvature by benchmarks match the formulas of the Instructions exactly. With a depth of about 357 m (L = 500 m) and a subsidence of 1 m they repeat table 2 of the 2014 edition, except the row z = 0.20. There the curvature is misprinted, the formula gives -0.450·10⁻⁴ 1/m instead of -0.630.
 
 ### How to check
 
@@ -4087,6 +4099,8 @@ Build the example and feed the raster into **9.01**, and the demo benchmarks int
 | Maximum subsidence, m | Subsidence at the trough bottom. | 1.0 |
 | Boundary of the mined-out space | Limit angle 55° or 65°. | permanent |
 | Benchmark spacing, m | Spacing of benchmarks on the profiles, 0 - L/10. | 0 |
+| Interval between surveys, months | Time between the previous and the current survey. | 12 |
+| Share of the previous survey (Adv.) | Which part of the subsidence was already there at the previous survey. | 0.9 |
 | Cell size, m (Adv.) | Raster cell, smaller than the benchmark spacing. | 5 |
 | Output CRS (metric) | Coordinate system of the example. | EPSG:32640 |
 | Where to place it (extent, optional) | Shifts the example without changing its size. | - |

@@ -115,7 +115,7 @@ interpolation, then Isoliner3D on the display.
 
 - **9.01 Tilt and curvature from subsidence** — tilt and curvature from a subsidence grid by the formulas of the Verkhnekamskoye deposit Instructions, over a 15 m base, checked against profile line benchmarks.
 - **9.02 Horizontal strain** — an estimate from curvature and strain from measured intervals between benchmarks.
-- **9.03 Example subsidence trough (demo)** — a trough from the typical function of the Instructions with benchmarks along the main sections.
+- **9.03 Example subsidence trough (demo)** — a trough from the typical function of the Instructions with benchmarks along the main sections and subsidence rates.
 
 Suitable for bed elevations, thicknesses, rock properties, chemistry and any numeric attribute.
 
@@ -333,6 +333,10 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.32** — readable field names on the outputs of every tool; a label follows its field along a chain of tools.
+- **5.13.31** — readable field names (aliases) on the demo layers, in the language of the interface; the field names themselves are unchanged.
+- **5.13.30** — subsidence rates in the 9.03 demo trough; the Russian labels of declustering no longer say «свип».
+- **5.13.29** — the Russian name of group 9 is now "Сдвижения", the word surveyors use; the English name is unchanged.
 - **5.13.28** — a new "9. Subsidence" group with tilt and curvature from subsidence, horizontal strain and an example trough by the formulas of the Verkhnekamskoye deposit Instructions.
 - **5.13.27** — the 6.01 help and manual section match what the tool outputs, the English names of the demo tools follow one pattern.
 - **5.13.26** — a language button on the toolbar.
