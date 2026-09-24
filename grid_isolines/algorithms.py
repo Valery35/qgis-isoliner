@@ -524,17 +524,19 @@ def _attach_field_labels(alg, parameters, context, result, before=None):
     table = {k: _tr(v) for k, v in labels.items() if k not in inputs}
     table.update({k: a for k, a in inputs.items() if a})
     if not table:
-        return
+        return []
     targets = []
     if isinstance(result, dict):
         targets = [v for v in result.values() if isinstance(v, str) and v]
     if before is not None:
         targets += sorted(_pending_loads(context) - set(before))
     seen = set()
+    done = []
     for value in targets:
         if value in seen:
             continue
         seen.add(value)
+        done.append((value, table))
         try:
             if not context.willLoadLayerOnCompletion(value):
                 continue
@@ -548,6 +550,71 @@ def _attach_field_labels(alg, parameters, context, result, before=None):
             pp.field_labels = table
         except (AttributeError, RuntimeError, TypeError):
             continue
+    return done
+
+
+def _split_gpkg_ref(dest):
+    """Путь к GeoPackage и имя слоя из строки выхода, либо None.
+
+    Выход бывает путём к файлу, путём с «|layername=» и идентификатором
+    временного слоя. В файл подписи пишутся только для GeoPackage."""
+    if not isinstance(dest, str) or not dest:
+        return None
+    path, _sep, rest = dest.partition("|")
+    if not path.lower().endswith(".gpkg") or not os.path.isfile(path):
+        return None
+    layer = None
+    for part in rest.split("|"):
+        if part.startswith("layername="):
+            layer = part.split("=", 1)[1]
+    return path, layer
+
+
+def _bake_labels(path, layer_name, table):
+    """Записать подписи полей в сам GeoPackage. Возвращает число полей.
+
+    Подпись, поставленная слою, живёт в проекте, и файл, открытый в другом
+    проекте или отдельно, снова показывает латиницу. GDAL кладёт подпись в
+    gpkg_data_columns как «альтернативное имя» поля, и QGIS читает её
+    оттуда при любом открытии. Так же делают Isoliner3D и Routeliner.
+
+    Подпись, совпадающая с именем поля без учёта регистра, GDAL при чтении
+    выбрасывает: у поля X подписи «X» в файле не будет. Вреда в этом нет."""
+    from osgeo import ogr
+    flag = getattr(ogr, "ALTER_ALTERNATIVE_NAME_FLAG", None)
+    if flag is None:          # GDAL старше 3.2, альтернативных имён нет
+        return 0
+    ds = gdal.OpenEx(path, gdal.OF_UPDATE | gdal.OF_VECTOR)
+    if ds is None:
+        return 0
+    try:
+        if layer_name:
+            lyr = ds.GetLayerByName(layer_name)
+        else:
+            stem = os.path.splitext(os.path.basename(path))[0]
+            lyr = ds.GetLayerByName(stem)
+            if lyr is None and ds.GetLayerCount() == 1:
+                lyr = ds.GetLayer(0)
+        if lyr is None:
+            return 0
+        defn = lyr.GetLayerDefn()
+        done = 0
+        for i in range(defn.GetFieldCount()):
+            old = defn.GetFieldDefn(i)
+            text = table.get(old.GetName())
+            if not text:
+                continue
+            if old.GetAlternativeName() == text:
+                done += 1
+                continue
+            nd = ogr.FieldDefn(old.GetName(), old.GetType())
+            nd.SetSubType(old.GetSubType())
+            nd.SetAlternativeName(text)
+            if lyr.AlterFieldDefn(i, nd, flag) == 0:
+                done += 1
+        return done
+    finally:
+        ds = None
 
 
 class _RoundingSink:
@@ -3033,7 +3100,8 @@ class IsolinerAlgorithm(QgsProcessingAlgorithm):
         try:
             pending = _pending_loads(context)
             result = self._process(parameters, context, feedback)
-            _attach_field_labels(self, parameters, context, result, pending)
+            self._bake_targets = _attach_field_labels(
+                self, parameters, context, result, pending)
             trace.step("Готово за %.1f с" % (time.time() - started))
             return result
         except Exception as exc:
@@ -3048,6 +3116,27 @@ class IsolinerAlgorithm(QgsProcessingAlgorithm):
 
     def _process(self, parameters, context, feedback):
         raise NotImplementedError
+
+    def postProcessAlgorithm(self, context, feedback):
+        """Подписи полей в сами файлы GeoPackage.
+
+        Идёт после расчёта, когда приёмники закрыты и файлы дописаны, но
+        до загрузки слоёв в проект. Сбой записи подписей инструмент не
+        роняет: подписи в проекте стоят и без этого."""
+        for dest, table in getattr(self, "_bake_targets", None) or []:
+            ref = _split_gpkg_ref(dest)
+            if ref is None or not table:
+                continue
+            try:
+                _bake_labels(ref[0], ref[1], table)
+            except Exception as exc:  # nosec - подписи не роняют прогон
+                try:
+                    feedback.pushDebugInfo(
+                        _tr("Подписи полей в файл не записаны: %s") % exc)
+                except Exception:  # nosec
+                    pass
+        self._bake_targets = None
+        return {}
 
     def parameterAsSink(self, parameters, name, context, fields, *args,
                         **kwargs):

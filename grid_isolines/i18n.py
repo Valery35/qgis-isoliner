@@ -3898,6 +3898,8 @@ TRANSLATIONS = {
         "Estimate from curvature, mm/m",
     "Расхождение, мм/м":
         "Difference, mm/m",
+    "Подписи полей в файл не записаны: %s":
+        "Field labels were not written to the file: %s",
     # 9. Сдвижения (5.13.28)
     "Срок между турами, мес":
         "Interval between surveys, months",

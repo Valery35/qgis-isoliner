@@ -91,7 +91,8 @@ def test_labels_are_translated():
 def test_base_class_attaches_labels():
     body = CODE[CODE.index("class IsolinerAlgorithm("):]
     body = body[:body.index("\nclass ", 10)]
-    assert "_attach_field_labels(self, parameters, context, result" in body
+    flat = " ".join(body.split())
+    assert "_attach_field_labels( self, parameters, context, result" in flat
 
 
 def test_postprocessors_carry_labels():
@@ -116,14 +117,31 @@ def test_user_fields_are_protected():
     assert "table.update({k: a for k, a in inputs.items() if a})" in fn
 
 
+def test_labels_are_baked_into_geopackage():
+    """Подписи пишутся и в сам GeoPackage (gpkg_data_columns), чтобы файл,
+    открытый в другом проекте, показывал их без проекта. Запись идёт в
+    postProcessAlgorithm, когда приёмники закрыты."""
+    body = CODE[CODE.index("class IsolinerAlgorithm("):]
+    body = body[:body.index("\nclass ", 10)]
+    assert "def postProcessAlgorithm(" in body
+    assert "_bake_labels(ref[0], ref[1], table)" in body
+    assert "self._bake_targets = _attach_field_labels(" in body
+    fn = CODE[CODE.index("def _bake_labels("):]
+    fn = fn[:fn.index("\ndef ", 5)]
+    # GDAL старше 3.2 альтернативных имён не знает: тихо пропускаем
+    assert 'getattr(ogr, "ALTER_ALTERNATIVE_NAME_FLAG", None)' in fn
+    assert "SetAlternativeName" in fn
+
+
 def test_outputs_outside_results_are_labelled():
     """Выход, не попавший в словарь результатов, тоже получает подписи:
     очередь загрузки сравнивается до и после расчёта."""
     body = CODE[CODE.index("class IsolinerAlgorithm("):]
     body = body[:body.index("\nclass ", 10)]
     assert "pending = _pending_loads(context)" in body
-    assert "_attach_field_labels(self, parameters, context, result, pending)" \
-        in body
+    flat = " ".join(body.split())
+    assert "_attach_field_labels( self, parameters, context, result, pending)" \
+        in flat
 
 
 if __name__ == "__main__":

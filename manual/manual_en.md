@@ -276,6 +276,8 @@ Such names are awkward to read in a table, so the fields carry aliases. In an En
 
 Only a field the plugin created gets an alias of its own. A field with the same name as a field of an input layer is taken to be yours. If it has an alias in the input layer, the output gets the same one, and if not, the field is left as it is. That is why a label follows a field along a chain: benchmarks from 9.03 arrive in 9.01 already labelled, and the section definition from 4.01 is labelled in 4.02 as well. Your own field with your own label keeps it in the output too.
 
+If an output is saved to a GeoPackage file, the labels are written into the file itself as well. Such a file, opened in another project or handed to a colleague, shows the same field names without the original project. Temporary layers live only in the project, and so do their labels.
+
 Temporary layers carry the aliases too. If such a layer is fed into a tool that copies fields into a temporary output, for example a buffer or an extract by attribute, QGIS writes the warning "Aliases are not compatible with scratch layers" for every field. The computation goes on as usual, and to avoid the warnings save the temporary layer to a file.
 
 ## Precision of numbers in tables

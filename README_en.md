@@ -333,6 +333,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.34** — field labels are written into the GeoPackage file itself.
 - **5.13.33** — numbers in the output tables are rounded to a sensible precision by the units of each field.
 - **5.13.32** — readable field names on the outputs of every tool; a label follows its field along a chain of tools.
 - **5.13.31** — readable field names (aliases) on the demo layers, in the language of the interface; the field names themselves are unchanged.
