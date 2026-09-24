@@ -278,6 +278,12 @@ Only a field the plugin created gets an alias of its own. A field with the same 
 
 Temporary layers carry the aliases too. If such a layer is fed into a tool that copies fields into a temporary output, for example a buffer or an extract by attribute, QGIS writes the warning "Aliases are not compatible with scratch layers" for every field. The computation goes on as usual, and to avoid the warnings save the temporary layer to a file.
 
+## Precision of numbers in tables
+
+Numbers in the fields of the output layers are rounded to a sensible precision by the units of the field. Elevations, thicknesses and distances in metres are written to the centimetre, subsidence in millimetres to a tenth, tilts in mm/m to a thousandth, angles to a tenth of a degree, areas and volumes to a tenth. Quantities without a natural scale, such as hydraulic conductivity, a weight or a slope, are written with four significant digits. Twelve decimals on a roof elevation add no accuracy, and in a table or in an export to Excel they get in the way.
+
+The fields of your input layers are not rounded. If a field of an output has the same name as a field of an input, the plugin leaves its values as they are.
+
 ## The basemap
 
 The **Isoliner** toolbar carries a **Basemap** button - a map or satellite imagery under the data in one move. Tick the sources you need, press **Add**, and the layers go into the project. The window stays open, because basemaps are chosen while looking at the map. Add one, look, add another.

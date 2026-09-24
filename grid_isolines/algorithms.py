@@ -550,6 +550,81 @@ def _attach_field_labels(alg, parameters, context, result, before=None):
             continue
 
 
+class _RoundingSink:
+    """Приёмник, который округляет числовые поля перед записью.
+
+    Точность берётся из подписи поля (field_format.decimals_for) или из
+    FIELD_DECIMALS инструмента. Всё прочее уходит в настоящий приёмник как
+    есть, поэтому код инструментов менять не нужно: он зовёт addFeature,
+    а округление происходит здесь."""
+
+    def __init__(self, sink, plan):
+        self._sink = sink
+        self._plan = plan      # {индекс поля: спецификация}
+
+    def _fix(self, feature):
+        try:
+            attrs = feature.attributes()
+        except (AttributeError, RuntimeError):
+            return feature
+        from .field_format import round_value
+        changed = False
+        for idx, spec in self._plan.items():
+            if idx < len(attrs):
+                v = attrs[idx]
+                nv = round_value(v, spec)
+                if nv is not v:
+                    attrs[idx] = nv
+                    changed = True
+        if changed:
+            feature.setAttributes(attrs)
+        return feature
+
+    def addFeature(self, feature, *args):
+        return self._sink.addFeature(self._fix(feature), *args)
+
+    def addFeatures(self, features, *args):
+        return self._sink.addFeatures([self._fix(f) for f in features],
+                                      *args)
+
+    def __getattr__(self, name):
+        return getattr(self._sink, name)
+
+
+def _rounding_sink(alg, parameters, context, fields, res):
+    """Обернуть приёмник округлением, если есть что округлять."""
+    try:
+        sink, dest = res
+    except (TypeError, ValueError):
+        return res
+    if sink is None or fields is None:
+        return res
+    labels = getattr(alg, "FIELD_LABELS", None) or {}
+    overrides = getattr(alg, "FIELD_DECIMALS", None) or {}
+    if not labels and not overrides:
+        return res
+    try:
+        from .field_format import plan_for
+        key = id(parameters)
+        cache = getattr(alg, "_input_names_cache", None)
+        if not cache or cache[0] != key:
+            cache = (key, set(_input_field_names(alg, parameters, context)))
+            alg._input_names_cache = cache
+        names = [fields.at(i).name() for i in range(fields.count())]
+        plan = plan_for(names, labels, overrides, skip=cache[1])
+        idx_plan = {}
+        for i, nm in enumerate(names):
+            # тип поля не проверяется: round_value трогает только float,
+            # а сравнение типов расходится между Qt5 и Qt6
+            if nm in plan:
+                idx_plan[i] = plan[nm]
+        if not idx_plan:
+            return res
+        return _RoundingSink(sink, idx_plan), dest
+    except Exception:  # nosec - округление не должно ронять расчёт
+        return res
+
+
 def _finalize_layer(layer, history, labels=None):
     """Общее для всех выходов: свернуть узел растра в дереве (чтобы стопка гридов
     не раздувала панель слоёв), записать историю создания в метаданные слоя и
@@ -2974,6 +3049,13 @@ class IsolinerAlgorithm(QgsProcessingAlgorithm):
     def _process(self, parameters, context, feedback):
         raise NotImplementedError
 
+    def parameterAsSink(self, parameters, name, context, fields, *args,
+                        **kwargs):
+        """Приёмник с округлением числовых полей до разумной точности."""
+        res = super().parameterAsSink(parameters, name, context, fields,
+                                      *args, **kwargs)
+        return _rounding_sink(self, parameters, context, fields, res)
+
     def _short_params(self, parameters):
         parts = []
         try:
@@ -4813,6 +4895,11 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
     VG_NAME = "VG_NAME"
     OUTPUT = "OUTPUT"
     OUTPUT_HTML = "OUTPUT_HTML"
+
+    # Точность полей, у которых нет подписи с единицами (см. field_format).
+    # Оценка и ошибка в единицах проверяемого поля, поэтому значащими цифрами.
+    FIELD_DECIMALS = {"z_est": "g5", "error": "g5", "abs_error": "g5",
+                      "std_resid": 3}
 
     def tr(self, s): return _tr(s)
 
@@ -14154,6 +14241,11 @@ class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
 
     _METHODS = ("kriging", "mincurv")
 
+    # Точность полей, у которых нет подписи с единицами (см. field_format).
+    # Оценка и ошибка в единицах проверяемого поля, поэтому значащими цифрами.
+    FIELD_DECIMALS = {"z_est": "g5", "error": "g5", "abs_error": "g5",
+                      "std_resid": 3}
+
     def tr(self, s): return _tr(s)
     def createInstance(self): return MethodCrossValidationAlgorithm()
     def name(self): return "method_crossvalidation"
@@ -16300,6 +16392,8 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
 
     # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
     # _attach_field_labels). Имена полей остаются прежними.
+    # Значение в слое чертежа: отметка деления, расход или подпись оси.
+    FIELD_DECIMALS = {"value": 3}
     FIELD_LABELS = {
         "sec": "Створ",
         "km": "Километраж, км",

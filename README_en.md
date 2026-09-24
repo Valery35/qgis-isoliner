@@ -333,6 +333,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.33** — numbers in the output tables are rounded to a sensible precision by the units of each field.
 - **5.13.32** — readable field names on the outputs of every tool; a label follows its field along a chain of tools.
 - **5.13.31** — readable field names (aliases) on the demo layers, in the language of the interface; the field names themselves are unchanged.
 - **5.13.30** — subsidence rates in the 9.03 demo trough; the Russian labels of declustering no longer say «свип».
