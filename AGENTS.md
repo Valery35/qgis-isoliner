@@ -77,7 +77,7 @@ QSFCGAL). Основной модуль остаётся 2D/2.5D: гриды, и
 | `hydro.py` | гидравлический градиент и направление потока (`head_gradient`, `flow_samples`) |
 | `fractal.py` | фрактальная размерность поверхности вариограммным методом (наклон лог-лог вариограммы даёт H, D = 3 - H), скользящее окно через кумулятивные суммы; box-counting, компас Ричардсона, Минковский. Чистый NumPy |
 | `density.py` | плотность переменной опоры (2.07): точка-гаусс/линия-коридор/полигон-маска, дискретная нормировка, два аккумулятора (Σm·σ, Σm) для эффективной сигмы, дазиметрия с откатом, cut_polyline, rasterize_polygon, demo_dataset. Инвариант массы. Чистый NumPy, тест `tests/test_density.py` (12) |
-| `dem_glo30.py` | загрузчик ЦМР (2.01), два источника: SOURCE_GLO30 (плиточная VRT-мозаика Copernicus) и SOURCE_GEDTM30 (единый глобальный COG bare-earth DTM, CC BY 4.0, s3.opengeohub.org, Int32 со scale-метаданными: GDAL применяет scale сам при warp с unscale=True, отдаёт метры Float32 - вручную НЕ делить, иначе высоты вдесятеро меньше). Общий варп _warp_to_metric, /vsicurl/, защита max_tiles. GDAL параметром, тест `tests/test_dem_glo30.py` |
+| `dem_glo30.py` | загрузчик ЦМР (2.01), три источника: SOURCE_GLO30 (плиточная VRT-мозаика Copernicus) и SOURCE_GEDTM30 (единый глобальный COG bare-earth DTM, CC BY 4.0, s3.opengeohub.org, Int32 со scale-метаданными: GDAL применяет scale сам при warp с unscale=True, отдаёт метры Float32 - вручную НЕ делить, иначе высоты вдесятеро меньше) и SOURCE_MAPZEN (с 5.13.35: Mapzen Terrain Tiles, GeoTIFF z/x/y 512 px в EPSG:3857 на s3 elevation-tiles-prod, уровень по ячейке mapzen_zoom_for, огрубление при >256 плиток в mapzen_plan). Общий варп _warp_to_metric, /vsicurl/, защита max_tiles. GDAL параметром, тест `tests/test_dem_glo30.py` |
 | `osm_overpass.py` | загрузчик топоосновы OSM (2.02): Overpass QL, зеркало при отказе, парсер (ele с запятой, незамкнутые water отброшены), клип линий по рамке. Сеть в тестах замокана: `tests/test_osm_overpass.py`, `tests/test_osm_network_mock.py` |
 | `hydro_fill.py` | заполнение понижений Планшона-Дарбу (2.04 и флажки в 2.01/2.03/2.05-2.07): 4 направленных прохода, epsilon=0 только ямы, epsilon>0 сквозной уклон через плоскости, nodata и граница - стоки. Тест `tests/test_hydro_fill.py` |
 | `topo_flow.py` | гидрология (2.05-2.07): D8 Jenson-Domingue (коды ESRI; рамка - стенка, nodata - слив), аккумуляция векторизованным обходом Кана, речная сеть со Стралером (вершины вниз по течению), бассейны прыжками указателей. Тест `tests/test_topo_flow.py` |
@@ -868,6 +868,13 @@ latin-1. Совпасть со строкой программы такой кл
   месту на диске (всплыло на обкатке 4.0.0, USER:100001). GLO-30 не
   страдает - там мозаика режется плитками. Регресс-тесты
   `TestGedtmWindow` в tests/test_dem_glo30.py.
+
+- Mapzen Terrain Tiles (2.01, с 5.13.35): тип плиток зависит от уровня.
+  До z13 Int16 с no-data -32768, на z14 Float32 с no-data -3.4e38. Поэтому
+  варп идёт с `output_type=GDT_Float32` и `dst_nodata=-32768`, а no-data
+  мозаики берётся из первой открывшейся плитки. Номера плиток сверены с
+  живыми (`TestMapzen`). S3 из облачной песочницы закрыт прокси (403),
+  живую загрузку проверять только на машине пользователя через QGIS.
 
 - Qt6 (QGIS 4): плоские enum'ы Qt местами недоступны (`Qt.WindowMinMaxButtonsHint` и т.п., шим QGIS покрывает не всё). Использовать `getattr(getattr(Qt, "WindowType", Qt), "…")` - работает в Qt5 и Qt6.
 - **Модули `xml` в плагин не брать.** Сканер каталога блокирует `xml.etree.ElementTree`, `minidom` и `pyexpat`: штатный разборщик поддаётся раздутым сущностям и внешним ссылкам, а `defusedxml` в поставке QGIS нет. Первый раз это поймалось на палитре Leapfrog, второй на LandXML. Свой разборщик живёт в `landxml.py`: раскрывает только пять встроенных сущностей и числовые ссылки, а на объявление своих отвечает отказом. Сторож `tests/test_scanner_rules.py`

@@ -6,19 +6,25 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines. It holds 2D kriging (points to raster, GSLIB KB2D core), the experimental variogram with model fitting and leave-one-out cross-validation. Next come optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled. The interface language and the help language can be chosen separately and by default follow QGIS. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний. В набор входят 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели и кросс-валидация (leave-one-out). Дальше идут необязательное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте. Язык интерфейса и язык справки выбираются отдельно и по умолчанию идут за QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.13.34
+version=5.13.35
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
 tracker=https://github.com/Valery35/qgis-isoliner/issues
 repository=https://github.com/Valery35/qgis-isoliner
-tags=kriging,geostatistics,variogram,interpolation,minimum curvature,cross-validation,contour,contours,isolines,hydrogeology,geology,gslib,raster,dem,terrain,topography,hydrology,watershed,flow accumulation,river network,slope,aspect,anudem,topo2raster,copernicus,gedtm30,openstreetmap
+tags=kriging,geostatistics,variogram,interpolation,minimum curvature,cross-validation,contour,contours,isolines,hydrogeology,geology,gslib,raster,dem,terrain,topography,hydrology,watershed,flow accumulation,river network,slope,aspect,anudem,topo2raster,copernicus,gedtm30,mapzen,srtm,openstreetmap
 category=Analysis
 icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.13.34
+changelog=5.13.35
+    - 2.01 Загрузка ЦМР получила третий источник: Mapzen Terrain Tiles.
+      По России это SRTM 30 м южнее 60-й широты и ArcticDEM севернее, за
+      рубежом национальные модели (США до 1 м, Великобритания 2 м,
+      Норвегия 10 м и другие). Уровень плиток подбирается по размеру
+      ячейки, журнал даёт ссылку на авторов данных.
+    5.13.34
     - Русские названия полей записываются и в сам файл GeoPackage. Файл,
       открытый в другом проекте или переданный коллеге, показывает их
       без исходного проекта. Так же ведут себя Isoliner3D и Routeliner.
@@ -85,14 +91,3 @@ changelog=5.13.34
     5.13.26
     - Окно выбора языка открывается и кнопкой на панели инструментов Isoliner,
       с буквами А и Я на иконке.
-    5.13.25
-    - Язык интерфейса и язык справки выбираются отдельно, в новом пункте меню
-      Модули - Isoliner - Язык. Можно держать английский интерфейс QGIS и
-      читать справку по-русски, и наоборот. Справка это правая панель
-      диалога, подсказки полей и руководство PDF, они меняются вместе.
-    - Меню и названия инструментов в панели Обработки перестраиваются сразу,
-      перезапускать QGIS не нужно.
-    - По умолчанию оба языка идут за языком QGIS, как и раньше.
-    - Справка 4.13 кончалась без версии модуля, теперь как у остальных.
-    Более ранние версии: файл CHANGELOG.md в репозитории,
-    https://github.com/Valery35/qgis-isoliner/blob/main/CHANGELOG.md

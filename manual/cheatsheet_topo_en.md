@@ -45,7 +45,7 @@ Check: run 1.04 over the result with the same step and overlay it on the contour
 
 | Tool | Input | Output | Key parameters |
 |:--|:--|:--|:--|
-| **2.01** Download DEM by extent | map extent | GeoTIFF float32, meters | source: GLO-30 (DSM) or GEDTM30 (DTM, forest removed). Cell 30 m. CRS: empty = project/UTM |
+| **2.01** Download DEM by extent | map extent | GeoTIFF float32, meters | source: GLO-30 (DSM), GEDTM30 (DTM, forest removed) or Mapzen (SRTM, ArcticDEM). Cell 30 m. CRS: empty = project/UTM |
 | **2.02** Download base topography by extent | map extent | watercourses, water bodies, peaks (ele), cliffs | coastline off. Large extent: shrink it or raise the extent area limit |
 | **1.04** Isolines from raster | DEM | lines with ELEV | step 5-10 m. Min. line length 0, short closed lines are hilltops. Default smoothing. Polygons off |
 | **2.03** Topo2Raster | contours (elevation field), points, streamlines, cliffs, lakes | GeoTIFF float32 | points or contours required. Streamlines run downstream: OSM and 2.06 fit as is. Edge: node Z (river slope) > field elevation (plane) > shore minimum |
@@ -69,4 +69,4 @@ Check: run 1.04 over the result with the same step and overlay it on the contour
 - **Closed basins.** Depression filling erases karst and subsidence troughs, so uncheck it.
 
 \vspace{1pt}\hrule
-\begin{footnotesize}Data: Copernicus DEM © ESA · GEDTM30 © OpenGeoHub CC BY 4.0 · © OpenStreetMap, ODbL. Plugin: plugins.qgis.org/plugins/grid\_isolines · The manual ships with the plugin (doc/Isoliner\_en.pdf) · Inform++ LLC · www.informpp.ru\end{footnotesize}
+\begin{footnotesize}Data: Copernicus DEM © ESA · GEDTM30 © OpenGeoHub CC BY 4.0 · Mapzen Terrain Tiles (credits: github.com/tilezen/joerd) · © OpenStreetMap, ODbL. Plugin: plugins.qgis.org/plugins/grid\_isolines · The manual ships with the plugin (doc/Isoliner\_en.pdf) · Inform++ LLC · www.informpp.ru\end{footnotesize}

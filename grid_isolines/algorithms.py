@@ -19116,19 +19116,28 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
     def shortHelpString(self):
         return _help_version(_trh(
             "Загружает ЦМР по рамке из открытого хранилища, без регистрации и ключей. "
-            "Источника два.\n\nCopernicus GLO-30 это модель поверхности (DSM), то есть "
+            "Источника три.\n\nCopernicus GLO-30 это модель поверхности (DSM), то есть "
             "высоты по кронам и кровлям, плиточной мозаикой без швов. GEDTM30 это "
             "модель рельефа (DTM, CC BY 4.0), где лес и постройки сняты машинным "
             "обучением по ICESat-2 и GEDI. Под пологом леса GEDTM30 точнее, и лежит он "
-            "единым глобальным COG.\n\nДанные перепроецируются в метрическую систему "
+            "единым глобальным COG.\n\nMapzen Terrain Tiles это сборка открытых ЦМР. "
+            "В России это SRTM 30 м южнее 60-й широты и ArcticDEM севернее. За рубежом "
+            "в сборку входят национальные модели: США от 1 до 10 м, Великобритания 2 м, "
+            "Норвегия 10 м, Австралия 5 м, Новая Зеландия 8 м, а также EU-DEM по Европе. "
+            "Уровень плиток подбирается по размеру ячейки, и там, где есть подробные "
+            "данные, мелкая ячейка даёт настоящую подробность. Большинство источников "
+            "сборки это модели поверхности, как GLO-30. Если рамка велика для заданной "
+            "ячейки, уровень огрубляется, и журнал об этом предупреждает.\n\nДанные перепроецируются в метрическую систему "
             "координат с кубической интерполяцией. Флажок гидрокоррекции заполняет "
             "ложные понижения, чтобы вода текла вниз.\n\nВыход: GeoTIFF float32, высоты "
             "в метрах, слой попадает в группу Топография дерева слоёв и готов для "
             "изолиний (1.04) и всей группы. Данные: GLO-30 - Copernicus DEM © ESA, "
-            "GEDTM30 - © OpenGeoHub, CC BY 4.0.\n\n**Размер ячейки** задаётся в метрах "
-            "целевой системы координат. Исходные данные тридцатиметровые, поэтому "
-            "мельче тридцати брать незачем. Подробности от этого не появится, вырастет "
-            "только объём файла.\n\n**Сгладить рельеф (FPDEMS)** убирает избыточную "
+            "GEDTM30 - © OpenGeoHub, CC BY 4.0, Mapzen - открытые источники, перечень "
+            "и ссылки на авторов печатаются в журнал.\n\n**Размер ячейки** задаётся в "
+            "метрах целевой системы координат. GLO-30 и GEDTM30 тридцатиметровые, "
+            "поэтому для них мельче тридцати брать незачем. Подробности от этого не "
+            "появится, вырастет только объём файла. У Mapzen мельче тридцати имеет "
+            "смысл там, где в сборке есть подробные национальные данные.\n\n**Сгладить рельеф (FPDEMS)** убирает избыточную "
             "шероховатость спутниковой ЦМР, не заваливая бровки. Работает оно не с "
             "высотами, а с полем нормалей поверхности. Вес соседа тем больше, чем "
             "ближе его нормаль к нормали центра. На бровке нормали по сторонам разные, "
@@ -19152,7 +19161,9 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterEnum(
             self.SOURCE, self.tr("Источник рельефа"),
             options=[self.tr("Copernicus GLO-30 (DSM, поверхность)"),
-                     self.tr("GEDTM30 (DTM, без леса и построек)")],
+                     self.tr("GEDTM30 (DTM, без леса и построек)"),
+                     self.tr("Mapzen Terrain Tiles (сборка SRTM, ArcticDEM и "
+                             "национальных ЦМР)")],
             defaultValue=_dv(self, self.SOURCE, 0)))
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Рамка загрузки")))
@@ -19246,8 +19257,9 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
         epsilon = self.parameterAsDouble(parameters, self.EPSILON, context)
         max_tiles = self.parameterAsInt(parameters, self.MAX_TILES, context)
         source_idx = self.parameterAsEnum(parameters, self.SOURCE, context)
-        source = (dem_glo30.SOURCE_GEDTM30 if source_idx == 1
-                  else dem_glo30.SOURCE_GLO30)
+        source = {1: dem_glo30.SOURCE_GEDTM30,
+                  2: dem_glo30.SOURCE_MAPZEN}.get(source_idx,
+                                                  dem_glo30.SOURCE_GLO30)
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT,
                                                context)
         srs_label, dst_epsg, dst_wkt = self._resolve_target_srs(
@@ -19327,6 +19339,11 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
         if source == dem_glo30.SOURCE_GEDTM30:
             feedback.pushInfo(self.tr(
                 "Данные: GEDTM30 © OpenGeoHub, CC BY 4.0."))
+        elif source == dem_glo30.SOURCE_MAPZEN:
+            feedback.pushInfo(self.tr(
+                "Данные: Mapzen Terrain Tiles (AWS Open Data). По России это "
+                "SRTM (USGS) и ArcticDEM (PGC). При публикации указывайте "
+                "авторов по списку: %s") % dem_glo30.MAPZEN_ATTRIBUTION_URL)
         else:
             feedback.pushInfo(self.tr("Данные: Copernicus DEM © ESA."))
         _topo_group_layer(context, out_path, self.tr("Топография"))

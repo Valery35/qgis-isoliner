@@ -1395,11 +1395,11 @@ The full list of output-layer fields is in the **Electrical-prospecting / Subsid
 
 ## 2.01 Download DEM by extent
 
-Downloads a DEM by extent from an open store, no registration or keys, from one of two sources. One-degree tiles are mosaicked seamlessly and reprojected into a metric coordinate system with cubic resampling. Raw degree tiles never enter the analysis, so the GLO-30 peculiarity north of latitude 50 (a coarser longitude step) is handled automatically.
+Downloads a DEM by extent from an open store, no registration or keys, from one of three sources. Tiles are mosaicked seamlessly and reprojected into a metric coordinate system with cubic resampling. Raw degree tiles never enter the analysis, so the GLO-30 peculiarity north of latitude 50 (a coarser longitude step) is handled automatically.
 
 | Parameter | What it sets | Default / hint |
 |---|---|---|
-| Terrain source | GLO-30 (Copernicus, DSM: heights over canopy and roofs) or GEDTM30 (DTM with forest and buildings removed, machine learning from ICESat-2/GEDI). | GLO-30 |
+| Terrain source | GLO-30 (Copernicus, DSM: heights over canopy and roofs), GEDTM30 (DTM with forest and buildings removed, machine learning from ICESat-2/GEDI) or Mapzen Terrain Tiles (a compilation of SRTM, ArcticDEM and national DEMs). | GLO-30 |
 | Download extent | Extent in any CRS, converted to degrees automatically. | - |
 | Target CRS | Metric output CRS. Empty = project CRS if metric, otherwise UTM by extent center. | empty |
 | Cell size, m | Output grid step after reprojection. | 30 |
@@ -1409,20 +1409,22 @@ Downloads a DEM by extent from an open store, no registration or keys, from one 
 | Smoothing: normals difference threshold, deg (adv.) | Edge-preservation strictness: lower = more aggressive preservation. | 15 |
 | Smoothing: number of passes (adv.) | Outer elevation-rebuild steps. | 2 |
 | Slope epsilon for filling, m (adv.) | Minimum slope on flats. 0 = raise pits to the outlet only. | 0.001 |
-| Limit of 1x1 degree tiles (adv.) | Guard against an oversized extent for GLO-30. | 25 |
+| Limit of 1x1 degree tiles (adv.) | Guard against an oversized extent for GLO-30 and Mapzen. | 25 |
 | DEM (metric CRS) | Output float32 raster, layer in the Topography group. | - |
 
 **Terrain source** is the key choice. **Copernicus GLO-30** is a digital surface model (DSM), heights are taken over the top of canopy and rooftops, and it is distributed as one-degree tiles. **GEDTM30** is a digital terrain model (DTM) by OpenGeoHub under CC BY 4.0, where forest and buildings are removed by machine learning from ICESat-2 and GEDI data. Under forest canopy GEDTM30 is markedly more accurate, and independent validation confirms it. It is distributed as a single global cloud-optimized GeoTIFF. For forested terrain the DTM is usually preferable, for open areas the difference is small.
+
+**Mapzen Terrain Tiles** is a compilation of open DEMs that Mapzen assembled and published on AWS Open Data. Over Russia it holds SRTM 30 m south of latitude 60 and ArcticDEM to the north, so for the Kama region it is the same SRTM. Elsewhere the compilation includes national models: the USA from 1 to 10 m, Great Britain 2 m, Norway 10 m, Australia 5 m, New Zealand 8 m, and EU-DEM for Europe. The tiles form a pyramid of zoom levels, and the level is chosen from the cell size: the tile pixel is taken no coarser than the cell, at the latitude of Perm a 30 m cell gives about 20 m. Where detailed national data exist, a fine cell gives real detail. Where they do not, a fine cell only makes the file bigger. Most sources in the compilation are surface models, like GLO-30. If the extent is too large for the given cell, the tool takes a coarser level and says so in the log. The source is useful as an independent check of GLO-30 and wherever it carries a national model.
 
 Parameters:
 
 - **Download extent** - the extent in any CRS, converted to degrees internally to pick the data.
 - **Target CRS** - the metric CRS of the result. Leaving it empty enables the automatics, the project CRS is taken if it is metric, otherwise the UTM zone at the extent center. A degree target CRS is rejected with a clear message.
-- **Cell size, m** - 30 by default, the native GLO-30 resolution.
+- **Cell size, m** - 30 by default, the native GLO-30 resolution. For Mapzen the cell also sets the tile level.
 - **Hydrological correction** - on by default, spurious depressions are filled right away (see 2.04) so water flows downhill on the model. For tasks where closed basins matter (karst, subsidence troughs) uncheck the box.
 - Under **Advanced** there are **Slope epsilon for filling** and **Tile limit** (a guard against an accidental extent covering half a country).
 
-A network failure or an extent entirely in the ocean ends with a clear message rather than an empty raster. The data source is Copernicus DEM © ESA, and the open license allows use with attribution.
+A network failure or an extent entirely in the ocean ends with a clear message rather than an empty raster. The data source is Copernicus DEM © ESA, and the open license allows use with attribution. GEDTM30 © OpenGeoHub, CC BY 4.0. Each part of Mapzen Terrain Tiles has its own authors, the download log gives a link to their list (github.com/tilezen/joerd, docs/attribution.md), and those are the ones to credit in a publication.
 
 ## 2.02 Download base topography by extent
 
@@ -4221,7 +4223,7 @@ Minimum - **Section line**, **Surfaces top to bottom**, **Vertical scale**.
 
 The manual describes every tool in detail, with parameters and caveats. This page holds neither options nor theory on purpose. Its job is to walk you through the module once, not to replace the documentation.
 
-OpenStreetMap data are © OpenStreetMap contributors, ODbL. The Copernicus GLO-30 and GEDTM30 matrices are distributed freely.
+OpenStreetMap data are © OpenStreetMap contributors, ODbL. The Copernicus GLO-30, GEDTM30 and Mapzen Terrain Tiles matrices are distributed freely.
 
 # Appendix. Demo layer fields
 

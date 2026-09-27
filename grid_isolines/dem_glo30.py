@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Загрузка Copernicus DEM GLO-30 из открытого AWS-бакета.
+"""Загрузка ЦМР по рамке: Copernicus GLO-30, GEDTM30 и Mapzen Terrain Tiles.
+
+Mapzen Terrain Tiles - сборка открытых ЦМР на AWS (SRTM, ArcticDEM,
+EU-DEM, национальные модели США, Канады, Великобритании, Норвегии,
+Австралии, Новой Зеландии и др.), GeoTIFF-плитки z/x/y в Web Mercator,
+512x512, до уровня 14. Уровень подбирается по размеру ячейки.
+
+Ниже - про GLO-30.
 
 Плитки 1 на 1 градус, формат COG, доступ без регистрации и ключей
 через GDAL /vsicurl/. Плитки океана в бакете отсутствуют, это норма.
@@ -17,6 +24,19 @@ DEFAULT_MAX_TILES = 25
 # Источники ЦМР
 SOURCE_GLO30 = "glo30"
 SOURCE_GEDTM30 = "gedtm30"
+SOURCE_MAPZEN = "mapzen"
+
+# Mapzen Terrain Tiles (AWS Open Data, без ключей). Плитка 512x512 в
+# EPSG:3857. Тип и no-data зависят от уровня: до 13 Int16 с -32768, на 14
+# Float32 с -3.4e38, поэтому no-data берётся из первой открывшейся плитки.
+MAPZEN_URL = ("https://s3.amazonaws.com/elevation-tiles-prod/geotiff/"
+              "{z}/{x}/{y}.tif")
+MAPZEN_MAX_ZOOM = 14
+MAPZEN_TILE_PX = 512
+MAPZEN_MAX_XYZ = 256          # предел плиток z/x/y на один запрос
+MAPZEN_ATTRIBUTION_URL = (
+    "https://github.com/tilezen/joerd/blob/master/docs/attribution.md")
+_EARTH_CIRC = 2.0 * math.pi * 6378137.0
 
 # GEDTM30: единый глобальный COG, bare-earth DTM, CC BY 4.0.
 # Слой edtm - предсказанная высота рельефа (не uncertainty и не маска).
@@ -84,6 +104,60 @@ def tiles_for_bbox(lon_min, lat_min, lon_max, lat_max, max_tiles=DEFAULT_MAX_TIL
     return names
 
 
+def mapzen_ground_pixel(z, lat):
+    """Размер пикселя плитки уровня z на местности, м (по широте lat)."""
+    return _EARTH_CIRC / (MAPZEN_TILE_PX * 2 ** z) * math.cos(
+        math.radians(lat))
+
+
+def mapzen_zoom_for(cell, lat):
+    """Самый грубый уровень, у которого пиксель на местности не крупнее
+    ячейки. Мельче ячейки брать незачем: выход всё равно пересчитывается
+    в ячейку, а плиток становится вчетверо больше на каждый уровень."""
+    cell = max(float(cell), 1e-6)
+    coslat = max(math.cos(math.radians(lat)), 1e-6)
+    z = math.ceil(math.log2(_EARTH_CIRC * coslat / (MAPZEN_TILE_PX * cell)))
+    return int(min(max(z, 0), MAPZEN_MAX_ZOOM))
+
+
+def mapzen_xy(lon, lat, z):
+    """Номер плитки z/x/y (схема XYZ, y вниз от севера)."""
+    n = 2 ** z
+    lat = min(max(lat, -85.05112878), 85.05112878)
+    x = int(math.floor((lon + 180.0) / 360.0 * n))
+    r = math.radians(lat)
+    y = int(math.floor((1.0 - math.asinh(math.tan(r)) / math.pi) / 2.0 * n))
+    return min(max(x, 0), n - 1), min(max(y, 0), n - 1)
+
+
+def mapzen_tiles(extent_4326, z):
+    """Список (z, x, y) плиток, покрывающих рамку."""
+    lon_min, lat_min, lon_max, lat_max = extent_4326
+    x0, y0 = mapzen_xy(lon_min, lat_max, z)
+    x1, y1 = mapzen_xy(lon_max, lat_min, z)
+    return [(z, x, y) for y in range(y0, y1 + 1) for x in range(x0, x1 + 1)]
+
+
+def mapzen_plan(extent_4326, cell, max_xyz=MAPZEN_MAX_XYZ):
+    """Уровень и плитки под рамку и ячейку: (z, плитки, z_по_ячейке).
+
+    Если плиток на нужном уровне больше предела, уровень огрубляется до
+    влезающего. Разница z и z_по_ячейке сообщается в журнал."""
+    lon_min, lat_min, lon_max, lat_max = extent_4326
+    lat_c = (lat_min + lat_max) / 2.0
+    z_want = mapzen_zoom_for(cell, lat_c)
+    z = z_want
+    tiles = mapzen_tiles(extent_4326, z)
+    while len(tiles) > max_xyz and z > 0:
+        z -= 1
+        tiles = mapzen_tiles(extent_4326, z)
+    return z, tiles, z_want
+
+
+def mapzen_url(z, x, y):
+    return MAPZEN_URL.format(z=z, x=x, y=y)
+
+
 def utm_epsg_for(lon, lat):
     """EPSG зоны UTM по точке (обычно центр рамки)."""
     zone = int(math.floor((lon + 180.0) / 6.0)) + 1
@@ -138,7 +212,8 @@ def _resolve_dst_srs(osr_module, dst_epsg, dst_wkt, center_lonlat):
 
 
 def _warp_to_metric(src_ds_or_path, out_path, extent_4326, gdal_module,
-                    osr_module, dst_srs, cell, nodata, dst_nodata=None):
+                    osr_module, dst_srs, cell, nodata, dst_nodata=None,
+                    output_type=None):
     """Общий варп источника в метрическую СК с обрезкой по рамке."""
     lon_min, lat_min, lon_max, lat_max = extent_4326
     src_srs = osr_module.SpatialReference()
@@ -179,6 +254,12 @@ def _warp_to_metric(src_ds_or_path, out_path, extent_4326, gdal_module,
             "Выберите СК, подходящую для этой территории, "
             "или оставьте целевую СК пустой (тогда возьмётся UTM по центру)."
         )
+    extra = {}
+    if output_type is not None:
+        # целочисленный источник (Mapzen до уровня 13 - Int16) иначе дал
+        # бы целочисленный выход: кубическая интерполяция и дальнейшее
+        # сглаживание теряли бы дробную часть высоты
+        extra["outputType"] = output_type
     warp_opts = gdal_module.WarpOptions(
         dstSRS=dst_srs.ExportToWkt(),
         xRes=float(cell), yRes=float(cell),
@@ -189,6 +270,7 @@ def _warp_to_metric(src_ds_or_path, out_path, extent_4326, gdal_module,
         format="GTiff",
         creationOptions=["COMPRESS=DEFLATE", "TILED=YES", "PREDICTOR=2"],
         multithread=True,
+        **extra
     )
     out_ds = gdal_module.Warp(out_path, src_ds_or_path, options=warp_opts)
     if out_ds is None:
@@ -296,6 +378,57 @@ def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
         if feedback:
             feedback.pushInfo("GEDTM30: высоты приведены к метрам.")
         return out_path, [cog]
+
+    if source == SOURCE_MAPZEN:
+        # Площадь страхуется тем же пределом градусных плиток, что и у
+        # GLO-30: смысл предела пользователю один - не тянуть полстраны.
+        tiles_for_bbox(lon_min, lat_min, lon_max, lat_max, max_tiles)
+        z, xyz, z_want = mapzen_plan(extent_4326, cell)
+        lat_c = center[1]
+        if feedback:
+            feedback.pushInfo(
+                "Mapzen: уровень {}, пиксель на местности {:.1f} м, "
+                "плиток {}.".format(z, mapzen_ground_pixel(z, lat_c),
+                                    len(xyz)))
+            if z < z_want:
+                feedback.pushWarning(
+                    "Рамка велика для ячейки {:.1f} м: взят уровень {} "
+                    "вместо {}, пиксель источника {:.1f} м. Для полной "
+                    "подробности уменьшите рамку.".format(
+                        cell, z, z_want, mapzen_ground_pixel(z, lat_c)))
+        gdal_module.UseExceptions()
+        paths, nodata = [], None
+        for (tz, tx, ty) in xyz:
+            path = vsicurl_path(mapzen_url(tz, tx, ty))
+            try:
+                ds = gdal_module.Open(path)
+            except RuntimeError:
+                ds = None
+            if ds is None:
+                continue
+            if nodata is None:
+                nodata = ds.GetRasterBand(1).GetNoDataValue()
+            paths.append(path)
+            ds = None
+        if not paths:
+            raise DemSourceError(
+                "Не удалось открыть ни одной плитки Mapzen. Проверьте "
+                "соединение и прокси: плитки читаются с s3.amazonaws.com.")
+        if feedback:
+            feedback.pushInfo("Открыто плиток: {} из {}".format(
+                len(paths), len(xyz)))
+        vrt_path = "/vsimem/mapzen_mosaic.vrt"
+        vrt = gdal_module.BuildVRT(vrt_path, paths)
+        if vrt is None:
+            raise DemSourceError("Не удалось собрать VRT-мозаику Mapzen.")
+        _warp_to_metric(vrt, out_path, extent_4326, gdal_module, osr_module,
+                        dst_srs, cell,
+                        nodata if nodata is not None else -32768.0,
+                        dst_nodata=-32768.0,
+                        output_type=gdal_module.GDT_Float32)
+        vrt = None
+        gdal_module.Unlink(vrt_path)
+        return out_path, paths
 
     # SOURCE_GLO30: плиточная мозаика
     names = tiles_for_bbox(lon_min, lat_min, lon_max, lat_max, max_tiles)

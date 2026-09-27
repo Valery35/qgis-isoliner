@@ -202,3 +202,50 @@ class TestDstAxisOrder(unittest.TestCase):
         tr = osr.CoordinateTransformation(src, dst)
         x, y, _ = tr.TransformPoint(57.0, 57.75)
         self.assertGreater(y, x, "в UTM northing больше easting на этой широте")
+
+
+class TestMapzen(unittest.TestCase):
+    """Третий источник 2.01: Mapzen Terrain Tiles, плитки z/x/y.
+
+    Эталон номеров плиток снят живым чтением с s3.amazonaws.com в QGIS
+    Валерия: точка 56.25 в. д., 58.0 с. ш. даёт 10/672/308, 12/2688/1233,
+    14/10752/4934, и все три плитки открываются."""
+
+    def test_xy_matches_live_tiles(self):
+        self.assertEqual(dem.mapzen_xy(56.25, 58.0, 10), (672, 308))
+        self.assertEqual(dem.mapzen_xy(56.25, 58.0, 12), (2688, 1233))
+        self.assertEqual(dem.mapzen_xy(56.25, 58.0, 14), (10752, 4934))
+
+    def test_zoom_by_cell(self):
+        # на 58-й широте пиксель уровня 10 около 40 м, 11 около 20 м,
+        # 12 около 10 м: под ячейку 30 м нужен 11
+        self.assertEqual(dem.mapzen_zoom_for(30.0, 58.0), 11)
+        self.assertEqual(dem.mapzen_zoom_for(10.2, 58.0), 12)
+        self.assertLessEqual(dem.mapzen_ground_pixel(
+            dem.mapzen_zoom_for(30.0, 58.0), 58.0), 30.0)
+        self.assertGreater(dem.mapzen_ground_pixel(
+            dem.mapzen_zoom_for(30.0, 58.0) - 1, 58.0), 30.0)
+        # мельче предельного уровня источник не даёт
+        self.assertEqual(dem.mapzen_zoom_for(0.5, 58.0), dem.MAPZEN_MAX_ZOOM)
+
+    def test_tiles_cover_extent(self):
+        tiles = dem.mapzen_tiles((56.0, 57.9, 56.5, 58.1), 12)
+        xs = {t[1] for t in tiles}
+        ys = {t[2] for t in tiles}
+        self.assertEqual(len(tiles), len(xs) * len(ys))
+        self.assertIn(dem.mapzen_xy(56.25, 58.0, 12)[0], xs)
+        # y растёт к югу: верхний край рамки даёт меньший номер
+        self.assertEqual(min(ys), dem.mapzen_xy(56.0, 58.1, 12)[1])
+
+    def test_plan_coarsens_big_extent(self):
+        z, tiles, z_want = dem.mapzen_plan((55.0, 57.0, 58.0, 60.0), 5.0)
+        self.assertLessEqual(len(tiles), dem.MAPZEN_MAX_XYZ)
+        self.assertLess(z, z_want)
+        z2, tiles2, zw2 = dem.mapzen_plan((56.2, 57.99, 56.3, 58.01), 30.0)
+        self.assertEqual(z2, zw2)
+
+    def test_url(self):
+        self.assertEqual(
+            dem.mapzen_url(12, 2688, 1233),
+            "https://s3.amazonaws.com/elevation-tiles-prod/geotiff/"
+            "12/2688/1233.tif")

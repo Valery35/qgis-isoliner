@@ -45,7 +45,7 @@ header-includes:
 
 | Инструмент | Вход | Выход | Ключевые параметры |
 |:--|:--|:--|:--|
-| **2.01** Загрузка ЦМР по рамке | рамка карты | GeoTIFF float32, метры | источник GLO-30 (DSM) или GEDTM30 (DTM без леса). Ячейка 30 м. СК: пусто = СК проекта или UTM |
+| **2.01** Загрузка ЦМР по рамке | рамка карты | GeoTIFF float32, метры | источник GLO-30 (DSM), GEDTM30 (DTM без леса) или Mapzen (SRTM, ArcticDEM). Ячейка 30 м. СК: пусто = СК проекта или UTM |
 | **2.02** Загрузка топоосновы по рамке | рамка карты | водотоки, водоёмы, вершины (ele), обрывы | береговая линия выкл. Большая рамка: уменьшить её или поднять предел площади рамки |
 | **1.04** Изолинии из растра | ЦМР | линии с полем ELEV | шаг 5-10 м. Мин. длина линии 0, короткие замкнутые это макушки. Скругление по умолчанию. Полигоны выкл. |
 | **2.03** Topo2Raster | изолинии (поле высоты), точки, тальвеги, обрывы, озёра | GeoTIFF float32 | нужны точки или изолинии. Тальвеги вниз по течению. Урез: Z узлов (наклон) > поле отметки (плоскость) > берег |
@@ -69,4 +69,4 @@ header-includes:
 - **Замкнутые котловины.** Карст и мульды оседания заполнение понижений сотрёт, поэтому снимайте этот флажок.
 
 \vspace{1pt}\hrule
-\begin{footnotesize}Данные: Copernicus DEM © ESA · GEDTM30 © OpenGeoHub CC BY 4.0 · © OpenStreetMap, ODbL. Плагин: plugins.qgis.org/plugins/grid\_isolines · Руководство в комплекте (doc/Isoliner.pdf) · ООО «Информ++» · www.informpp.ru\end{footnotesize}
+\begin{footnotesize}Данные: Copernicus DEM © ESA · GEDTM30 © OpenGeoHub CC BY 4.0 · Mapzen Terrain Tiles (авторы: github.com/tilezen/joerd) · © OpenStreetMap, ODbL. Плагин: plugins.qgis.org/plugins/grid\_isolines · Руководство в комплекте (doc/Isoliner.pdf) · ООО «Информ++» · www.informpp.ru\end{footnotesize}
