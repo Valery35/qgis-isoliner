@@ -742,6 +742,8 @@ The contourer puts a vertex at every crossing of a level with a cell edge. On a 
 
 The shape is kept while the layer gets several times smaller - which matters for the drawing, for the 3D scene and for the handover to AutoCAD. Thinning runs before polygonisation, so belt borders still coincide with the contours after it. Zero turns it off.
 
+Where the contours run closer than the tolerance, thinning and rounding are checked against the grid. A line of a level stays between the midpoints to the neighbouring levels, and a straightening or a corner cut that would take it past that bound is not made. So on the steep side of a subsidence trough, or on a slope with a small contour interval, neighbouring contours do not cross each other, while on gentle ground the tolerance works in full. The log reports how many straightenings were cancelled and how many corners were kept.
+
 ### Topographic labels
 
 On a topographic map the top of the figure on a contour always faces up the slope. Reading the map, a single label tells you which way is higher without checking the neighbouring contours.

@@ -541,7 +541,7 @@ def _parts_geom(parts):
             else QgsGeometry.fromPolylineXY(rings[0]))
 
 
-def _rewrite_lines(src, transform, context, name="lines"):
+def _rewrite_lines(src, transform, context, name="lines", per_feature=False):
     """Общий каркас шага цепочки: слой линий на входе, слой линий на выходе.
 
     Три шага - чистка обрывков, притяжка концов к разлому и продление
@@ -565,6 +565,9 @@ def _rewrite_lines(src, transform, context, name="lines"):
     Обход идёт по объектам, а не через processing.run: алгоритм
     проверяет геометрию на входе и срывается на том, что призван
     вычистить.
+
+    per_feature=True передаёт обработчику и сам объект вторым аргументом:
+    прореживанию в коридоре нужен уровень линии.
     """
     from qgis.core import QgsVectorLayer, QgsFeature, QgsWkbTypes
     lay = _as_layer(src, context)
@@ -584,7 +587,10 @@ def _rewrite_lines(src, transform, context, name="lines"):
         g = f.geometry()
         if g is None or g.isEmpty():
             continue
-        parts, n = transform(_geom_parts(g))
+        if per_feature:
+            parts, n = transform(_geom_parts(g), f)
+        else:
+            parts, n = transform(_geom_parts(g))
         total += n
         if not parts:
             continue
@@ -1117,9 +1123,10 @@ def _contour_lines(processing, raster, band, interval, base, levels,
                    thin=0.0):
     """Изолинии-линии (без флага is_index). Сглаживание поля (растра) делается
     до контуринга (см. _prep_raster) - это убирает пересечения. Дополнительно
-    линии можно слегка СКРУГЛИТЬ (Chaikin, line_iter итераций): поле уже
-    гладкое, контуры разнесены, поэтому скругление не создаёт пересечений, но
-    убирает «октагоны» от грубого грида. Общее ядро для линий и для границ
+    линии можно слегка СКРУГЛИТЬ (Chaikin, line_iter итераций), это убирает
+    «октагоны» от грубого грида. Прореживание и скругление идут в коридоре
+    значений поля (contour_safe): там, где линии стоят чаще допуска, они
+    не заходят друг за друга. Общее ядро для линий и для границ
     полигонов: геометрия гарантированно совпадает.
 
     thin - прореживание контура, доля ячейки. Контур из грида несёт вершину
@@ -1163,27 +1170,123 @@ def _contour_lines(processing, raster, band, interval, base, levels,
             "OUTPUT": "TEMPORARY_OUTPUT",
         }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
 
-    if thin and thin > 0:
-        tol = float(thin) * (_pixel_size(raster) or 0.0)
-        if tol > 0:
-            feedback.pushInfo(
-                _tr("Прореживание контуров (допуск %.4g)…") % tol)
-            cur = processing.run("native:simplifygeometries", {
-                "INPUT": cur, "METHOD": 0, "TOLERANCE": tol,
-                "OUTPUT": "TEMPORARY_OUTPUT",
-            }, context=context, feedback=feedback,
-                is_child_algorithm=True)["OUTPUT"]
-
-    if line_iter and line_iter > 0:
-        feedback.pushInfo(_tr("Скругление линий (Chaikin, %d итер.)…") % line_iter)
-        cur = processing.run("native:smoothgeometry", {
-            "INPUT": cur, "ITERATIONS": int(line_iter), "OFFSET": 0.25,
-            "MAX_ANGLE": 180.0, "OUTPUT": "TEMPORARY_OUTPUT",
-        }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    if (thin and thin > 0) or (line_iter and line_iter > 0):
+        cur = _thin_smooth_in_corridor(
+            cur, raster, band, nodata, ignore_nodata, interval, levels,
+            field_name, thin, line_iter, context, feedback)
 
     return processing.run("native:fixgeometries", {
         "INPUT": cur, "OUTPUT": "TEMPORARY_OUTPUT",
     }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+
+
+def _grid_sampler(raster, band, nodata, ignore_nodata):
+    """Билинейная выборка по гриду для проверки коридора, None при неудаче."""
+    import numpy as np
+    try:
+        from osgeo import gdal
+        from .contour_safe import GridSampler
+    except Exception:
+        return None
+    ds = gdal.Open(raster)
+    if ds is None:
+        return None
+    b = ds.GetRasterBand(int(band) or 1)
+    arr = b.ReadAsArray().astype(float)
+    valid = np.isfinite(arr)
+    nd = nodata if (ignore_nodata and nodata is not None) else b.GetNoDataValue()
+    if nd is not None:
+        valid &= arr != float(nd)
+    return GridSampler(arr, valid, ds.GetGeoTransform())
+
+
+def _thin_smooth_in_corridor(cur, raster, band, nodata, ignore_nodata,
+                             interval, levels, field_name, thin, line_iter,
+                             context, feedback):
+    """Прореживание и скругление Chaikin, не выводящие линию из коридора.
+
+    Раньше оба шага шли алгоритмами Processing по каждой линии отдельно, и
+    на крутом участке, где линии стоят чаще допуска, соседние изолинии
+    пересекались. Теперь спрямление и срез угла проверяются по гриду: линия
+    уровня L держится между серединами до соседних уровней. Подробности в
+    contour_safe."""
+    from .contour_safe import (corridor, simplify_in_corridor,
+                               chaikin_in_corridor)
+    sampler = _grid_sampler(raster, band, nodata, ignore_nodata)
+    if sampler is None:
+        feedback.pushWarning(_tr("Грид для проверки коридора не прочитан, "
+                                 "прореживание и скругление пропущены."))
+        return cur
+    tol = float(thin) * sampler.cell if thin and thin > 0 else 0.0
+    iters = int(line_iter) if line_iter and line_iter > 0 else 0
+    step = float(interval) if interval and interval > 0 else _level_step(levels)
+    if tol > 0:
+        feedback.pushInfo(_tr("Прореживание контуров (допуск %.4g)…") % tol)
+    if iters:
+        feedback.pushInfo(_tr("Скругление линий (Chaikin, %d итер.)…") % iters)
+    held = [0, 0]
+
+    def transform(parts, f):
+        try:
+            level = float(f[field_name])
+        except (KeyError, TypeError, ValueError):
+            return parts, 0
+        lo, hi = corridor(level, levels, step)
+
+        def ok(p, q):
+            return sampler.segment_ok(p, q, lo, hi)
+
+        def ok_many(P, Q):
+            return sampler.segments_ok(P, Q, lo, hi)
+        out = []
+        for part in parts:
+            pts = part
+            if tol > 0:
+                pts, n1 = simplify_in_corridor(pts, tol, ok)
+                held[0] += n1
+            if iters:
+                pts, n2 = chaikin_in_corridor(pts, iters, ok,
+                                              ok_many=ok_many)
+                held[1] += n2
+            out.append(pts)
+        return out, 0
+
+    lay, _n = _rewrite_lines(cur, transform, context, "thin_smooth",
+                             per_feature=True)
+    if held[0] or held[1]:
+        feedback.pushInfo(_tr("Линии идут чаще допуска: спрямлений отменено "
+                              "%d, углов оставлено %d, чтобы соседние "
+                              "изолинии не пересекались.") % (held[0], held[1]))
+    return lay
+
+
+def _extend_ends_to_footprint(iso, area_lines, px, context, feedback):
+    """Довести открытые концы изолиний до контура области коротким
+    отрезком, не сдвигая сам конец (contour_safe.extend_ends_to_outline).
+
+    Допуск - одна ячейка: конец изолинии лежит на центре крайней ячейки,
+    до края полячейки, на углу до 0.71. Прежний перенос концов штатной
+    притяжкой с допуском в три ячейки у частых линий на краю грида давал
+    пересечения соседних изолиний."""
+    from .contour_safe import outline_segments, extend_ends_to_outline
+    lay = _as_layer(area_lines, context)
+    if lay is None:
+        return iso
+    rings = []
+    for f in lay.getFeatures():
+        g = f.geometry()
+        if g is not None and not g.isEmpty():
+            rings.extend(_geom_parts(g))
+    seg_a, seg_b = outline_segments(rings)
+    if not len(seg_a):
+        return iso
+
+    def transform(parts):
+        return extend_ends_to_outline(parts, seg_a, seg_b, 1.0 * px)
+
+    out, n = _rewrite_lines(iso, transform, context, "footprint_ends")
+    feedback.pushInfo(_tr("Концов доведено до контура области: %d.") % n)
+    return out
 
 
 def _add_slope_side(processing, cur, slope_ref, context, feedback, flip=0):
@@ -1999,13 +2102,9 @@ def isolines_and_polygons(raster, band, interval, base, levels_text,
     # Здесь линия точная, разрез идёт ровно по ней.
     iso = _split_by_faults(processing, iso, faults, corridor, context, feedback)
 
-    snap_tol = float(3.0 * px)
     feedback.pushInfo(_tr("Согласование концов изолиний с контуром…"))
-    iso = processing.run("native:snapgeometries", {
-        "INPUT": iso, "REFERENCE_LAYER": area_lines,
-        "TOLERANCE": snap_tol, "BEHAVIOR": 5,
-        "OUTPUT": "TEMPORARY_OUTPUT",
-    }, context=context, feedback=feedback, is_child_algorithm=True)["OUTPUT"]
+    iso = _extend_ends_to_footprint(iso, area_lines, float(px), context,
+                                    feedback)
 
     # 3) линейный выход - из ЭТИХ же согласованных линий
     lines_out = _finalize_lines(processing, iso, interval, base, index_every,

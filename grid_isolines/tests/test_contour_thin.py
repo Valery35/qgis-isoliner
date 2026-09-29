@@ -37,10 +37,13 @@ def test_thinning_lives_in_the_shared_core():
     """Прореживание стоит в общем ядре линий и границ поясов."""
     code = _read("isolines.py")
     core = _func(code, "_contour_lines")
-    assert "native:simplifygeometries" in core
-    assert code.count("native:simplifygeometries") == 1, (
+    assert "_thin_smooth_in_corridor(" in core
+    assert code.count("simplify_in_corridor(") == 1, (
         "прореживание должно быть единственным: второй вызов разведёт "
         "линии и границы поясов")
+    assert "native:simplifygeometries" not in code, (
+        "прореживание Processing не знает соседних линий и даёт пересечения")
+    assert "native:smoothgeometry" not in code
 
 
 def test_belts_are_not_thinned_separately():
@@ -65,9 +68,9 @@ def test_thinning_runs_before_smoothing():
     Chaikin вершины добавляет, поэтому обратный порядок сначала удваивал
     бы контур, а потом прореживал уже скруглённое.
     """
-    core = _func(_read("isolines.py"), "_contour_lines")
-    assert (core.index("native:simplifygeometries")
-            < core.index("native:smoothgeometry"))
+    body = _func(_read("isolines.py"), "_thin_smooth_in_corridor")
+    assert (body.index("simplify_in_corridor(pts")
+            < body.index("chaikin_in_corridor(pts"))
 
 
 def test_tolerance_is_a_share_of_the_cell():
@@ -76,21 +79,18 @@ def test_tolerance_is_a_share_of_the_cell():
     Один и тот же параметр тогда годится и для метрового грида, и для
     градусного, и для шахтного плана в сантиметрах.
     """
-    code = _read("isolines.py")
-    core = _func(code, "_contour_lines")
-    assert "_pixel_size(raster)" in core
-    px = _func(code, "_pixel_size")
-    assert "GetGeoTransform" in px
-    assert "return 0.0" in px, "неудача чтения растра не должна ронять расчёт"
+    body = _func(_read("isolines.py"), "_thin_smooth_in_corridor")
+    assert "tol = float(thin) * sampler.cell" in body
+    gs = _func(_read("isolines.py"), "_grid_sampler")
+    assert "return None" in gs, "неудача чтения растра не должна ронять расчёт"
 
 
 def test_zero_tolerance_skips_the_step():
-    """Ноль означает прежнее поведение, без прореживания."""
+    """Ноль означает прежнее поведение, без прореживания и скругления."""
     core = _func(_read("isolines.py"), "_contour_lines")
-    k = core.index("native:simplifygeometries")
-    head = core[:k]
-    assert "if thin and thin > 0:" in head
-    assert "if tol > 0:" in head
+    assert "if (thin and thin > 0) or (line_iter and line_iter > 0):" in core
+    body = _func(_read("isolines.py"), "_thin_smooth_in_corridor")
+    assert "if tol > 0:" in body and "if iters:" in body
 
 
 def test_parameter_is_declared_with_a_quarter_cell_default():
