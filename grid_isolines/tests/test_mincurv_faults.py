@@ -129,7 +129,7 @@ def test_dying_fault_lets_the_surface_close_beyond_its_end():
 def test_no_faults_changes_nothing():
     """Без разломов решение прежнее до последнего знака.
 
-    Правка не должна трогать обычный путь: 1.03 и кросс-валидация метода
+    Правка не должна трогать обычный путь: 1.02 и кросс-валидация метода
     ходят через тот же solve.
     """
     xd, yd, vd = _step_data(seed=7)

@@ -23,20 +23,22 @@ interpolation, then Isoliner3D on the display.
 
 ### "1. Grid and isolines" group
 
-- **1.01 Declustering (weights)** — cell declustering (GSLIB declus): weights inverse to local density, a representative mean for reserves and SK. Auto or manual cell size, HTML report.
-- **1.02 2D Kriging (points → raster)** — ordinary/simple kriging, point or block, with trend removal, the kriging standard error and outlier trimming. The core is GSLIB KB2D.
-- **1.03 Minimum curvature (points → raster)** — a deterministic alternative to kriging without a variogram: biharmonic with tension, anisotropy. Common for geophysical field maps.
+- **1.01 2D Kriging (points → raster)** — ordinary/simple kriging, point or block, with trend removal, the kriging standard error and outlier trimming. The core is GSLIB KB2D.
+- **1.02 Minimum curvature (points → raster)** — a deterministic alternative to kriging without a variogram: biharmonic with tension, anisotropy. Common for geophysical field maps.
+- **1.03 MBA: multilevel B-splines (points → raster)** — a surface over scattered points without solving systems of equations: a million measurements in seconds. A plane trend is removed before the fit. The method gives no error of the estimate.
 - **1.04 Isolines from raster** — isolines (lines), contour polygons (bands between isolines) whose boundaries coincide with the lines, and belt solids as closed shells for volumes and the 3D scene.
-- **1.05 Variogram (experimental)** — an isotropic experimental variogram with model fitting (nugget, sill, range) and an HTML report. Accepts weights from 1.01.
-- **1.06 Variogram map (anisotropy)** — the γ(h_x, h_y) surface: anisotropy shows as an ellipse. Estimates the azimuth, the anisotropy ratio and the range for kriging.
-- **1.07 Variogram cross-validation** — leave-one-out control: tuning kriging parameters by the ME/RMSE/MSDR/R metrics rather than by eye.
-- **1.08 Method cross-validation (LOO)** — comparing methods (kriging or minimum curvature) Surfer-style: a random subset, area filters, a neighbor exclusion buffer, an HTML report.
-- **1.09 Example wells (demo)** — a training point layer: roof, thickness, grade, rock type, head, a drift surface.
-- **1.10 Example geophysical profiles (demo)** — two modes: resistivity survey (an apparent-resistivity anomaly spot, SP, IP) and subsidence (a trough by survey rounds).
+- **1.05 Declustering (weights)** — cell declustering (GSLIB declus): weights inverse to local density, a representative mean for reserves and SK. Auto or manual cell size, HTML report.
+- **1.06 Variogram (experimental)** — an isotropic experimental variogram with model fitting (nugget, sill, range) and an HTML report. Accepts weights from 1.05.
+- **1.07 Variogram map (anisotropy)** — the γ(h_x, h_y) surface: anisotropy shows as an ellipse. Estimates the azimuth, the anisotropy ratio and the range for kriging.
+- **1.08 Variogram cross-validation** — leave-one-out control: tuning kriging parameters by the ME/RMSE/MSDR/R metrics rather than by eye.
+- **1.09 Method cross-validation (LOO)** — comparing methods (kriging or minimum curvature) Surfer-style: a random subset, area filters, a neighbor exclusion buffer, an HTML report.
+- **1.10 Example wells (demo)** — a training point layer: roof, thickness, grade, rock type, head, a drift surface.
+- **1.11 Example geophysical profiles (demo)** — two modes: resistivity survey (an apparent-resistivity anomaly spot, SP, IP) and subsidence (a trough by survey rounds).
+- **1.12 Graft a detailed surface into a regional one** — a detailed survey is laid into the common map, the mismatch along the edge is removed smoothly or kept as a step.
 
 ### "2. Topography" group
 
-- **2.01 Download DEM by extent** — Copernicus DEM GLO-30 from an open store, no registration or keys: a seamless mosaic, reprojection into a metric CRS, hydrological correction by a checkbox.
+- **2.01 Download DEM by extent** — three sources: Copernicus DEM GLO-30 (DSM), GEDTM30 (DTM without forest, CC BY 4.0) and Mapzen Terrain Tiles (SRTM and ArcticDEM over Russia, national DEMs elsewhere), from open stores, no registration or keys: a seamless mosaic, reprojection into a metric CRS, hydrological correction by a checkbox.
 - **2.02 Download base topography by extent** — OpenStreetMap layers for terrain work: watercourses (ready streamlines), water bodies, peaks with elevations, cliffs and embankments, the coastline.
 - **2.03 Topo2Raster (terrain from vectors)** — terrain from points, contours, streamlines, cliffs and lakes by multigrid interpolation in the spirit of ANUDEM: a membrane frame plus minimum-curvature polishing.
 - **2.04 Terrain preparation** — depression filling by the Planchon-Darboux method with a tunable epsilon and smoothing: pits only up to the spill level, or a through slope across flats.
@@ -333,6 +335,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.36** — a new order of group 1: kriging, minimum curvature and MBA in a row, declustering right before the variogram.
 - **5.13.35** — a third terrain source in 2.01: Mapzen Terrain Tiles (SRTM, ArcticDEM and national DEMs).
 - **5.13.34** — field labels are written into the GeoPackage file itself.
 - **5.13.33** — numbers in the output tables are rounded to a sensible precision by the units of each field.

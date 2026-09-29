@@ -1973,8 +1973,8 @@ def build_model_from_fit(name, fit, field, val_pct=0.0, val_cap=False,
                           aa=float(fit["range"]), ang=0.0, anis=1.0,
                           struct=1)]
     model.fitted = today or datetime.date.today().isoformat()
-    model.note = _tr("автоподбор 1.05, изотропная. Анизотропию проставляет "
-                     "1.06 по вариограммной карте")
+    model.note = _tr("автоподбор 1.06, изотропная. Анизотропию проставляет "
+                     "1.07 по вариограммной карте")
     return model
 
 
@@ -2094,7 +2094,7 @@ def _upsert_model(layer, model, feedback):
     missing = [n for n, _ in MODEL_TABLE_SPEC if n not in names]
     if missing:
         raise QgsProcessingException(_tr(
-            "В таблице моделей нет полей: %s. Постройте её выходом 1.05 или "
+            "В таблице моделей нет полей: %s. Постройте её выходом 1.06 или "
             "добавьте недостающие колонки.") % ", ".join(missing))
     idx = names.index("profile")
     old = [f.id() for f in layer.getFeatures()
@@ -2126,7 +2126,7 @@ def _augment_anisotropy(alg, parameters, context, feedback, m):
     """Дописать азимут и анизотропию в строки профиля той же таблицы.
 
     Карта оценивает геометрию, а модель, наггет и вклад берутся из
-    омнинаправленной вариограммы 1.05. Поэтому строки не перестраиваются
+    омнинаправленной вариограммы 1.06. Поэтому строки не перестраиваются
     заново: у выбранного профиля меняются только азимут, коэффициент и,
     если радиус не упёрся в максимальное расстояние, радиус главной оси.
 
@@ -2178,7 +2178,7 @@ def _augment_anisotropy(alg, parameters, context, feedback, m):
         s["anis"] = an
         if rng is not None:
             s["aa"] = float(rng)
-    mark = _tr("анизотропия из 1.06 по вариограммной карте, оценка "
+    mark = _tr("анизотропия из 1.07 по вариограммной карте, оценка "
                "индикативная")
     model.note = (model.note + "; " + mark) if model.note else mark
     _upsert_model(layer, model, feedback)
@@ -3177,7 +3177,7 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return DeclusteringAlgorithm()
     def name(self): return "declustering"
-    def displayName(self): return self.tr("1.01 Декластеризация (веса)")
+    def displayName(self): return self.tr("1.05 Декластеризация (веса)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
@@ -3195,7 +3195,7 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
             "равными.\n\nВыход: слой точек с полем весов wt и HTML-отчёт. В отчёте "
             "сводка, две гистограммы значений, исходная и взвешенная, и кривая "
             "среднего от размера ячейки. Декластеризованное среднее идёт в подсчёт "
-            "запасов и в поле «Среднее для простого кригинга» инструмента 1.02. Поле "
+            "запасов и в поле «Среднее для простого кригинга» инструмента 1.01. Поле "
             "wt подаётся в гауссову симуляцию 3.06 для взвешенной гистограммы.\n\n**Цель "
             "перебора** задаёт, что считать правильным при переборе размера ячейки. "
             "Минимум среднего берут, когда сгущение сети попало в богатую зону. Без "
@@ -3376,7 +3376,7 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return Kriging2DAlgorithm()
     def name(self): return "kriging2d"
-    def displayName(self): return self.tr("1.02 2D Kriging (точки → растр)")
+    def displayName(self): return self.tr("1.01 2D Kriging (точки → растр)")
 
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
@@ -3447,7 +3447,7 @@ class Kriging2DAlgorithm(IsolinerAlgorithm):
             "Ценой приближения служит то, что вблизи линии веса соседей рассчитаны без "
             "учёта разрыва между ними самими. На расстояниях порядка радиуса "
             "корреляции это заметно мало, на очень частой сети у самой линии может "
-            "слегка занижать контраст.\n\nРазломы принимает и 1.03, и 1.04. В 1.03 "
+            "слегка занижать контраст.\n\nРазломы принимает и 1.02, и 1.04. В 1.02 "
             "барьер разрывает связи между узлами сетки, в 1.04 - режет готовые "
             "изолинии по линии.\n\n**Преобразование значения** логарифмирует данные "
             "перед кригингом. Нужно для величин с разбросом на порядки: коэффициент "
@@ -3653,7 +3653,7 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             "ячейки, и если в одну ячейку попало несколько скважин разных классов, ни "
             "один самородок этого не разведёт. Ячейку задавайте мельче расстояния "
             "между соседними скважинами.\n\n**Разломы** подаются линиями и работают "
-            "барьером влияния, как в 1.02: замер, отрезок до которого пересекает "
+            "барьером влияния, как в 1.01: замер, отрезок до которого пересекает "
             "линию, в выборку ячейки не идёт. Индикатор каждого класса кригуется со "
             "своим барьером, поэтому граница категории рвётся на разломе так же, как "
             "поверхность. Без этого класс перетекал бы через разрыв, которого пласт не "
@@ -3685,7 +3685,7 @@ class CategoricalIndicatorAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.CLASS_FIELD, None)))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
-            self.tr("Поле весов декластеризации (из 1.01)"),
+            self.tr("Поле весов декластеризации (из 1.05)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
         self.addParameter(QgsProcessingParameterNumber(
@@ -4998,7 +4998,7 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
         return "crossvalidation"
 
     def displayName(self):
-        return self.tr("1.07 Кросс-валидация вариограммы")
+        return self.tr("1.08 Кросс-валидация вариограммы")
 
     def group(self): return self.tr(GROUP)
 
@@ -5045,7 +5045,7 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
             parentLayerParameterName=self.INPUT, optional=True))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
-            self.tr("Поле весов декластеризации (из 1.01)"),
+            self.tr("Поле весов декластеризации (из 1.05)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
         _add_cv_params(self)
@@ -5373,7 +5373,7 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
         return "examplewells"
 
     def displayName(self):
-        return self.tr("1.09 Пример скважин (демо)")
+        return self.tr("1.10 Пример скважин (демо)")
 
     def group(self): return self.tr(GROUP)
 
@@ -5405,7 +5405,7 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
             "краёв, и прибавляет амплитуду к значению у всех скважин по одну сторону. "
             "Прибавка действует только в пределах длины линии, поэтому выше её конца "
             "обе стороны одинаковы и поверхность там обязана смыкаться. Линия выдаётся "
-            "отдельным выходом **Разлом (демо)** и подаётся дальше в 1.02, 1.03 и "
+            "отдельным выходом **Разлом (демо)** и подаётся дальше в 1.01, 1.02 и "
             "1.04.\n\nПри нуле линия всё равно выдаётся, но сдвига нет. Разлом есть "
             "геометрически и отсутствует по значениям. Это удобный контрольный прогон "
             "- барьер работает, а рвать нечего.\n\nДля проверки барьера берите амплитуду "
@@ -5940,7 +5940,7 @@ class GeophysProfilesDemoAlgorithm(IsolinerAlgorithm):
     def helpUrl(self): return _help_url()
     def name(self): return "geophysprofiles"
     def displayName(self):
-        return self.tr("1.10 Пример геофизических профилей (демо)")
+        return self.tr("1.11 Пример геофизических профилей (демо)")
     def group(self): return self.tr(GROUP)
     def groupId(self): return "grid_isolines"
     def createInstance(self): return GeophysProfilesDemoAlgorithm()
@@ -6180,10 +6180,10 @@ def _iter_polygons(g):
 
 
 class MbaGridAlgorithm(IsolinerAlgorithm):
-    """1.12 MBA: мультисеточные B-сплайны (точки → растр).
+    """1.03 MBA: мультисеточные B-сплайны (точки → растр).
 
-    Третий способ получить поверхность из точек, рядом с кригингом (1.02) и
-    минимальной кривизной (1.03). Берёт скоростью на больших наборах и
+    Третий способ получить поверхность из точек, рядом с кригингом (1.01) и
+    минимальной кривизной (1.02). Берёт скоростью на больших наборах и
     управлением гладкостью через решётки.
     """
 
@@ -6200,7 +6200,7 @@ class MbaGridAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return MbaGridAlgorithm()
     def name(self): return "mbagrid"
     def displayName(self):
-        return self.tr("1.12 MBA: мультисеточные B-сплайны (точки → растр)")
+        return self.tr("1.03 MBA: мультисеточные B-сплайны (точки → растр)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
@@ -6221,7 +6221,7 @@ class MbaGridAlgorithm(IsolinerAlgorithm):
             "управляет гладкостью. Один-два дают тренд, восемь и больше сажают "
             "поверхность на замеры.\n\nЧего НЕ даёт: ни ошибки оценки, ни модели "
             "ковариации, ни весов. Это аппроксиматор, а не оценщик, и он не знает, "
-            "насколько хорош его ответ. Кросс-валидация 1.08 и карта ошибки к нему "
+            "насколько хорош его ответ. Кросс-валидация 1.09 и карта ошибки к нему "
             "неприменимы. Отсюда и главное применение: тренд, который дальше уточняют "
             "кригингом остатков.\n\nПоверхность гладкая по построению, с непрерывной "
             "производной. Пики при этом сглаживаются, и на содержаниях это заметнее, "
@@ -6479,7 +6479,7 @@ class MbaGridAlgorithm(IsolinerAlgorithm):
                     "замерами. Среднеквадратичная при этом падает.")
                     % seen["grew"])
         feedback.pushInfo(_tr(
-            "MBA не даёт ошибки оценки, поэтому кросс-валидация 1.08 и карта ошибки к "
+            "MBA не даёт ошибки оценки, поэтому кросс-валидация 1.09 и карта ошибки к "
             "нему неприменимы. Для подсчёта запасов стройте им тренд, а остатки "
             "уточняйте кригингом."))
 
@@ -6495,7 +6495,7 @@ class MbaGridAlgorithm(IsolinerAlgorithm):
 
 
 class SurfaceGraftAlgorithm(IsolinerAlgorithm):
-    """1.11 Врезка подробной поверхности в региональную.
+    """1.12 Врезка подробной поверхности в региональную.
 
     Задача не только про рельеф. Подробная съёмка в открытую ЦМР, куст
     разведочных скважин в региональную модель кровли, детальный участок
@@ -6521,7 +6521,7 @@ class SurfaceGraftAlgorithm(IsolinerAlgorithm):
     def helpUrl(self): return _help_url()
     def name(self): return "surfacegraft"
     def displayName(self):
-        return self.tr("1.11 Врезка подробной поверхности в региональную")
+        return self.tr("1.12 Врезка подробной поверхности в региональную")
     def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
     def createInstance(self): return SurfaceGraftAlgorithm()
@@ -7304,7 +7304,7 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
     def name(self): return "experimental_variogram"
 
     def displayName(self):
-        return self.tr("1.05 Вариограмма (экспериментальная)")
+        return self.tr("1.06 Вариограмма (экспериментальная)")
 
     def group(self): return self.tr(GROUP)
 
@@ -7363,7 +7363,7 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
             parentLayerParameterName=self.INPUT, optional=True))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
-            self.tr("Поле весов декластеризации (из 1.01)"),
+            self.tr("Поле весов декластеризации (из 1.05)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
@@ -7753,7 +7753,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def helpUrl(self): return _help_url()
     def name(self): return "variogram_map"
-    def displayName(self): return self.tr("1.06 Вариограммная карта (анизотропия)")
+    def displayName(self): return self.tr("1.07 Вариограммная карта (анизотропия)")
     def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
     def createInstance(self): return VariogramMapAlgorithm()
@@ -7775,7 +7775,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
             "выражена»).\n\nНеобязательный растр поверхности (в координатах расстояния, "
             "начало в 0,0) кладёт карту на холст рядом с данными.\n\n**Модели "
             "вариограмм** и **Профиль из таблицы** принимают таблицу, подобранную в "
-            "1.05, и дописывают в неё анизотропию. Строки выбранного профиля получают "
+            "1.06, и дописывают в неё анизотропию. Строки выбранного профиля получают "
             "азимут и коэффициент, а при возможности и радиус главной оси. Модель, "
             "наггет и вклад остаются как были - их даёт омнинаправленная вариограмма, "
             "а карта знает только геометрию.\n\nПравится та же таблица, а не её копия. "
@@ -7802,7 +7802,7 @@ class VariogramMapAlgorithm(IsolinerAlgorithm):
             type=QgsProcessingParameterField.DataType.Numeric, optional=True))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
-            self.tr("Поле весов декластеризации (из 1.01)"),
+            self.tr("Поле весов декластеризации (из 1.05)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
         self.addParameter(QgsProcessingParameterNumber(
@@ -13844,14 +13844,14 @@ class SequentialGaussianSimAlgorithm(IsolinerAlgorithm):
             type=QgsProcessingParameterField.DataType.Numeric))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
-            self.tr("Поле весов декластеризации (из 1.01)"),
+            self.tr("Поле весов декластеризации (из 1.05)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
         cs = QgsProcessingParameterNumber(
             self.CELL_SIZE, self.tr("Размер ячейки (0 = авто, min(охват)/50)"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.CELL_SIZE, 0.0), minValue=0.0)
-        try:  # живой показ размера грида рядом с полем, как в 1.02
+        try:  # живой показ размера грида рядом с полем, как в 1.01
             from .widgets import CellSizeWrapper, WRAPPER_AVAILABLE
             if WRAPPER_AVAILABLE:
                 cs.setMetadata({"widget_wrapper": {"class": CellSizeWrapper}})
@@ -14082,7 +14082,7 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return MinCurvatureAlgorithm()
     def name(self): return "min_curvature"
     def displayName(self):
-        return self.tr("1.03 Минимальная кривизна (точки → растр)")
+        return self.tr("1.02 Минимальная кривизна (точки → растр)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
@@ -14121,7 +14121,7 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
             "приписывается к одной стороне. Это важно для разлома, проведённого по оси "
             "шахтной сетки, иначе он не перекрыл бы ни одного ребра.\n\nЛиния не обязана "
             "рассекать площадь насквозь. Выше конца разлома рёбра не перекрыты, и "
-            "поверхность там смыкается. Те же разломы принимают 1.02 и 1.04.") 
+            "поверхность там смыкается. Те же разломы принимают 1.01 и 1.04.") 
             + _credit())
 
     def initAlgorithm(self, config=None):
@@ -14140,7 +14140,7 @@ class MinCurvatureAlgorithm(IsolinerAlgorithm):
             self.CELL_SIZE, self.tr("Размер ячейки (0 = авто, min(охват)/50)"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.CELL_SIZE, 0.0), minValue=0.0)
-        try:  # живой показ размера грида рядом с полем, как в 1.02
+        try:  # живой показ размера грида рядом с полем, как в 1.01
             from .widgets import CellSizeWrapper, WRAPPER_AVAILABLE
             if WRAPPER_AVAILABLE:
                 cs.setMetadata({"widget_wrapper": {"class": CellSizeWrapper}})
@@ -14339,7 +14339,7 @@ class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return MethodCrossValidationAlgorithm()
     def name(self): return "method_crossvalidation"
     def displayName(self):
-        return self.tr("1.08 Кросс-валидация метода (LOO)")
+        return self.tr("1.09 Кросс-валидация метода (LOO)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP)
     def groupId(self): return GROUP_ID
@@ -14379,7 +14379,7 @@ class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
             parentLayerParameterName=self.INPUT, optional=True))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.WEIGHT_FIELD,
-            self.tr("Поле весов декластеризации (из 1.01)"),
+            self.tr("Поле весов декластеризации (из 1.05)"),
             parentLayerParameterName=self.INPUT,
             type=QgsProcessingParameterField.DataType.Numeric, optional=True)))
         self.addParameter(QgsProcessingParameterEnum(
@@ -26395,7 +26395,7 @@ class BedGradesAtCollarsAlgorithm(IsolinerAlgorithm):
     своей сеткой, литология своей, и совпадают они редко. Инструмент
     приводит пробы к интервалам заданного пласта по длине перекрытия и
     кладёт средневзвешенные содержания в точку устья. Дальше карта
-    содержаний строится 1.02 кригингом, как любая другая карта, своих
+    содержаний строится 1.01 кригингом, как любая другая карта, своих
     средств интерполяции здесь нет и не нужно.
     """
 
@@ -26445,7 +26445,7 @@ class BedGradesAtCollarsAlgorithm(IsolinerAlgorithm):
             "компонентов у разных предприятий разный, поэтому выбирается из полей "
             "самой таблицы, а не задан списком.\n\nВыход это точечный слой устьев: "
             "содержания, охват по каждому компоненту, мощность пласта по стволу и "
-            "количество задевших проб. Слой готов ко входу 1.02 кригинга."))
+            "количество задевших проб. Слой готов ко входу 1.01 кригинга."))
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -26764,8 +26764,8 @@ class SubsidenceTiltCurvatureAlgorithm(IsolinerAlgorithm):
     def shortHelpString(self):
         return _help_version(_trh(
             "Наклон и кривизна земной поверхности по гриду оседаний. Грид строится "
-            "заранее по оседаниям в реперах, например кригингом 1.02 или сплайнами "
-            "1.12. Оседание берётся разностью отметок в репере, а не вычитанием двух "
+            "заранее по оседаниям в реперах, например кригингом 1.01 или сплайнами "
+            "1.03. Оседание берётся разностью отметок в репере, а не вычитанием двух "
             "гридов.\n\nРасчёт идёт по формулам раздела 4 Указаний по охране "
             "подрабатываемых объектов на Верхнекамском месторождении. Наклон это "
             "разность оседаний, отнесённая к расстоянию. Кривизна это разность "

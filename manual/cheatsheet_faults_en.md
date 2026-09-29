@@ -25,15 +25,15 @@ header-includes:
 
 # A five-minute run on demo data
 
-**Step 1. Teaching data - 1.09 Example wells (demo).** Set the extent, and in the advanced parameters set **Fault throw** to 20. Outputs: **Wells (demo)** and **Fault (demo)**, a line with a dying end.
+**Step 1. Teaching data - 1.10 Example wells (demo).** Set the extent, and in the advanced parameters set **Fault throw** to 20. Outputs: **Wells (demo)** and **Fault (demo)**, a line with a dying end.
 
-**Step 2. Grid - 1.02 2D Kriging.** Input: the wells of step 1, value field **roof**. Supply the line of step 1 to the **Faults** field. Leave everything else at its default. The log will report the number of fault segments.
+**Step 2. Grid - 1.01 2D Kriging.** Input: the wells of step 1, value field **roof**. Supply the line of step 1 to the **Faults** field. Leave everything else at its default. The log will report the number of fault segments.
 
 **Step 3. Map - 1.04 Isolines from raster.** Input: the grid of step 2. Supply the same line to the **Faults** field. Leave **Corridor width at a fault** at 1.
 
 Done. The isolines break exactly along the line, the boundaries of the contour polygons run along it as well, and above the end of the fault the surface closes up.
 
-The same line layer is accepted by **1.03 Minimum curvature** in place of step 2, if you would rather not fit a variogram.
+The same line layer is accepted by **1.02 Minimum curvature** in place of step 2, if you would rather not fit a variogram.
 
 # What goes where
 
@@ -41,10 +41,10 @@ The same line layer is accepted by **1.03 Minimum curvature** in place of step 2
 
 | Tool | What the fault does | Key parameters |
 |:--|:--|:--|
-| **1.02** 2D Kriging | barrier of influence. If the segment from the cell to a measurement crosses the line, the measurement stays out of the sample | the line layer only. The wing of a cell follows by itself |
-| **1.03** Minimum curvature | barrier on the grid edges. An edge crossed by the line drops out of the stencil | the line layer only. A membrane works at the line |
+| **1.01** 2D Kriging | barrier of influence. If the segment from the cell to a measurement crosses the line, the measurement stays out of the sample | the line layer only. The wing of a cell follows by itself |
+| **1.02** Minimum curvature | barrier on the grid edges. An edge crossed by the line drops out of the stencil | the line layer only. A membrane works at the line |
 | **1.04** Isolines from raster | cuts the isolines along the line, and the line enters the network that builds the belts | **Corridor width** (cells, default 1), **Smallest polygon thickness** (default 0) |
-| **1.09** Example wells (demo) | creates a teaching fault and shifts the values on one side | **Fault throw** (units of the value, default 0) |
+| **1.10** Example wells (demo) | creates a teaching fault and shifts the values on one side | **Fault throw** (units of the value, default 0) |
 
 \endgroup
 
@@ -54,7 +54,7 @@ A fault is an ordinary line layer. Draw it manually, load it from a shapefile or
 
 - **A bundle of isolines at the end of the fault.** That is how it should be. The throw falls to zero and all intermediate levels fit into a narrow strip. In the model the decay falls on a single cell, so the bundle is shorter than for a real fault.
 - **A short stretch of crowded isolines right at the end.** The corridor deliberately does not reach there. The break has come to nothing, the surface closes up and there is nothing to tear.
-- **A slightly less smooth surface at the line (1.03 only).** Within a band two nodes wide a membrane is used. The minimum-curvature stencil reaches two cells out and would otherwise step over the break.
+- **A slightly less smooth surface at the line (1.02 only).** Within a band two nodes wide a membrane is used. The minimum-curvature stencil reaches two cells out and would otherwise step over the break.
 - **The line does not reach the edges of the area.** Nor should it. For a dying fault the influence goes round the end, and that is what tells the method apart from gridding blocks separately.
 
 # Common mistakes
@@ -72,4 +72,4 @@ Only the neighbours are selected by visibility. The covariances between the meas
 In practice, near the line the weights of the neighbours are computed without regard for the break lying between two of those neighbours. At distances of the order of the correlation range this is negligible. On a very dense network it can slightly lower the contrast at the line. The break itself is held by the selection of neighbours and is preserved.
 
 \vspace{1pt}\hrule
-\begin{footnotesize}Plugin: plugins.qgis.org/plugins/grid\_isolines · The manual ships with the plugin (doc/Isoliner\_en.pdf), the "Faults" sections in chapters 1.02, 1.03 and 1.04 · Inform++ LLC · www.informpp.ru\end{footnotesize}
+\begin{footnotesize}Plugin: plugins.qgis.org/plugins/grid\_isolines · The manual ships with the plugin (doc/Isoliner\_en.pdf), the "Faults" sections in chapters 1.01, 1.02 and 1.04 · Inform++ LLC · www.informpp.ru\end{footnotesize}

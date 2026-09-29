@@ -2,7 +2,7 @@
 
 You need no data of your own. In every scenario the first step creates or downloads the data itself, so the route can be walked on an empty project.
 
-The tool list is long, and that is daunting at first sight. Start with five: **1.02**, **1.04**, **2.03**, **2.13** and **4.01**. The rest will find you when a task calls for it.
+The tool list is long, and that is daunting at first sight. Start with five: **1.01**, **1.04**, **2.03**, **2.13** and **4.01**. The rest will find you when a task calls for it.
 
 After every step there is a line saying what should come out. If something else came out, that is the place to stop and look into it rather than to move on.
 
@@ -12,11 +12,11 @@ After every step there is a line saying what should come out. If something else 
 
 Five minutes. Boreholes, samples, measurements, any irregular network of observations.
 
-**Step 1.** **1.09 Example wells (demo)**
+**Step 1.** **1.10 Example wells (demo)**
 Minimum: nothing to set, defaults are fine. If you have points of your own, skip the step.
 *You get:* a point layer in the project.
 
-**Step 2.** **1.02 2D Kriging (points → raster)**
+**Step 2.** **1.01 2D Kriging (points → raster)**
 Minimum: **Points**, **Value field**, **Cell size**. The rest by default.
 *You get:* a raster and a layer of standard error. The error grows where the points are sparse, and that is the first thing worth looking at.
 
@@ -24,7 +24,7 @@ Minimum: **Points**, **Value field**, **Cell size**. The rest by default.
 Minimum: **Raster**, **Interval**, **Isoline style** = Structure / hypsometry. Choose the interval so that the lines are visible but do not merge into solid hatching.
 *You get:* isolines with labels and contour bands whose borders coincide with the lines.
 
-Further at will: **1.05** and **1.06** show whether the data hold anisotropy, **1.08** rates the method by cross-validation.
+Further at will: **1.06** and **1.07** show whether the data hold anisotropy, **1.09** rates the method by cross-validation.
 
 ---
 

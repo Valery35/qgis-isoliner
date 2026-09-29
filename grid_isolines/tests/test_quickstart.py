@@ -73,7 +73,7 @@ def test_route_tools_are_mentioned():
     if page is None:
         print("   (страницы быстрого старта нет, проверка пропущена)")
         return
-    for num in ("1.02", "1.04", "2.03", "2.13", "4.01"):
+    for num in ("1.01", "1.04", "2.03", "2.13", "4.01"):
         assert num in page, num
 
 
@@ -83,7 +83,7 @@ def test_page_starts_from_data_that_the_reader_does_not_have():
     if page is None:
         print("   (страницы быстрого старта нет, проверка пропущена)")
         return
-    assert "1.09" in page, "сценарий с точками должен начинаться с генератора"
+    assert "1.10" in page, "сценарий с точками должен начинаться с генератора"
     assert "2.01" in page, "сценарий с рельефом должен начинаться с загрузки"
     assert "4.10" in page, "сценарий с разрезом должен начинаться с примера"
 

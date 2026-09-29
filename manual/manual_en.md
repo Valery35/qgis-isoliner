@@ -54,18 +54,18 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 <!-- TREE -->
 **1. Grid and isolines**
 
-- `1.01` Declustering (weights)
-- `1.02` 2D Kriging (points → raster)
-- `1.03` Minimum curvature (points → raster)
+- `1.01` 2D Kriging (points → raster)
+- `1.02` Minimum curvature (points → raster)
+- `1.03` MBA: multilevel B-splines (points → raster)
 - `1.04` Isolines from raster
-- `1.05` Variogram (experimental)
-- `1.06` Variogram map (anisotropy)
-- `1.07` Variogram cross-validation
-- `1.08` Method cross-validation (LOO)
-- `1.09` Example wells (demo)
-- `1.10` Example geophysical profiles (demo)
-- `1.11` Graft a detailed surface into a regional one
-- `1.12` MBA: multilevel B-splines (points → raster)
+- `1.05` Declustering (weights)
+- `1.06` Variogram (experimental)
+- `1.07` Variogram map (anisotropy)
+- `1.08` Variogram cross-validation
+- `1.09` Method cross-validation (LOO)
+- `1.10` Example wells (demo)
+- `1.11` Example geophysical profiles (demo)
+- `1.12` Graft a detailed surface into a regional one
 
 **2. Topography**
 
@@ -172,15 +172,15 @@ One rule runs through all of it - **the tools do not guess, they ask and they re
 
 The commonest task and the oldest - turn points with measurements into a surface. Two tools are enough.
 
-**1.02 2D Kriging** builds a raster from the points. Ordinary kriging estimates the value in a cell as a weighted average of the nearest measurements. It does not invent the weights but derives them from how quickly the values drift apart with distance. You supply the value field and three parameters of the model. The **range** is the distance beyond which the measurements tell you nothing. The **sill** is the overall spread. The **nugget** is the spread that remains at zero distance - measurement error plus variability finer than the spacing of the network. Take a cell about a quarter to a fifth of the mean spacing between the boreholes. Finer adds no accuracy and takes longer.
+**1.01 2D Kriging** builds a raster from the points. Ordinary kriging estimates the value in a cell as a weighted average of the nearest measurements. It does not invent the weights but derives them from how quickly the values drift apart with distance. You supply the value field and three parameters of the model. The **range** is the distance beyond which the measurements tell you nothing. The **sill** is the overall spread. The **nugget** is the spread that remains at zero distance - measurement error plus variability finer than the spacing of the network. Take a cell about a quarter to a fifth of the mean spacing between the boreholes. Finer adds no accuracy and takes longer.
 
 Along with the surface the tool produces the **kriging error map**. Always look at it. The surface itself looks equally smooth where the boreholes are dense and where the result rests on a single distant measurement, and only the error map shows the difference.
 
 **1.04 Isolines from raster** turns the surface into contours with labels and, if wanted, into polygons of ranges. The interval is set as a number or as a step. For terrain there is a topographic labels checkbox there too: the labels are turned so that their top faces the high side.
 
-It can be tried without your own data. **1.09 Example wells (demo)** produces a ready set of points with a realistic spatial structure.
+It can be tried without your own data. **1.10 Example wells (demo)** produces a ready set of points with a realistic spatial structure.
 
-**Further on, when justification is required.** The parameters of the model need not be guessed by eye. **1.05 Variogram** derives them from the data themselves and draws a plot that shows whether there is any spatial relation in the data at all. If the experimental points fall without any pattern, no method will create one. **1.06 Variogram map** shows the anisotropy - the similarity reaches further along one direction than across it, and that has to be taken into account. **1.08 Method cross-validation (LOO)** removes each borehole in turn, predicts its value from the rest and prints the discrepancy. That is a direct answer to how far the map can be trusted. A successful set of parameters is stored as a profile, so it need not be typed again.
+**Further on, when justification is required.** The parameters of the model need not be guessed by eye. **1.06 Variogram** derives them from the data themselves and draws a plot that shows whether there is any spatial relation in the data at all. If the experimental points fall without any pattern, no method will create one. **1.07 Variogram map** shows the anisotropy - the similarity reaches further along one direction than across it, and that has to be taken into account. **1.09 Method cross-validation (LOO)** removes each borehole in turn, predicts its value from the rest and prints the discrepancy. That is a direct answer to how far the map can be trusted. A successful set of parameters is stored as a profile, so it need not be typed again.
 
 ## Open country on hand, terrain and a base map wanted
 
@@ -308,29 +308,7 @@ Data often arrive exactly like that. A survey or an export gives PointZ features
 
 Points may carry both a Z in the geometry and a value field, and the two often mean different things. The Z is usually the survey elevation, the field is the quantity being interpolated. For thicknesses and grades the field is given explicitly. A layer with no Z and no field is rejected with a message rather than failing in the middle of the run.
 
-## 1.01 Declustering (weights)
-
-The tool prepares data before interpolation. When samples are clustered unevenly, some blocks drilled denser than others, the naive global statistics shift toward the over-sampled areas. If rich zones were drilled denser, the mean and histogram are overstated, and that directly affects reserve calculation. Cell declustering (a port of GSLIB **declus**) gives each sample a weight inversely proportional to the local density, less in a cluster, more in sparsely sampled areas. A representative declustered mean is computed from the weighted data.
-
-A grid of cells is laid over the area, a sample weight is proportional to one divided by the number of samples in its cell, and then the weights are normalized. The cell size is chosen automatically by a sweep over sizes, which picks the minimum declustered mean when clusters fall in rich zones and otherwise the maximum. The size can also be set manually. On a regular grid declustering changes nothing, all weights are equal.
-
-| Parameter | Purpose | Default |
-| --- | --- | --- |
-| Points with values | Samples. | - |
-| Value field Z (empty = from the geometry) | Numeric field. | - |
-| Cell size | Auto (sweep) or manual. | Auto |
-| Cell size for manual mode | Cell side in manual mode. | 0 |
-| Sweep objective (Adv.) | Minimum or maximum mean. | Minimum |
-| Number of sizes in the sweep (Adv.) | How many cells to try. | 24 |
-| Cell Y/X ratio (Adv.) | Cell anisotropy. | 1 |
-| Grid-origin offsets (Adv.) | Averaging over grid shifts. | 4 |
-| Points with weights | Point layer with a **wt** field. | - |
-| HTML report | Summary, histogram, mean curve. | default |
-
-The outputs are a point layer with a **wt** field and an HTML report. The report gives a summary (naive against declustered mean), a raw-against-weighted histogram and a mean-against-cell-size curve. The declustered mean from the log and the report goes into **1.02**, into the **Mean of simple kriging** field. The **wt** field feeds **3.06 Gaussian simulation** for a weighted normal-score transform. Outlier samples are cut separately, by percentile capping in the kriging and cross-validation tools themselves.
-
-
-## 1.02 2D Kriging (points → raster)
+## 1.01 2D Kriging (points → raster)
 
 Ordinary (OK) or simple (SK) kriging over a point layer. Coincident points (the same XY) are averaged over Z. At grid nodes the values of the source points are reproduced exactly (with a zero nugget).
 
@@ -513,7 +491,7 @@ Block kriging combines with trend removal, the residuals are kriged over the blo
 
 ### Faults
 
-A fault here is a line along which the surface breaks. It is supplied as a line layer in the **Faults** field, and the same layer is accepted by 1.03 and 1.04.
+A fault here is a line along which the surface breaks. It is supplied as a line layer in the **Faults** field, and the same layer is accepted by 1.02 and 1.04.
 
 The fault acts as a barrier of influence. For every cell being estimated the tool draws a segment to each measurement. If the segment crosses the line, that measurement does not enter the sample of the cell. The cell sees only its own wing, the values on the two sides diverge, and the surface gets a break along the line.
 
@@ -543,7 +521,7 @@ What that means in practice is this. Near the line the weights of the neighbours
 
 ### How to try it on teaching data
 
-The tool **1.09 Example wells** can create a fault by itself. The **Fault throw** field sets the size of the shift. The generator draws a line across the area without bringing it to the edges and adds the throw to the value at every well on one side. Above the end of the line both sides are equal, so the teaching data contain both the break and its dying end.
+The tool **1.10 Example wells** can create a fault by itself. The **Fault throw** field sets the size of the shift. The generator draws a line across the area without bringing it to the edges and adds the throw to the value at every well on one side. Above the end of the line both sides are equal, so the teaching data contain both the break and its dying end.
 
 The line is produced as a separate output **Fault (demo)**. Supply it to **Faults** here, then the same line to 1.04, and the whole chain comes together.
 
@@ -552,7 +530,7 @@ To test the barrier itself take a throw noticeably larger than the correlation r
 The `throw` attribute in the output fault layer is for reference. The tools do not read it, their barrier is purely geometric and knows nothing of the size of the displacement.
 
 
-## 1.03 Minimum curvature (points → raster)
+## 1.02 Minimum curvature (points → raster)
 
 The tool builds a grid by minimum curvature. The surface behaves like a thin elastic plate passing through the data with the least bending, that is a solution of the biharmonic equation. The method is not exact and the data are honored approximately, but the
 surface comes out as smooth as possible. That is why it is traditionally used
@@ -587,7 +565,7 @@ Clipping by a mask works as in kriging - a polygon from the project or the conve
 
 ### Faults
 
-Faults are supplied by the same line layer as in 1.02, but they work differently. In kriging the barrier decides which measurements a cell can see. Here there are no measurements, there is a grid of nodes tied together by a stencil, so the barrier lives on the links.
+Faults are supplied by the same line layer as in 1.01, but they work differently. In kriging the barrier decides which measurements a cell can see. Here there are no measurements, there is a grid of nodes tied together by a stencil, so the barrier lives on the links.
 
 An edge between two neighbouring nodes crossed by the fault line drops out of the stencil. The link between the wings is cut, each wing is solved on its own, and the surface breaks along the line. The fault stays a line and is never turned into cells. A slanted line therefore does not fall into steps, and the wing of a node follows from the side it lies on.
 
@@ -605,6 +583,65 @@ There is one practical consequence. Right at the line the surface is slightly le
 
 The line, as in kriging, need not cut across the area. Above the end of the fault the edges are not blocked and the surface closes up there.
 
+
+## 1.03 MBA: multilevel B-splines (points → raster)
+
+The third way to get a surface from points, after kriging (1.01) and minimum curvature (1.02). Read it together with them, and the number simply comes last because the tool appeared later.
+
+The method of Lee, Wolberg and Shin, 1997. A coarse lattice of control points is taken and a cubic B-spline approximating the data is built over it. It approximates coarsely, so the residual is computed - the difference between the measurement and the current surface. Then the lattice is doubled and the residual is approximated anew. It goes level after level, and each next one picks up what the previous could not.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Points with measurements / Value field | The input. | - |
+| Extent | By the points by default. | by the points |
+| Cell size | The detail of writing into the raster. 0 - five hundred cells along the longer side. | 0 |
+| Initial lattice in X, in Y | The radius of influence. Different counts per axis give anisotropy. | 4 and 4 |
+| Number of levels | Smoothness. One or two give a trend, eight and more sit the surface on the measurements. | 8 |
+| Clip by the convex hull of the points | Beyond the cloud the surface must not be kept. | on |
+| Lower and upper bounds of the result | The physically possible range of the quantity. Empty - no bound. | empty |
+| Margin around the hull (adv.) | Widens the clip. | 0 |
+| Stop by the residual (adv.) | Ends the refinement early. 0 - do not check. | 0 |
+| Limit on the size of the raster, millions of cells (adv.) | Beyond it the tool refuses to work. | 50 |
+
+### What it is good at
+
+No system of equations is solved at all. A coefficient of the lattice is computed explicitly, as a weighted sum over the points that fall into the support of its spline. So the work is linear in the number of points while the memory depends only on the size of the lattice. Kriging solves a system over the neighbours in every cell, and on ten million measurements these are incomparable things, MBA takes a million points in seconds.
+
+### Controlling the lattices
+
+The initial lattice sets the radius of influence, and the coarser it is, the further a measurement spreads. Different numbers of cells per axis give anisotropy, which on a survey grid stretched along the strike is exactly what is needed, and it is set directly, without a variogram model.
+
+The number of levels controls the smoothness. Every level is twice as detailed and twice as close to the data, so one or two give a smooth trend while eight and more sit the surface on the measurements.
+
+### Removing the trend
+
+A coefficient of the lattice is computed by a formula linear in the value. So the error grows with the **magnitude** of the elevation rather than with its spread. Sometimes the support is one-sided - the edge of the area, or an empty place inside the cloud of points. There the denominator is small, the coefficient flies apart in proportion to the elevation itself, and the surface dives towards zero in the void.
+
+The number of levels does not fix it, every next level inherits the same defect. Take a test terrain of about two hundred metres with an empty circle of radius 250 m. The error inside the circle reached 30 m, and at its centre 169 came out instead of 199.
+
+So the tool removes a trend by a plane before the fit and returns it into the coefficients of the zero level. The error in the same void becomes less than a metre. There is no setting for this. Where the values are near zero, removing the trend changes nothing, and where they are far, it removes an error proportional to the magnitude itself.
+
+It follows that **clipping by the convex hull and the bounds of the result do not repair a void inside the cloud**. The hull cuts off what lies outside, and the bounds turn a pit into a flat patch at the level of the bound. There is nothing to restore the shape from, an empty place needs data.
+
+### What it does not give
+
+Neither an error of the estimate, nor a model of covariance, nor weights that can be justified. This is an approximator rather than an estimator, and it does not know how good its answer is. Cross-validation of the method (1.09) and a map of the error do not apply to it. Hence the main use in exploration - **build a trend with it and refine the residuals by kriging**, for which there is kriging with an external trend.
+
+The surface is smooth by construction, with a continuous derivative. For terrain and trends that is a plus, for grades a minus. Peaks get smoothed, and in reserve estimation that is exactly what geostatistics gets blamed for.
+
+An exact hit into the measurements must not be expected even where the data are constant. On a constant value the deviation reaches a third of the range at one level, drops tenfold at three and disappears at eight. That is the nature of the method rather than an error of the computation. The edge coefficients underget their share, and every next level picks up the residual.
+
+### Bounds of the result
+
+An approximator does not know that a grade is never negative and a fraction is never above one. Between measurements a smooth surface overshoots the range - especially where markedly different values stand close together, and especially near the edge of the cloud. On lognormal data such as grades it easily goes fifteen hundred below zero.
+
+The bounds cut the result to the physically possible. Cutting is more useful than the «as it came out» look, but it is also a sign of trouble. The log reports how many cells were cut from below and from above, what share of the area that makes and how far the surface went. If a tenth of the area or more is pressed against a bound, the surface there is not estimated but cut, there are no measurements nearby and the spline behaves arbitrarily. What helps is not a bound but a coarser lattice, fewer levels or a narrower extent.
+
+Some quantities are never negative and vary by orders of magnitude - grades, permeability. For those it is better not to cut but to build the surface over the logarithm of the quantity and return it through the exponent. Then zero is unreachable by construction and no plateau appears at the bound.
+
+### Clipping
+
+Beyond the cloud of points the edge coefficients have no data and the surface behaves arbitrarily, and on a survey grid that shows as lifted corners of the raster. So the result is clipped by the convex hull of the points by default, with a margin around it set separately. The clip can be turned off, but then beyond the outline of the grid you get a result that must not be regarded as an estimate.
 
 ## 1.04 Isolines from raster
 
@@ -777,7 +814,7 @@ It does not smooth flat areas for the sake of an even line. That would be a forg
 
 ### Faults
 
-The same line layer that was supplied to 1.02 or 1.03 goes here into the **Faults** field. Here it does two things.
+The same line layer that was supplied to 1.01 or 1.02 goes here into the **Faults** field. Here it does two things.
 
 First, the isolines are cut along the line, exactly along it and not along cell edges. Second, the line itself enters the network from which the contour polygons are built, so the boundary of a belt runs exactly along the fault.
 
@@ -801,7 +838,29 @@ The threshold is given in cells and filters out narrow strips of belts. The thic
 
 The threshold is meant against fragments at a break where fault lines have not been supplied - at open pits, cliffs and the edge of the area. **It must be used with care.** On a steep surface with a fine interval a normal belt between neighbouring levels is itself narrower than a cell, and a threshold of one cell will then clear almost everything off the map. The tool warns in the log if it has filtered out more than half of the belts. By default the threshold is zero, that is, there is no filtering.
 
-## 1.05 Variogram (experimental)
+## 1.05 Declustering (weights)
+
+The tool prepares data before interpolation. When samples are clustered unevenly, some blocks drilled denser than others, the naive global statistics shift toward the over-sampled areas. If rich zones were drilled denser, the mean and histogram are overstated, and that directly affects reserve calculation. Cell declustering (a port of GSLIB **declus**) gives each sample a weight inversely proportional to the local density, less in a cluster, more in sparsely sampled areas. A representative declustered mean is computed from the weighted data.
+
+A grid of cells is laid over the area, a sample weight is proportional to one divided by the number of samples in its cell, and then the weights are normalized. The cell size is chosen automatically by a sweep over sizes, which picks the minimum declustered mean when clusters fall in rich zones and otherwise the maximum. The size can also be set manually. On a regular grid declustering changes nothing, all weights are equal.
+
+| Parameter | Purpose | Default |
+| --- | --- | --- |
+| Points with values | Samples. | - |
+| Value field Z (empty = from the geometry) | Numeric field. | - |
+| Cell size | Auto (sweep) or manual. | Auto |
+| Cell size for manual mode | Cell side in manual mode. | 0 |
+| Sweep objective (Adv.) | Minimum or maximum mean. | Minimum |
+| Number of sizes in the sweep (Adv.) | How many cells to try. | 24 |
+| Cell Y/X ratio (Adv.) | Cell anisotropy. | 1 |
+| Grid-origin offsets (Adv.) | Averaging over grid shifts. | 4 |
+| Points with weights | Point layer with a **wt** field. | - |
+| HTML report | Summary, histogram, mean curve. | default |
+
+The outputs are a point layer with a **wt** field and an HTML report. The report gives a summary (naive against declustered mean), a raw-against-weighted histogram and a mean-against-cell-size curve. The declustered mean from the log and the report goes into **1.01**, into the **Mean of simple kriging** field. The **wt** field feeds **3.06 Gaussian simulation** for a weighted normal-score transform. Outlier samples are cut separately, by percentile capping in the kriging and cross-validation tools themselves.
+
+
+## 1.06 Variogram (experimental)
 
 The tool builds an experimental semivariogram from points, fits a model to it if needed, and produces an HTML report with a chart. It does not compute a grid and is not part of the kriging computation chain directly. Its job is diagnostic. It shows the structure of the data's spatial variability and helps set the variogram parameters deliberately, by the look of the cloud rather than by eye.
 
@@ -828,7 +887,7 @@ The nugget and contributions in the tool are set in absolute units of the parame
 | Points with values | A point layer of wells or samples. | - |
 | Z value field (empty: from the geometry) | The numeric attribute to analyse: roof elevation, thickness, grade. Empty - from the point Z. | remembered between runs |
 | Grouping field (adv.) | Builds a separate curve for each field value (e.g. survey type) and overlays them on one chart. | off |
-| Declustering weight field (adv.) | Weights from **1.01 Declustering** for a weighted estimate. | not set |
+| Declustering weight field (adv.) | Weights from **1.05 Declustering** for a weighted estimate. | not set |
 | Number of lags | Into how many distance intervals the pair cloud is split. | 15 |
 | Maximum distance | The far edge of the variogram, in layer units (for metric coordinates - metres). 0 = half the extent diagonal. | 0 |
 | Fit model (recommended) | Auto-fit of the nugget, sill, range and model type; the result is remembered for substitution into **2D Kriging**. | on |
@@ -845,7 +904,7 @@ The nugget and contributions in the tool are set in absolute units of the parame
 | Report (HTML) | Output: the pair cloud, the fitted curve and the data-variance line. | temporary file |
 | Outliers (output) | The removed points with coordinates, value and the reason for removal. | off |
 
-Why the removed points are worth a look is explained in 1.02.
+Why the removed points are worth a look is explained in 1.01.
 
 The parameters marked "adv." are in the collapsed **Advanced Parameters** section.
 
@@ -919,7 +978,7 @@ After scaling, the full sill may turn out above the data variance, and on a clus
 
 The finished and validated model then only needs to be carried into **2D Kriging** to compute the grid, and after that, if needed, into **Isolines from raster**.
 
-If the data are clustered unevenly, set the optional **wt** weight field from tool **1.01 Declustering**. Each pair of points is then taken with a weight equal to the product of its endpoints' weights, and clusters do not inflate the near lags. The pair count in the report shows the raw number of pairs, while γ itself is computed with weights.
+If the data are clustered unevenly, set the optional **wt** weight field from tool **1.05 Declustering**. Each pair of points is then taken with a weight equal to the product of its endpoints' weights, and clusters do not inflate the near lags. The pair count in the report shows the raw number of pairs, while γ itself is computed with weights.
 
 
 ## The table of variogram models
@@ -953,15 +1012,15 @@ The `model` column accepts both a numeric code and the name of the model, in Rus
 
 ### Order of work
 
-**1.05 Variogram (experimental)** fits a model and enters it into the table. When no table exists yet, the tool creates one through the **Variogram model** output. Once a table exists, it is given in the **Append to the table of models**
+**1.06 Variogram (experimental)** fits a model and enters it into the table. When no table exists yet, the tool creates one through the **Variogram model** output. Once a table exists, it is given in the **Append to the table of models**
 field. The rows of this profile are replaced by the new ones, while the rows
 of other profiles remain untouched. Fitting one profile again replaces its rows, so duplicates do not accumulate.
 
-**1.06 Variogram map** writes the azimuth and the anisotropy ratio into the same table, and where possible the range of the major axis. The model, the nugget and the contribution are not changed: they are determined by the omnidirectional variogram, while the map describes only the geometry. The estimate off the map is indicative, which is recorded in the `note` field.
+**1.07 Variogram map** writes the azimuth and the anisotropy ratio into the same table, and where possible the range of the major axis. The model, the nugget and the contribution are not changed: they are determined by the omnidirectional variogram, while the map describes only the geometry. The estimate off the map is indicative, which is recorded in the `note` field.
 
-**1.07 Variogram cross-validation** reads the model from the table for checking.
+**1.08 Variogram cross-validation** reads the model from the table for checking.
 
-**1.02 2D Kriging** and **3.01 Categorical indicator kriging** read the model at computation time. When a table is given, the variogram fields of the dialog are not used: two sources of the same values inevitably diverge, so the table takes precedence, and that is reported in the log.
+**1.01 2D Kriging** and **3.01 Categorical indicator kriging** read the model at computation time. When a table is given, the variogram fields of the dialog are not used: two sources of the same values inevitably diverge, so the table takes precedence, and that is reported in the log.
 
 ### Parsing of rows
 
@@ -970,7 +1029,7 @@ A row with an unrecognised model, a non-positive range or a repeated structure n
 The parser tolerates manual editing. The case of column names is ignored, a decimal comma and spaces inside numbers do not interfere. Synonyms of column names are not provided, since the table is produced by the plugin itself.
 
 
-## 1.06 Variogram map (anisotropy)
+## 1.07 Variogram map (anisotropy)
 
 The tool builds a variogram map - the semivariance surface γ as a function of the two-dimensional separation vector (h_x, h_y). An ordinary variogram averages all directions into one curve and loses directionality, while the map shows how the continuity of the parameter depends on direction. From it you can see whether there is anisotropy in the data and where the axis of maximum continuity points. The tool is diagnostic. It does not compute a grid but helps to set the azimuth and anisotropy in the 2D Kriging variogram structure deliberately.
 
@@ -1002,7 +1061,7 @@ Anisotropy is read from the shape of the dark area. If it is round - the structu
 
 The parameter marked "adv." is in the collapsed **Advanced Parameters** section.
 
-The **wt** weight field from **1.01 Declustering** works here too, the same way as in 1.05. A pair of points is taken with a weight equal to the product of its endpoints' weights.
+The **wt** weight field from **1.05 Declustering** works here too, the same way as in 1.06. A pair of points is taken with a weight equal to the product of its endpoints' weights.
 
 ### Estimating the azimuth, anisotropy and range
 
@@ -1029,7 +1088,7 @@ In this case the range a cannot be carried into kriging as is. The real correlat
 If desired, the map is also saved as a raster (the **Surface raster** field). It is the same γ surface but in lag coordinates - the origin at (0, 0), the pixel size equal to the lag cell. The raster is not georeferenced, it lies in the separation space rather than in the deposit plan. It is meant for those who want to spin the map on the QGIS canvas, apply their own colour scale or measure a lag with a ruler. The HTML report is enough for the anisotropy estimate itself.
 
 
-## 1.07 Variogram cross-validation
+## 1.08 Variogram cross-validation
 
 ![The idea of cross-validation: the kriging estimate from the remaining points (vertical) is compared with the actual value (horizontal). The tighter the cloud lies on the estimate = actual diagonal, the more accurate the prediction.](images/crossval.png){width=70%}
 
@@ -1105,14 +1164,14 @@ A note on speed. The check solves kriging as many times as there are points, so 
 
 The kriging itself runs fast on dense data. The measurements are laid out in cells the size of the search radius, and in every grid node only the neighbouring cells are scanned rather than the whole sample. On a hundred and sixty thousand stations this gave a fourfold speed-up. The selection stays exact and the estimate does not change.
 
-If the data are clustered unevenly, set the optional **wt** weight field from tool **1.01 Declustering**. The ME, MAE, RMSE, MSDR and R metrics are then computed with weights, so a dense cluster of wells does not dominate the quality assessment. The leave-one-out estimate itself is unchanged, only the summary is weighted.
+If the data are clustered unevenly, set the optional **wt** weight field from tool **1.05 Declustering**. The ME, MAE, RMSE, MSDR and R metrics are then computed with weights, so a dense cluster of wells does not dominate the quality assessment. The leave-one-out estimate itself is unchanged, only the summary is weighted.
 
 
-## 1.08 Method cross-validation (LOO)
+## 1.09 Method cross-validation (LOO)
 
 Leave-one-out control for a gridding method, kriging or minimum curvature. Each validation point is removed in turn, its value is predicted by the method from the rest and compared with the fact. The errors give quality metrics - an objective measure of the method and a way to compare methods on your own data.
 
-This differs from **1.07 Variogram cross-validation**. That one fits the variogram model for kriging, while this one compares gridding methods as such and works for minimum curvature too.
+This differs from **1.08 Variogram cross-validation**. That one fits the variogram model for kriging, while this one compares gridding methods as such and works for minimum curvature too.
 
 The metrics are **ME** (bias, closer to 0), **MAE** and **RMSE** (smaller is better) and **R** (correlation of estimate and fact). For kriging there is also **MSDR** (closer to 1 when the standard-error scale is adequate). The estimate-vs-fact chart has two lines, a grey 1:1 diagonal (the ideal) and a blue **Best-fit** regression line. Its slope, intercept and angle go into the metrics as a range-bias indicator. A slope near 1 means the method is equally accurate at low and high values. A
 slope below 1 means high values are underestimated and low ones overestimated,
@@ -1128,7 +1187,7 @@ Three Surfer-style options are available. A **random subset** of N points speeds
 | Method | Kriging or minimum curvature. | Kriging |
 | Points to validate | 0 = auto, min(N, 100). | 0 |
 | Exclusion buffer in X, Y | Rectangle around the point, neighbours in it are left out. | 0 |
-| Kriging parameters | Variogram and search (as in 1.02). | - |
+| Kriging parameters | Variogram and search (as in 1.01). | - |
 | Min curvature parameters (Adv.) | Extent, cell, tension, threshold, iterations. | auto |
 | Validate only within the extent (Adv.) | Control area by X/Y. | everywhere |
 | Validate where Z is in range (Adv.) | Control area by value. | none |
@@ -1138,10 +1197,10 @@ Three Surfer-style options are available. A **random subset** of N points speeds
 
 For minimum curvature each point is re-estimated from a warm start off the full solution, so a single pass is fast. On very large samples reduce the number of validation points.
 
-The **wt** weight field from **1.01 Declustering** works here the same way as in 1.07. The summary of metrics is weighted, while the leave-one-out estimate itself does not change.
+The **wt** weight field from **1.05 Declustering** works here the same way as in 1.08. The summary of metrics is weighted, while the leave-one-out estimate itself does not change.
 
 
-## 1.09 Example wells (demo)
+## 1.10 Example wells (demo)
 
 The **Example wells (demo)** tool builds a point layer with random
 coordinates and three structured fields. These are the absolute roof elevation
@@ -1161,7 +1220,7 @@ Parameters:
 | Add a head field | A head field with a regional slope for the flow gradient. | off |
 | Add K and T fields and head | Head plus log-normal K (m/day) and T = K·thickness for the specific discharge (Darcy). | off |
 | RNG seed (Adv.) | Reproducibility of the generation. 0 = random. | 0 |
-| Declustering weight field (Adv.) | **wt** weights from tool **1.01**, optional. | none |
+| Declustering weight field (Adv.) | **wt** weights from tool **1.05**, optional. | none |
 | Sample wells (demo) | The output point layer. | - |
 | Drift surface (raster) + dz field | Enable the output to get an s raster and a dz field for external drift. | off (skipped) |
 
@@ -1196,7 +1255,7 @@ The field set covers all the plugin tools. Interpolate roof and thick with ordin
 
 The full list of output-layer fields is in the **Sample wells (demo)** appendix section ("Demo-layer fields" at the end of the manual).
 
-## 1.10 Example geophysical profiles (demo)
+## 1.11 Example geophysical profiles (demo)
 
 The tool creates a point layer of geophysical profiles for learning and testing without real data. Several parallel profiles with pickets are built. There are two modes.
 
@@ -1204,13 +1263,13 @@ The tool creates a point layer of geophysical profiles for learning and testing 
 
 **Subsidence (trough).** The value is settlement (mm) as a subsidence trough over a mined area, across several observation tours. The trough deepens from tour to tour and is capped at two metres in magnitude. The sign is uniform, down (negative) or magnitude (positive), by choice. The edges are strictly zero - away from the mined area there is no subsidence. At the same pickets you can compute the **settle** difference between tours to get the settlement rate.
 
-The workflow repeats the main one. The **rho_k** (or **settle**) field is interpolated with **1.02 2D Kriging** or minimum curvature, isolines are built from the grid with **1.04**, and the anomaly is outlined. The **sp** field can be interpolated the same way and its SP minimum compared with the rho_k drop. The **rho_true** (or **settle_true**) field is the embedded noise-free value, a reference for checking interpolation accuracy.
+The workflow repeats the main one. The **rho_k** (or **settle**) field is interpolated with **1.01 2D Kriging** or minimum curvature, isolines are built from the grid with **1.04**, and the anomaly is outlined. The **sp** field can be interpolated the same way and its SP minimum compared with the rho_k drop. The **rho_true** (or **settle_true**) field is the embedded noise-free value, a reference for checking interpolation accuracy.
 
 ### Kriging or minimum curvature
 
 Geophysical profiles are a typical case where the choice of interpolation method matters more than its tuning. The data are dense along the profiles and sparse between them, while the quantity itself (resistivity, potential) is physically smooth and continuous.
 
-Kriging faithfully reflects the uneven network. Without tuning the variogram anisotropy it stretches the structure along the survey lines, and the field breaks into bands along the pickets. Minimum curvature (**1.03**) imposes a physically meaningful smoothness and stitches the separate profiles into a connected surface, so for profile surveys and potential fields it is usually preferable. The same holds for the **sp** field, where the SP minimum appears as a single body rather than columns. It is most vivid on subsidence. The trough is a compact axisymmetric bowl, kriging rolls it into a band along the profiles, and minimum curvature restores the bowl with a clear centre.
+Kriging faithfully reflects the uneven network. Without tuning the variogram anisotropy it stretches the structure along the survey lines, and the field breaks into bands along the pickets. Minimum curvature (**1.02**) imposes a physically meaningful smoothness and stitches the separate profiles into a connected surface, so for profile surveys and potential fields it is usually preferable. The same holds for the **sp** field, where the SP minimum appears as a single body rather than columns. It is most vivid on subsidence. The trough is a compact axisymmetric bowl, kriging rolls it into a band along the profiles, and minimum curvature restores the bowl with a clear centre.
 
 The practical takeaway is simple. Build fields from profiles with minimum curvature, and use kriging when the variogram anisotropy is tuned to the network geometry.
 
@@ -1238,7 +1297,7 @@ The electrical fields are **profile** (profile number), **picket_m** (picket in 
 The subsidence fields are **profile**, **picket_m**, **pk**, **tour** (tour number), **z** (elevation, m), **settle** (subsidence, mm) and **settle_true** (subsidence without noise).
 
 
-## 1.11 Graft a detailed surface into a regional one
+## 1.12 Graft a detailed surface into a regional one
 
 The tool sews two surfaces of the same quantity into one, a detailed surface over a site and a regional one over the whole area around it. The task keeps coming back to surveyors and hydrologists - a detailed survey into an open DEM - but it does not depend on terrain. A cluster of exploration holes into a regional model of a seam roof, a detailed sampling area into a general grade map. The arrangement is the same, the quantity is any.
 
@@ -1317,65 +1376,6 @@ the offset gives a step of 14.4 m. The graft with the correction gives 1.62 m
 against a terrain background of 2.18 m.
 
 If empty cells do end up in the result, their count is reported in the log. A cell can be empty only where neither of the two surfaces exists, and usually the regional one does not cover the given extent.
-
-## 1.12 MBA: multilevel B-splines (points → raster)
-
-The third way to get a surface from points, after kriging (1.02) and minimum curvature (1.03). Read it together with them, and the number simply comes last because the tool appeared later.
-
-The method of Lee, Wolberg and Shin, 1997. A coarse lattice of control points is taken and a cubic B-spline approximating the data is built over it. It approximates coarsely, so the residual is computed - the difference between the measurement and the current surface. Then the lattice is doubled and the residual is approximated anew. It goes level after level, and each next one picks up what the previous could not.
-
-| Parameter | What it sets | Default / advice |
-|---|---|---|
-| Points with measurements / Value field | The input. | - |
-| Extent | By the points by default. | by the points |
-| Cell size | The detail of writing into the raster. 0 - five hundred cells along the longer side. | 0 |
-| Initial lattice in X, in Y | The radius of influence. Different counts per axis give anisotropy. | 4 and 4 |
-| Number of levels | Smoothness. One or two give a trend, eight and more sit the surface on the measurements. | 8 |
-| Clip by the convex hull of the points | Beyond the cloud the surface must not be kept. | on |
-| Lower and upper bounds of the result | The physically possible range of the quantity. Empty - no bound. | empty |
-| Margin around the hull (adv.) | Widens the clip. | 0 |
-| Stop by the residual (adv.) | Ends the refinement early. 0 - do not check. | 0 |
-| Limit on the size of the raster, millions of cells (adv.) | Beyond it the tool refuses to work. | 50 |
-
-### What it is good at
-
-No system of equations is solved at all. A coefficient of the lattice is computed explicitly, as a weighted sum over the points that fall into the support of its spline. So the work is linear in the number of points while the memory depends only on the size of the lattice. Kriging solves a system over the neighbours in every cell, and on ten million measurements these are incomparable things, MBA takes a million points in seconds.
-
-### Controlling the lattices
-
-The initial lattice sets the radius of influence, and the coarser it is, the further a measurement spreads. Different numbers of cells per axis give anisotropy, which on a survey grid stretched along the strike is exactly what is needed, and it is set directly, without a variogram model.
-
-The number of levels controls the smoothness. Every level is twice as detailed and twice as close to the data, so one or two give a smooth trend while eight and more sit the surface on the measurements.
-
-### Removing the trend
-
-A coefficient of the lattice is computed by a formula linear in the value. So the error grows with the **magnitude** of the elevation rather than with its spread. Sometimes the support is one-sided - the edge of the area, or an empty place inside the cloud of points. There the denominator is small, the coefficient flies apart in proportion to the elevation itself, and the surface dives towards zero in the void.
-
-The number of levels does not fix it, every next level inherits the same defect. Take a test terrain of about two hundred metres with an empty circle of radius 250 m. The error inside the circle reached 30 m, and at its centre 169 came out instead of 199.
-
-So the tool removes a trend by a plane before the fit and returns it into the coefficients of the zero level. The error in the same void becomes less than a metre. There is no setting for this. Where the values are near zero, removing the trend changes nothing, and where they are far, it removes an error proportional to the magnitude itself.
-
-It follows that **clipping by the convex hull and the bounds of the result do not repair a void inside the cloud**. The hull cuts off what lies outside, and the bounds turn a pit into a flat patch at the level of the bound. There is nothing to restore the shape from, an empty place needs data.
-
-### What it does not give
-
-Neither an error of the estimate, nor a model of covariance, nor weights that can be justified. This is an approximator rather than an estimator, and it does not know how good its answer is. Cross-validation of the method (1.08) and a map of the error do not apply to it. Hence the main use in exploration - **build a trend with it and refine the residuals by kriging**, for which there is kriging with an external trend.
-
-The surface is smooth by construction, with a continuous derivative. For terrain and trends that is a plus, for grades a minus. Peaks get smoothed, and in reserve estimation that is exactly what geostatistics gets blamed for.
-
-An exact hit into the measurements must not be expected even where the data are constant. On a constant value the deviation reaches a third of the range at one level, drops tenfold at three and disappears at eight. That is the nature of the method rather than an error of the computation. The edge coefficients underget their share, and every next level picks up the residual.
-
-### Bounds of the result
-
-An approximator does not know that a grade is never negative and a fraction is never above one. Between measurements a smooth surface overshoots the range - especially where markedly different values stand close together, and especially near the edge of the cloud. On lognormal data such as grades it easily goes fifteen hundred below zero.
-
-The bounds cut the result to the physically possible. Cutting is more useful than the «as it came out» look, but it is also a sign of trouble. The log reports how many cells were cut from below and from above, what share of the area that makes and how far the surface went. If a tenth of the area or more is pressed against a bound, the surface there is not estimated but cut, there are no measurements nearby and the spline behaves arbitrarily. What helps is not a bound but a coarser lattice, fewer levels or a narrower extent.
-
-Some quantities are never negative and vary by orders of magnitude - grades, permeability. For those it is better not to cut but to build the surface over the logarithm of the quantity and return it through the exponent. Then zero is unreachable by construction and no plateau appears at the bound.
-
-### Clipping
-
-Beyond the cloud of points the edge coefficients have no data and the surface behaves arbitrarily, and on a survey grid that shows as lifted corners of the raster. So the result is clipped by the convex hull of the points by default, with a margin around it set separately. The clip can be turned off, but then beyond the outline of the grid you get a result that must not be regarded as an estimate.
 
 ## Topography: terrain from open data
 
@@ -2326,7 +2326,7 @@ Parameters:
 | Probability level boundaries (lines) | Level lines carrying the class and the level. | optional |
 | Probability bands (polygons) | Bands between the levels with a ready colouring. | optional |
 
-Clipping by a mask is the same as in 1.02 - a polygon from the project or the convex hull of the points with a buffer. The mask is applied to all three outputs, the probabilities, the zones and the confidence.
+Clipping by a mask is the same as in 1.01 - a polygon from the project or the convex hull of the points with a buffer. The mask is applied to all three outputs, the probabilities, the zones and the confidence.
 
 ### How it is computed
 
@@ -2360,7 +2360,7 @@ The categorical approach is convenient because it needs no boundary drawn in adv
 
 To learn the tool without real data, switch on **Add a categorical mineral-type field** in **Example wells (demo)**. A mintype field is added to the layer with a silvinite background and replacement spots after a mine, ready to run the tool on.
 
-With an uneven network you can set the optional **wt** weight field from tool **1.01 Declustering**. Each class indicator is then kriged toward its declustered proportion rather than zero, so far from the data the probability tends to the representative class proportion. Without weights the behaviour is unchanged.
+With an uneven network you can set the optional **wt** weight field from tool **1.05 Declustering**. Each class indicator is then kriged toward its declustered proportion rather than zero, so far from the data the probability tends to the representative class proportion. Without weights the behaviour is unchanged.
 
 
 ### Vector boundaries from the probabilities
@@ -2559,7 +2559,7 @@ Kriging gives a single smoothed surface and an estimation variance. Sequential G
 
 How it works. The values are mapped to normal scores and the simulation runs in Gaussian space. The grid nodes are visited in random order. At each one simple kriging on the neighbours and already-simulated points gives a local mean and variance, a value is drawn from that normal distribution, and it immediately becomes conditioning for the next nodes. Boreholes are snapped to the nearest nodes and frozen across all realizations. At the end each realization is back-transformed to the original units. The normal-score variogram is fitted automatically with a sill close to one.
 
-Clipping by a mask is the same as in 1.02 and is applied to every realisation. On a large ensemble this takes noticeable time, and if it gets in the way, clip the stack separately after the run.
+Clipping by a mask is the same as in 1.01 and is applied to every realisation. On a large ensemble this takes noticeable time, and if it gets in the way, clip the stack separately after the run.
 
 ### Parameters
 
@@ -2579,7 +2579,7 @@ Clipping by a mask is the same as in 1.02 and is applied to every realisation. O
 
 The outputs are ensemble rasters. **Mean (E-type)** resembles kriging. **Standard deviation** shows the uncertainty, small at the boreholes and large away from them. The **P10**, **P50**, **P90** quantiles outline the likely range, and **Exceedance probability** for a given threshold offers a non-parametric alternative to the map from the probability tool. Runtime grows with grid size and the number of realizations, so start with a coarse cell.
 
-If the data are clustered unevenly, supply the **wt** weight field from tool **1.01 Declustering**. The normal-score transform then builds the distribution with weights, and the ensemble histogram is not skewed toward over-sampled rich areas.
+If the data are clustered unevenly, supply the **wt** weight field from tool **1.05 Declustering**. The normal-score transform then builds the distribution with weights, and the ensemble histogram is not skewed toward over-sampled rich areas.
 
 ## Kriging kinds: which one to pick
 
@@ -3366,7 +3366,7 @@ The method follows Allmendinger. The normal to the plane is the eigenvector of t
 
 ## 4.13 Bed grades at the collars
 
-Reduces the assay samples to a single number per hole and puts it into the point of the collar. This is the input for kriging, and from there the grade map is built by 1.02, like any other map, with no interpolation of its own needed here.
+Reduces the assay samples to a single number per hole and puts it into the point of the collar. This is the input for kriging, and from there the grade map is built by 1.01, like any other map, with no interpolation of its own needed here.
 
 The tool closes the chain from the database to the map. The samples come out of the database as the `chem` table, and the section is coloured by them in 4.02. Here the same samples turn into points from which the areal distribution is computed.
 
@@ -4011,7 +4011,7 @@ Write the files into a folder, feed them one by one into **8.01 Read LandXML** a
 
 The group computes deformations of the ground surface from the subsidence of benchmarks. The formulas are taken from the "Instructions on protecting mines from flooding and protecting undermined objects at the Verkhnekamskoye deposit" (Mining Institute, Ural Branch of the Russian Academy of Sciences), section 4. The sixth edition for Uralkali and the 2024 Instructions of the Talitsky mining complex agree in this part.
 
-Subsidence is taken as the elevation difference at a benchmark over the chosen period, not by subtracting two grids. The difference at a benchmark is exact, while each grid carries its own interpolation error, and subtraction adds them up. Besides, the set of benchmarks changes from cycle to cycle. So the subsidence at the benchmarks comes first, a grid is built from it (**1.02**, **1.03** or **1.12**), and the group works on that grid.
+Subsidence is taken as the elevation difference at a benchmark over the chosen period, not by subtracting two grids. The difference at a benchmark is exact, while each grid carries its own interpolation error, and subtraction adds them up. Besides, the set of benchmarks changes from cycle to cycle. So the subsidence at the benchmarks comes first, a grid is built from it (**1.01**, **1.02** or **1.03**), and the group works on that grid.
 
 The units are those of the observation database. Tilt and horizontal strain go in mm/m, curvature in 10⁻⁶ 1/m. The radius of curvature in kilometres equals 1000 divided by the curvature in 10⁻⁶ 1/m.
 
@@ -4129,7 +4129,7 @@ Build the example and feed the raster into **9.01**, and the demo benchmarks int
 
 You need no data of your own. In every scenario the first step creates or downloads the data itself, so the route can be walked on an empty project.
 
-The tool list is long, and that is daunting at first sight. Start with five - **1.02**, **1.04**, **2.03**, **2.13** and **4.01**. The rest will find you when a task calls for it.
+The tool list is long, and that is daunting at first sight. Start with five - **1.01**, **1.04**, **2.03**, **2.13** and **4.01**. The rest will find you when a task calls for it.
 
 After every step there is a line saying what should come out. If something else came out, that is the place to stop and look into it rather than to move on.
 
@@ -4139,11 +4139,11 @@ After every step there is a line saying what should come out. If something else 
 
 Five minutes. Boreholes, samples, measurements, any irregular network of observations.
 
-**Step 1.** **1.09 Example wells (demo)**
+**Step 1.** **1.10 Example wells (demo)**
 Minimum - nothing to set, defaults are fine. If you have points of your own, skip the step.
 *You get* - a point layer in the project.
 
-**Step 2.** **1.02 2D Kriging (points → raster)**
+**Step 2.** **1.01 2D Kriging (points → raster)**
 Minimum - **Points**, **Value field**, **Cell size**. The rest by default.
 *You get* - a raster and a layer of standard error. The error grows where the points are sparse, and that is the first thing to look at.
 
@@ -4151,7 +4151,7 @@ Minimum - **Points**, **Value field**, **Cell size**. The rest by default.
 Minimum - **Raster**, **Interval**, **Isoline style** = Structure / hypsometry. Choose the interval so that the lines are visible but do not merge into solid hatching.
 *You get* - isolines with labels and contour bands whose borders coincide with the lines.
 
-Further at will. **1.05** and **1.06** show whether the data hold anisotropy, and **1.08** rates the method by cross-validation.
+Further at will. **1.06** and **1.07** show whether the data hold anisotropy, and **1.09** rates the method by cross-validation.
 
 ---
 
@@ -4241,7 +4241,7 @@ Line layer **River network** (tool 2.06):
 
 Polygon layer **Basins** (2.07) carries **basin** (the basin number, integer) and **area_m2** (the area, m²). Point layer **Peaks** (2.09) carries **z** (the elevation, m) and **drop** (the drop over the window minimum, m). Base topography layers (2.02) carry **name** and **osm_id**, watercourses also **waterway**, water bodies **water**, peaks **ele** (elevation, m), cliffs **kind**. The demo relief (2.10) is a raster without fields.
 
-## Sample wells (demo) - tool 1.09
+## Sample wells (demo) - tool 1.10
 
 Point layer **Sample wells (demo)**:
 
@@ -4259,7 +4259,7 @@ Point layer **Sample wells (demo)**:
 
 Optional raster **Drift surface (demo)** - an external surface for external-drift kriging, nominal units.
 
-## Electrical-prospecting profiles - tool 1.10, electrical mode
+## Electrical-prospecting profiles - tool 1.11, electrical mode
 
 Point layer **Electrical-prospecting profiles (rho_k, SP, IP)**:
 
@@ -4274,7 +4274,7 @@ Point layer **Electrical-prospecting profiles (rho_k, SP, IP)**:
 | sp | double | self-potential SP, mV |
 | vp | double | induced polarisation IP, mV/V |
 
-## Subsidence profiles - tool 1.10, subsidence mode
+## Subsidence profiles - tool 1.11, subsidence mode
 
 Point layer **Subsidence profiles (trough, tours: N)**:
 
