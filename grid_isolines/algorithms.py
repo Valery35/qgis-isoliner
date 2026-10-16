@@ -119,6 +119,7 @@ from . import volumes as _vol
 from . import topo_flow, topo_gauge, topo_surface, topo_t2r, topo_smooth
 from . import topo_break, demo_pit, topo_form, topo_snapz, attitude, stack_check, demo_stack
 from . import variogram_table
+from . import topo_bridge  # снятие мостов с ЦМР, без QGIS
 from . import subsidence  # деформации по оседаниям, без QGIS
 from . import palette_lfc  # чтение палитры Leapfrog, без QGIS
 from . import plast_reference  # справочник пластов, без QGIS
@@ -25724,6 +25725,191 @@ class DownhillTraceAlgorithm(IsolinerAlgorithm):
 
 
 
+class BridgeRemovalAlgorithm(IsolinerAlgorithm):
+    """2.24 Снятие мостов с ЦМР."""
+
+    INPUT = "INPUT"
+    BRIDGES = "BRIDGES"
+    WIDTH = "WIDTH"
+    MARGIN = "MARGIN"
+    OUTPUT = "OUTPUT"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return BridgeRemovalAlgorithm()
+    def name(self): return "bridge_removal"
+    def displayName(self):
+        return self.tr("2.24 Снятие мостов с ЦМР")
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP_TOPO)
+    def groupId(self): return GROUP_TOPO_ID
+
+    def shortHelpString(self):
+        return _help_version(_trh(
+            "Убирает мосты с ЦМР и ставит на их место поверхность реки. "
+            "Спутниковая модель поверхности снимает высоту по верху настила, и мост "
+            "ложится поперёк реки плотиной. Сток по такой модели упирается в насыпь, "
+            "выше моста разливается ложное озеро, а речная сеть рвётся.\n\nМост "
+            "задаётся контуром настила или осью. Ось расширяется до полосы шириной "
+            "**Ширина моста для осей**. Ячейки под мостом пересчитываются по ячейкам "
+            "вокруг него, по пролётам. Из каждой ячейки берётся линейная интерполяция "
+            "между ближайшими ячейками окружения по строке, столбцу и двум "
+            "диагоналям. Из направлений с самыми короткими пролётами берётся самое "
+            "низкое значение. Под настилом пролёт с воды выше по течению на воду ниже "
+            "даёт уровень воды, а пролёт, задевший берег, даёт выше, поэтому "
+            "поверхность встаёт на уровень воды, даже когда река идёт наискось к "
+            "сетке. У опор все короткие пролёты идут по берегу, и поверхность "
+            "выходит на берег.\n\nПоверхность только опускается. Ячейка, "
+            "которая и так ниже интерполяции, остаётся как была. Ячейки за контуром "
+            "не меняются.\n\n**Запас вокруг моста** расширяет контур на заданное "
+            "количество ячеек. Край настила в модели поверхности размыт на ячейку, и "
+            "без запаса окружение возьмёт отметку со склона настила, а не с воды. "
+            "На ЦМР с ячейкой 30 м мост занимает одну-две ячейки, и запас в одну "
+            "ячейку обычно нужен. Насыпи подходов искажают рельеф не меньше пролёта, "
+            "их обводят вместе с мостом.\n\nВ журнал пишется по каждому мосту, "
+            "сколько ячеек пересчитано, насколько опущена поверхность и какие "
+            "отметки у окружения. Мост, под которым ничего не опустилось, "
+            "отмечается предупреждением, обычно это контур не на своём месте. "
+            "Заполнение понижений инструмент не делает, это следующий шаг, **2.04 "
+            "Подготовка рельефа**.\n\nВыход: GeoTIFF float32, слой в группе "
+            "Топография.")
+            + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.INPUT, self.tr("Входная ЦМР")))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.BRIDGES, self.tr("Мосты: контуры настила или оси"),
+            [QgsProcessing.SourceType.TypeVectorPolygon,
+             QgsProcessing.SourceType.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.WIDTH, self.tr("Ширина моста для осей, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.WIDTH, 20.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.MARGIN, self.tr("Запас вокруг моста, ячеек"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.MARGIN, 1), minValue=0, maxValue=10))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("ЦМР без мостов")))
+        _restore_layer_defaults(self, (self.INPUT, self.BRIDGES))
+
+    def _bridge_mask(self, src, crs, gt, shape, width, context):
+        """Маска мостов на сетке ЦМР: контуры как есть, оси полосой.
+
+        Растеризация с ALL_TOUCHED: настил уже ячейки, и без этого флага
+        узкий контур не накрыл бы ни одного центра ячейки."""
+        from osgeo import ogr
+        ny, nx = int(shape[0]), int(shape[1])
+        tr = None
+        if crs is not None and src.sourceCrs() != crs:
+            tr = QgsCoordinateTransform(src.sourceCrs(), crs,
+                                        context.transformContext())
+        drv = ogr.GetDriverByName("Memory")
+        ds = drv.CreateDataSource("bridges")
+        lyr = ds.CreateLayer("bridges", None, ogr.wkbUnknown)
+        n_poly = n_line = 0
+        for ft in src.getFeatures():
+            g = QgsGeometry(ft.geometry())
+            if g is None or g.isEmpty():
+                continue
+            if tr is not None:
+                try:
+                    g.transform(tr)
+                except Exception:  # nosec - объект вне охвата СК
+                    continue
+            kind = QgsWkbTypes.geometryType(g.wkbType())
+            if kind == QgsWkbTypes.GeometryType.LineGeometry:
+                if width <= 0:
+                    continue
+                g = g.buffer(width / 2.0, 8)
+                n_line += 1
+            elif kind == QgsWkbTypes.GeometryType.PolygonGeometry:
+                n_poly += 1
+            else:
+                continue
+            if g is None or g.isEmpty():
+                continue
+            f = ogr.Feature(lyr.GetLayerDefn())
+            f.SetGeometry(ogr.CreateGeometryFromWkt(g.asWkt()))
+            lyr.CreateFeature(f)
+            f = None
+        mem = gdal.GetDriverByName("MEM").Create("", nx, ny, 1,
+                                                 gdal.GDT_Byte)
+        mem.SetGeoTransform(gt)
+        mem.GetRasterBand(1).Fill(0)
+        gdal.RasterizeLayer(mem, [1], lyr, burn_values=[1],
+                            options=["ALL_TOUCHED=TRUE"])
+        out = mem.GetRasterBand(1).ReadAsArray().astype(bool)
+        mem = None
+        ds = None
+        return out, n_poly, n_line
+
+    def _process(self, parameters, context, feedback):
+        _saved = dict(parameters)
+        _remember_layers(self, parameters, context, _saved,
+                         single=(self.INPUT, self.BRIDGES))
+        layer = self.parameterAsRasterLayer(parameters, self.INPUT, context)
+        bridges = self.parameterAsSource(parameters, self.BRIDGES, context)
+        if bridges is None:
+            raise QgsProcessingException(self.tr("Нужен слой мостов."))
+        width = self.parameterAsDouble(parameters, self.WIDTH, context)
+        margin = self.parameterAsInt(parameters, self.MARGIN, context)
+        out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT,
+                                               context)
+
+        z, nod, gt, proj, cell = _topo_read_dem(layer, self.tr)
+        mask, n_poly, n_line = self._bridge_mask(
+            bridges, layer.crs(), gt, z.shape, width, context)
+        feedback.pushInfo(self.tr("Контуров: %d, осей: %d.")
+                          % (n_poly, n_line))
+        if n_line and width <= 0:
+            feedback.pushWarning(self.tr(
+                "Ширина моста для осей нулевая, оси пропущены."))
+        if not mask.any():
+            raise QgsProcessingException(self.tr(
+                "Ни один мост не лёг на ЦМР. Проверьте охват ЦМР и систему "
+                "координат слоя мостов."))
+        if margin > 0:
+            mask = topo_bridge.dilate(mask, margin)
+        out, reports = topo_bridge.remove_bridges(z, nod, mask)
+
+        n_ok = n_flat = 0
+        for k, rep in enumerate(reports, 1):
+            x, y = _topo_cell_xy(gt, int(round(rep["row"])),
+                                 int(round(rep["col"])))
+            if rep["status"] != "ok":
+                feedback.pushWarning(self.tr(
+                    "Мост %d у %.1f, %.1f: вокруг нет ячеек с отметкой, "
+                    "оставлен как был.") % (k, x, y))
+                continue
+            n_ok += 1
+            feedback.pushInfo(self.tr(
+                "Мост %d у %.1f, %.1f: ячеек %d, опущено до %.2f м (в "
+                "среднем %.2f м), окружение от %.2f до %.2f м.")
+                % (k, x, y, rep["cells"], rep["lowered_max"],
+                   rep["lowered_mean"], rep["edge_min"], rep["edge_max"]))
+            if rep["lowered_max"] <= 0.0:
+                n_flat += 1
+                feedback.pushWarning(self.tr(
+                    "Под мостом %d ничего не опустилось. Скорее всего, контур "
+                    "лёг не на мост.") % k)
+            if rep["orphans"]:
+                feedback.pushWarning(self.tr(
+                    "У моста %d ячеек без пролёта: %d, они оставлены как "
+                    "были.") % (k, rep["orphans"]))
+        feedback.pushInfo(self.tr("Мостов снято: %d из %d.")
+                          % (n_ok - n_flat, len(reports)))
+
+        nodata = -9999.0
+        res = np.where(nod, nodata, out).astype(np.float32)
+        _topo_write_raster(out_path, res, gt, proj, gdal.GDT_Float32,
+                           nodata)
+        _topo_group_layer(context, out_path, self.tr("Топография"))
+        _save_values(self, _saved)
+        return {self.OUTPUT: out_path}
+
+
 class LandXmlReadAlgorithm(IsolinerAlgorithm):
     """8.01 Принять LandXML: точки, линии, поверхность, трасса, створы."""
 
@@ -27618,6 +27804,7 @@ ALGORITHMS = [
     BreaklinePairsAlgorithm,
     SnapElevationsAlgorithm,
     DownhillTraceAlgorithm,
+    BridgeRemovalAlgorithm,
     TopoDemoPitAlgorithm,
     SlopeAspectAlgorithm,
     GaugeReportAlgorithm,

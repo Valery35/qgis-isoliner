@@ -60,6 +60,7 @@ interpolation, then Isoliner3D on the display.
 - **2.21 Example open pit (demo)** - a pit with benches, a ramp, a dump and a ditch plus the true structural lines as a reference.
 - **2.22 Profiling of slopes** — elevations for structural lines from the contours they adjoin: an input for mute crests and toes without a DEM.
 - **2.23 Flow lines from points, lines and outlines** — where the water will run from a given place: downhill along D8 from every starting cell, stopping at a water body, at a watercourse by the accumulation threshold, at the edge of the sheet or at a merge with a trace already walked. It answers where the water from a dump or a site will go.
+- **2.24 Remove bridges from a DEM** — removes the bridges a surface model lays across a river like a dam. The river surface, interpolated from the water upstream and downstream, settles under the deck. A bridge is given by an outline or by an axis with a width.
 
 ### "3. Additional analysis tools" group
 
@@ -335,6 +336,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.38** — a new tool, 2.24 Remove bridges from a DEM.
 - **5.13.37** — the 1.04 isolines no longer cross where they run closer than the thinning tolerance.
 - **5.13.36** — a new order of group 1: kriging, minimum curvature and MBA in a row, declustering right before the variogram.
 - **5.13.35** — a third terrain source in 2.01: Mapzen Terrain Tiles (SRTM, ArcticDEM and national DEMs).

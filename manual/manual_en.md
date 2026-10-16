@@ -88,6 +88,7 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `2.21` Example open pit (demo)
 - `2.22` Profiling of slopes
 - `2.23` Flow lines from points, lines and outlines
+- `2.24` Remove bridges from a DEM
 
 **2. Topography: diagnostics and repair**
 
@@ -159,7 +160,7 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `9.02` Horizontal strain
 - `9.03` Example subsidence trough (demo)
 
-_Tools in total: 77_
+_Tools in total: 78_
 <!-- /TREE -->
 
 # Quick start
@@ -2303,6 +2304,30 @@ the point of the merge.
 Output fields. `src_id` is the number of the source object, `cells` the number of cells, `length_m` the length of the path. `drop_m` is the fall, `slope` the mean slope, `z_start` and `z_end` the elevations of the ends, `reason` the reason for stopping.
 
 A D8 trace runs along eight directions and therefore looks like a series of steps at 45 degrees. That is a property of the method rather than an error, and smoothing rounds the polyline for the drawing while elevations do not change. A downhill trace shows the path by the topology of the terrain and accounts for neither infiltration nor backwater nor pipes.
+
+## 2.24 Remove bridges from a DEM
+
+Removes bridges from a DEM and puts the river surface in their place. A satellite surface model takes the height from the top of the deck, so a bridge lies across the river like a dam. Flow over such a model stops at the embankment, a false lake spreads upstream of the bridge, and the river network from 2.06 breaks at the crossing.
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Terrain in metres in a metric coordinate system. | - |
+| Bridges: deck outlines or axes | Polygons along the deck or lines along the bridge axis. Both may share one layer. | - |
+| Bridge width for axes, m | The width an axis is widened to. Does not affect outlines. | 20 |
+| Margin around the bridge, cells | By how many cells a bridge is widened before recomputing. | 1 |
+| DEM without bridges | Output float32 raster, a layer in the Topography group. | - |
+
+**How the surface is recomputed.** The cells under a bridge are recomputed from the cells around it, by spans. Each cell takes a linear interpolation between the nearest surrounding cells along the row, the column and the two diagonals. Among the directions with the shortest spans the lowest value is chosen. A bridge is narrow along the river and long along the road, so the short spans of a cell under the deck run across the road. A span from the water upstream to the water downstream gives the water level with the same fall as the river, and a span that touches a bank gives a higher one. The low one is taken, and the surface settles at the water level. If the river runs at an angle to the grid, the shortest span may hit the valley side. Then a span up to twice as long is also considered, but only if both of its ends stand at the bottom of the surroundings, that is on the water. This finds the channel without cutting into the valley side. At the abutments all short spans run along the bank, and there the surface meets the bank.
+
+The surface is only lowered. A cell that is already below the interpolation, such as water seen between spans, stays as it was. Cells outside the bridge outline do not change.
+
+**Margin.** The edge of the deck is blurred over a cell in a surface model. Without a margin a cell on the slope of the deck becomes the surroundings, and the water under the bridge settles higher than the real one. On a DEM with a 30 m cell a bridge covers one or two cells, and a margin of one cell is usually needed. Approach embankments distort the terrain as much as the span itself, and they are outlined together with the bridge.
+
+**How to outline.** The outline follows the deck from bank to bank, as a narrow strip across the river. There is no need to outline a bridge with a wide square: the wider the patch along the river, the longer the span from water to water and the more of the nearby banks gets into the surface under the bridge. If bridges already exist as lines, for example from OpenStreetMap, they are given as axes with a width.
+
+**Log.** For each bridge the log reports how many cells were recomputed, how far the surface was lowered and the heights of the surroundings. A bridge under which nothing was lowered gets a warning, usually the outline is not where it belongs.
+
+The tool does not fill depressions. For flow calculations the corrected DEM goes into **2.04 Terrain preparation**, then into 2.05 and 2.06. The easiest check is the river network: it no longer breaks at the crossing.
 
 # 3. Additional analysis tools
 
