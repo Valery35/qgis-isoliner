@@ -336,6 +336,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.39** — the plugin is now named simply Isoliner.
 - **5.13.38** — a new tool, 2.24 Remove bridges from a DEM.
 - **5.13.37** — the 1.04 isolines no longer cross where they run closer than the thinning tolerance.
 - **5.13.36** — a new order of group 1: kriging, minimum curvature and MBA in a row, declustering right before the variogram.

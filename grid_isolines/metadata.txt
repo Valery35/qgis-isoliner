@@ -1,12 +1,12 @@
 [general]
-name=Isoliner - грид и изолинии
+name=Isoliner
 qgisMinimumVersion=3.16
 qgisMaximumVersion=4.99
 description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in QGIS. Кригинг 2D (GSLIB KB2D) и построение изолиний/контурных полигонов в QGIS.
 about=A Processing toolset for point-data interpolation and isolines. It holds 2D kriging (points to raster, GSLIB KB2D core), the experimental variogram with model fitting and leave-one-out cross-validation. Next come optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled. The interface language and the help language can be chosen separately and by default follow QGIS. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний. В набор входят 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели и кросс-валидация (leave-one-out). Дальше идут необязательное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте. Язык интерфейса и язык справки выбираются отдельно и по умолчанию идут за QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.13.38
+version=5.13.39
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,10 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.13.38
+changelog=5.13.39
+    - Модуль называется просто Isoliner, как соседние Isoliner3D и
+      Topoliner. Обновляется как обычно, всё остальное прежнее.
+    5.13.38
     - Новый инструмент 2.24 Снятие мостов с ЦМР. Мост в модели
       поверхности ложится поперёк реки плотиной, и сток упирается в него.
       Инструмент ставит под настил поверхность реки по воде выше и ниже
@@ -79,7 +82,3 @@ changelog=5.13.38
       размеров)», «Цель перебора», «Сколько размеров перебрать».
     - В руководстве к 1.01 сказано, какие инструменты принимают поле весов
       wt и куда идёт декластеризованное среднее.
-    5.13.29
-    - Группа 9 названа «Сдвижения», как говорят маркшейдеры. Заголовок
-      группы в панели Обработки, группа слоёв в проекте, руководство и
-      README приведены к этому имени.
