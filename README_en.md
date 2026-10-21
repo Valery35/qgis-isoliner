@@ -72,6 +72,7 @@ interpolation, then Isoliner3D on the display.
 - **3.06 Gaussian simulation (SGS)** — an ensemble of equally probable realizations: E-type, standard deviation, P10/P50/P90 quantiles, exceedance probability.
 - **3.07 Density from measurements (variable support)** — a measurement is spread over its support (point+sigma, line corridor, polygon mask) with mass preserved, dasymetric refinement, effective sigma.
 - **3.08 Example for density (demo)** — points, lines and polygons with a round total mass to verify the invariant.
+- **3.09 Example for 3.01 and 3.02 (demo)** — a bed block with known true roof and replacement zones, so the error of indicator kriging and kriging with drift can be counted.
 
 ### "4. Cross-sections" group
 
@@ -336,6 +337,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.40** — new demo tool 3.09 for 3.01 and 3.02, and 3.01 no longer shrinks narrow replacement zones when no weight field is given.
 - **5.13.39** — the plugin is now named simply Isoliner.
 - **5.13.38** — a new tool, 2.24 Remove bridges from a DEM.
 - **5.13.37** — the 1.04 isolines no longer cross where they run closer than the thinning tolerance.

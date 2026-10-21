@@ -107,6 +107,7 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `3.06` Gaussian simulation (SGS)
 - `3.07` Density from measurements (variable support)
 - `3.08` Example for density (demo)
+- `3.09` Example for 3.01 and 3.02 (demo)
 
 **4. Cross-sections**
 
@@ -160,7 +161,7 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `9.02` Horizontal strain
 - `9.03` Example subsidence trough (demo)
 
-_Tools in total: 78_
+_Tools in total: 79_
 <!-- /TREE -->
 
 # Quick start
@@ -2387,7 +2388,9 @@ The categorical approach is convenient because it needs no boundary drawn in adv
 
 To learn the tool without real data, switch on **Add a categorical mineral-type field** in **Example wells (demo)**. A mintype field is added to the layer with a silvinite background and replacement spots after a mine, ready to run the tool on.
 
-With an uneven network you can set the optional **wt** weight field from tool **1.05 Declustering**. Each class indicator is then kriged toward its declustered proportion rather than zero, so far from the data the probability tends to the representative class proportion. Without weights the behaviour is unchanged.
+Each class indicator is kriged toward the proportion of that class in the wells, so far from the data the probability tends to that proportion rather than to zero. This matters for narrow elongated replacement zones, whose variogram range is often shorter than the well spacing. Before 5.13.40 the indicator was kriged toward zero when no weights were given, such a class vanished between wells, and replacement zones came out two to three times smaller than they are.
+
+With an uneven network set the optional **wt** weight field from tool **1.05 Declustering**. The class proportion is then weighted, and far from the data the probability tends to the representative proportion rather than to the proportion in the cluster.
 
 
 ### Vector boundaries from the probabilities
@@ -2724,6 +2727,25 @@ Run 3.07 on the point layer, and the density integral in the log should give 500
 | Auxiliary raster | Raster for dasymetry. | - |
 
 The full list of output-layer fields is in the **Density (demo)** appendix section ("Demo-layer fields" at the end of the manual).
+
+## 3.09 Example for 3.01 and 3.02 (demo)
+
+The tool creates a synthetic potash bed block whose true fields are known in advance. The error of **3.01** and **3.02** need not be judged by eye here, it can be counted by subtracting the true field from the result.
+
+The demo outputs five layers. The wells carry the fields **well**, **roof** (bed roof elevation, m) and **mintype** (sylvinite, partial replacement, full replacement). The network is uneven, with a denser patch like a mined panel. The marker horizon raster is known everywhere and serves as the drift for **3.02**. The true roof lies 25 m below the horizon and departs from it by local deviations of about a metre. The true replacement zones come as polygons. The zones are elongated, and full replacement lies inside partial replacement. The last layer is the outline of the gap in the network. There are no wells in the gap, and a fold of the horizon about 9 m high lies beneath it.
+
+Show it in this order. Build **1.01** on the **roof** field and **3.02** with the marker horizon as the drift, with the same cell and extent. Ordinary kriging smooths the fold away in the gap, kriging with drift reproduces it. On a 6 × 4 km extent with seed 1 and a 30 m cell, the RMS roof error inside the gap is about 2.3 m for **1.01** and about 0.6 m for **3.02**. Then build **3.01** on the **mintype** field and compare the zone map with the true zones, and the confidence raster with the places of error. Errors gather at zone boundaries and where confidence is low.
+
+The grid of the true fields is built like the grids of groups 1 and 3, from the lower left corner of the extent. With the same cell and extent in **1.01**, **3.01** and **3.02**, the results fall on the true fields cell for cell, and the difference is taken with the raster calculator.
+
+| Parameter | Purpose | Default |
+|---|---|---|
+| Extent | Block bounds, in a metric coordinate system. | - |
+| Number of wells | How many wells to place before the gap is cut out. | 80 |
+| Leave a gap in the well network | Remove the wells above the horizon fold. | yes |
+| RNG seed (Adv.) | Example reproducibility, 0 gives a random set. | 1 |
+
+The tool does not accept an extent in degrees, the project must be in a metric coordinate system such as UTM.
 
 # 4. Cross-sections
 

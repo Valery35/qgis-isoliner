@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines. It holds 2D kriging (points to raster, GSLIB KB2D core), the experimental variogram with model fitting and leave-one-out cross-validation. Next come optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled. The interface language and the help language can be chosen separately and by default follow QGIS. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний. В набор входят 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели и кросс-валидация (leave-one-out). Дальше идут необязательное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте. Язык интерфейса и язык справки выбираются отдельно и по умолчанию идут за QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.13.39
+version=5.13.40
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,14 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.13.39
+changelog=5.13.40
+    - Новый инструмент 3.09 Пример для 3.01 и 3.02 (демо): участок
+      пласта с известными истинной кровлей и зонами замещения. Ошибку
+      индикаторного кригинга и кригинга с дрейфом можно посчитать.
+    - 3.01: без поля весов узкие зоны замещения больше не пропадают
+      между скважинами. Индикатор кригуется к доле класса, а не к нулю.
+      Карты 3.01 без весов стоит пересчитать.
+    5.13.39
     - Модуль называется просто Isoliner, как соседние Isoliner3D и
       Topoliner. Обновляется как обычно, всё остальное прежнее.
     5.13.38
@@ -74,11 +81,3 @@ changelog=5.13.39
       голые имена.
     - 1.09 отдаёт слой разлома, а 4.10 справочник пластов в списке
       результатов, и в модели их можно подать дальше.
-    5.13.30
-    - 9.03 Пример мульды (демо) выдаёт скорости оседания: второй растр в
-      мм/год и поля eta_prev_mm и rate_mm_y у реперов. Задаются срок между
-      турами и доля оседания, которая была в предыдущем туре.
-    - В декластеризации 1.01 вместо «свипа» перебор размеров: «Авто (перебор
-      размеров)», «Цель перебора», «Сколько размеров перебрать».
-    - В руководстве к 1.01 сказано, какие инструменты принимают поле весов
-      wt и куда идёт декластеризованное среднее.

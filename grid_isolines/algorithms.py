@@ -7258,6 +7258,205 @@ class DensityDemoAlgorithm(IsolinerAlgorithm):
                 self.OUT_POLYGONS: gdest, self.OUT_AUX: aux_path}
 
 
+class IndicatorDriftDemoAlgorithm(IsolinerAlgorithm):
+    """3.09 Демо-набор к 3.01 и 3.02 с известными истинными полями."""
+    EXTENT, N_WELLS, GAP, SEED = "EXTENT", "N_WELLS", "GAP", "SEED"
+    OUT_WELLS, OUT_MARKER = "OUT_WELLS", "OUT_MARKER"
+    OUT_ROOF, OUT_ZONES, OUT_GAP = "OUT_ROOF", "OUT_ZONES", "OUT_GAP"
+
+    # Псевдонимы полей выходных слоёв, по языку интерфейса (см.
+    # _attach_field_labels). Имена полей остаются прежними.
+    FIELD_LABELS = {
+        "well": "Скважина",
+        "roof": "Отметка кровли, м",
+        "mintype": "Минеральный тип",
+        "name": "Название",
+    }
+
+    def tr(self, s): return _tr(s)
+    def helpUrl(self): return _help_url()
+    def name(self): return "ikedkdemo"
+    def displayName(self):
+        return self.tr("3.09 Пример для 3.01 и 3.02 (демо)")
+    def group(self): return self.tr(GROUP2)
+    def groupId(self): return GROUP2_ID
+    def createInstance(self): return IndicatorDriftDemoAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(_trh(
+            "Синтетический участок калийного пласта для показа 3.01 и 3.02. Истинные "
+            "поля известны заранее, поэтому ошибку каждого метода видно прямо на "
+            "карте.\n\nСкважины несут отметку кровли пласта roof и минеральный тип "
+            "mintype: сильвинит, частичное или полное замещение. Маркирующий горизонт "
+            "дан растром, известным всюду, как его дают сейсмика или плотная старая "
+            "сеть. Кровля повторяет его на расстоянии около 25 м плюс местные "
+            "отклонения около метра. Рядом выходят истинная кровля растром и "
+            "истинные зоны замещения полигонами.\n\n**Оставить разрыв в сети "
+            "скважин** убирает скважины над складкой маркирующего горизонта. Контур "
+            "разрыва выходит отдельным слоем.\n\nПорядок показа. Кровля по roof "
+            "инструментом 1.01, затем 3.02 с маркирующим горизонтом как дрейфом. Обе "
+            "оценки сравниваются с истинной кровлей, особенно в разрыве. Затем 3.01 "
+            "по mintype, и карта зон сравнивается с истинными зонами.")
+            + _seed_help())
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Область (экстент)")))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.N_WELLS, self.tr("Количество скважин"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=80,
+            minValue=20, maxValue=2000))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.GAP, self.tr("Оставить разрыв в сети скважин"),
+            defaultValue=True))
+        p = QgsProcessingParameterNumber(
+            self.SEED, self.tr("Зерно ГСЧ (0 = случайно)"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=1, minValue=0)
+        _advanced(p); self.addParameter(p)
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUT_WELLS, self.tr("Скважины (демо 3.09)"),
+            QgsProcessing.SourceType.TypeVectorPoint))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_MARKER, self.tr("Маркирующий горизонт (дрейф)")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUT_ROOF, self.tr("Истинная кровля")))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUT_ZONES, self.tr("Истинные зоны замещения"),
+            QgsProcessing.SourceType.TypeVectorPolygon))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUT_GAP, self.tr("Разрыв сети скважин"),
+            QgsProcessing.SourceType.TypeVectorPolygon))
+
+    @staticmethod
+    def _write_grid(path, arr, gt, wkt, dtype=None, nodata=None):
+        # тип по умолчанию берётся при вызове: значение в объявлении
+        # вычислялось бы при импорте, а тесты без QGIS подменяют gdal
+        if dtype is None:
+            dtype = gdal.GDT_Float32
+        drv = gdal.GetDriverByName("GTiff")
+        ds = drv.Create(path, arr.shape[1], arr.shape[0], 1, dtype,
+                        options=["COMPRESS=DEFLATE", "TILED=YES"])
+        ds.SetGeoTransform(gt)
+        if wkt:
+            ds.SetProjection(wkt)
+        band = ds.GetRasterBand(1)
+        if nodata is not None:
+            band.SetNoDataValue(nodata)
+        band.WriteArray(arr)
+        band.FlushCache()
+        ds = None
+
+    def _process(self, parameters, context, feedback):
+        from . import demo_ikedk as DM
+        from osgeo import ogr
+        feedback.pushInfo(_version_line())
+        crs = self.parameterAsExtentCrs(parameters, self.EXTENT, context)
+        rect = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        if rect.isEmpty():
+            raise QgsProcessingException(self.tr("Не задан охват."))
+        if crs is not None and crs.isValid() and crs.isGeographic():
+            raise QgsProcessingException(self.tr(
+                "Охват задан в градусах. Нужна метрическая система координат, "
+                "отметки и расстояния считаются в метрах."))
+        n = self.parameterAsInt(parameters, self.N_WELLS, context)
+        gap = self.parameterAsBoolean(parameters, self.GAP, context)
+        seed = self.parameterAsInt(parameters, self.SEED, context)
+        ds = DM.make_dataset(rect.xMinimum(), rect.yMinimum(),
+                             rect.xMaximum(), rect.yMaximum(),
+                             n_wells=n, gap=gap, seed=seed)
+        wkt = None
+        if crs is not None and crs.isValid():
+            srs = osr.SpatialReference()
+            srs.ImportFromWkt(crs.toWkt())
+            wkt = srs.ExportToWkt()
+        names = [self.tr(c) for c in DM.CLASSES]
+
+        wf = QgsFields()
+        wf.append(QgsField("well", QVariant.String))
+        wf.append(QgsField("roof", QVariant.Double))
+        wf.append(QgsField("mintype", QVariant.String))
+        wsink, wdest = self.parameterAsSink(
+            parameters, self.OUT_WELLS, context, wf, QgsWkbTypes.Type.Point, crs)
+        for x, y, nm, roof, code in ds["wells"]:
+            f = QgsFeature(wf)
+            f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
+            f.setAttributes([nm, float(roof), names[code]])
+            wsink.addFeature(f)
+
+        marker_path = self.parameterAsOutputLayer(parameters, self.OUT_MARKER,
+                                                  context)
+        self._write_grid(marker_path, ds["marker"].astype(np.float32),
+                         ds["gt"], wkt)
+        roof_path = self.parameterAsOutputLayer(parameters, self.OUT_ROOF,
+                                                context)
+        self._write_grid(roof_path, ds["roof"].astype(np.float32),
+                         ds["gt"], wkt)
+
+        # истинные зоны: полигонизация кода класса
+        cls = ds["classes"].astype(np.int32)
+        mem = gdal.GetDriverByName("MEM").Create("", cls.shape[1],
+                                                 cls.shape[0], 1, gdal.GDT_Int32)
+        mem.SetGeoTransform(ds["gt"])
+        mem.GetRasterBand(1).WriteArray(cls)
+        ods = ogr.GetDriverByName("Memory").CreateDataSource("zones")
+        olyr = ods.CreateLayer("zones", None, ogr.wkbPolygon)
+        olyr.CreateField(ogr.FieldDefn("code", ogr.OFTInteger))
+        gdal.Polygonize(mem.GetRasterBand(1), None, olyr, 0, [], callback=None)
+        zf = QgsFields()
+        zf.append(QgsField("mintype", QVariant.String))
+        zsink, zdest = self.parameterAsSink(
+            parameters, self.OUT_ZONES, context, zf, QgsWkbTypes.Type.Polygon,
+            crs)
+        for of in olyr:
+            code = of.GetField("code")
+            if code is None or code == 0:
+                continue
+            g = QgsGeometry.fromWkt(of.GetGeometryRef().ExportToWkt())
+            f = QgsFeature(zf)
+            f.setGeometry(g)
+            f.setAttributes([names[int(code)]])
+            zsink.addFeature(f)
+        mem = None
+        ods = None
+
+        gf = QgsFields()
+        gf.append(QgsField("name", QVariant.String))
+        gsink, gdest = self.parameterAsSink(
+            parameters, self.OUT_GAP, context, gf, QgsWkbTypes.Type.Polygon, crs)
+        if ds["gap"] is not None:
+            ring = [QgsPointXY(x, y) for x, y in DM.ellipse_ring(*ds["gap"])]
+            f = QgsFeature(gf)
+            f.setGeometry(QgsGeometry.fromPolygonXY([ring]))
+            f.setAttributes([self.tr("Разрыв сети скважин")])
+            gsink.addFeature(f)
+
+        st = ds["stats"]
+        feedback.pushInfo(self.tr(
+            "Скважин: %d. Кровля от %.1f до %.1f м, связь кровли с маркирующим "
+            "горизонтом по скважинам r = %.3f.")
+            % (st["n_wells"], st["roof_min"], st["roof_max"], st["corr"]))
+        feedback.pushInfo(self.tr(
+            "Доли классов по площади: %s %.0f%%, %s %.0f%%, %s %.0f%%. В "
+            "скважинах: %d, %d, %d.")
+            % (names[0], 100 * st["shares"][0], names[1],
+               100 * st["shares"][1], names[2], 100 * st["shares"][2],
+               st["in_wells"][0], st["in_wells"][1], st["in_wells"][2]))
+        if gap:
+            feedback.pushInfo(self.tr(
+                "В разрыве сети лежит складка маркирующего горизонта высотой "
+                "около %.0f м. Обычный кригинг кровли её сгладит, кригинг с "
+                "дрейфом воспроизведёт.") % st["fold_amp"])
+        _set_output_name(context, wdest, self.tr("Скважины (демо 3.09)"))
+        _set_output_name(context, marker_path,
+                         self.tr("Маркирующий горизонт (дрейф)"))
+        _set_output_name(context, roof_path, self.tr("Истинная кровля"))
+        _set_output_name(context, zdest, self.tr("Истинные зоны замещения"))
+        _set_output_name(context, gdest, self.tr("Разрыв сети скважин"))
+        return {self.OUT_WELLS: wdest, self.OUT_MARKER: marker_path,
+                self.OUT_ROOF: roof_path, self.OUT_ZONES: zdest,
+                self.OUT_GAP: gdest}
+
+
 class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
     INPUT, ZFIELD, GROUP_FIELD = "INPUT", "ZFIELD", "GROUP_FIELD"
     WEIGHT_FIELD = "WEIGHT_FIELD"
@@ -27792,6 +27991,7 @@ ALGORITHMS = [
     SequentialGaussianSimAlgorithm,
     VariableSupportDensityAlgorithm,
     DensityDemoAlgorithm,
+    IndicatorDriftDemoAlgorithm,
     DemDownloadAlgorithm,
     TopobaseDownloadAlgorithm,
     TopoFillDepressionsAlgorithm,
