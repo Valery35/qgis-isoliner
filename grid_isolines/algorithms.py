@@ -7355,9 +7355,26 @@ class IndicatorDriftDemoAlgorithm(IsolinerAlgorithm):
         if rect.isEmpty():
             raise QgsProcessingException(self.tr("Не задан охват."))
         if crs is not None and crs.isValid() and crs.isGeographic():
-            raise QgsProcessingException(self.tr(
-                "Охват задан в градусах. Нужна метрическая система координат, "
-                "отметки и расстояния считаются в метрах."))
+            # Охват в градусах (проект в WGS 84, как часто бывает на новом
+            # проекте). Демо строится в метрах, поэтому охват переводится в
+            # зону UTM по его центру, и все пять слоёв выходят в ней. QGIS
+            # перепроецирует их на лету, а 3.01 и 3.02 получают метры.
+            wgs = QgsCoordinateReferenceSystem("EPSG:4326")
+            c = rect.center()
+            if crs.authid() != "EPSG:4326":
+                c = QgsCoordinateTransform(
+                    crs, wgs, context.transformContext()).transform(c)
+            epsg = dem_glo30.utm_epsg_for(c.x(), c.y())
+            utm = QgsCoordinateReferenceSystem("EPSG:%d" % epsg)
+            rect = QgsCoordinateTransform(
+                crs, utm, context.transformContext()).transformBoundingBox(rect)
+            crs = utm
+            feedback.pushInfo(self.tr(
+                "Охват задан в градусах. Демо строится в метрах, в системе "
+                "UTM по центру охвата (EPSG:%d), участок %.1f × %.1f км. "
+                "Все слои выходят в этой системе, 3.01 и 3.02 на них "
+                "запускайте как есть.")
+                % (epsg, rect.width() / 1000.0, rect.height() / 1000.0))
         n = self.parameterAsInt(parameters, self.N_WELLS, context)
         gap = self.parameterAsBoolean(parameters, self.GAP, context)
         seed = self.parameterAsInt(parameters, self.SEED, context)

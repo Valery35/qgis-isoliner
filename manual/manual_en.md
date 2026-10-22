@@ -2740,12 +2740,12 @@ The grid of the true fields is built like the grids of groups 1 and 3, from the 
 
 | Parameter | Purpose | Default |
 |---|---|---|
-| Extent | Block bounds, in a metric coordinate system. | - |
+| Extent | Block bounds. In degrees the block is built in UTM. | - |
 | Number of wells | How many wells to place before the gap is cut out. | 80 |
 | Leave a gap in the well network | Remove the wells above the horizon fold. | yes |
 | RNG seed (Adv.) | Example reproducibility, 0 gives a random set. | 1 |
 
-The tool does not accept an extent in degrees, the project must be in a metric coordinate system such as UTM.
+If the extent is given in degrees, for example with the project in WGS 84, the demo is built in the UTM system at the extent centre, and all layers come out in it. The zone number and block size in kilometres go to the log. **3.01** and **3.02** run on these layers as they are.
 
 # 4. Cross-sections
 

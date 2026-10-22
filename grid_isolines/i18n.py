@@ -892,7 +892,7 @@ TRANSLATIONS = {
     'Истинные зоны замещения': 'True replacement zones',
     'Маркирующий горизонт (дрейф)': 'Marker horizon (drift)',
     'Оставить разрыв в сети скважин': 'Leave a gap in the well network',
-    'Охват задан в градусах. Нужна метрическая система координат, отметки и расстояния считаются в метрах.': 'The extent is in degrees. A metric coordinate system is needed, elevations and distances are in metres.',
+    'Охват задан в градусах. Демо строится в метрах, в системе UTM по центру охвата (EPSG:%d), участок %.1f × %.1f км. Все слои выходят в этой системе, 3.01 и 3.02 на них запускайте как есть.': 'The extent is in degrees. The demo is built in metres, in the UTM system at the extent centre (EPSG:%d), block %.1f × %.1f km. All layers come out in this system, run 3.01 and 3.02 on them as they are.',
     'Разрыв сети скважин': 'Gap in the well network',
     'Скважин: %d. Кровля от %.1f до %.1f м, связь кровли с маркирующим горизонтом по скважинам r = %.3f.': 'Wells: %d. Roof from %.1f to %.1f m, correlation of the roof with the marker horizon at the wells r = %.3f.',
     'Скважины (демо 3.09)': 'Wells (demo 3.09)',
