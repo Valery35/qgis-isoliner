@@ -343,9 +343,9 @@ displayName, поэтому ниже инструменты перечислен
   {ru,en}.md`, тем же скриптом в `site/isoliner_breaklines_cheatsheet_
   {ru,en}.pdf`. Одна страница A4.
 - Лендинг (`site/isoliner_landing.html`): карточки тематические (инструмент или связка), при новой группе добавлять карточки и обновлять метрику числа инструментов в герое и заголовке секции.
-- При бампе версии дописывать строку в changelog **обоих** README (`README.md`
-  RU и `README_en.md` EN), не только в `metadata.txt`. Разделитель в RU ` - `, в EN ` — `.
-- Структура репозитория: в корне `README.md`, `README_en.md`, `AGENTS.md`,
+- При бампе версии дописывать строку в changelog **обоих** README (`README_ru.md`
+  RU и `README.md` EN, английский главный на GitHub с 23.10.2026), не только в `metadata.txt`. Разделитель в RU ` - `, в EN ` — `.
+- Структура репозитория: в корне `README.md`, `README_ru.md`, `AGENTS.md`,
   папки `grid_isolines/` (плагин), `manual/` (исходник руководства),
   `site/` (лендинг `isoliner_landing.html`, в плагин не входит),
   `scripts/` (генератор ночных сборок) и `nightly/` (реестр модулей).
@@ -1412,7 +1412,7 @@ Z напрямую, без масштаба и смещения.
 
 - `metadata.txt` плагина,
 - `CHANGELOG.md`,
-- `README.md` и `README_en.md`,
+- `README.md` и `README_ru.md`,
 - версия ВНУТРИ каждого собранного архива
   (`unzip -p <архив> grid_isolines/metadata.txt | grep ^version=`).
 

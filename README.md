@@ -1,320 +1,324 @@
-# Isoliner - грид и изолинии (QGIS)
+# Isoliner — grids and isolines (QGIS)
 
-[English](README_en.md) · **Русский**
+**English** · [Русский](README_ru.md)
 
-[![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Страница плагина](https://img.shields.io/badge/%D0%A1%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0%20%D0%BF%D0%BB%D0%B0%D0%B3%D0%B8%D0%BD%D0%B0-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
+[![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
 
-Плагин-провайдер Processing для интерполяции точечных данных, построения
-изолиний и работы с рельефом. Инструменты разнесены по семи группам Processing - **«Грид и изолинии»**, **«Топография»**, **«Дополнительные инструменты анализа»**, **«Разрез»**, **«Геологическая модель»** (бета), **«Гидрология рек»** и **«Фрактальный анализ»**, всего шестьдесят восемь:
+A Processing-provider plugin for interpolating point data, building isolines and working with terrain.
+The tools are split into seven Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"**, **"Geological model"** (beta), **"River hydrology"** and **"Fractal analysis"** — sixty-eight in all:
 
-**Рядом работают два плагина того же набора.**
-[Isoliner3D](https://github.com/Valery35/qgis-isoliner3d) показывает
-поверхности, тела пластов и скважины в отдельной 3D-сцене и считает запасы
-по блочной модели. [Topoliner](https://github.com/Valery35/topoliner)
-приводит в порядок топологию полигональных и линейных слоёв: узлы,
-висячие концы, перехлёсты, упрощение с сохранением общих границ. Порядок
-обычный - сначала Topoliner на исходных контурах, потом Isoliner на
-интерполяции, потом Isoliner3D на показе.
+**Two companion plugins work alongside it.**
+[Isoliner3D](https://github.com/Valery35/qgis-isoliner3d) shows the
+surfaces, the bed bodies and the boreholes in a separate 3D scene and
+computes reserves over a block model.
+[Topoliner](https://github.com/Valery35/topoliner) puts the topology of
+polygon and line layers in order: nodes, dangles, overshoots, and
+simplification that keeps the shared boundaries. The usual order is
+Topoliner on the source outlines first, then Isoliner on the
+interpolation, then Isoliner3D on the display.
 
-> Isoliner развивается на задачах реальных предприятий. Нужна функция под ваше производство - напишите нам: [страница «Предприятиям»](https://www.informpp.ru/главная-страница/предприятиям).
+> Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
-**Нашли ошибку или есть предложение?** Откройте [Issue](https://github.com/Valery35/qgis-isoliner/issues) и укажите версию QGIS, что делали, и приложите данные или проект для воспроизведения - так баг легче повторить и быстрее исправить.
+**Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) with your QGIS version, what you were doing, and data or a project to reproduce — it makes the bug easier to repeat and faster to fix.
 
-### Группа «1. Грид и изолинии»
+### "1. Grid and isolines" group
 
-- **1.01 2D Kriging (точки → растр)** - ординарный/простой кригинг, точечный или блочный, со снятием тренда, стандартной ошибкой и отсевом ураганных проб. Ядро - GSLIB KB2D.
-- **1.02 Минимальная кривизна (точки → растр)** - детерминированная альтернатива кригингу без вариограммы: бигармония с натяжением, анизотропия. Часто для карт геофизических полей.
-- **1.03 MBA: мультисеточные B-сплайны (точки → растр)** - поверхность по разбросанным точкам без решения систем уравнений: миллион замеров за секунды. Тренд снимается плоскостью перед подгонкой. Ошибки оценки метод не даёт.
-- **1.04 Изолинии из растра** - изолинии (линии), контурные полигоны (пояса между изолиниями), границы которых совпадают с линиями, и тела поясов замкнутыми оболочками для объёмов и трёхмерной сцены.
-- **1.05 Декластеризация (веса)** - ячеистая декластеризация (GSLIB declus): веса обратно локальной плотности, представительное среднее для запасов и SK. Авто или ручной размер ячейки, HTML-отчёт.
-- **1.06 Вариограмма (экспериментальная)** - изотропная экспериментальная вариограмма с подбором модели (наггет, порог, радиус) и HTML-отчётом. Принимает веса из 1.05.
-- **1.07 Вариограммная карта (анизотропия)** - поверхность γ(h_x, h_y): анизотропия видна как эллипс. Оценивает азимут, коэффициент анизотропии и радиус для кригинга.
-- **1.08 Кросс-валидация вариограммы** - скользящий контроль (leave-one-out): подбор параметров кригинга по метрикам ME/RMSE/MSDR/R, а не на глаз.
-- **1.09 Кросс-валидация метода (LOO)** - сравнение методов (кригинг или минимальная кривизна) по образцу Surfer: случайная выборка, фильтры области, буфер исключения соседей, HTML-отчёт.
-- **1.10 Пример скважин (демо)** - учебный точечный слой: кровля, мощность, содержание, минтип, напор, поверхность дрейфа.
-- **1.11 Пример геофизических профилей (демо)** - два режима: электроразведка (ρк пятном-аномалией, ЕП, ВП) и оседания (мульда по турам).
-- **1.12 Врезка подробной поверхности в региональную** - подробная съёмка ложится в общую карту, расхождение по кромке снимается плавно или оставляется уступом.
+- **1.01 2D Kriging (points → raster)** — ordinary/simple kriging, point or block, with trend removal, the kriging standard error and outlier trimming. The core is GSLIB KB2D.
+- **1.02 Minimum curvature (points → raster)** — a deterministic alternative to kriging without a variogram: biharmonic with tension, anisotropy. Common for geophysical field maps.
+- **1.03 MBA: multilevel B-splines (points → raster)** — a surface over scattered points without solving systems of equations: a million measurements in seconds. A plane trend is removed before the fit. The method gives no error of the estimate.
+- **1.04 Isolines from raster** — isolines (lines), contour polygons (bands between isolines) whose boundaries coincide with the lines, and belt solids as closed shells for volumes and the 3D scene.
+- **1.05 Declustering (weights)** — cell declustering (GSLIB declus): weights inverse to local density, a representative mean for reserves and SK. Auto or manual cell size, HTML report.
+- **1.06 Variogram (experimental)** — an isotropic experimental variogram with model fitting (nugget, sill, range) and an HTML report. Accepts weights from 1.05.
+- **1.07 Variogram map (anisotropy)** — the γ(h_x, h_y) surface: anisotropy shows as an ellipse. Estimates the azimuth, the anisotropy ratio and the range for kriging.
+- **1.08 Variogram cross-validation** — leave-one-out control: tuning kriging parameters by the ME/RMSE/MSDR/R metrics rather than by eye.
+- **1.09 Method cross-validation (LOO)** — comparing methods (kriging or minimum curvature) Surfer-style: a random subset, area filters, a neighbor exclusion buffer, an HTML report.
+- **1.10 Example wells (demo)** — a training point layer: roof, thickness, grade, rock type, head, a drift surface.
+- **1.11 Example geophysical profiles (demo)** — two modes: resistivity survey (an apparent-resistivity anomaly spot, SP, IP) and subsidence (a trough by survey rounds).
+- **1.12 Graft a detailed surface into a regional one** — a detailed survey is laid into the common map, the mismatch along the edge is removed smoothly or kept as a step.
 
-### Группа «2. Топография»
+### "2. Topography" group
 
-- **2.01 Загрузка ЦМР по рамке** - три источника на выбор: Copernicus GLO-30 (DSM), GEDTM30 (DTM без леса, CC BY 4.0) и Mapzen Terrain Tiles (SRTM и ArcticDEM по России, национальные ЦМР за рубежом). Из открытого хранилища без регистрации, перепроецирование в метрическую СК, гидрокоррекция флажком.
-- **2.02 Загрузка топоосновы по рамке** - слои OpenStreetMap для работы с рельефом: водотоки (готовые тальвеги), водоёмы, вершины с отметками, обрывы и насыпи, береговая линия.
-- **2.03 Topo2Raster (рельеф из векторов)** - рельеф из точек, изолиний, тальвегов, обрывов и озёр мультисеточной интерполяцией по мотивам ANUDEM: мембранный каркас плюс полировка минимальной кривизной.
-- **2.04 Подготовка рельефа** - заполнение понижений методом Планшона-Дарбу с настраиваемым epsilon и сглаживание: только ямы до уровня слива или сквозной уклон через плоскости.
-- **2.05 Сток и аккумуляция (D8)** - направления стока в кодах ArcGIS и аккумуляция векторизованным обходом. Грид 2000×2000 за секунды.
-- **2.06 Речная сеть** - звенья от истоков и слияний вниз по течению, порядок Стралера, выход годится тальвегами в 2.03.
-- **2.07 Бассейны и водоразделы** - от точек замыкания с притяжкой к максимуму аккумуляции или автоматически от устьев. Полигоны и растр меток.
-- **2.08 Уклон и экспозиция** - ядро Horn 3×3 как в gdaldem, экспозиция как азимут спуска, плоские ячейки помечены.
-- **2.09 Вершины и ямы** - локальные экстремумы обоих знаков с двумя фильтрами: радиус подавляет второстепенные макушки, перепад отсекает кочки и лужи. Отметка пишется в Z геометрии: пикеты уходят в DXF вместе с горизонталями и снимают плоские шапки поверхности на замкнутых горизонталях.
-- **2.10 Демо-рельеф** - детерминированный синтетический рельеф для примеров, тестов и работы без сети. Выдаёт точки створов для 2.15, трассы канав для 2.16 и, по желанию, пару поверхностей с участками работ для 2.18.
-- **2.11 Разделить горизонтали для проверки** - делит слой горизонталей на рабочую и контрольную части для строгой оценки построения: контрольные линии в интерполяцию не идут.
-- **2.12 Невязка горизонталей против ЦМР** - сравнение отметок горизонталей с построенной поверхностью: воспроизведение и удержанный контроль, сводка и карта отклонений.
-- **2.13 Диагностика террасинга ЦМР** - вертикальная кривизна как маркер ступеней от изолиний: где поверхность идёт террасами, там она построена по горизонталям без рельефа между ними.
-- **2.14 Снятие ступеней (сглаживание с ограничением)** - сглаживание, зажатое допуском к исходным отметкам, с HTML-отчётом до и после: ступени уходят, а поверхность не уплывает.
-- **2.15 Отчёт по створу** - морфометрия водосбора от точки замыкания: площадь, высоты, средний уклон бассейна, длина, падение и уклон главного водотока. Полигоны с атрибутами и HTML-отчёт.
-- **2.16 Водосбор. Линии и контуры (канавы, карьеры)** - площадь, которую перехватывает нагорная канава, кювет или контур карьера. Линия растеризуется и берётся приёмником, полигон считается приёмником целиком, водосбор собирается по стоку. Врезка трассы отдельной галочкой.
-- **2.18 Насыпи и выемки (объёмы работ)** - объёмы между двумя поверхностями или поверхностью и отметкой: насыпь, выемка, баланс. Сетки приводятся билинейно, мёртвая зона режет фоновый шум, участки считаются отдельно. Растр разности и ведомость HTML.
-- **2.19 Кандидаты бровок и подошв** - места, где уклон меняется быстрее всего, трассированные в линии с перепадом, длиной и видом в атрибутах.
-- **2.20 Бровки и подошвы в работу** - отметки с ЦМР, формы бровка-подошва спуском по склону, готовые входы Верх и Низ.
-- **2.21 Пример карьера (демо)** - карьер с уступами, съездом, отвалом и канавой плюс истинные структурные линии как эталон.
-- **2.22 Профилирование откосов** - отметки структурным линиям с горизонталей, к которым они примыкают: вход для немых бровок и подошв без ЦМР.
-- **2.23 Линии стока от точек, линий и контуров** - куда стечёт вода из заданного места: ход вниз по D8 от каждой стартовой ячейки, остановка на водоёме, водотоке по порогу накопления, краю листа или слиянии с уже пройденной трассой. Отвечает на вопрос, куда пойдёт вода с отвала или площадки.
-- **2.24 Снятие мостов с ЦМР** - убирает мосты, которые модель поверхности кладёт поперёк реки плотиной. Под настилом встаёт поверхность реки, интерполированная с воды выше и ниже по течению. Мост задаётся контуром или осью с шириной.
+- **2.01 Download DEM by extent** — three sources: Copernicus DEM GLO-30 (DSM), GEDTM30 (DTM without forest, CC BY 4.0) and Mapzen Terrain Tiles (SRTM and ArcticDEM over Russia, national DEMs elsewhere), from open stores, no registration or keys: a seamless mosaic, reprojection into a metric CRS, hydrological correction by a checkbox.
+- **2.02 Download base topography by extent** — OpenStreetMap layers for terrain work: watercourses (ready streamlines), water bodies, peaks with elevations, cliffs and embankments, the coastline.
+- **2.03 Topo2Raster (terrain from vectors)** — terrain from points, contours, streamlines, cliffs and lakes by multigrid interpolation in the spirit of ANUDEM: a membrane frame plus minimum-curvature polishing.
+- **2.04 Terrain preparation** — depression filling by the Planchon-Darboux method with a tunable epsilon and smoothing: pits only up to the spill level, or a through slope across flats.
+- **2.05 Flow and accumulation (D8)** — flow directions in ArcGIS codes and accumulation by a vectorized sweep. A 2000×2000 grid in seconds.
+- **2.06 River network** — links from heads and junctions downstream, the Strahler order, the output fits 2.03 as streamlines.
+- **2.07 Basins and watersheds** — from pour points snapped to the accumulation maximum, or automatically from mouths. Polygons and a label raster.
+- **2.08 Slope and aspect** — the Horn 3×3 kernel as in gdaldem, aspect as the downslope azimuth, flat cells flagged.
+- **2.09 Peaks and pits** — local extremes of both signs with two filters: the radius suppresses secondary tops, the relief threshold cuts off bumps and puddles. The elevation is written into the geometry Z: the spot points go to DXF together with the contours and remove the flat caps of a surface at closed contours.
+- **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Outputs gauge points for 2.15, ditch traces for 2.16 and, optionally, a pair of surfaces with work areas for 2.18.
+- **2.11 Split contours for validation** — splits a contour layer into a working and a held-out part for strict evaluation of the build: held-out lines do not go into the interpolation.
+- **2.12 Contour residuals against the DEM** — compares contour elevations with the built surface: reproduction and held-out control, a summary and a map of deviations.
+- **2.13 Terracing check of a DEM** — vertical curvature as a marker of steps from contour lines: where the surface goes in terraces, it was built from contours with no relief in between.
+- **2.14 Remove steps (clamped smoothing)** — smoothing clamped by a tolerance to the source elevations, with an HTML report before and after: the steps go while the surface does not drift.
+- **2.15 Gauge point report** — watershed morphometry from a closure point: area, elevations, mean basin slope, length, fall and slope of the main stream. Polygons with attributes and an HTML report.
+- **2.16 Catchment of a line or an outline (ditches, open pits)** — the area intercepted by a hillside ditch, a gutter or an open pit outline. A line is rasterised and taken as the intake, a polygon is treated as an intake in its entirety, the catchment is collected by flow. Burning the trace is a separate checkbox.
+- **2.18 Cut and fill (earthwork volumes)** — volumes between two surfaces, or a surface and an elevation: fill, cut, balance. Grids are aligned bilinearly, the dead band cuts background noise, work areas are counted separately. A difference raster and an HTML statement.
+- **2.19 Crest and toe candidates** - the places where the slope changes fastest, traced into lines with the drop, the length and the kind in the attributes.
+- **2.20 Crests and toes into work** - elevations off the DEM, crest-toe forms by descending the slope, ready Top and Bottom inputs.
+- **2.21 Example open pit (demo)** - a pit with benches, a ramp, a dump and a ditch plus the true structural lines as a reference.
+- **2.22 Profiling of slopes** — elevations for structural lines from the contours they adjoin: an input for mute crests and toes without a DEM.
+- **2.23 Flow lines from points, lines and outlines** — where the water will run from a given place: downhill along D8 from every starting cell, stopping at a water body, at a watercourse by the accumulation threshold, at the edge of the sheet or at a merge with a trace already walked. It answers where the water from a dump or a site will go.
+- **2.24 Remove bridges from a DEM** — removes the bridges a surface model lays across a river like a dam. The river surface, interpolated from the water upstream and downstream, settles under the deck. A bridge is given by an outline or by an axis with a width.
 
-### Группа «3. Дополнительные инструменты анализа»
+### "3. Additional analysis tools" group
 
-- **3.01 Категориальный индикаторный кригинг** - по категориальному полю (минтип, литотип) строит индикаторы 0/1, кригует и нормирует вероятности. Выход: растр вероятностей, карта зон, растр уверенности.
-- **3.02 Кригинг с внешним дрейфом (External Drift)** - оценка, когда поле связано со сторонней величиной, известной всюду в виде растра. Дрейф снимается регрессией, кригуются остатки.
-- **3.03 Карта вероятности превышения** - по растрам оценки и стандартной ошибки строит P(Z>порог). Бортовые содержания, зоны риска.
-- **3.04 Гидравлический градиент и направление потока** - по растру напора строит |∇h|, азимут потока и точечный слой векторов со стрелками.
-- **3.05 Удельный расход (закон Дарси)** - по растру напора и растрам K, T считает скорость фильтрации и расход через ширину.
-- **3.06 Гауссова симуляция (SGS)** - ансамбль равновероятных реализаций: E-type, стандартное отклонение, квантили P10/P50/P90, вероятность превышения.
-- **3.07 Плотность по замерам (переменная опора)** - замер размазывается по носителю (точка+сигма, линия-коридор, полигон-маска) с сохранением массы, дазиметрия, эффективная сигма.
-- **3.08 Пример для плотности (демо)** - точки, линии и полигоны с круглой суммарной массой для проверки инварианта.
-- **3.09 Пример для 3.01 и 3.02 (демо)** - участок пласта с известными истинной кровлей и зонами замещения: ошибку индикаторного кригинга и кригинга с дрейфом можно посчитать.
+- **3.01 Categorical indicator kriging** — builds 0/1 indicators per class of a categorical field (rock type, lithotype), kriges and normalizes the probabilities. Output: a probability raster, a zone map, a confidence raster.
+- **3.02 External Drift Kriging** — estimation when the field is tied to an external quantity known everywhere as a raster. The drift is removed by regression, the residuals are kriged.
+- **3.03 Exceedance probability map** — builds P(Z>threshold) from the estimate and kriging-error rasters. Cut-off grades, risk zones.
+- **3.04 Hydraulic gradient and flow direction** — from a head raster builds |∇h|, the flow azimuth and a point layer of flow vectors styled with arrows.
+- **3.05 Specific discharge (Darcy law)** — from a head raster and K, T rasters computes the filtration velocity and the discharge per width.
+- **3.06 Gaussian simulation (SGS)** — an ensemble of equally probable realizations: E-type, standard deviation, P10/P50/P90 quantiles, exceedance probability.
+- **3.07 Density from measurements (variable support)** — a measurement is spread over its support (point+sigma, line corridor, polygon mask) with mass preserved, dasymetric refinement, effective sigma.
+- **3.08 Example for density (demo)** — points, lines and polygons with a round total mass to verify the invariant.
+- **3.09 Example for 3.01 and 3.02 (demo)** — a bed block with known true roof and replacement zones, so the error of indicator kriging and kriging with drift can be counted.
 
-### Группа «4. Разрез»
+### "4. Cross-sections" group
 
-- **4.01 Разрез по линии** - геологический разрез по линии и стопке поверхностей: пласты полосами, чертёж расстояние×высота, 3D-забор PolygonZ и линии поверхностей. Одна поверхность - законный случай: разрез по рельефу без пластов, с низом рамки отметкой. Порядок поверхностей берётся из дерева слоёв проекта. По умолчанию строит разрез по каждой линии слоя, с раскладкой чертежей и общим вертикальным масштабом, разрезы различаются полями sec и sec_id.
-- **4.02 Скважины на разрезе (модель бурения)** - скважины из пары слоёв collar и interval (минимальная модель горных пакетов) сразу на все чертежи определения. Поля находятся сами по ожидаемым именам, устья переводятся в СК определения, читатель терпимый со сводкой в журнал, раскраска и легенда по кодам, обрезка по рамке и по полосам чертежа, подпись устья из number, необязательный 3D-выход.
-- **4.03 Состав пласта на разрезе** - полоса пласта красится по гриду состава: непрерывное содержание срезами, категориальный минтип фациальными зонами.
-- **4.04 Пересечение поверхностей с разрезом** - поверхности-гриды на разрез линиями (водоносные горизонты, маркирующие поверхности).
-- **4.05 Пересечение векторов с разрезом** - линии и полигоны по точному пересечению: линия без Z вертикалью, с Z точкой, полигон полосой. Обрезка сверху по линии рельефа и снизу по линии низа с чертежа, низ поштучно из поля объекта, атрибуты исходных слоёв переносятся на чертёж.
-- **4.06 Пересечение TIN с разрезом** - режет разрезом 3D-грани и меши: нависание и опрокинутое воспроизводятся.
-- **4.07 Проекция объектов на разрез** - точки, линии и полигоны на чертёж разреза, отметка из 3D или поля.
-- **4.08 Спроецировать с разреза** - обратная проекция объектов с чертежа в реальные координаты с Z.
-- **4.09 Развёртка стенки ствола (бета)** - цилиндрический разрез вокруг оси в осях дуга-высота.
-- **4.10 Пример для разреза (демо)** - стопка поверхностей, линия и скважины с полями отметок, чтобы попробовать разрез без кригинга.
-- **4.11 Образец справочника пластов** - кладёт в проект поставляемый справочник (37 строк Верхнекамского месторождения): код, порядок залегания, тело и цвет. Его читают 4.01 и 4.02, из него берутся цвета полос и колонок.
-- **4.12 Элементы залегания по следу выхода** - азимут и угол падения по следу выхода поверхности на рельеф: три точки следа дают плоскость, элементы залегания пишутся в атрибуты.
+- **4.01 Cross-section along a line** — a geological section along a line and a stack of surfaces: beds as bands, a distance×elevation drawing, a 3D fence of PolygonZ and surface lines. A single surface is a legitimate case: a section over the terrain without beds, with the frame bottom set by elevation. The order of the surfaces comes from the project layer tree. By default it builds a section for every line of the layer, with a layout of the drawings and a common vertical scale, the sections being told apart by the sec and sec_id fields.
+- **4.02 Boreholes on sections (drilling model)** — boreholes from a collar and interval layer pair (the minimal mining-package model) onto every drawing of the definition at once. Fields are found automatically by the contract names, collars are reprojected into the definition CRS, the tolerant reader reports a summary to the log, colours and a legend by code, clipping by the frame and by the drawing bands, collar labels from number, an optional 3D output.
+- **4.03 Bed composition on the section** — paints the bed band by a composition grid: continuous grade as slices, categorical rock type as facies zones.
+- **4.04 Intersect surfaces with the section** — surface grids onto the section as lines (aquifers, marker surfaces).
+- **4.05 Vector intersection with the section** — lines and polygons by exact intersection: a line without Z as a vertical, with Z as a point, a polygon as a band. Clipping from above by the terrain line and from below by the bottom line of the drawing, a per-feature bottom from a field, the attributes of the source layers carried onto the drawing.
+- **4.06 Intersect a TIN with the section** — cuts 3D faces and meshes with the section: overhangs and overturned folds are reproduced.
+- **4.07 Project objects onto the section** — points, lines and polygons onto the section drawing, the elevation from 3D or a field.
+- **4.08 Unproject from the section** — the reverse projection of objects drawn on the section back into real coordinates with Z.
+- **4.09 Shaft wall unwrap (beta)** — a cylindrical section around an axis in arc-elevation axes.
+- **4.10 Example for a section (demo)** — a stack of surfaces, a line and boreholes with elevation fields, to try the section without kriging.
+- **4.11 Bed reference template** — adds the bundled bed reference to the project (37 rows of the Verkhnekamskoye deposit): code, bedding order, body kind and colour. It is read by 4.01 and 4.02, and the band and column colours come from it.
+- **4.12 Attitude from an outcrop trace** — dip azimuth and dip angle from the trace of a surface on the relief: three trace points give a plane, the attitude goes into the attributes.
 
-### Группа «5. Геологическая модель» (бета)
+### "5. Geological model" group (beta)
 
-- **5.01 Согласованность пачки пластов** - проверка кровель и подошв, построенных порознь: выклинивание, отрицательная мощность, перехлёст соседей, карта наименьшего зазора, признак перевёрнутого порядка. Порядок пластов из дерева слоёв или справочника.
-- **5.02 Пример разреза (демо)** - учебный разрез верхнекамского типа: полная колонка из справочника пластов, лежачая складка с тройным вскрытием, выклинивание, соляной купол с зеркалом растворения, карта выхода под зеркало, водозащитная толща, модель бурения.
-- **5.03 Сборка пачки от рельефа** - колонка сверху вниз, тело за телом по справочнику: растр мощности по скважинам, подошва вычитанием из вышележащей поверхности. Мощность приводится к вертикали по углу ствола, отсутствие тела в скважине это ноль. Опорной может быть не рельеф, а прослеженный контакт - тогда сборка идёт в обе стороны и ошибка делится пополам. Перехлёстов не бывает по построению.
-- **5.04 Коррекция пачки по статистике мощностей** - доверительный интервал по замерам, срезание мощностей по его границам и пересборка. Отделяет артефакт интерполяции от геологии: на выдержанном теле мощность вне интервала почти наверняка разгон метода между скважинами.
-- **5.05 Манифест модели** - роли слоёв в свойствах проекта: опорная, контакт, зеркало, устья, интервалы, замеры оси, справочник, наблюдения. Инструменты читают манифест, но не требуют его.
-- **5.06 Складчатость поверхности** - разброс отметок вокруг местного наклона плюс скорость его роста с масштабом. Прямая дисперсия на общем наклоне велика всюду, поэтому в окне подгоняется плоскость.
+- **5.01 Consistency of a bed stack** — checks roofs and floors built separately: pinch-out, negative thickness, overlap of neighbours, a map of the smallest gap, a sign of a reversed order. The bed order comes from the layer tree or the reference.
+- **5.02 Example section (demo)** — a teaching section of the Verkhnekamskoye type: the full column from the bed reference, a recumbent fold with triple penetration, a pinch-out, a salt dome with a dissolution mirror, a subcrop map, the water-protective sequence, a drilling model.
+- **5.03 Assembly of a stack from the relief** — the column from the top down, body after body along the reference: a raster of thickness from the boreholes, the floor by subtracting from the overlying surface. The thickness is reduced to the vertical by the dip of the hole, the absence of a body in a borehole is a zero. The datum may be a traced contact rather than the relief - then the assembly goes both ways and the error is halved. Overlaps do not happen by construction.
+- **5.04 Correction of a stack by the statistics of thicknesses** — a confidence interval from the measurements, cutting the thicknesses by its bounds and reassembling. Separates an artefact of interpolation from geology: on a persistent body a thickness outside the interval is almost certainly a run-away of the method between boreholes.
+- **5.05 Model manifest** — the roles of the layers in the project properties: the datum, a contact, the mirror, the collars, the intervals, the axis surveys, the reference, the observations. The tools read the manifest but do not require it.
+- **5.06 Folding of a surface** — the spread of elevations around the local slope plus the rate of its growth with scale. A plain variance on a general slope is large everywhere, hence a plane is fitted in the window.
 
-### Группа «6. Гидрология рек»
+### "6. River hydrology" group
 
-- **6.01 Створы и кривые расходов** - зависимость расхода от отметки по створу: профиль по вершинам, разбивку на участки на левый берег, русло и правый берег, расход по Маннингу отдельно на каждом участке. Шероховатость и уклон из полей створа, уклон умеет считаться по цепочке створов от километража и отметок дна. Уровни обеспеченности и наблюдаемые уровни линиями на чертёж, подвал листа гидроствора строкой на участок, отметки земли и расстояния точками. Отчёт HTML с профилем и графиком Q(H) прямо на странице.
-- **6.02 Полигон затопления** - срез поверхности отметкой воды с контуром и растром глубины. Отметку можно задать расходом: она берётся обратным ходом по кривой.
-- **6.03 Импорт таблиц створов** - пары расстояние-отметка из существующих программ превращаются в линии с Z. Если створы оцифрованы на карте, промеры лягут вдоль настоящих линий. Расчётные свойства переносятся вместе с профилем.
-- **6.04 Пример реки (демо)** - цепочка створов с известным ответом, таблица промеров, поверхность долины, эталонная кривая, учебные расходы обеспеченности и наблюдаемые уровни.
+- **6.01 Cross-sections and rating curves** — the dependence of discharge on level for a section: the profile along the vertices, the division into the left bank, the channel and the right bank, the discharge by Manning separately on every part. Roughness and slope from the fields of the section, the slope can be computed from the chain of sections. Probability and observed levels as lines onto the drawing, the footer of a gauging sheet as a row per part, ground elevations and distances as points. An HTML report with the profile and the Q(H) graph on the page itself.
+- **6.02 Flood extent polygon** — cutting the surface by a water level with an extent and a raster of depth. The level can be set by a discharge: it is taken backwards along the curve.
+- **6.03 Import section tables** — distance and elevation pairs from existing programs become lines with Z. If the sections are digitized on the map, the soundings lie along the real lines. Computation properties are carried along with the profile.
+- **6.04 Example river (demo)** — a chain of sections with a known answer, a table of soundings, a valley surface, a reference curve, teaching probability discharges and observed levels.
 
-**Поля гидрологии.** Створы: `sec` имя, `km` километраж в км, `div_l` и `div_r` границы участков расстояниями по профилю в м, `n_left`, `n_channel`, `n_right` шероховатость Маннинга по участкам (безразмерная), `slope` уклон в м/м, `role` роль линии при подаче тремя линиями. Расходы обеспеченности: `prob` в процентах, `q` в м³/с. Наблюдаемые уровни: `level` в м, `label` текстом. Полный перечень полей всех входов и выходов с единицами есть в [руководстве](manual/manual.md).
+**Fields of the hydrology group.** Sections: `sec` the name, `km` the chainage in km, `div_l` and `div_r` the part boundaries as distances along the profile in m, `n_left`, `n_channel`, `n_right` the Manning roughness by part (dimensionless), `slope` the slope in m/m, `role` the role of the line when supplied as three lines. Probability discharges: `prob` in percent, `q` in m3/s. Observed levels: `level` in m, `label` as text. The full list of fields of every input and output with units is in the [manual](manual/manual_en.md).
 
-### Группа «7. Фрактальный анализ»
+### "7. Fractal analysis" group
 
-- **7.01 Фрактальная размерность** - карта D = 3 - H вариограммным методом в скользящем окне: перепады подчёркивают нарушения и границы блоков.
-- **7.02 Box-counting маски** - одна размерность D на бинарную маску: контуры замещения и выработок сравниваются числом.
-- **7.03 Размерность линий и границ** - D каждой линии методом циркуля: диагностика пересглаживания изолиний.
-- **7.04 Размерность Минковского (векторы)** - box-counting прямо по линиям и границам полигонов, без растеризации.
-- **7.05 Пример для фракталов (демо)** - речная сеть с порядками, водосбор с изрезанной границей, береговая линия.
+- **7.01 Fractal dimension** — a D = 3 - H map by the variogram method in a moving window: contrasts highlight faults and block boundaries.
+- **7.02 Box-counting of masks** — one D per binary mask: replacement and workings outlines compared by a number.
+- **7.03 Dimension of lines and boundaries** — D of each line by the divider method: diagnostics of oversmoothed isolines.
+- **7.04 Minkowski dimension (vectors)** — box-counting directly over lines and polygon boundaries, without rasterization.
+- **7.05 Example for fractals (demo)** — a river network with tributary orders, a catchment with a ragged boundary, a coastline.
 
-### Группа «9. Сдвижения»
+### "9. Subsidence" group
 
-- **9.01 Наклоны и кривизна по оседаниям** - наклон и кривизна по гриду оседаний по формулам Указаний для Верхнекамского месторождения, на базе 15 м, со сверкой по реперам профильных линий.
-- **9.02 Горизонтальные деформации** - оценка по кривизне и деформации по измеренным интервалам между реперами.
-- **9.03 Пример мульды (демо)** - мульда по типовой функции Указаний с реперами по главным сечениям и скоростями оседания.
+- **9.01 Tilt and curvature from subsidence** — tilt and curvature from a subsidence grid by the formulas of the Verkhnekamskoye deposit Instructions, over a 15 m base, checked against profile line benchmarks.
+- **9.02 Horizontal strain** — an estimate from curvature and strain from measured intervals between benchmarks.
+- **9.03 Example subsidence trough (demo)** — a trough from the typical function of the Instructions with benchmarks along the main sections and subsidence rates.
 
-Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов.
+Suitable for bed elevations, thicknesses, rock properties, chemistry and any numeric attribute.
 
-## Установка
+## Installation
 
-**Модули → Управление и установка модулей → Установить из ZIP**, указать архив
-плагина. Инструменты появятся в панели **Обработка** (Processing): провайдер
-**«Isoliner»**, группа **«Грид и изолинии»**.
+**Plugins → Manage and Install Plugins → Install from ZIP**, point to the plugin
+archive. The tools appear in the **Processing** panel: provider **"Isoliner"**,
+group **"Grid and isolines"**.
 
-Требования: QGIS 3.16+. Используются только штатные алгоритмы Processing
-(GDAL/native), NumPy и GDAL из состава QGIS - внешних зависимостей нет.
+Requirements: QGIS 3.16+. Uses only the built-in Processing algorithms
+(GDAL/native) plus NumPy and GDAL shipped with QGIS — no external dependencies.
 
-## Обновление и перезагрузка
+## Update and reload
 
-Плагин корректно перезагружается «на лету», без перезапуска QGIS:
+The plugin reloads cleanly on the fly, without restarting QGIS:
 
-- установка новой версии - тем же путём, **Установить из ZIP** поверх старой.
-- быстрая перезагрузка кода при разработке - модулем **Plugin Reloader**
-  (кнопка «Reload a plugin…» на панели), выбрать «Isoliner». Провайдер
-  Processing и все алгоритмы перерегистрируются сразу.
+- installing a new version — the same way, **Install from ZIP** over the old one.
+- quick code reload during development — **Plugin Reloader** ("Reload a
+  plugin…"), pick "Isoliner". The Processing provider and all algorithms
+  re-register immediately.
 
-Отдельно чистить кэш или удалять папки не требуется.
+No separate cache cleaning or folder removal is needed.
 
-## Документация
+## Documentation
 
-Полное руководство по всем параметрам - в комплекте плагина: `doc/Isoliner.pdf`
-(RU) и `doc/Isoliner_en.pdf` (EN). Интерфейс двуязычный (RU/EN), язык
-определяется по локали QGIS. В диалоге каждого инструмента кнопка **«Справка»**
-открывает PDF по языку интерфейса. Правая панель показывает краткую подсказку. Руководство и история изменений доступны и из меню **Модули - Isoliner** (пункты **О плагине** и **Руководство (PDF)**).
+The full reference for every parameter is shipped with the plugin:
+`doc/Isoliner.pdf` (Russian) and `doc/Isoliner_en.pdf` (English). The interface
+is bilingual (EN/RU) and follows the QGIS locale; in each tool's dialog the
+**"Help"** button opens the PDF in the language of the interface. The right-hand
+panel shows a short hint. The manual and the changelog are also reachable from the **Plugins → Isoliner** menu (**About** and **Manual (PDF)**).
 
-## Быстрый старт
+## Quick start
 
-1. **Вариограмма (экспериментальная)** (необязательно, но полезно): подать точки
-   и поле Z, подобрать модель (наггет, порог, радиус). Максимальное расстояние
-   взять таким, чтобы кривая вышла на плато. Рекомендованную модель можно
-   подставить в 2D Kriging галкой «Подставить последнюю рекомендованную модель».
-2. **2D Kriging**: выбрать или создать из учебной генерации точечный слой и числовое поле Z → получить растр. Размер ячейки можно оставить `0` (авто). Чтобы убрать экстраполяцию за
-   пределы скважин - включить «Обрезать по контуру скважин».
-3. **Изолинии из растра**: подать полученный растр, задать шаг **или** явные
-   уровни. На выходе - линии и (по умолчанию) контурные полигоны.
-4. **Кросс-валидация** (необязательно, но полезно перед финальным гридом):
-   подать те же точки и поле Z, задать вариограмму - в Журнале появятся
-   метрики ME/RMSE/MSDR/R. Добейтесь MSDR ≈ 1 и перенесите параметры в
-   2D Kriging.
+1. **Variogram (experimental)** (optional but useful): feed the points and the Z
+   field, fit a model (nugget, sill, range). Choose the maximum distance so the
+   curve reaches a plateau. The fitted model can be saved as a profile and
+   applied in 2D Kriging.
+2. **2D Kriging**: pick or generate a point layer and a numeric Z field → get a
+   raster. Cell size can stay `0` (auto). To remove extrapolation beyond the
+   wells, enable "Clip to well hull".
+3. **Isolines from raster**: feed the resulting raster, set a step **or**
+   explicit levels. Output: lines and (by default) contour polygons.
+4. **Cross-validation** (optional, useful before the final grid): feed the same
+   points and Z field, set the variogram — ME/RMSE/MSDR/R metrics appear in the
+   Log. Aim for MSDR ≈ 1 and carry the parameters into 2D Kriging.
 
-## Параметры
+## Parameters
 
 ### 2D Kriging
-- **Тип кригинга** - ординарный (OK) или простой (SK. Использует «Среднее»).
-- **Радиус поиска** (`0` = вся выборка), **мин./макс. количество точек**.
-- **Размер ячейки** (`0` = `min(охват)/50`), с живым показом размера грида.
-- **Охват** - по умолчанию по слою.
-- **Обрезка по контуру скважин** - выпуклая оболочка всех точек (+ буфер),
-  либо явный полигон-маска (приоритетнее оболочки).
-- **Вариограмма** (в «Дополнительно») - наггет + структура
-  (сферическая/экспоненциальная/гауссова/степенная), азимут, анизотропия.
-  Радиус корреляции `0` = `max(охват)/3`.
-- **Сгладить грид (Гаусс)** (по умолчанию выключено) - гауссово сглаживание
-  выходного растра, радиус в ячейках. Сглаженный грид и есть выход кригинга.
-- **Блочный кригинг** (по умолчанию выключено) и **Дискретизация блока, N×N на
-  ячейку** (по умолчанию `4`) - оценка среднего по ячейке грида, а не значения
-  в её центре. Ячейка разбивается на N×N точек дискретизации, ковариации
-  усредняются по блоку (схема GSLIB KB2D). Поверхность глаже, стандартная
-  ошибка ниже точечной - для оценки запасов и содержаний по блоку. Пробы в
-  узлах при этом точно не воспроизводятся.
-- **Загрузить профиль обработки** - подставляет сохранённый профиль (наггет,
-  структура вариограммы, отсев) поверх полей диалога. Список обновляется при
-  открытии окна.
+- **Kriging type** — ordinary (OK) or simple (SK, uses "Mean").
+- **Search radius** (`0` = whole sample), **min/max number of points**.
+- **Cell size** (`0` = `min(extent)/50`), with a live grid-size readout.
+- **Extent** — by layer by default.
+- **Clip to well hull** — convex hull of all points (+ buffer), or an explicit
+  mask polygon (takes priority over the hull).
+- **Variogram** (under "Advanced") — nugget + structure (spherical/exponential/
+  Gaussian/power), azimuth, anisotropy. Correlation range `0` = `max(extent)/3`.
+- **Smooth grid (Gaussian)** (off by default) — Gaussian smoothing of the output
+  raster, radius in cells. The smoothed grid is the kriging output.
+- **Block kriging** (off by default) and **Block discretization, N×N per cell**
+  (default `4`) — estimates the average over the grid cell rather than the value
+  at its centre. The cell is split into N×N discretization points and the
+  covariances are averaged over the block (GSLIB KB2D scheme). The surface is
+  smoother and the standard error is lower than for point kriging — for
+  estimating reserves and grades over a block. Samples at nodes are then not
+  reproduced exactly.
+- **Load processing profile** — applies a saved profile (nugget, variogram
+  structure, outliers) over the dialog fields. The list refreshes when the
+  window opens.
 
-### Изолинии из растра
-- **Шаг** изолиний **или** **явные уровни** (через пробел. Десятичный
-  разделитель - запятая или точка). Уровни приоритетнее шага.
-- **Главная изолиния каждая N-я** - флаг `is_index` у утолщённых.
-- **Мин. длина линии** и **скругление линий** (Chaikin, итераций. Убирает
-  «октагоны» от грубого грида).
-- **Имя поля значения** для линий (по умолчанию `ELEV`).
-- **Контурные полигоны** - строятся по умолчанию во временный слой. Чтобы их
-  не строить, очистите это поле.
+### Isolines from raster
+- **Step** of isolines **or** **explicit levels** (space-separated; decimal
+  separator comma or dot). Levels take priority over step.
+- **Index isoline every N-th** — `is_index` flag on the bold ones.
+- **Min line length** and **line rounding** (Chaikin, iterations; removes
+  "octagons" from a coarse grid).
+- **Value field name** for lines (default `ELEV`).
+- **Contour polygons** — built by default into a temporary layer. To skip them,
+  clear this field.
 
-### Вариограмма (экспериментальная)
-- **Точки** и **поле значения Z**. Необязательное **поле группировки**
-  (напр. вид разведки) - своя кривая на каждое значение, удобно сравнить
-  совокупности разной плотности.
-- **Количество лагов** и **максимальное расстояние** (в единицах слоя. `0` =
-  пол-диагонали). Окно подбирают так, чтобы кривая вышла на плато.
-- **Подобрать модель (рекомендация)** - наггет, порог, радиус и модель на
-  чистом numpy, без сторонних зависимостей. **Наложить заданную модель** -
-  сравнить свою модель с облаком.
-- **Минимум точек в группе** (`%` от выборки, пол 30) - мелкие группы не
-  рисуются. **Отсев ураганных проб** (в «Дополнительно») - как в кригинге.
-- **HTML-отчёт** с облаком, подобранной кривой и линией дисперсии данных.
-- **Сохранить профиль под именем** - сохранить подобранную (изотропную)
-  модель и текущий отсев как профиль обработки для подстановки в 2D Kriging.
+### Variogram (experimental)
+- **Points** and **Z value field**. Optional **grouping field** (e.g. survey
+  type) — a separate curve per value, handy to compare populations of different
+  density.
+- **Number of lags** and **maximum distance** (in layer units; `0` =
+  half-diagonal). Set the window so the curve reaches a plateau.
+- **Fit model (recommendation)** — nugget, sill, range and model in pure NumPy,
+  no third-party dependencies. **Overlay a given model** — compare your model
+  against the cloud.
+- **Minimum points per group** (`%` of sample, floor 30) — small groups are not
+  drawn. **Outlier removal** (under "Advanced") — as in kriging.
+- **HTML report** with the cloud, the fitted curve and the data-variance line.
+- **Save profile as** — save the fitted (isotropic) model and current outlier
+  settings as a processing profile for use in 2D Kriging.
 
-### Кросс-валидация вариограммы
-- **Точки** и **поле значения Z**. Необязательное **поле номера скважины**
-  (попадёт в слой остатков).
-- **Вариограмма и поиск** - те же параметры, что в 2D Kriging (тип кригинга,
-  наггет, структура, радиус, количество точек). Что проверили здесь, то и
-  переносится в кригинг «один в один».
-- **Загрузить профиль обработки** - подставить сохранённый профиль (наггет,
-  структура, отсев) поверх полей. Список обновляется при открытии окна.
-- **Отсев ураганных проб** (в «Дополнительно») - как в кригинге.
-- Метрики в Журнал: **ME** (смещение, к 0), **MAE**, **RMSE** (меньше -
-  лучше), **MSDR** (к 1 - вариограмма адекватна по масштабу), **R**.
-- Необязательный **слой остатков** (точки) с полями факта, оценки (`z_est`),
-  ошибки (`error`/`abs_error`) и стандартизованного остатка `std_resid` -
-  видно, где модель промахивается. Слой называется по проверяемому полю,
-  у полей заданы понятные псевдонимы.
-- **HTML-отчёт** (по умолчанию) - интерактивный график «оценка vs факт» и
-  гистограмма ошибок (plotly) с таблицей метрик. Открывается в просмотрщике
-  результатов. Без plotly - отчёт с метриками текстом.
-- **Сохранить профиль под именем** - сохранить проверенную модель (с заданной
-  анизотропией) и отсев как профиль обработки.
+### Variogram cross-validation
+- **Points** and **Z value field**. Optional **well number field** (carried into
+  the residual layer).
+- **Variogram and search** — the same parameters as in 2D Kriging (kriging type,
+  nugget, structure, radius, number of points): what you validate here transfers
+  into kriging one-to-one.
+- **Load processing profile** — apply a saved profile (nugget, structure,
+  outliers) over the fields. The list refreshes when the window opens.
+- **Outlier removal** (under "Advanced") — as in kriging.
+- Metrics in the Log: **ME** (bias, → 0), **MAE**, **RMSE** (lower is better),
+  **MSDR** (→ 1 means the variogram is adequate in scale), **R**.
+- Optional **residual layer** (points) with fields for actual, estimate
+  (`z_est`), error (`error`/`abs_error`) and standardized residual `std_resid` —
+  shows where the model misses. The layer is named after the validated field,
+  with readable field aliases.
+- **HTML report** (default) — an interactive "estimate vs actual" plot and an
+  error histogram (plotly) with a metrics table. Opens in the result viewer.
+  Without plotly — a text-metrics report.
+- **Save profile as** — save the validated model (with the set anisotropy) and
+  outliers as a processing profile.
 
-### Пример скважин (демо)
-- **Область (экстент)** - по слою, по холсту карты, координатами или рисованием.
-- **Количество скважин**. **минимум/максимум значения X**. Диапазоны кровли и мощности (по умолчанию как у КрII).
-- **Гладкость (доля охвата)** - радиус корреляции (больше - крупнее «пятна»).
-- **Доля наггета (от дисперсии)** - короткомасштабный шум (меньше предсказуемость).
-- Поля для смежных инструментов: галки **напор (head)** (для градиента потока) и **категориальный минтип** (для индикаторного кригинга), а также вывод **поверхности дрейфа** - растр s и связанное поле dz для внешнего дрейфа.
-- В Журнал выводится стартовая вариограмма. Данные пригодны для кригинга/CV.
+### Example wells (demo)
+- **Area (extent)** — by layer, by map canvas, by coordinates or by drawing.
+- **Number of wells**. **Min/max of value X**. Roof and thickness ranges
+  (defaults as for the Kr-II seam).
+- **Smoothness (fraction of extent)** — correlation range (larger = larger
+  "patches").
+- **Nugget fraction (of variance)** — short-range noise (less predictability).
+- Fields for the related tools: checkboxes **head** (for the flow gradient) and a **categorical mineral type** (for indicator kriging), plus the **drift surface** output - an s raster and a related dz field for external drift.
+- The starting variogram is printed to the Log. The data is usable for
+  kriging/CV.
 
-### Профили обработки
-- Профиль - именованный набор «вариограмма (Структура 1: наггет, тип, порог,
-  радиус, азимут, оси) + отсев ураганных проб». Хранится глобально в QgsSettings
-  (между проектами).
-- Сохраняют профиль «Вариограмма» (изотропный автоподбор) и «Кросс-валидация»
-  (с анизотропией). Подставляет «2D Kriging» полем **Загрузить профиль**.
-- Инструмент **Профили обработки**: действие **Показать список** / **Сохранить
-  вручную** (по полям) / **Удалить выбранный** / **Очистить все**.
-- Выпадающие списки профилей обновляются при открытии окна инструмента.
+### Processing profiles
+- A profile is a named set of "variogram (Structure 1: nugget, type, sill,
+  range, azimuth, axes) + outlier removal". Stored globally in QgsSettings
+  (across projects).
+- Variogram saves a profile (isotropic auto-fit) and Cross-validation saves one
+  (with anisotropy). 2D Kriging applies it via the **Load profile** field.
+- The **Processing profiles** tool: action **Show list** / **Save manually**
+  (from fields) / **Delete selected** / **Clear all**.
+- Profile drop-downs refresh when the tool window opens.
 
-## Выходные данные и оформление
+## Outputs and styling
 
-- **Грид (растр)**: основной результат кригинга в GeoTIFF - оценка Z по сетке.
-  Необязательно строится **Стандартная ошибка кригинга** (sqrt дисперсии
-  ошибки) - мера надёжности оценки. Мала у скважин, растёт вдали от данных.
-- **Линии**: поле уровня (`ELEV` по умолчанию) + `is_index` (1 у главных).
-  Удобно стилизовать правилом по `is_index`, задав главным линиям бóльшую
-  толщину. Подпись - по полю уровня.
-- **Полигоны**: `ELEV_MIN`/`ELEV_MAX` - диапазон пояса. Создаются с одним
-  символом. Для заливки по диапазонам задайте **градуированную** символику
-  по `ELEV_MIN` (или `ELEV_MAX`). Границы поясов совпадают с изолиниями,
-  покрытие сплошное (без дыр).
-- Слой изолиний автоматически помещается **над** слоем полигонов, чтобы линии
-  были видны поверх заливки.
+- **Grid (raster)**: the main kriging result as GeoTIFF — Z estimate on the
+  grid. Optionally a **kriging standard error** (sqrt of error variance) is
+  produced — a reliability measure: small near wells, growing away from data.
+- **Lines**: a level field (`ELEV` by default) + `is_index` (1 on the index
+  lines). Easy to style: a rule on `is_index` gives index lines a heavier width.
+  Label by the level field.
+- **Polygons**: `ELEV_MIN`/`ELEV_MAX` — the band range. Created with a single
+  symbol. For range fills set **graduated** symbology by `ELEV_MIN` (or
+  `ELEV_MAX`). Band boundaries coincide with the isolines, coverage is
+  continuous (no holes).
+- The isoline layer is automatically placed **above** the polygon layer so lines
+  show over the fill.
 
-## Сглаживание
+## Smoothing
 
-Сглаживание поля - операция над гридом, поэтому оно вынесено в инструмент
-**2D Kriging** (опция **«Сгладить грид (Гаусс)»**, по умолчанию выключена,
-радиус в ячейках). Сглаженный растр и есть выход кригинга, и изолинии затем
-строятся ровно по нему - диапазон уровней соответствует видимому растру.
-Гауссово сглаживание непрерывного поля надёжнее, чем сглаживание каждой линии
-отдельно. Контуры не пересекаются даже в густых местах и плавны на углах.
+Field smoothing is a raster operation, so it lives in the **2D Kriging** tool
+(the **"Smooth grid (Gaussian)"** option, off by default, radius in cells). The
+smoothed raster is the kriging output, and isolines are then built exactly on it
+— the level range matches the visible raster. Gaussian smoothing of the
+continuous field is more robust than smoothing each line separately: contours
+don't cross even in dense areas and stay smooth at corners.
 
-В инструменте **Изолинии из растра** остаётся лёгкое скругление линий
-(Chaikin, количество итераций). На грубом гриде изолинии иначе выглядят
-«октагонами»: gdal:contour ставит вершины по краям ячеек. Если грид крупный -
-увеличьте итерации скругления или уменьшите размер ячейки в кригинге.
-Радиальные/веерные линии в пустых углах - это экстраполяция за пределы данных.
-Включите «Обрезать по контуру скважин» в кригинге (или задайте полигон-маску) -
-изолинии и полигоны ограничатся областью данных.
+The **Isolines from raster** tool keeps a light line rounding (Chaikin, number
+of iterations). On a coarse grid isolines otherwise look like "octagons":
+gdal:contour places vertices at cell edges. If the grid is coarse, increase the
+rounding iterations or reduce the cell size in kriging. Radial/fan lines in empty
+corners are extrapolation beyond the data. Enable "Clip to well hull" in kriging
+(or set a mask polygon) — isolines and polygons will be limited to the data area.
 
-## Как устроены полигоны
+## How the polygons are built
 
-Полигоны строятся не классификацией «ступенек» растра, а полигонизацией самих
-сглаженных изолиний вместе с контуром валидной области растра. Концы линий
-притягиваются к контуру (snap только концевых точек), сеть нодируется
-(`splitwithlines`) и полигонизуется. Диапазон уровней каждого пояса
-определяется выборкой растра в репрезентативной точке полигона. Поэтому
-границы полигонов совпадают с линиями в том числе у самого края.
+Polygons are built not by classifying raster "steps" but by polygonizing the
+smoothed isolines themselves together with the contour of the raster's valid
+area. Line ends are snapped to the contour (snap of end points only), the
+network is noded (`splitwithlines`) and polygonized. The level range of each band is
+determined by sampling the raster at a representative point of the polygon. That
+is why polygon boundaries coincide with the lines, including at the very edge.
 
-## Замечания
+## Notes
 
-- Автозначения: ячейка = `min(охват)/50`, радиус корреляции = `max(охват)/3`,
-  радиус поиска = диагональ охвата (вся выборка).
-- Совпадающие точки (один XY = несколько проб) усредняются по Z. Матрица
-  кригинга регуляризируется, при неустойчивости - запас по обратным
-  расстояниям. В узлах значения воспроизводятся точно.
-- Кригинг считает весь прямоугольный охват - вне контура скважин это
-  экстраполяция. Обрезка по контуру её убирает (и заодно ограничивает
-  изолинии/полигоны областью данных).
-- Введённые значения параметров (включая выбранное поле Z) запоминаются между
-  запусками.
-- **Кросс-валидация вариограммы** (leave-one-out): метрики ME/RMSE/MSDR/R
-  и слой остатков - подбор наггета/радиуса/модели по ошибке, а не на глаз.
-- **Отсев ураганных проб** (в «Дополнительно»): границы значения Z по
-  абсолюту или перцентилю, с режимом «удалить» либо «срезать» (capping).
-- Опциональный выход **«Стандартная ошибка кригинга»** (sqrt дисперсии
-  ошибки) - карта неопределённости. Мала у скважин, растёт вдали от данных.
-- Движок `kb2d.py` не зависит от QGIS. Smoke-тесты - в `tests/`
-  (`python grid_isolines/tests/test_kb2d.py`, без QGIS).
+- Auto values: cell = `min(extent)/50`, correlation range = `max(extent)/3`,
+  search radius = extent diagonal (whole sample).
+- Coincident points (one XY = several samples) are averaged over Z. The kriging
+  matrix is regularized; on instability it falls back to inverse distances. At
+  nodes values are reproduced exactly.
+- Kriging computes the whole rectangular extent — outside the well hull this is
+  extrapolation. Clipping to the hull removes it (and also limits
+  isolines/polygons to the data area).
+- Entered parameter values (including the chosen Z field) are remembered between
+  runs.
+- **Variogram cross-validation** (leave-one-out): ME/RMSE/MSDR/R metrics and a
+  residual layer — tune nugget/range/model by error, not by eye.
+- **Outlier removal** (under "Advanced"): Z value bounds by absolute or
+  percentile, with "remove" or "cap" (capping) mode.
+- Optional **"kriging standard error"** output (sqrt of error variance) — an
+  uncertainty map: small near wells, growing away from data.
+- The `kb2d.py` engine does not depend on QGIS. Smoke tests are in `tests/`
+  (`python grid_isolines/tests/test_kb2d.py`, no QGIS).
 
-## Встраивание в свой провайдер
+## Embedding in your own provider
 
 ```python
 from .grid_isolines.algorithms import ALGORITHMS
@@ -322,419 +326,371 @@ for cls in ALGORITHMS:
     self.addAlgorithm(cls())
 ```
 
-## Лицензия
+## License
 
-Плагин распространяется под **GNU GPL v2 или новее** (GPL-2.0-or-later) -
-та же лицензия, что и у самого QGIS. Полный текст - в файле `LICENSE`.
-© ООО «Информ++» (www.informpp.ru).
+The plugin is distributed under **GNU GPL v2 or later** (GPL-2.0-or-later) — the
+same license as QGIS itself. Full text in the `LICENSE` file.
+© Inform++ LLC (www.informpp.ru).
 
-## История изменений
+## Changelog
 
-Полный список - в файле [CHANGELOG.md](CHANGELOG.md); в `metadata.txt` плагина
-остаются последние десять версий. Кратко:
+Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
+the last ten versions. The user manual (PDF) is
 
-- **5.13.41** - 3.09 принимает охват в градусах и строит демо в зоне UTM.
-- **5.13.40** - новый демо-инструмент 3.09 к 3.01 и 3.02, в 3.01 исправлено занижение узких зон замещения без поля весов.
-- **5.13.39** - модуль называется просто Isoliner.
-- **5.13.38** - новый инструмент 2.24 Снятие мостов с ЦМР.
-- **5.13.37** - изолинии 1.04 больше не пересекаются там, где идут чаще допуска прореживания.
-- **5.13.36** - новый порядок группы 1: кригинг, минимальная кривизна и MBA подряд, декластеризация перед вариограммой.
-- **5.13.35** - третий источник рельефа в 2.01: Mapzen Terrain Tiles (SRTM, ArcticDEM и национальные ЦМР).
-- **5.13.34** - русские названия полей записываются и в сам файл GeoPackage.
-- **5.13.33** - числа в таблицах выходных слоёв округлены до разумной точности по единицам поля.
-- **5.13.32** - русские названия полей у всех инструментов, подписи идут за полем по цепочке.
-- **5.13.31** - русские названия полей у демо-слоёв (псевдонимы, имена полей прежние).
-- **5.13.30** - скорости оседания в демо-мульде 9.03, «свип» в декластеризации заменён перебором размеров.
-- **5.13.29** - группа 9 названа «Сдвижения».
-- **5.13.28** - новая группа «9. Сдвижения» с наклонами и кривизной по оседаниям, горизонтальными деформациями и примером мульды по формулам Указаний для Верхнекамского месторождения.
-- **5.13.27** - справка 6.01 и раздел руководства сведены с выходом инструмента, английские названия демо-инструментов приведены к одному виду.
-- **5.13.26** - кнопка выбора языка на панели инструментов.
-- **5.13.25** - язык интерфейса и язык справки выбираются отдельно, в пункте меню Модули - Isoliner - Язык. Меняются сразу, без перезапуска QGIS.
-- **5.13.24** - убрано последнее «в лог» из справки, заведён сторож терминов, видимых в окне.
-- **5.13.23** - в справке и отчёте декластеризации гистограмма названа исходной и взвешенной вместо «сырой».
-- **5.13.22** - руководство сведено с окном программы. Подписи параметров в таблицах глав расходились с диалогом в двадцати двух местах, журнал сообщений назывался то журналом, то логом. PDF пересобраны.
-- **5.13.21** - сплошная вычитка справок и подписей всего модуля. Исправлены битые ссылки на инструменты, подписи параметров приведены к одному виду, имена параметров в справках сверены с тем, что стоит в окне.
-- **5.13.20** - переработаны подсказки параметров и справки четырёх инструментов. Подсказка теперь начинается с ответа на вопрос «включать или нет».
-- **5.13.19** - вычитаны английское руководство, английский быстрый старт и английский README. Шестьдесят одно предложение в английском руководстве было сцеплено запятыми вместо точек.
-- **5.13.18** - вычитаны описание для каталога QGIS, быстрый старт и README. В руководстве счётное «число» заменено на «количество», убраны медицинские сравнения.
-- **5.13.17** - вычитано руководство пользователя. Длинные предложения разбиты, разговорные слова убраны, подписи параметров в тексте совпадают с панелью.
-- **5.13.16** - вычитана контекстная справка всех инструментов. Убраны разговорные слова и оценки того, что важнее и полезнее, предложения стали короче, а «число» заменено на «количество» там, где считаются штуки. Английская справка инструмента 2.18 снова берётся из своей записи словаря.
-- **5.13.15** - контурные полигоны больше не получают чужой диапазон уровней. На частом сечении, где пояс тоньше ячейки, на карте появлялся осколок чужого цвета. Теперь диапазон читается из отметок ограничивающих изолиний. Нашёл дефект Дмитрий Березин на своих данных.
-- **5.13.14** - инструменты LandXML собраны в новую группу «Обмен данными» и получили номера 8.01 и 8.02. Добавлен 8.03 - пишет десять примеров файлов с одной местностью, записанной по-разному, чтобы проверить чтение на заранее известном ответе. Файл, где поверхность задана одними бровками, больше не даёт пустого слоя.
-- **5.13.13** - из руководств убрана разговорная лексика и медицинские сравнения. Текст ровный и профессиональный, смысл тот же.
-- **5.13.12** - длинные составные предложения разбиты, двоеточия внутри предложений заменены запятой, точкой или тире. Текст читается ровнее, смысл тот же.
-- **5.13.11** - из руководств убрано всё про внутреннее устройство модуля: как собирается список инструментов, на чём он написан, какие библиотеки использует и что проверено тестами. Осталось то, что нужно для работы.
-- **5.13.10** - руководства проверены по расположению материала: куски старого описания инструментов убраны из введения, список инструментов больше не разрывает раздел установки, разделы про профилирование откосов вернулись в свою главу, повторяющиеся куски сведены к одному месту, а номера инструментов в приложении исправлены.
-- **5.13.9** - руководства перечитаны от начала до конца: связки между предложениями возвращены, разбитые надвое абзацы собраны обратно, пустые советы вроде «этот слой стоит открыть» убраны. Правка прошлой версии нарубила текст слишком мелко, теперь он снова читается подряд.
-- **5.13.8** - руководство пользователя переписано целиком, русское и английское: длинные составные предложения разбиты на короткие, у каждого абзаца первым идёт тезис. Состав сведений тот же, читать стало легче.
-- **5.13.5** - новые инструменты 2.24 и 2.25: чтение и запись LandXML. В этом формате отдают результат программы обработки тахеометрической съёмки, и поперечники с пикетами в QGIS до сих пор не читал никто.
-- **5.13.4** - 2.15 и 2.17 считают длину речной сети внутри водосбора и её густоту по заданному порогу аккумуляции. У полей водосбора появились подписи словами, а в руководстве разобраны все поля отчёта: `sp_iso_km` это длина горизонталей, а не притоков.
-- **5.13.3** - в инструментах 1.11, 1.12 и 4.06 обновлена запись настроек окна: прежняя форма уходит из QGIS, и на будущих сборках окно параметров у них перестало бы открываться.
-- **5.13.2** - в руководстве и на странице быстрого старта убрано число инструментов, которое отстало от модуля: список инструментов собирается из самого модуля и всегда верен.
-- **5.13.1** - слой стрелок Дарси называет величину и единицу, поле расхода теперь `q`, а без растров K и T инструмент отвечает текстом вместо обрыва расчёта. Новый инструмент 4.13: содержания по пласту в устьях скважин, вход для кригинга карты содержаний. 4.02 красит колонки по содержанию из таблицы проб, сам находит поля инклинометрии и сам определяет принятый в базе отсчёт зенитного угла, а трёхмерный выход идёт по настоящей траектории ствола.
-- **5.13.0** - порядок объектов во входном слое больше не влияет на карту кригинга. Кригинг сообщает о ячейках, посчитанных запасным способом. Запуск из модели или скрипта с частью параметров берёт недостающие из объявления инструмента, а не из прошлого запуска. 5.05 узнаёт поверхности от 5.03 по метке в файле.
-- **5.12.9** - пересечение векторов с разрезом (4.05) снова записывает полосы: перенос атрибутов мог оборвать запись, а инструмент при этом сообщал об успехе. Уклон и экспозиция (2.08) теперь пишут в журнал размах уклона и число посчитанных ячеек. Снятие ступеней (2.14) предупреждает, когда ступеней во входном рельефе не было, а отметки всё равно сдвинулись. Развёртка стенки ствола (4.09) на неподходящий слой отвечает понятным текстом вместо обрыва расчёта. Изолинии (1.04) называют файл, в который легли линии с отметками.
-- **5.12.8** - инструменты, которые готовят рельеф и считают гидрологию, больше не сообщают, что результат может быть неполным. В журнале теперь видно, что заполнение понижений сошлось, и за сколько проходов. Отметки рельефа при этом прежние.
-- **5.12.7** - в вариограммных инструментах прежний заимствованный термин заменён на «расстояние» и «шаг»: метки «Количество шагов» и «Макс. расстояние». Из руководства убраны оценочные сравнения.
-- **5.12.6** - врезка поверхностей (1.11) сообщает о пустых ячейках в результате, если региональная не покрывает заданный охват.
-- **5.12.5** - во врезке поверхностей (1.11) заработал режим «Не снимать»: он молча правил высоту вместо того, чтобы оставить её как есть.
-- **5.12.4** - MBA (1.12) снимает тренд перед подгонкой: на данных, далёких от нуля, поверхность ныряла к нулю в пустых местах внутри облака точек, и числом уровней это не лечилось. Промах в проверочной дыре упал с 30 м до метра.
-- **5.12.3** - забор 3D из 4.01 режется по звеньям трассы: в сцене больше нет просветов между полосами, которые давала веерная триангуляция длинного невыпуклого кольца.
-- **5.12.2** - у полос разреза 4.01 появилось поле color с цветом пласта: сцена и внешние потребители берут цвет из данных, не разбирая символику слоя.
-- **5.12.1** - забор 3D из 4.01 красится теми же категориями пластов, что чертёж: в сцене разрез больше не одноцветный.
-- **5.12.0** - чистка модуля: убраны неиспользуемые импорты и мёртвые присваивания, а проверка переводов расширена на весь пакет - прежде она смотрела пять файлов из тридцати и не видела строк окон.
-- **5.11.2** - у 1.12 задаются нижняя и верхняя границы результата: содержание не бывает отрицательным, а гладкая поверхность между замерами за диапазон проскакивает. В журнале видно, сколько площади срезано и насколько далеко уходило.
-- **5.11.1** - в 1.12 исправлен порядок осей при построении растра: значения брались не там, где стоит ячейка. Убран стиль, из-за которого слой выходил чёрным.
-- **5.11.0** - новый инструмент 1.12 «MBA: мультисеточные B-сплайны». Поверхность по разбросанным точкам без решения систем уравнений: миллион замеров считается за секунды там, где кригинг неприменим. Решётки задают радиус влияния и анизотропию, число уровней - гладкость. Ошибки оценки метод не даёт, поэтому в разведке им строят тренд, а остатки уточняют кригингом.
-- **5.10.0** - 4.06 сливает отрезки сечения в цепочки по источнику (вместо объекта на каждый треугольник) и выдаёт замкнутые полигонами: у оболочки это тело в разрезе, с площадью. Кольцо получается само, если цепочка сомкнулась - сечение поверхности остаётся линией, потому что хорда между её концами была бы выдуманной. Поля исходного объекта переносятся в кольца.
-- **5.9.5** - врезка поверхностей (1.11) опознаёт пустоту в исходных файлах. Служебное значение ЦМР шло в расчёт как настоящая отметка, из-за чего подробная поверхность не обрезалась по рамке, а поправка уезжала в бессмыслицу и переход выглядел резким.
-- **5.9.4** - у врезки поверхностей (1.11) задаются охват и разрешение результата. Раньше выход шёл в границах подробной поверхности; теперь по умолчанию берётся охват региональной, а ячейка задаётся отдельно - иначе сантиметровая съёмка на региональном охвате дала бы растр в триллион ячеек.
-- **5.9.3** - 4.06 «Пересечение TIN с разрезом» перестал выглядеть зависшим на слое изоповерхности: отмена и полоса хода работы теперь висят на частях геометрии, а не на объектах слоя, а сами части читаются по месту, без объекта Python на каждый треугольник.
-- **5.9.2** - отзывчивость окна «Карта плотности». Поворот ручки во время пересчёта больше не теряется, вспомогательный растр и разобранные объекты слоя не перечитываются на каждое движение ползунка. Запас сбрасывается при правке слоя и не строится на слоях сверх двух миллионов вершин.
-- **5.9.0** - врезка подробной поверхности в региональную (1.11). Подробная съёмка в открытую ЦМР, куст разведочных скважин в региональную модель кровли, детальный участок опробования в общую карту содержаний. Систематическое расхождение снимается по кольцу перекрытия, переход строится весом, а не вырезанной дыркой.
-- **5.8.2** - кнопка «Подоснова» на панели плагина: карта или космоснимок под данные одним движением. Семь источников, от OpenStreetMap до отмывки рельефа и уклонов. Слои описаны файлами .qlr в папке `basemaps`, поэтому свой источник добавляется без правки кода: настроить слой в QGIS и сохранить как файл определения слоя. Окно немодальное и заранее предупреждает, если у системы координат проекта не задан датум - иначе подоснова легла бы со сдвигом молча.
-- **5.8.0** - плоские пояса и скорость гидрологии. Контурный полигон 1.04 кладётся плоско, на верхнюю границу своего пояса, на ту же отметку, что верхняя крышка его тела: ступенчатую поверхность даёт стопка поясов, а полигоны и тела ложатся друг на друга без зазора. Отметки вдоль одного кольца пробовали порогом по середине пояса и выборкой самой поверхности, оба раза на трёхмерной сцене выходили ленты, уезжающие по высоте: неплоское кольцо движок триангулирует в плане и натягивает длинные тонкие треугольники через весь пояс. Заполнение понижений, направления стока, аккумуляция и сборка речной сети ускорены в два-четыре раза каждый: на сетке 4000 на 4000 цепочка занимает 15 секунд против 36 прежних, а результаты совпадают со старыми побитово.
-- **5.6.60-5.6.61** - лист гидроствора и прореживание контуров. В 1.04 появилось прореживание контуров долей ячейки грида, по умолчанию четверть: оно стоит в общем ядре линий и границ поясов, до сборки поясов, поэтому общая граница соседних поясов остаётся общей. Форма 6.01 разгружена, подвал больше не строится геометрией и рисуется оформлением по атрибутам линии участка, а лишние выходы убраны. Профили названы морфостворами, и в общий слой чертежа добавлена вертикальная шкала отметок.
-- **5.6.52-5.6.59** - лист гидроствора. Чертёж створа выдаётся одним линейным слоем: профиль по участкам, линии уровней, подвал. Части различаются полем kind, оформление вешается стилем на него. Отметка земли лежит в координате Z вершин профиля, а характеристики участка - в атрибутах его линии, поэтому подвал можно собрать одним оформлением. Появилось отношение масштабов, вертикаль к горизонтали: при карте 1:1000 и отношении 10 вертикальный масштаб выходит 1:100. Подвал строится строками трёх видов: по участкам, по точкам профиля и сплошной полосой через несколько участков сразу. Пикетаж считается от начала трассы. На графике кривой расходов к расходу и площади добавилась средняя скорость.
-- **5.6.38-5.6.51** - водосборы и отметки поясов. 2.16 и 2.07 переносят поля исходного объекта в выход, появился 2.17 «Отчёт по готовому водосбору» со средним уклоном склонов по СП 33-101-2003. 6.01 отдаёт кривую расходов векторным чертежом со шкалами и засечками уровней обеспеченности. Галочка отметок Z в 1.04 заработала на поясах: вершина берёт ближнюю из двух границ своего пояса, выборка двухступенчатая - билинейно, ближайшей ячейкой только там, где билинейная пуста. Сторож неопределённых имён распространён на весь пакет.
-- **5.6.35-5.6.37** - скорость кригинга. Матрица системы кэшируется по набору соседей, а сами соседи отбираются через сетку клеток вместо перебора всей выборки. На редких данных быстрее в полтора раза, на густых - вчетверо. Оценки не изменились ни в одной ячейке. Исправлено переполнение в степенной модели вариограммы.
-- **5.6.32-5.6.33** - раскоп и общие удобства. Обратный ход с разреза работает по всем бортам: объект возвращается на линию своего разреза, а не первого. Обрезка по маске появилась в минимальной кривизне, индикаторном кригинге и гауссовой симуляции. Поле значения Z стало необязательным в шести инструментах: отметка берётся из геометрии точки.
-- **5.6.21-5.6.30** - локальная анизотропия и разрезы. Кригинг умеет разное направление вытянутости в разных местах: у каждой пробы своё простирание в атрибуте, и карта следует изогнутой структуре, а не одному азимуту на участок. Отброшенные ураганные пробы отдаются отдельным слоем с причиной. Расчёт идёт только внутри маски обрезки: на вытянутой по диагонали площади это до девяти раз быстрее. Проекция объектов работает по всем разрезам определения, а не по первому. У разреза появились верх рамки и шаг отметок на осях. Манифест модели заработал в обе стороны: 4.01 и 4.02 находят слои по ролям.
-- **5.6.0-5.6.20** - разрезы и вариограммы. Вариограмма переехала из настроек QGIS в табличный слой: 1.05 подбирает и заносит модель, 1.06 дописывает анизотропию, 1.02 и 1.07 читают. Таблица уезжает с проектом, попадает в репозиторий и правится в атрибутивной таблице QGIS. 4.02 принимает инклинометрию: ось строится минимальной кривизной, интервалы выносятся вдоль неё, отбор по коридору идёт по всей оси. Таблица интервалов стала необязательной, а при несовпадении hole_id инструмент называет ключи с обеих сторон и распознаёт причину. 2.22 переименован в «Профилирование откосов», принимает высотные отметки и полигоны. У 4.07 появились галочки имени и стиля исходного слоя.
-- **5.0.0** - разрывные нарушения стали сквозной темой. Разломы принимают три инструмента: в 1.02 барьер видимости при отборе соседей, в 1.03 барьер на рёбрах сетки с мембраной у линии, в 1.04 разрез изолиний по линии и коридор, снимающий полосу интерполяции поперёк разрыва. Разлом нигде не переводится в сетку, поэтому ступенек по ячейкам нет и разбивать площадь на блоки не нужно. Затухающий конец отличается от упирающегося в соседний разлом, недоведённые концы называются в журнале. Описание полей в справках закончено и стережётся тестом, в руководстве появились названия групп.
-- **4.96.0-4.99.1** - разломы доведены до карты. В 1.02 барьер считается точной геометрией, в сетку разлом не переводится, пустых ячеек вдоль линии не возникает. У 1.03 разломы появились впервые: барьер живёт на рёбрах между узлами, у самой линии работает мембрана. У 1.04 изолинии режутся по линии, а коридор шириной в ячейку снимает полосу частых изолиний поперёк разрыва. Названа и цена приближения: ковариации между замерами остаются евклидовыми, иначе система кригинга вырождается. Разломы описаны в справках и в руководстве.
-- **4.92.0-4.95.0** - у 1.02 появились разломы: линии работают барьерами влияния, замер за разломом в выборку ячейки не идёт, и поверхность вдоль линии рвётся. Ячейка на самой линии пишется как nodata, поэтому разрыв виден всему, что работает по гриду, и контурные полигоны замыкаются по разлому сами. У 1.04 появился запасной отсев узких полос по толщине. Имена инструментов приведены к единому виду. В тестах починены сторожа, которые молчали в общем прогоне.
-- **4.91.0** - геологическая модель доросла до сборки: пачка от рельефа и от опорной поверхности, правка по статистике мощностей, манифест модели, карта складчатости, различение среза и выклинивания по зеркалу. В гидрологии зона затопления строится на любой желаемый расход по уже посчитанной кривой.
-- **4.74.1** - уровни обеспеченности и наблюдаемые уровни на чертеже, подвал листа гидроствора, отчёт с графикой: профиль с уровнями и график зависимости расхода от отметки прямо на странице.
-- **4.69.1** - новая группа «6. Гидрология рек»: створы и кривые расходов по Маннингу с раздельным счётом по руслу и поймам, полигон затопления с обратным ходом по кривой, импорт таблиц промеров с раскладкой по оцифрованным линиям, демо-река с известным ответом. Фрактальный анализ переехал седьмой группой, геологическая модель помечена бетой.
-- **4.63.0** - у 4.02 новый выход: якоря подписей интервалов, точка посередине каждого интервала со всеми атрибутами. Составные подписи содержаний вешаются на точки и размещаются штатно.
-- **4.62.0** - демо стало полным разрезом верхнекамского типа: колонка из справочника целиком, эрозия от уровня растворения, карта выхода под зеркало, водозащитная толща, выход папкой.
-- **4.59.0-4.60.0** - соляной купол со срезанной верхушкой в демо, срез переносом поверхностей на зеркало без ступеней, порядок слоёв группы в дереве детерминирован.
-- **4.58.0-4.58.1** - складка соразмерна мощности пачки, граница выклинивания изогнута, справочник демо согласован со слоями.
-- **4.56.0-4.57.3** - новая группа «5. Геологическая модель»: 5.01 согласованность пачки, 5.02 демо-пачка. Фрактальный анализ стал шестой группой.
-- **Готовые модели Processing** в каталоге `models/`: цепочка «Рельеф по топоплану» (2.22 → 2.20 → 2.03) одним запуском, с выходами немых и непарных линий.
-- Шпаргалка **«Рельеф по топоплану»** (RU/EN): связка 2.22 → 2.20 → 2.03 для площадных карьеров, выемок, насыпей и отвалов, где горизонтали внутри по нормативу не описываются.
+- **5.13.41** — 3.09 accepts an extent in degrees and builds the demo in a UTM zone.
+- **5.13.40** — new demo tool 3.09 for 3.01 and 3.02, and 3.01 no longer shrinks narrow replacement zones when no weight field is given.
+- **5.13.39** — the plugin is now named simply Isoliner.
+- **5.13.38** — a new tool, 2.24 Remove bridges from a DEM.
+- **5.13.37** — the 1.04 isolines no longer cross where they run closer than the thinning tolerance.
+- **5.13.36** — a new order of group 1: kriging, minimum curvature and MBA in a row, declustering right before the variogram.
+- **5.13.35** — a third terrain source in 2.01: Mapzen Terrain Tiles (SRTM, ArcticDEM and national DEMs).
+- **5.13.34** — field labels are written into the GeoPackage file itself.
+- **5.13.33** — numbers in the output tables are rounded to a sensible precision by the units of each field.
+- **5.13.32** — readable field names on the outputs of every tool; a label follows its field along a chain of tools.
+- **5.13.31** — readable field names (aliases) on the demo layers, in the language of the interface; the field names themselves are unchanged.
+- **5.13.30** — subsidence rates in the 9.03 demo trough; the Russian labels of declustering no longer say «свип».
+- **5.13.29** — the Russian name of group 9 is now "Сдвижения", the word surveyors use; the English name is unchanged.
+- **5.13.28** — a new "9. Subsidence" group with tilt and curvature from subsidence, horizontal strain and an example trough by the formulas of the Verkhnekamskoye deposit Instructions.
+- **5.13.27** — the 6.01 help and manual section match what the tool outputs, the English names of the demo tools follow one pattern.
+- **5.13.26** — a language button on the toolbar.
+- **5.13.25** — the interface language and the help language are chosen separately, under Plugins - Isoliner - Language. They change at once, with no restart of QGIS.
+- **5.13.24** — the last "log" removed from the help, and a guard added for the terms visible in the dialog.
+- **5.13.23** — in the declustering help and report the histogram is called original and weighted rather than "raw".
+- **5.13.22** — the manual has been reconciled with the dialog. The parameter labels in the chapter tables differed from what the dialog shows in twenty-two places. The PDFs have been rebuilt.
+- **5.13.21** — a full proofreading pass over the help texts and parameter labels of the whole module. Broken tool cross-references have been fixed, the labels brought to a single form, and the parameter names used in the help checked against the ones shown in the dialog.
+- **5.13.20** — the parameter hints and the help of four tools have been reworked. A hint now opens with the answer to "switch it on or not".
+- **5.13.19** — the English manual, quick start and README have been proofread. Sixty-one sentences in the manual were comma splices rather than long sentences.
+- **5.13.18** — the catalogue description, the quick start page and the README have been proofread. Wording in the manual was tightened as well.
+- **5.13.17** — the user manual has been proofread. Long sentences are split, colloquial wording is gone, and the parameter labels in the text match the panel.
+- **5.13.16** — the in-program help of every tool has been proofread. Colloquial wording and judgements about what matters more are gone, sentences are shorter, and a few parameter labels are reworded. The English help of tool 2.18 is taken from its own dictionary entry again.
+- **5.13.15** — contour polygons no longer get the wrong level range. At a fine interval, where a band is thinner than a cell, a shard of an alien colour used to appear on the map. The range is now read from the elevations of the bounding isolines. The defect was found by Dmitry Berezin on his own data.
+- **5.13.14** — the LandXML tools are gathered into a new "Data exchange" group and renumbered 8.01 and 8.02. A new 8.03 writes ten example files holding one terrain written in different ways, so the reading can be checked against a known answer. A file whose surface is given by breaklines alone no longer produces an empty layer.
+- **5.13.13** — colloquial vocabulary and medical metaphors are removed from both manuals. The text is even and professional and says the same thing.
+- **5.13.12** — long compound sentences are split where it helps, and colons inside sentences are replaced by a comma, a full stop or a dash. The text reads more evenly and says the same thing.
+- **5.13.11** — everything about the internals of the module is gone from the manuals: how the tool list is assembled, what it is written in, which libraries it uses and what was covered by tests. What is left is what you need to do the work.
+- **5.13.10** — both manuals were checked for where the material sits: leftovers of an old tool description are gone from the introduction, the full tool list no longer splits the installation section in half, two sections on slope profiling returned to their own chapter, repeated blocks were reduced to one place, and the tool numbers in the appendix were corrected.
+- **5.13.9** — both manuals are read through end to end: the connectives between sentences are back, paragraphs that had been split in two are joined again, and hollow advice such as "this layer is worth opening" is gone. The previous edit chopped the text too finely, and it reads as continuous prose again.
+- **5.13.8** — the user manual is rewritten in full, both Russian and English: long compound sentences are split into short ones, and every paragraph opens with its point. The content is the same, the reading is easier.
+- **5.13.5** — new tools 2.24 and 2.25: reading and writing LandXML. The programs that process total station surveys give their result in this format, and nothing in QGIS has read cross sections with stations until now.
+- **5.13.4** — 2.15 and 2.17 compute the length of the stream network inside the catchment and its density at a given accumulation threshold. The catchment fields now carry names in words, and the manual describes every field of the report: `sp_iso_km` is the length of the contours, not of the tributaries.
+- **5.13.3** — the way the dialog settings are written is updated in tools 1.11, 1.12 and 4.06: the former form is going away from QGIS, and on future builds their parameter window would have stopped opening.
+- **5.13.2** — the tool count that had fallen behind the module is removed from the manual and the quick start page: the tool list is generated from the module itself and is always correct.
+- **5.13.1** — the Darcy arrow layer names the quantity and the unit, the discharge field is now `q`, and without the K and T rasters the tool answers in words instead of breaking off. A new tool 4.13: bed grades at the well collars, an input for kriging a grade map. 4.02 colours the columns by grade from the sample table, finds the survey fields on its own, detects the zenith angle convention used in the database, and the 3D output follows the real trajectory of the hole.
+- **5.13.0** — the order of features in the input layer no longer changes the kriging map. Kriging reports the cells computed by the fallback method. A run from a model or a script with part of the parameters takes the missing ones from the declaration of the tool rather than from the previous run. 5.05 recognizes the surfaces built by 5.03 by a mark in the file.
+- **5.12.9** — the section/vector intersection (4.05) writes its bands again: carrying attributes across could break the write while the tool still reported success. Slope and aspect (2.08) now log the slope range and the number of computed cells. Terrace removal (2.14) warns when the input relief had no terracing and the elevations were moved anyway. The shaft wall unwrap (4.09) answers an unsuitable layer with a plain message instead of aborting. The contour tool (1.04) names the file the elevation-carrying lines were written to.
+- **5.12.8** — the terrain preparation and hydrology tools no longer report that the result may be incomplete. The log now shows that the depression fill has converged and after how many passes. The elevations are unchanged.
+- **5.12.7** — the Russian texts of the variogram tools no longer use the borrowed term for the distance between a pair of points, and the labels now read «number of steps» and «max distance». Evaluative comparisons are removed from the manual. The English texts are unchanged.
+- **5.12.6** — the surface graft (1.11) reports empty cells in the result when the regional surface does not cover the given extent.
+- **5.12.5** — the «do not remove» mode of the surface graft (1.11) now works: it used to correct the height silently instead of leaving it as it is.
+- **5.12.4** — MBA (1.12) removes a trend before the fit: on data far from zero the surface dived towards zero in empty places inside the cloud of points, and the number of levels did not cure it. The error in the test void dropped from 30 m to a metre.
+- **5.12.3** — the 3D fence of 4.01 is split by the links of the trace: the gaps between the bands, caused by fan triangulation of one long non-convex ring, are gone from the scene.
+- **5.12.2** — the bands of 4.01 now carry a `color` field: the scene and outside consumers take the colour from the data instead of parsing the layer symbology.
+- **5.12.1** — the 3D fence of 4.01 is coloured by the same bed categories as the drawing: the section in the scene is no longer of a single colour.
+- **5.12.0** — a clean-up of the module: unused imports and dead assignments are gone, and the translation check now scans the whole package - it used to look at five files out of thirty and missed the strings of the windows entirely.
+- **5.11.2** — lower and upper bounds of the result are now set for 1.12: a grade is never negative, while a smooth surface between measurements overshoots the range. The log shows how much of the area was cut and how far it went.
+- **5.11.1** — the order of the axes when building the raster is fixed in 1.12: the values were taken from the wrong place. The style that made the layer black is removed.
+- **5.11.0** — a new tool, 1.12 «MBA: multilevel B-splines». A surface over scattered points without solving any system of equations: a million measurements takes seconds where kriging does not apply at all. The lattices set the radius of influence and the anisotropy, the number of levels sets the smoothness. The method gives no error of the estimate, so in exploration it is used to build a trend whose residuals are refined by kriging.
+- **5.10.0** — 4.06 merges the segments of a section into chains per source (instead of one feature per triangle) and gives the closed ones as polygons: for a shell that is the solid in section, with an area. A ring appears by itself if the chain closes - the section of a surface stays a line, because a chord between its ends would be invented. Fields of the source object are carried into the rings.
+- **5.9.5** — the surface graft (1.11) now recognises holes in the source files. A DEM service value went into the computation as a real elevation, so the detailed surface was not clipped to the frame and the correction drifted into nonsense, leaving a hard edge.
+- **5.9.4** — the extent and the resolution of the result are now set for the surface graft (1.11). The output used to come out within the bounds of the detailed surface; now the extent of the regional one is taken by default and the cell is set separately - otherwise a centimetric survey over a regional extent would give a raster of a trillion cells.
+- **5.9.3** — 4.06 (intersecting a TIN with a section) no longer looks stuck on an isosurface layer: cancellation and the progress bar now hang on the parts of a geometry rather than on the features of a layer, and the parts themselves are read in place, without a Python object per triangle.
+- **5.9.2** — responsiveness of the density map window. A turn of a knob during a recompute is no longer lost, and neither the auxiliary raster nor the parsed features of the layer are re-read on every move of a slider. The store is dropped when the layer is edited and is not built at all on layers beyond two million vertices.
+- **5.9.0** — grafting a detailed surface into a regional one (1.11). A detailed survey into an open DEM, a cluster of exploration holes into a regional model of a seam roof, a detailed sampling area into a general grade map. The systematic offset is removed over the ring of overlap, and the transition is built by a weight rather than a hole cut out and interpolated.
+- **5.8.2** — a **Basemap** button on the plugin toolbar: a map or satellite imagery under the data in one move. Seven sources, from OpenStreetMap to hillshade and slopes. The layers are described by .qlr files in the `basemaps` folder, so your own source is added without touching the code: set the layer up in QGIS and save it as a layer definition file. The window is modeless and warns in advance if the coordinate system of the project has no datum — otherwise the basemap would land with a silent shift.
+- **5.8.0** — flat belts and the speed of the hydrology tools. A contour polygon of 1.04 is laid flat, at the upper bound of its band, at the same elevation as the top cap of its solid: the stepped surface comes from the stack of belts, and belts and solids sit on each other without a gap. Elevations varying along a single ring were tried by a threshold at the middle of the band and by sampling the surface itself, and both times ribbons running away in height appeared in the 3D scene: a non-planar ring is triangulated by the engine in plan and long thin triangles get stretched across the whole belt. Depression filling, flow directions, accumulation and the assembly of the river network are each two to four times faster: on a 4000 by 4000 grid the chain takes 15 seconds against the former 36, and the results match the old ones bit for bit.
+- **5.6.60—5.6.61** — the gauging section sheet and the thinning of contours. In 1.04 the thinning of contours by a share of a grid cell appeared, a quarter by default: it stands in the shared core of the lines and of the belt boundaries, before the belts are assembled, so the common boundary of neighbouring belts stays common. The form of 6.01 was unloaded, the footer is no longer built as geometry and is drawn by presentation over the attributes of the line of a part, and the spare outputs were removed. The profiles are named morphological sections, and a vertical scale of elevations was added to the common layer of the drawing.
+- **5.6.52—5.6.59** — the gauging section sheet. The drawing of a section is given as one line layer: the profile by parts, the lines of the levels, the footer. The parts are told apart by the kind field, and the presentation is hung by a style on it. The ground elevation lies in the Z coordinate of the vertices of the profile, and the properties of a part in the attributes of its line, so the footer can be built by presentation alone. A ratio of the scales appeared, vertical to horizontal: with a map at 1:1000 and a ratio of 10 the vertical scale comes out at 1:100. The footer is built from rows of three kinds: by parts, by points of the profile, and as a continuous band across several parts at once. The chainage is counted from the start of the route. On the rating curve plot the mean velocity joined the discharge and the area.
+- **5.6.38—5.6.51** — catchments and the elevations of belts. 2.16 and 2.07 carry the fields of the source object into the output, and 2.17 «Report on a ready catchment» appeared, with the mean slope of the hillsides after SP 33-101-2003. 6.01 gives the rating curve as a vector drawing with scales and ticks of the probability levels. The Z elevation option in 1.04 started working on belts: a vertex takes the nearer of the two boundaries of its belt, and the sampling is two-step — bilinear, and by the nearest cell only where the bilinear one is empty. The guard of undefined names was extended over the whole package.
+- **5.6.35—5.6.37** — kriging speed. The system matrix is cached by the set of neighbours, and the neighbours themselves are selected through a grid of cells instead of scanning the whole sample. One and a half times faster on sparse data, fourfold on dense. The estimates did not change in a single cell. An overflow in the power variogram model is fixed.
+- **5.6.32—5.6.33** — pits and common conveniences. The round trip from a section works over every wall: an object returns to the line of its own section rather than the first one. Clipping by a mask appeared in minimum curvature, indicator kriging and gaussian simulation. The value field Z became optional in six tools: the elevation is taken from the geometry of the point.
+- **5.6.21—5.6.30** — local anisotropy and sections. Kriging handles a direction of elongation that varies across the ground: every sample carries its own strike in an attribute, and the map follows the curved structure rather than a single azimuth over the area. Discarded outliers are given as a separate layer with a reason. The computation runs inside the clipping mask only: on a diagonally elongated area that is up to nine times faster. Object projection works over every section of the definition rather than the first one. The section gained a frame top and a step for the elevation ticks. The model manifest now works both ways: 4.01 and 4.02 find layers by their roles.
+- **5.6.0—5.6.20** — sections and variograms. The variogram moved out of the QGIS settings into a table layer: 1.05 fits and records the model, 1.06 writes the anisotropy into it, 1.02 and 1.07 read it. The table travels with the project, goes into the repository and is edited in the QGIS attribute table. 4.02 accepts inclinometry: the axis is built by minimum curvature, the intervals are carried along it, and the corridor selection runs over the whole axis. The interval table became optional, and on a hole_id mismatch the tool names the keys from both sides and recognises the cause. 2.22 was renamed to Profiling of slopes and now accepts spot heights and polygons. 4.07 gained the checkboxes for the name and the style of the source layer.
+- **5.0.0** — faults became a running theme. Three tools accept them: in 1.02 a barrier of visibility in the neighbourhood selection, in 1.03 a barrier on the grid edges with a membrane at the line, in 1.04 the cutting of isolines along the line and a corridor that removes the strip of interpolation across the break. The fault is never turned into cells, so there are no steps along cell edges and no need to split the area into blocks. A dying end is told apart from one abutting a neighbouring fault, and ends left short are named in the log. The documentation of parameters is complete and guarded by a test, and the manual now carries the names of the tool groups.
+- **4.96.0—4.99.1** — faults carried through to the map. In 1.02 the barrier is tested by exact geometry, the fault is never turned into cells and no empty cells appear along the line. In 1.03 faults arrived for the first time: the barrier lives on the edges between nodes, and a membrane works right at the line. In 1.04 the isolines are cut along the line, and a corridor one cell wide removes the strip of crowded isolines across the break. The price of the approximation is named too: the covariances between measurements stay Euclidean, otherwise the kriging system becomes singular. Faults are documented in the tool help and in the manual.
+- **4.92.0—4.95.0** — faults arrived in 1.02: lines act as barriers of influence, a sample beyond a fault does not enter the neighbourhood of a cell, and the surface breaks along the line. A cell on the line itself is written as nodata, so the break is visible to everything that works off the grid and contour polygons close along the fault by themselves. A fallback filter of narrow strips by thickness was added to 1.04. Tool names were brought to a single form. In the tests, guards that stayed silent in a full run were repaired.
+- **4.91.0** — the geological model has grown up to assembly: a stack from the relief and from a datum surface, a correction by the statistics of thicknesses, the model manifest, a map of folding, telling a cut from a pinch-out by the mirror. In hydrology the flood extent is built for any desired discharge over a curve already computed.
+- **4.74.1** — probability and observed levels on the drawing, the footer of a gauging sheet, a report with graphics: the profile with the levels and the graph of discharge against level on the page itself.
+- **4.69.1** — the new "6. River hydrology" group: cross-sections and rating curves by Manning with a separate count over the channel and the floodplains, a flood extent polygon with the backward move along the curve, an import of sounding tables laid along digitized lines, a demo river with a known answer. Fractal analysis moved to the seventh group, the geological model is marked beta.
+- **4.63.0** — 4.02 gains a new output: label anchors of intervals, a point in the middle of every interval with all its attributes. Composite grade labels attach to points and place normally.
+- **4.62.0** — the demo became a full section of the Verkhnekamskoye type: the whole column from the reference, erosion from the dissolution level, a subcrop map, the water-protective sequence, a folder output.
+- **4.59.0–4.60.0** — a salt dome with a dissolved top in the demo, the cut carried onto the mirror without steps, the group layer order in the tree made deterministic.
+- **4.58.0–4.58.1** — the fold sized to the stack thickness, the pinch-out boundary bent, the demo reference aligned with the layers.
+- **4.56.0–4.57.3** — the new "5. Geological model" group: 5.01 stack consistency, 5.02 the demo stack. Fractal analysis became the sixth group.
+- **Ready Processing models** in `models/`: the "Terrain from a topographic plan" chain (2.22 -> 2.20 -> 2.03) in a single run, with the mute and unpaired line outputs.
+- The **"Terrain from a topographic plan"** cheat sheet (RU/EN): the 2.22 → 2.20 → 2.03 chain for areal quarries, cuts, fills and dumps, where the standard describes no contours inside.
 
-- **4.55.0** - быстрый старт в руководствах (семь сценариев по задачам, а не по инструментам), пресеты «Что построить» в демо 2.10 и 2.21, прореживание вершин полос в 4.05, восстановленный генератор дерева инструментов.
-- **4.51.0** - сводный выпуск ветки углов падения: 4.05 с видимым углом и наклоном полос, 4.12 «Элементы залегания по следу выхода», демо с аналитическим эталоном, статья-шпаргалка «Геологический разрез».
-- **4.47.0** - ЦМР в 2.20 стала необязательной: при отметках на линиях пары собираются без рельефа, топографический сценарий перестал ходить по кругу.
-- **4.46.0** - 2.20 читает поле вида терпимо: коды классификаторов и названия со словами «бровка» и «подошва», таблица решений в журнале.
-- **4.45.0** - вес измеренных отметок в 2.03: в общей ячейке измерение перевешивает вершину оцифрованной горизонтали.
-- **4.44.0** - 2.22 «Отметки с примыкающих горизонталей»: немые бровки получают профиль по узловым точкам примыкания.
-- **4.43.0** - поверхность между структурными линиями в 2.03: входы Верх форм и Низ форм, ядро на методе расстояний, раздел в руководстве.
-- **4.42.0** - в демо насыпь с поворотом гребня для замера цены метода расстояний, пороги детектора получили физический пол вместо привязки к максимуму.
-- **4.41.0** - разведён омоним «подошва» в словаре переводов (пласт bottom, уступ toe), тест валится на конфликтующих ключах.
-- **4.40.0** - 2.20 перешёл с пар на формы: одна подошва и множество бровок при ней с общим полем связи, дубликатов в слое Низ больше нет.
-- **4.39.0** - раскраска кандидатов 2.19 стала осмысленной: классы появляются, только когда перепад действительно разный.
-- **4.38.0** - охват в 2.21 кладёт демо на место и больше не растягивает его до размеров охвата.
-- **4.37.0** - стиль выходных слоёв перестал затираться группировкой в дереве слоёв.
-- **4.36.0** - раскраска структурных линий переехала из QML в код, база замера перепада в 2.19 поднята до 8 ячеек.
-- **4.35.0** - 2.20 «Бровки и подошвы в работу»: отметки с ЦМР, пары спуском по склону, готовые входы для построения поверхности.
-- **4.34.0** - 2.19 «Кандидаты бровок и подошв» и 2.21 «Пример карьера (демо)»: начало ветки структурных линий.
-- **4.33.0** - в 4.05 две галочки: «Сохранять имя исходного слоя» и «Сохранять стиль исходного слоя». Категорийная раскраска геологии ложится на разрез как есть.
-- **4.32.0** - у 3.01 появилась «Доля самородка»: ноль делает оценку точной у данных, и скважина удерживает свой класс в своей ячейке. Подобранные самородок и радиус по классам печатаются в журнал.
-- **4.31.0** - 4.05 обрезает зоны и разломы снизу по линии низа с чертежа, парой к верхней обрезке. С 4.07 и 4.08 снята метка «бета».
-- **4.30.0** - 4.05 обрезает зоны и разломы сверху по линии рельефа с чертежа, низ полос берётся из поля объекта.
-- **4.29.0** - 4.05 переносит атрибуты объектов на чертёж: полосы и вертикали красятся по своим полям.
-- **4.28.0** - тальвеги в 2.03 несут отметки: промер по руслу задаёт дно, а не только направление падения.
-- **4.27.0** - демо 4.10 выдаёт свой справочник пластов под коды своих интервалов.
-- **4.26.1** - демо-скважины вынесены отдельным разделом в справке 4.10, руководствах и README.
-- **4.26.0** - у 2.03 появилась граница области построения: полигон ограничивает поверхность, маска ложится после интерполяции.
-- **4.25.0** - 2.18 выдаёт слой участков с объёмами в атрибутах и умеет обрезать растр разности по участкам.
-- **4.24.0** - каталожный релиз, сводит ночные 4.18-4.23.
-- **4.23.1** - при одной поверхности 4.01 не создаёт слои для полос пластов и забора 3D: подавления в результате мало, destination-параметр регистрирует слой на загрузку сам.
-- **4.23.0** - разрез по одной поверхности доведён до рабочего вида, новый выход «Линии поверхностей на чертеже».
-- **4.22.1** - память слоёв: страж живости ссылки закрыт на втором входе, прямые дефолты параметров его миновали.
-- **4.22.0** - 4.01 строится по одной поверхности, в дополнительных параметрах появился низ рамки отметкой.
-- **4.21.1** - ведомость 2.18 печатает числа с разделителями разрядов, площади в гектарах, в таблице по участкам строка итога.
-- **4.21.0** - демо-рельеф 2.10 выдаёт пару поверхностей для 2.18: проектную площадку и участки работ. Отметка площадки берётся средним, при котором нетто строго ноль.
-- **4.20.0** - новый инструмент 2.18 «Насыпи и выемки (объёмы работ)».
-- **4.19.1** - 2.16 переименован в «Водосбор. Линии и контуры»: инструмент принимает и полигоны.
-- **4.19.0** - удалён 2.17 «Сгущение горизонталей секущими». Приём проверен измерением: на 2.03 Topo2Raster притяжение отметок к уровням выросло с 1.09 до 1.14, кривизна и заполнение понижений тоже, пользы приём не дал.
-- **4.18.3** - память входных слоёв не подставляет мёртвые ссылки: id проверяется на разрешимость в текущем проекте.
-- **4.17.0** - пре-релизный проход: руководства RU и EN дополнены разделом про 4.11, подписи параметров выправлены, PDF пересобраны.
-- **4.16.1** - в образец справочника возвращён составной пласт КрIIIа+б (сумма КрIIIа, КрIIIа-б и КрIIIб), над КрIIIб-в. Составные тела красятся серым #969696: цвет конгломерата из частей не выводится, его ставит человек.
-- **4.16.0** - новый инструмент 4.11 «Образец справочника пластов»: кладёт шаблон прямо в проект. Список справочника в 4.01 и 4.02 ограничен таблицами без геометрии. Из подписей параметров убрано слово «необязательно», пометку дописывает сам QGIS.
-- **4.15.0** - убраны папка palettes и весь код палитр Leapfrog: источник цвета в разрезах теперь один, справочник пластов. Правила сопоставления кодов (KpII_top находит КрII) сохранены полностью.
-- **4.14.0** - в поставку добавлен образец справочника пластов (папка templates, xlsx и csv). Руководства: разделы про цвет в 4.01 и 4.02 переписаны со справочника, прежние описывали палитру, которой в инструментах уже не было.
-- **4.13.0** - врезка в 2.16 получила профиль «желоб с уклоном к стоку»: дно опускается монотонно, вода не переваливает через борт на волнистом рельефе (приём Ивана Иванова).
-- **4.12.0** - 2.09 переименован в «Вершины и ямы» и ищет всегда оба знака, отметка пишется в Z геометрии. Пикеты экстремумов снимают плоские шапки поверхности, построенной по одним горизонталям.
-- **4.11.1** - в 3.01 векторные границы по вероятностям: линии уровней и полосы-полигоны между ними с готовой раскраской от зелёного к красному. Уровни задаются параметром, по умолчанию 0.25, 0.5 и 0.75. Строятся по каналу вероятностей, а не по карте зон: зона хранит только победителя в ячейке, и контур по ней идёт ступенями по краям ячеек.
-- **4.9.0** - разбор наггета в 1.05: первый лаг и поимённо пары точек, которые его подняли. Предупреждение о негодном подборе вариограммы, когда R² ниже 0.1 либо доля наггета выше половины.
-- **4.8.2** - переключатель стороны в 1.04 разворачивает и подписи, а не одни бергштрихи.
-- **4.8.1** - исправлен флажок записи значения в Z геометрии: слой с Z писался отдельным файлом, а в проект грузился исходный плоский.
-- **4.8.0** - 2.16 принимает не только линии, но и полигоны: контур карьера, борта, любой замкнутый приёмник. Флажок записи значения в Z геометрии в 1.04. Оговорка о границах применимости в 2.15 и 2.16.
-- **4.7.1** - чтение палитры без модулей xml: собственный разбор вместо стандартного разборщика, которого не принимает сканер безопасности каталога.
-- **4.7.0** - палитра кодов Leapfrog (.lfc) в 4.01 и 4.02, новый инструмент 2.16 «Водосбор линии (канавы)», демо-трассы в 2.10, подсчёт разрывов в колонках скважин.
-- **4.6.1** - совместимость с Qt6 по проверке каталога: категория-ловушка раскраски брала пустой QVariant вместо NULL из qgis.core. Из поставки убран служебный кэш pytest, который сканер секретов принимал за находку.
-- **4.6.0** - новый инструмент 2.15 «Отчёт по створу» (морфометрия водосбора от точки замыкания), демо-створы в 2.10, укладка демо к слоям проекта, исправлено падение QGIS при загрузке нескольких выходных слоёв, старые демо-скважины h1...h6 удалены.
-- **4.5.0** - 4.02: обрезка колонок по чертежу вместо линий кровли и подошвы, один вход принимает полигоны полос из 4.01.
-- **4.4.0** - 4.02: обрезка колонок линиями кровли и подошвы из 4.04.
-- **4.3.0** - 4.02: обрезка колонок по рамке чертежа zmin и zmax из определения, допуск и выключатель.
-- **4.2.0** - 4.02: подпись устья из поля number слоя collar, синонимы name и label, hole_id остаётся в атрибутах.
-- **4.1.1** - 4.02: устья переводятся в систему координат определения при чтении, диагностика СК и ближайшего устья на экран.
-- **4.1.0** - модель данных бурения collar и interval и новый пакетный инструмент 4.02 «Скважины на разрезе (модель бурения)»: поля находятся сами, терпимый читатель со сводкой, раскраска и легенда по кодам, память входов, 3D-выход. Демо 4.10 выдаёт пару collar и interval. Прежний 4.02 на полях h1...h6 удалён.
-- **4.0.2** - исправлен вывод разреза (группа 4): чертёж больше не уходит за кадр карты в проектах с местными СК. Слои чертежа получают инженерную СК вместо пустой. В 4.01 порядок поверхностей по умолчанию берётся из дерева слоёв проекта (ручной порядок остаётся по галочке).
-- **4.0.1** - исправлена геопривязка ЦМР в 2.01 для СК с осями север-восток (GSK-2011 и другие Гаусс-Крюгер, Крассовский): растр больше не уезжает в зеркальную точку, «Приблизить к слою» работает. UTM этим не страдал.
-- **4.0.0** - трёхмерная часть вынесена в отдельный модуль Isoliner 3D (готовится к публикации): 3D-просмотр, группа «Пласт и блочная модель» (5.01-5.07), меши 2DM, полиэдры и встроенные pyqtgraph/PyOpenGL. Пакет полегчал с ~12 до ~8 МБ. Фракталы перенумерованы из 6.xx в 5.xx, идентификаторы инструментов не менялись, модели пользователей работают. Кому нужна прежняя функциональность целиком - версия 3.2.0 остаётся в каталоге.
-- **3.2.0** - 2.03 умеет переменный урез воды (наклон реки по Z узлов полигона), 2.04 переработан в «Подготовку рельефа» со сглаживанием FPDEMS (сохраняет бровки), галочка сглаживания добавлена в 2.01.
-- **3.1.1** - исправлен масштаб высот GEDTM30 (были вдесятеро меньше): COG читается через translate -unscale.
-- **3.1.0** - в 2.01 добавлен выбор источника рельефа: помимо Copernicus GLO-30 (DSM) теперь GEDTM30 (DTM без леса, CC BY 4.0) от OpenGeoHub, точнее под пологом леса.
-- **3.0.4** - совместимость со сканером безопасности каталога: узкие типы исключений вместо широкого except с тихим pass/continue.
-- **3.0.3** - исправлен сбой Topo2Raster на QGIS 4 при одиночных геометриях (asMultiPoint/asMultiPolyline/asMultiPolygon).
-- **3.0.2** - выходные слои топографии добавляются в дерево свёрнутыми.
-- **3.0.1** - обкатка на QGIS 4: 2.01 и 2.10 принимают пользовательские СК без кода EPSG (WKT в варп), выходы топографии складываются в группу «Топография» дерева слоёв, в справках описания выходных файлов, в руководстве урок по Topo2Raster.
-- **3.0.0** - новая группа «2. Топография» (десять инструментов): загрузка ЦМР Copernicus GLO-30 по рамке без регистрации, топооснова из OSM, Topo2Raster из векторов по мотивам ANUDEM, заполнение понижений, сток и аккумуляция D8, речная сеть со Стралером, бассейны, уклон и экспозиция, вершины, демо-рельеф. Ярлыки прежних групп сдвинуты (дополнительные 3, разрез 4, пласт 5, фракталы 6), идентификаторы инструментов не менялись.
-- **2.65.0** - журнал работы (isoliner.log с версиями, параметрами и временем; при сбое трейсбек), панель инструментов Isoliner с кнопками 3D и «О плагине», иконка 3D.
-- **2.64.1** - пошаговое приложение по плотности (2.07/2.08) и поля демо-слоёв в руководстве.
-- **2.64.0** - новые инструменты 2.07 «Плотность по замерам (переменная опора)» и 2.08 демо: замер размазывается по носителю (точка+сигма, линия-коридор, полигон), масса сохраняется, выход трёхканальный, дазиметрия.
-- **2.63.5** - исправлен пропавший заголовок 1.10 в оглавлении PDF.
-- **2.63.4** - врезка «кригинг или минимальная кривизна» в 1.11 усилена примером оседаний.
-- **2.63.3** - исправлен сбой кригинга при отсутствующем поле Z (понятное сообщение вместо KeyError); в руководство добавлено приложение «Поля демо-слоёв».
-- **2.63.2** - адаптивные имена слоёв при генерации (1.11 по режиму, демо-скважины разреза отличаются от 1.10).
-- **2.63.1** - оседания (1.11) ограничены 2 м, единый знак на выбор, строгие нули по краям.
-- **2.63.0** - инструмент 1.11 расширен: режимы электроразведки (ρк пятном, ЕП, ВП, z, rho_true) и оседаний (мульда по турам). Аномалия теперь пятно, а не полоса.
-- **2.62.0** - новый инструмент 1.11 «Пример геофизических профилей (демо)»: профили электроразведки с пикетами, ρк (Ом·м) и ЕП (мВ), с низкоомной аномалией.
-- **2.61.0** - фрактальные инструменты вынесены в отдельную группу «5. Фрактальный анализ» (5.01-5.05), было в группе 2. Логика не менялась.
-- **2.60.0** - веса декластеризации теперь и в кросс-валидациях (1.07, 1.08 - взвешенные метрики) и в индикаторном кригинге (2.01 - индикатор к декластеризованной доле класса).
-- **2.59.0** - веса декластеризации (поле wt из 1.01) принимают вариограмма (1.05) и вариограммная карта (1.06): пары взвешиваются, скопления не раздувают ближние лаги.
-- **2.58.1** - группа 1 упорядочена и переведена на двузначную нумерацию (1.01…1.10) для правильной сортировки в тулбоксе.
-- **2.58.0** - новый инструмент 1.0 «Декластеризация (веса)» (порт GSLIB declus): веса от плотности данных и декластеризованное среднее; поле весов подаётся в SGS для взвешенной гистограммы.
-- **2.57.0** - отчёт кросс-валидации (1.5, 1.9): на графике оценка/факт добавлена линия регрессии Best Fit и её наклон/сдвиг/угол в метриках (индикатор смещения по диапазону).
-- **2.56.1** - из встроенной копии pyqtgraph убраны неиспользуемые подпакеты (console, flowchart, multiprocess, exporters, configfile), снимает предупреждения сканера безопасности.
-- **2.56.0** - новый инструмент 1.9 «Кросс-валидация метода (LOO)»: скользящий контроль для кригинга и минимальной кривизны, слой ошибок и HTML-отчёт.
-- **2.55.0** - новый инструмент 1.8 «Минимальная кривизна (точки → растр)»: гридирование бигармонией с натяжением, детерминированная альтернатива кригингу.
-- **2.54.0** - 4.07: свита грузится отдельными слоями по пласту (управление видимостью), складки положе; отдельный пример «Складчатый пласт» убран.
-- **2.53.0** - 4.07: свита из складчатых пластов, каждый отдельным объектом и своим цветом в 3D; адаптивные имена слоёв. 3D-просмотр: кадрирование учитывает преувеличенную высоту.
-- **2.52.0** - 3D-просмотр: контур сечения тел плоскостью разреза и скважины стволами-цилиндрами с окраской интервалов по литологии.
-- **2.51.0** - инструмент 4.07: новые примеры «Складчатый пласт» (фолд-трейн) и «Свита» (стопка пластов).
-- **2.50.1** - 3D-просмотр: исправлен сбой показа тел/поверхностей без плоскости разреза, опрос сцены кликом и выбор своего цвета на новых сборках pyqtgraph (QGIS 4).
-- **2.50.0** - инструмент 4.07: размещение из охвата (окна вида), параметры «Мощность» и «Отметка залегания», диапазон Z в журнал. 3D-просмотр: вкладка «Тела» показывает полигональные слои с Z как объёмные тела.
-- **2.49.0** - инструмент 4.07 «Создать пример полиэдра (бета)»: демо PolyhedralSurface Z / TIN Z (QGIS 3.40 и новее); запасной вывод MultiPolygon Z.
-- **2.48.5** - группа 4 вышла из беты; руководство: приложение «Уроки и самопроверка» с тестом списания.
-- **2.48.4** - плотность полем dens в блочной модели; списки каналов в 4.03 и 2.03.
-- **2.48.3** - фикс: параметр «Канал плотности» вернулся из 4.02 в 4.03.
-- **2.48.2** - фикс деления по вертикали в 4.03; плотность из канала грида.
-- **2.48.1** - домены: 4.05 контуры зон в канал грида, 4.06 разность запасов (списание).
-- **2.48.0** - 3D: след разреза на поверхностях; 4.03: деление колонки по вертикали (z_from/z_to).
-- **2.47.7** - фикс: плашка «Свой цвет» падала при первом клике на слое без параметров.
-- **2.47.6** - 3D: «Свой цвет» слоя с плашкой и выбором по клику.
-- **2.47.5** - 3D: подписи скважин прореживаются, тексты не налезают.
-- **2.47.4** - руководство: семь иллюстраций из статей в главах, починен блок во введении.
-- **2.47.3** - руководство: девять новых скриншотов по свежим главам.
-- **2.47.2** - руководство: глава 3D-просмотра переписана под текущий интерфейс, раздел «Предприятиям».
-- **2.47.1** - приглашение в справках ведёт на страницу «Предприятиям».
-- **2.47.0** - 2.10: K, сдвиги сетки, фактор уплотнения и D_r2 - качество аппроксимации каждому объекту.
-- **2.46.1** - терминология: «количество» вместо «число» в подписях счётных параметров.
-- **2.46.0** - группа 2 перенумерована в 2.01-2.11: порядок в панели инструментов.
-- **2.45.0** - выбор канала растра всюду выпадающими списками с именами каналов (14 параметров в девяти инструментах).
-- **2.44.0** - 2.10 размерность Минковского по векторам, 2.11 демо (реки, водосбор, берег); 2.9 принимает полигоны.
-- **2.43.0** - фрактальные инструменты 2.7-2.9 вышли из беты; главы руководства расширены рабочими циклами.
-- **2.42.1** - 2.7: одноканальный грид D по умолчанию, готов для изолиний размерности; H по галке.
-- **2.42.0** - фрактальная пара: 2.8 box-counting маски и 2.9 размерность линий методом циркуля.
-- **2.41.0** - новый инструмент 2.7 «Фрактальная размерность»: карта D и H вариограммным методом.
-- **2.40.2** - руководство: обзорная глава «Виды кригинга: какой выбрать» со шпаргалкой.
-- **2.40.1** - приглашение к заказной разработке в подвале справки инструментов.
-- **2.40.0** - порядок в инструментах: группа «4. Пласт и блочная модель» (4.01-4.04, бета), генераторы демо последними в группах; руководство перенумеровано.
-- **2.39.0** - новый инструмент 3.14 «Грид пласта в блочную модель»: центроиды с атрибутами, выгрузка по контуру.
-- **2.38.0** - 3D-просмотр: опрос блочной модели кликом - все каналы и мощность в точке, маркер попадания.
-- **2.37.0** - новый инструмент 3.13 «Калькулятор пласта»: мощность, объём, запасы руды и металла, сводка по контуру, HTML-отчёт.
-- **2.36.1** - 3D-просмотр: подписи скважин над мачтами.
-- **2.36.0** - 3D-просмотр: единое поле «Окраска» слоя (палитра / свой канал / внешний растр).
-- **2.35.1** - 3D-просмотр: исправлено падение кнопок «Все»/«Ничего».
-- **2.35.0** - 3D-просмотр: персональные параметры каждого слоя (режим, каналы, внешний атрибут), вкладки «Слои»/«Векторы».
-- **2.34.0** - новый инструмент 3.12 «Собрать грид пласта»; 3D-просмотр: фильтр набора слоёв, каналы выпадающими списками с именами.
-- **2.33.1** - руководство: таблицы атрибутов сгенерированных слоёв (демо 1.6 и 3.10, выходы 3.01).
-- **2.33.0** - руководство: главы про 3D-просмотр и 3.11, схема грида пласта, свежие скриншоты; PDF пересобраны.
-- **2.32.4** - 3D-просмотр: мачта над устьем скважины, штанга видна и внутри тел.
-- **2.32.3** - 3D-просмотр: исправлено падение плоскости разреза на QGIS 4 (asMultiPolyline).
-- **2.32.2** - 3.01: вершины ломаной включаются в пикетаж, изломы больше не срезаются хордой на профиле, полосах и 3D-заборе.
-- **2.32.1** - демо: разлом смещён с излома линии разреза (визуально путался с определением).
-- **2.32.1** - демо: разлом смещён с излома линии разреза.
-- **2.32.0** - 3D-просмотр: плоскость разреза из определения 3.01 вертикальной полупрозрачной лентой (zmin/zmax из полей).
-- **2.31.0** - 3D-просмотр: тело пласта красится собственным каналом параметра, внешний атрибут только для одноканальных поверхностей.
-- **2.30.0** - 3D-просмотр: режим «Тела пластов» - кровля и подошва из каналов 1 и 2 замыкаются юбкой в водонепроницаемое тело; шаг к каркасной и блочной моделям.
-- **2.29.1** - конвенция грида пласта: канал 1 кровля, 2 подошва, 3+ параметры; демо выдаёт четырёхканальные гриды пластов.
-- **2.29.0** - многоканальные гриды пластов: демо выдаёт трёхканальный грид на промпласт (кровля, содержание, минтип), 3.03/3.11/3D-просмотр получили выбор канала.
-- **2.28.0** - демо 3.10: независимый стохастический состав на каждый промышленный пласт; 3D-просмотр: легенда шкалы, прозрачность, виды «Сверху»/«Сбоку», снимок PNG.
-- **2.27.5** - релиз в основной канал, снят флаг experimental; функционально идентична 2.27.4.
-- **2.27.4** - бандл pyqtgraph/PyOpenGL зачищен под сканер (убраны console/flowchart/multiprocess/exporters, отключены .ui и pickle-restore), 3D-просмотр вернулся в публикуемый пакет.
-- **2.27.3** - без pyqtgraph/PyOpenGL пункт 3D-просмотра скрыт из меню, подсказка про pip убрана.
-- **2.27.2** - публикуемый ZIP без вложенных pyqtgraph/PyOpenGL (требование сканера plugins.qgis.org); ветка помечена экспериментальной.
-- **2.27.1** - 3D-просмотр: «Применить окраску к» - атрибут на одну поверхность или на все.
-- **2.27.0** - 3D-просмотр: окраска поверхностей атрибутным гридом (содержание, мощность, ошибка) по общей цветовой шкале.
-- **2.26.4** - меню: 3D-просмотр первым пунктом, пункт «Руководство (PDF)» убран (кнопка в «О плагине» осталась).
-- **2.26.3** - 3D-просмотр: устья скважин круглыми шариками вместо квадратных спрайтов.
-- **2.26.2** - 3D-просмотр: камера охватывает и поверхности, и скважины.
-- **2.26.1** - 3D-просмотр: пустой список скважин в QGIS 4 исправлен (Qgis.GeometryType с fallback).
-- **2.26.0** - 3D-просмотр: скважины вертикальными штангами по числовым полям отметок (h1...h6 отмечаются сами); 3.11 переосмыслен как экспорт в mesh-формат 2DM (MDAL).
-- **2.25.2** - 3D-просмотр: исправлено падение на Qt6 (QGIS 4), enum-имена Qt с fallback Qt5/Qt6.
-- **2.25.1** - pyqtgraph и PyOpenGL забандлены в плагин (libs), 3D-просмотр работает без pip; системные копии в приоритете.
-- **2.25.0** - собственный «3D-просмотр поверхностей (бета)» в меню «Модули - Isoliner» на pyqtgraph.opengl: горизонты цветными мешами, преувеличение и разнос по Z в окне, без зависимости от штатного 3D (Qt3D); нужны pyqtgraph и PyOpenGL.
-- **2.24.1** - 3.11: параметр «Разнос по Z», каждый следующий грид смещается на шаг вниз, стопка горизонтов раскрывается в этажерку.
-- **2.24.0** - новый инструмент «3.11 Поверхности в 3D (меши)»: гриды в mesh-слои 2DM для штатного 3D-вида QGIS, вертикальное преобразование Z (масштаб и смещение), прореживание узлов.
-- **2.23.0** - меню «Модули - Isoliner»: «О плагине» (версия, ссылки, история изменений из metadata.txt) и «Руководство (PDF)» по языку интерфейса.
-- **2.22.7** - руководство: номера панели в заголовках инструментов, снимки окон и таблицы полей для инструментов разреза (3.04-3.06, 3.10) и гауссовой симуляции (2.6); оба PDF (RU/EN) пересобраны.
-- **2.22.1** - демо-TIN переделана в реалистичную лежачую опрокинутую складку (была закрученная узкая лента).
-- **2.22.x** - демо-TIN доведена до компактной гладкой лежачей опрокинутой складки по падению пластов (итерации формы и размера).
-- **2.22.0** - новый инструмент «3.06 Пересечение TIN с разрезом»: TIN из 3D-граней режется разрезом, опрокинутые складки воспроизводятся (грид так не умеет). Номера инструментов разреза стали двузначными (3.01-3.10); в демо добавлена опрокинутая TIN.
-- **2.21.2** - «3.5 Пересечение векторов» принимает список слоёв за один прогон; поле src хранит слой-источник.
-- **2.21.1** - «3.5 Пересечение векторов»: высота рамки теперь хранится в определении разреза (для 2D-объектов чертёж подавать не нужно); пустые выходы не создаются.
-- **2.21.0** - новый инструмент «3.5 Пересечение векторов с разрезом» (линии и полигоны на разрез по точному пересечению). Беты разреза сдвинуты на 3.6-3.8, демо на 3.9, в демо добавлены разлом, маркер с Z и зона.
-- **2.20.1** - восстановлена кнопка «Справка» в диалоге «2.06 Гауссова симуляция (SGS)».
-- **2.20.0** - новый инструмент «2.06 Гауссова симуляция (SGS)»: ансамбль равновероятных реализаций вместо одной сглаженной оценки. Среднее (E-type), стандартное отклонение, квантили P10/P50/P90 и карта вероятности превышения - неопределённость, а не только оценка. Вариограмма баллов подбирается автоматически, чистый NumPy поверх ядра кригинга. Подписи «Число …» переименованы в «Количество …».
-- **2.19.1** - подписи горизонтальных осей слева от линии (надёжная привязка).
-- **2.19.0** - «Скважины на разрезе» и «Состав пласта на разрезе» берут масштаб из определения разреза (совпадение по вертикали); переименования «...на разрезе»; 3.5-3.7 помечены «(бета)»; схема в руководстве.
-- **2.18.6** - подписи горизонтальных осей слева от линии.
-- **2.18.5** - таблица углов: ячейки между угловыми точками (границы под вертикалями), строки длина и азимут отрезка, белая заливка.
-- **2.18.4** - откат: флаг «Дополнительно» не применяется к выходным слоям (стоковый диалог Processing их туда не убирает). Выходы снова в обычном порядке.
-- **2.18.2** - новый опциональный выход: таблица углов (азимут и расстояние) слоем-полигонами под разрезом, рисуется в окне вида.
-- **2.18.1** - угловые точки: подпись только X и Y (азимут и расстояние - поля для таблицы), треугольник вершиной вверх и меньше, полка симметричная, число отметок осей точнее совпадает с заданным.
-- **2.18.0** - угловые точки сверху и снизу (X, Y, расстояние, азимут, имя УГ-N, стиль треугольник/полка), горизонтальные оси с отметками высот, поля чертежа +5%, демо-линия ломаная.
-- **2.17.0** - «Разрез по линии» опционально выдаёт угловые точки и вертикали на узлах ломаной (номер узла, азимут отрезка).
-- **2.16.0** - растровые выходы создаются свёрнутыми в дереве (гриды не раздувают панель), на слой пишется история создания (версия, инструмент, дата).
-- **2.15.1** - многослойные инструменты складывают выходы в фиксированную группу дерева (повторный запуск добавляет в неё же); семейство разреза - в одну группу «Разрез».
-- **2.15.0** - линейка разреза на общем **определении разреза** (линия + vex, выдаёт 3.1): пересечение поверхностей с разрезом (3.4), проекция объектов (3.5), обратная проекция (3.6), развёртка стенки ствола (3.7). Разрез обрезает выклинивания, демо с выклиниванием пласта.
-- **2.14.1** - группа «Дополнительные инструменты анализа» (переименована), порядок в группе «Разрез»: разрез, скважины, состав, пример.
-- **2.14.0** - вертикальный масштаб разреза можно задавать отношением Г:В (ширина:высота), множитель считается автоматически; фактический множитель печатается в журнал. Во всех трёх инструментах разреза.
-- **2.13.2** - демо разреза стало выразительнее (падение, складка, клинья), демо-скважины прижаты к линии.
-- **2.13.1** - исправлено создание слоя скважин в демо для разреза.
-- **2.13.0** - новый инструмент **Состав пласта на разрез** (3.4): красит полосу пласта по гриду состава вдоль линии (непрерывное содержание градиентом, категориальный минтип фациальными зонами). Демо для разреза теперь выдаёт и гриды состава промышленных пластов.
-- **2.12.1** - демо для разреза расширено до шести поверхностей (пять пластов: три вмещающих и два промышленных).
-- **2.12.0** - новый инструмент **Скважины на разрез** (3.3): проецирует скважины на линию и рисует колонки интервалов пластов поверх чертежа. Генератор примера для разреза теперь выдаёт и скважины.
-- **2.11.1** - инструменты разреза вынесены в новую группу **«Разрез»**: «Разрез по линии» теперь 3.1, «Пример для разреза (демо)» 3.2.
-- **2.11.0** - новый инструмент **Пример для разреза (демо)** (1.8): готовит поверхности и линию для быстрой пробы разреза по линии.
-- **2.10.0** - новый инструмент **Разрез по линии** (2.6): по линии и набору поверхностей строит геологический разрез (пласты между кровлей и подошвой). Два выхода: чертёж расстояние×высота для макета и 3D-забор для 3D Map View.
-- **2.9.3** - список «Преобразование значения» (ln) в «2D Kriging» перенесён под поле Z, ближе и заметнее.
-- **2.9.2** - бергштрихи (стиль «со штрихами вниз»): исправлено направление в QGIS 4 (знак смещения линии там изменился относительно QGIS 3). В QGIS 3 без изменений.
-- **2.9.1** - демо-генерация K приведена к реалистичному диапазону (≈ 0.006…4 м/сут, подрезка хвоста), без единичных выбросов в сотни.
-- **2.9.0** - в **2D Kriging** добавлено опциональное логарифмирование значения (ln/exp с дельта-методом для стандартной ошибки) - кригинг лог-нормальных K, T без ручного поля ln. Инструменты 2.3 и 2.4 поменяны местами, чтобы гидрогеология (градиент 2.4 и удельный расход 2.5) шла рядом. В генераторе примера - поля K и T.
-- **2.8.0** - новый инструмент **Удельный расход (закон Дарси)** (2.5): по растру напора и растрам K/T считает скорость фильтрации (м/сут) и расход через ширину (м²/сут). Гидрогеология теперь с проницаемостью.
-- **2.7.1** - в руководство добавлены иллюстрации «Карты вероятности превышения» (окно инструмента и пример карты).
-- **2.7.0** - новый инструмент **Карта вероятности превышения** (2.4): по растрам оценки и стандартной ошибки кригинга строит P(Z>порог) при нормальном локальном распределении. Отдельный постпроцессор, окно «2D Kriging» не меняет. Бортовые содержания, зоны риска по любому порогу.
-- **2.6.1** - группы инструментов пронумерованы («1. Грид и изолинии», «2. Дополнительные инструменты анализа») для одинакового порядка групп в русской и английской локалях; в руководство добавлены иллюстрации (окно «Кригинг с внешним дрейфом», дерево инструментов, сравнение обычного кригинга и кригинга по дрейфу).
-- **2.6.0** - новый инструмент **Кригинг с внешним дрейфом (External Drift)**: регрессия-кригинг по внешнему растру, известному всюду (соседний пласт, грубая модель, сейсмический атрибут). Дрейф снимается регрессией, кригуются остатки, дрейф возвращается из растра. Степень 1 или 2; поиск, анизотропия, обрезка и стандартная ошибка - как у «2D Kriging». Демо-генератор умеет выдавать поверхность дрейфа (растр) и связанное поле dz для сквозной проверки. Инструменты перенумерованы составно по группам: «Грид и изолинии» 1.1-1.7, «Дополнительные инструменты анализа» 2.1-2.3 (прежняя сквозная 1-10 сортировалась как строки).
-- **2.5.0** - новый инструмент **Гидравлический градиент и направление потока**
-  (гидрогеология): по растру напора строит модуль градиента |∇h|, азимут
-  направления потока (вниз по градиенту) и точечный слой векторов потока для
-  оформления стрелками автоматически. Геометрия поля напора без проницаемости, скорость по
-  Дарси не считается. Опционально сглаживание напора перед расчётом.
-  Демо-генератор скважин получил опцию поля напора (head) с региональным
-  уклоном для сквозного учебного цикла.
+- **4.55.0** — a quick start in the manuals (seven scenarios by task rather than by tool), "What to build" presets in the 2.10 and 2.21 demos, thinning of band vertices in 4.05, the tool-tree generator repaired.
+- **4.51.0** — the consolidated release of the dip branch: 4.05 with the apparent angle and inclined bands, 4.12 "Attitude from an outcrop trace", a demo with an analytic reference, the "Geological section" cheat-sheet article.
+- **4.47.0** — the DEM in 2.20 became optional: with elevations on the lines the pairs are assembled without terrain, and the topographic scenario no longer goes in a circle.
+- **4.46.0** — 2.20 reads the kind field tolerantly: classifier codes and names carrying the words for a crest or a toe, with a table of decisions in the log.
+- **4.45.0** — the weight of measured elevations in 2.03: in a shared cell a measurement outweighs a digitized contour vertex.
+- **4.44.0** — 2.22 "Elevations from adjoining contours": mute crests receive a profile from the adjoining node points.
+- **4.43.0** — the surface between structural lines in 2.03: the Top of forms and Bottom of forms inputs, a core on the distance method, a section in the manual.
+- **4.42.0** — a bent-crest fill in the demo to measure the price of the distance method, the detector thresholds gained a physical floor instead of a tie to the maximum.
+- **4.41.0** — the homonym "подошва" untangled in the translation dictionary (bed bottom vs bench toe), the test now fails on conflicting keys.
+- **4.40.0** — 2.20 moved from pairs to forms: one toe with a set of crests at it sharing a link field, no duplicates in the Bottom layer.
+- **4.39.0** — the colouring of the 2.19 candidates became meaningful: classes appear only when the drop really varies.
+- **4.38.0** — the extent in 2.21 places the demo and no longer stretches it to the size of the extent.
+- **4.37.0** — the style of the output layers is no longer overwritten by the grouping in the layer tree.
+- **4.36.0** — the styling of structural lines moved from QML into code, the drop probe base in 2.19 raised to 8 cells.
+- **4.35.0** — 2.20 "Crests and toes into work": elevations off the DEM, pairs by descending the slope, ready inputs for surface building.
+- **4.34.0** — 2.19 "Crest and toe candidates" and 2.21 "Example open pit (demo)": the start of the structural-lines branch.
+- **4.33.0** — two checkboxes in 4.05: keep the name and keep the style of the source layer. A categorised geology colouring lands on the section as it is.
+- **4.32.0** — 3.01 got a "Nugget share" parameter: zero makes the estimate exact next to the data, and a borehole keeps its class in its own cell. The fitted nugget and range per class are printed to the log.
+- **4.31.0** — 4.05 clips zones and faults from below by the bottom line of the drawing, a pair to the clipping from above. The "beta" mark is off 4.07 and 4.08.
+- **4.30.0** — 4.05 clips zones and faults from above by the terrain line of the drawing, the bottom of bands is read from a feature field.
+- **4.29.0** — 4.05 carries the feature attributes onto the drawing: bands and verticals are coloured by their own fields.
+- **4.28.0** — thalwegs in 2.03 may carry elevations: a survey along the channel sets the bed, not only the direction of fall.
+- **4.27.0** — the 4.10 demo outputs its own bed reference matching the codes of its intervals.
+- **4.26.1** — the demo boreholes are given a section of their own in the 4.10 help, in the manuals and in the README.
+- **4.26.0** — 2.03 got a build boundary: a polygon limits the surface, the mask is applied after interpolation.
+- **4.25.0** — 2.18 outputs a layer of areas with volumes in the attributes and can clip the difference raster by those areas.
+- **4.24.0** — catalogue release, folding in the 4.18-4.23 nightlies.
+- **4.23.1** — with a single surface 4.01 no longer creates layers for bed bands and the 3D fence: suppressing them in the result is not enough, a destination parameter registers the layer for loading by itself.
+- **4.23.0** — the section over a single surface was brought to a working state, plus the new "Surface lines on the drawing" output.
+- **4.22.1** — layer memory: the liveness guard was closed on its second entrance, direct parameter defaults used to bypass it.
+- **4.22.0** — 4.01 builds a section over a single surface, and the frame bottom by elevation appeared in the advanced parameters.
+- **4.21.1** — the 2.18 statement prints numbers with digit grouping, areas in hectares, and a total row in the per-area table.
+- **4.21.0** — demo relief 2.10 outputs a pair of surfaces for 2.18: a design pad and work areas. The pad elevation is the mean, at which the net is exactly zero.
+- **4.20.0** — the new 2.18 Cut and fill (earthwork volumes) tool.
+- **4.19.1** — 2.16 renamed to "Catchment. Lines and outlines": the tool accepts polygons as well.
+- **4.19.0** — 2.17 Densify contours by secants was removed. The technique was checked by measurement: on 2.03 Topo2Raster the attraction of elevations to the levels grew from 1.09 to 1.14, as did the curvature and the depression filling, so the technique gave no benefit.
+- **4.18.3** — the memory of input layers no longer substitutes dead references: the id is checked for resolvability in the current project.
+- **4.17.0** — pre-release pass: the RU and EN manuals gained a section on 4.11, parameter labels were aligned, the PDFs were rebuilt.
+- **4.16.1** — the composite bed КрIIIа+б (the sum of КрIIIа, КрIIIа-б and КрIIIб) is back in the reference template, above КрIIIб-в. Composite bodies are painted grey #969696: the colour of a conglomerate does not follow from its parts, a person sets it.
+- **4.16.0** — the new 4.11 Bed reference template tool adds the template straight to the project. The reference drop-down in 4.01 and 4.02 is limited to tables without geometry. The word optional is gone from the parameter labels, QGIS adds that mark itself.
+- **4.15.0** — the palettes folder and all the Leapfrog palette code are gone: the sections now have a single source of colour, the bed reference. The code matching rules (KpII_top finds КрII) are kept in full.
+- **4.14.0** — the bed reference template ships with the plugin (the templates folder, xlsx and csv). Manuals: the colour sections of 4.01 and 4.02 were rewritten around the reference, the previous ones described a palette the tools no longer had.
+- **4.13.0** — the burn in 2.16 gained the chute-sloping-to-the-outfall profile: the bottom descends monotonically and the water does not spill over the bank on wavy relief (a technique from Ivan Ivanov).
+- **4.12.0** — 2.09 is renamed Peaks and pits and always searches both signs, the elevation goes into the geometry Z. Spot points at the extremes remove the flat caps of a surface built from contours alone.
+- **4.11.1** — vector boundaries from the probabilities in 3.01: level lines and band polygons between them with a ready colouring from green to red. The levels are set by a parameter, 0.25, 0.5 and 0.75 by default. They are built from the probability channel rather than from the zone map: a zone holds only the winner in a cell, so a contour of it runs in steps along the cell edges.
+- **4.9.0** — a nugget breakdown in 1.05: the first lag and, by name, the pairs of points that lifted it. A warning when the variogram fit is good for nothing, R2 below 0.1 or a nugget above half of the total sill.
+- **4.8.2** — the side switch in 1.04 now reverses the labels as well, not the hachures alone.
+- **4.8.1** — fixed the write-value-into-Z tick: the layer with Z was written to a separate file while the flat original was loaded into the project.
+- **4.8.0** — 2.16 accepts polygons as well as lines: an open pit outline, a wall, any closed intake. The write-value-into-Z tick in 1.04. A scope note in 2.15 and 2.16.
+- **4.7.1** — palette reading without the xml modules: a self-written scanner replaces the standard parser that the repository security scan rejects.
+- **4.7.0** — the Leapfrog colour palette (.lfc) in 4.01 and 4.02, the new 2.16 Catchment of a line (ditch) tool, demo ditch traces in 2.10, and gap counting in borehole columns.
+- **4.6.1** — Qt6 compatibility per the repository check: the fallback colour category used an empty QVariant instead of NULL from qgis.core. The pytest cache is no longer shipped, the secret scanner treated it as a finding.
+- **4.6.0** — the new 2.15 Gauge point report tool (watershed morphometry from a closure point), demo gauge points in 2.10, demo placement next to the project layers, a fix for the QGIS crash on loading several output layers, and removal of the legacy h1...h6 demo boreholes.
+- **4.5.0** — 4.02: column clipping by the drawing instead of roof and floor lines, one input takes the band polygons from 4.01.
+- **4.4.0** — 4.02: column clipping by the roof and floor lines from 4.04.
+- **4.3.0** — 4.02: column clipping by the drawing frame zmin and zmax from the definition, with a tolerance and a switch.
+- **4.2.0** — 4.02: the collar label comes from the number field of the collar layer, name and label are synonyms, hole_id stays in the attributes.
+- **4.1.1** — 4.02: collars are reprojected into the definition CRS on reading, with CRS and nearest collar diagnostics on screen.
+- **4.1.0** — the collar and interval drilling-data model and the new batch 4.02 Boreholes on sections (drilling model) tool: fields found automatically, a tolerant reader with a log summary, colours and a legend by code, input memory, a 3D output. Demo 4.10 outputs the collar and interval pair. The former 4.02 on the h1...h6 fields is removed.bilingual (EN/RU).
 
-- **2.4.0** - в инструменте **2D Kriging** появился **блочный кригинг** (галка
-  **Блочный кригинг** и поле **Дискретизация блока, N×N на ячейку**, по умолчанию
-  4×4). Оценивается среднее по ячейке грида, а не значение в её центре: ячейка
-  разбивается на N×N точек дискретизации, ковариации усредняются по блоку (схема
-  GSLIB KB2D). Поверхность глаже, стандартная ошибка ниже точечной - для оценки
-  запасов и содержаний по блоку. По умолчанию выключено: обычный точечный
-  кригинг. Снятие тренда и блок работают вместе.
+- **4.0.2** — fixed cross-section output (group 4): the drawing no longer falls off the map canvas in projects with local CRSs. Drawing layers now get an engineering CRS instead of an empty one. In 4.01 the surface order is taken from the project layer tree by default (manual order stays available via a checkbox).
+- **4.0.1** — fixed DEM georeferencing in 2.01 for CRSs with northing-easting axis order (GSK-2011 and other Gauss-Kruger, Krassovsky): the raster no longer flies to a mirror location, and "Zoom to layer" works. UTM was not affected.
+- **4.0.0** — the 3D part moved to a separate Isoliner 3D module (publication pending): the 3D viewer, the "Bed and block model" group (5.01-5.07), 2DM meshes, polyhedra and the bundled pyqtgraph/PyOpenGL. The package slimmed from ~12 to ~8 MB. Fractal tools renumbered from 6.xx to 5.xx; tool identifiers unchanged, user models keep working. Version 3.2.0 with the full former functionality stays in the catalog.
+- **3.2.0** - 2.03 supports a variable water edge (river slope from polygon node Z), 2.04 reworked into "Terrain preparation" with FPDEMS smoothing (edge-preserving), a smoothing checkbox added to 2.01.
+- **3.1.1** - fixed GEDTM30 height scale (was ten times too small): the COG is read via translate -unscale.
+- **3.1.0** - tool 2.01 gained a terrain-source choice: besides Copernicus GLO-30 (DSM) there is now GEDTM30 (forest-free DTM, CC BY 4.0) by OpenGeoHub, more accurate under forest canopy.
+- **3.0.4** — catalog security-scanner compatibility: narrow exception types instead of a broad except with a silent pass/continue.
+- **3.0.3** — fixed a Topo2Raster crash on QGIS 4 with single-part geometries (asMultiPoint/asMultiPolyline/asMultiPolygon).
+- **3.0.2** — topography output layers are added to the tree collapsed.
+- **3.0.1** — QGIS 4 shakedown: 2.01 and 2.10 accept user CRSs without an EPSG code (WKT into the warp), topography outputs land in a "Topography" layer-tree group, output-file descriptions in the tool help, a Topo2Raster lesson in the manual.
+- **3.0.0** — a new "2. Topography" group (ten tools): Copernicus GLO-30 DEM download by extent without registration, an OSM base map, Topo2Raster from vectors in the spirit of ANUDEM, depression filling, D8 flow and accumulation, a river network with Strahler orders, basins, slope and aspect, peaks, a demo relief. The labels of the former groups shifted (additional 3, cross-sections 4, bed 5, fractals 6), tool identifiers unchanged.
+- **2.65.0** - work log (isoliner.log with versions, parameters and timing; traceback on failure), an Isoliner toolbar with 3D and About buttons, a 3D icon.
+- **2.64.1** - a step-by-step density appendix (2.07/2.08) and demo-layer fields in the manual.
+- **2.64.0** - new tools 2.07 "Density from measurements (variable support)" and 2.08 demo: a measurement is spread over its support (point+sigma, line corridor, polygon), mass conserved, three-band output, dasymetry.
+- **2.63.5** - fixed the missing 1.10 heading in the PDF outline.
+- **2.63.4** - the "kriging or minimum curvature" note in 1.11 strengthened with a subsidence example.
+- **2.63.3** - fixed a kriging crash on a missing Z field (a clear message instead of KeyError); added a "Demo layer fields" appendix to the manual.
+- **2.63.2** - adaptive output layer names on generation (1.11 by mode, section demo wells distinct from 1.10).
+- **2.63.1** - subsidence (1.11) capped at 2 m, uniform sign by choice, strict zeros at the edges.
+- **2.63.0** - tool 1.11 extended: electrical-prospecting mode (rho_k as a spot, SP, IP, z, rho_true) and subsidence mode (a trough across tours). The anomaly is now a spot, not a stripe.
+- **2.62.0** - new tool 1.11 "Example geophysical profiles (demo)": electrical-prospecting profiles with pickets, rho_k (Ohm*m) and SP (mV), with a low-resistivity anomaly.
+- **2.61.0** — fractal tools moved into a separate group "5. Fractal analysis" (5.01-5.05), formerly in group 2. No logic changes.
+- **2.60.0** — declustering weights now also in cross-validations (1.07, 1.08 - weighted metrics) and indicator kriging (2.01 - indicator toward the declustered class proportion).
+- **2.59.0** — declustering weights (the wt field from 1.01) are now accepted by the variogram (1.05) and variogram map (1.06): pairs are weighted so clusters do not inflate the near lags.
+- **2.58.1** — Group 1 reordered and switched to two-digit numbering (1.01…1.10) for correct toolbox sorting.
+- **2.58.0** — new tool 1.0 "Declustering (weights)" (a GSLIB declus port): density-based weights and a declustered mean; the weight field feeds SGS for a weighted histogram.
+- **2.57.0** — cross-validation report (1.5, 1.9): a Best-fit regression line on the estimate-vs-fact plot plus its slope/intercept/angle in the metrics (a range-bias indicator).
+- **2.56.1** — trimmed unused subpackages from the bundled pyqtgraph (console, flowchart, multiprocess, exporters, configfile), clearing security-scanner warnings.
+- **2.56.0** — new tool 1.9 "Method cross-validation (LOO)": leave-one-out control for kriging and minimum curvature, with an error layer and an HTML report.
+- **2.55.0** — new tool 1.8 "Minimum curvature (points → raster)": biharmonic-with-tension gridding, a deterministic alternative to kriging.
+- **2.54.0** — tool 4.07: the suite loads as separate per-bed layers (visibility control) with gentler folds; the standalone "Folded bed" example was removed.
+- **2.53.0** — tool 4.07: the suite is now folded beds, each a separate feature coloured individually in 3D, with adaptive layer names. 3D viewer: framing accounts for the exaggerated height.
+- **2.52.0** — 3D viewer: a section contour of bodies cut by the section plane, and boreholes drawn as cylinders with intervals coloured by lithology.
+- **2.51.0** — tool 4.07: new examples "Folded bed" (a fold train) and "Suite" (a stack of beds).
+- **2.50.1** — 3D viewer: fixed a crash when showing bodies/surfaces without a section plane, plus the click query and the solid-colour picker on newer pyqtgraph builds (QGIS 4).
+- **2.50.0** — tool 4.07: placement now comes from the extent (map view), with new "Thickness" and "Base elevation" parameters and the Z range printed to the log. 3D viewer: a "Bodies" tab shows polygon layers with Z as volumetric bodies.
+- **2.49.0** — tool 4.07 "Create a polyhedral example (beta)": a PolyhedralSurface Z / TIN Z demo (QGIS 3.40 and newer); MultiPolygon Z fallback.
+- **2.48.5** — group 4 left beta; the manual: a "Lessons and self-check" appendix with a write-off test.
+- **2.48.4** — density as a dens field in the block model; band drop-downs in 4.03 and 2.03.
+- **2.48.3** — fix: the "Density band" parameter moved from 4.02 back to 4.03.
+- **2.48.2** — fix of the vertical split in 4.03; per-cell density from a grid band.
+- **2.48.1** — domains: 4.05 zone contours into a grid band, 4.06 reserve difference (write-off).
+- **2.48.0** — 3D: a section trace on the surfaces; 4.03: a vertical column split (z_from/z_to).
+- **2.47.7** — fix: the "Custom colour" swatch crashed on the first click for a layer without settings.
+- **2.47.6** — 3D: a per-layer "Custom colour" with a swatch and a click-to-pick dialog.
+- **2.47.5** — 3D: borehole labels are thinned, texts no longer overlap.
+- **2.47.4** — the manual: seven article figures placed into the chapters, the intro image block fixed.
+- **2.47.3** — the manual: nine new screenshots across the fresh chapters.
+- **2.47.2** — the manual: the 3D viewer chapter rewritten for the current UI, a "For enterprises" section.
+- **2.47.1** — the help-footer invitation links to the "For enterprises" page.
+- **2.47.0** — 2.10: K, grid offsets, a densify factor and D_r2 - the fit quality per feature.
+- **2.46.1** — terminology: consistent count wording in the Russian parameter labels.
+- **2.46.0** — group 2 renumbered to 2.01-2.11: proper ordering in the toolbox.
+- **2.45.0** — raster band choice everywhere as drop-downs with band names (14 parameters in nine tools).
+- **2.44.0** — 2.10 Minkowski dimension over vectors, 2.11 a demo (rivers, a basin, a coast); 2.9 accepts polygons.
+- **2.43.0** — the fractal tools 2.07-2.09 left beta; the manual chapters extended with workflows.
+- **2.42.1** — 2.7: a single-band D grid by default, ready for dimension isolines; H by a checkbox.
+- **2.42.0** — a fractal pair: 2.8 mask box-counting and 2.9 line dimension by the divider method.
+- **2.41.0** — a new tool 2.7 "Fractal dimension": a D and H map by the variogram method.
+- **2.40.2** — the manual: an overview chapter "Kriging kinds: which one to pick" with a cheat sheet.
+- **2.40.1** — a custom-development invitation in the tool-help footer.
+- **2.40.0** — tool ordering: a "4. Bed and block model" group (4.01-4.04, beta), the demo generators last in their groups; the manual renumbered.
+- **2.39.0** — a new tool 3.14 "Bed grid to a block model": centroids with attributes, a contour-limited export.
+- **2.38.0** — 3D viewer: click to query the block model - all bands and the thickness at the point, a hit marker.
+- **2.37.0** — a new tool 3.13 "Bed calculator": thickness, volume, ore and metal reserves, a contour summary, an HTML report.
+- **2.36.1** — 3D viewer: borehole labels above the masts.
+- **2.36.0** — 3D viewer: a single "Colouring" field per layer (palette / own band / external raster).
+- **2.35.1** — 3D viewer: fixed the "All"/"None" buttons crash.
+- **2.35.0** — 3D viewer: per-layer settings (mode, bands, external attribute), "Layers"/"Vectors" tabs.
+- **2.34.0** — a new tool 3.12 "Assemble a bed grid"; 3D viewer: a layer-set filter, band drop-downs with names.
+- **2.33.1** — the manual: attribute tables of the generated layers (demos 1.6 and 3.10, the 3.01 outputs).
+- **2.33.0** — the manual: chapters on the 3D viewer and 3.11, a bed-grid scheme, fresh screenshots; the PDFs rebuilt.
+- **2.32.4** — 3D viewer: a mast above the borehole collar, the rod stays visible inside bodies.
+- **2.32.3** — 3D viewer: fixed a section-plane crash on QGIS 4 (asMultiPolyline).
+- **2.32.2** — 3.01: the polyline vertices are forced into the stationing, bends are no longer cut by a chord on the profile, the bands and the 3D fence.
+- **2.32.1** — demo: the fault moved off the section-line bend (it visually masqueraded as the definition).
+- **2.32.1** — demo: the fault moved off the section-line bend.
+- **2.32.0** — 3D viewer: the section plane from a 3.01 definition as a vertical translucent ribbon (zmin/zmax from the fields).
+- **2.31.0** — 3D viewer: a bed body is coloured by its own parameter band, an external attribute applies to single-band surfaces only.
+- **2.30.0** — 3D viewer: a "Bed bodies" mode — the roof and bottom from bands 1 and 2 are closed with a skirt into a watertight body; a step towards wireframe and block models.
+- **2.29.1** — the bed-grid convention: band 1 roof, 2 bottom, 3+ parameters; the demo outputs 4-band bed grids.
+- **2.29.0** — multiband bed grids: the demo outputs a 3-band grid per industrial bed (roof, content, mineral type), 3.03/3.11/the 3D viewer gained band selection.
+- **2.28.0** — demo 3.10: independent stochastic composition per industrial bed; 3D viewer: a colour-scale legend, transparency, top/side views, a PNG snapshot.
+- **2.27.5** — released to the main channel, the experimental flag removed; functionally identical to 2.27.4.
+- **2.27.4** — the pyqtgraph/PyOpenGL bundle sanitised for the scanner (console/flowchart/multiprocess/exporters removed, .ui loading and pickle-restore disabled), the 3D viewer is back in the published package.
+- **2.27.3** — without pyqtgraph/PyOpenGL the 3D viewer menu item is hidden, the pip hint removed.
+- **2.27.2** — the published ZIP ships without bundled pyqtgraph/PyOpenGL (plugins.qgis.org scanner requirement); the branch is marked experimental.
+- **2.27.1** — 3D viewer: "Apply colouring to" — the attribute paints one surface or all of them.
+- **2.27.0** — 3D viewer: surfaces coloured by an attribute grid (grade, thickness, error) on a shared colour scale.
+- **2.26.4** — menu: the 3D viewer is the first item, the "Manual (PDF)" item removed (the button in "About" remains).
+- **2.26.3** — 3D viewer: borehole collars as round balls instead of square sprites.
+- **2.26.2** — 3D viewer: the camera fits both surfaces and boreholes.
+- **2.26.1** — 3D viewer: an empty borehole list on QGIS 4 fixed (Qgis.GeometryType with a fallback).
+- **2.26.0** — 3D viewer: boreholes as vertical rods from numeric elevation fields (h1...h6 auto-checked); 3.11 reframed as an export to the 2DM mesh format (MDAL).
+- **2.25.2** — 3D viewer: fixed a crash on Qt6 (QGIS 4), Qt enum names now with a Qt5/Qt6 fallback.
+- **2.25.1** — pyqtgraph and PyOpenGL are bundled with the plugin (libs), the 3D viewer works without pip; system copies take priority.
+- **2.25.0** — a built-in "3D surface viewer (beta)" in the "Plugins → Isoliner" menu on pyqtgraph.opengl: horizons as coloured meshes, exaggeration and Z spacing in the window, independent of the stock 3D view (Qt3D); needs pyqtgraph and PyOpenGL.
+- **2.24.1** — 3.11: a "Z spacing" parameter, every next grid shifts one step down, the horizon stack unfolds into a shelf.
+- **2.24.0** — new tool "3.11 Surfaces to 3D (meshes)": grids to 2DM mesh layers for the built-in QGIS 3D view, vertical Z transform (scale and offset), node thinning.
+- **2.23.0** — a "Plugins → Isoliner" menu: "About" (version, links, changelog from metadata.txt) and "Manual (PDF)" by interface language.
+- **2.22.7** — manual: panel numbers in the tool headings, tool-dialog screenshots and field tables for the cross-section tools (3.04-3.06, 3.10) and the Gaussian simulation (2.6); both PDFs (EN/RU) rebuilt.
+- **2.22.1** — the demo TIN reshaped into a realistic recumbent overturned fold (was a narrow coiled ribbon).
+- **2.22.x** — the demo TIN refined into a compact smooth recumbent overturned fold following bed dip (shape and size iterations).
+- **2.22.0** — new tool "3.06 Intersect a TIN with the section": a TIN of 3D faces is cut by the section, overturned folds are reproduced (a grid cannot). Section tool numbers became two-digit (3.01-3.10); the demo gained an overturned TIN.
+- **2.21.2** — "3.5 Vector intersection" accepts a list of layers in one run; the src field keeps the source layer.
+- **2.21.1** — "3.5 Vector intersection": the frame height is now stored in the section definition (no need to supply the drawing for 2D objects); empty outputs are not created.
+- **2.21.0** — new tool "3.5 Vector intersection with the section" (lines and polygons onto the section by exact intersection). Section betas shifted to 3.6-3.8, demo to 3.9; the demo gained a fault, a Z marker and a replacement zone.
+- **2.20.1** — restored the Help button in the "2.06 Gaussian simulation (SGS)" dialog.
+- **2.20.0** — new tool "2.06 Gaussian simulation (SGS)": an ensemble of equally probable realizations instead of a single smoothed estimate. Mean (E-type), standard deviation, P10/P50/P90 quantiles and an exceedance-probability map — uncertainty, not just the estimate. The score variogram is fitted automatically; pure NumPy on top of the kriging core. The "Number of …" labels were reworded in Russian.
+- **2.19.1** — horizontal axis labels placed to the left of the line (robust anchoring).
+- **2.19.0** — Boreholes/Bed composition on the section take the scale from the section definition (vertical match); renamed to "on the section"; 3.5-3.7 marked "(beta)"; a schematic added to the manual.
+- **2.18.6** — horizontal axis labels placed to the left of the line.
+- **2.18.5** — corner table: cells between corners (borders under the verticals), rows for segment length and azimuth, white fill.
+- **2.18.4** — revert: the Advanced flag is not used on output layers (the stock Processing dialog does not move outputs there). Outputs are back in normal order.
+- **2.18.2** — new optional output: a corner table (azimuth and distance) as a polygon layer below the section, rendered on the canvas.
+- **2.18.1** — corner points: bottom label only X and Y (azimuth and distance kept as fields for a table), upward smaller triangle, symmetric shelf, axis tick count matches the request more closely.
+- **2.18.0** — corner points top and bottom (X, Y, distance, azimuth, name УГ-N, triangle/shelf style), horizontal axes with elevation ticks, drawing margins +5%, demo line is a polyline.
+- **2.17.0** — Cross-section along a line optionally outputs corner points and verticals at the polyline nodes (node number, segment azimuth).
+- **2.16.0** — raster outputs are created collapsed in the tree (grids no longer bloat the panel), each layer gets a creation history (version, tool, date).
+- **2.15.1** — multi-output tools place their layers into a fixed tree group (re-runs add into it); the section family goes into one "Section" group.
+- **2.15.0** — the section lineup on a shared **section definition** (line + vex, output by 3.1): intersect surfaces with the section (3.4), project objects (3.5), unproject (3.6), unwrap a shaft wall (3.7). The section clips pinch-outs, the demo has a pinching bed.
+- **2.14.1** — the "Additional analysis tools" group (renamed), tidy order in the "Cross-sections" group: section, boreholes, composition, example.
+- **2.14.0** — the section vertical scale can be set by an H:V ratio (width:height), the exaggeration is computed automatically and printed to the log. In all three section tools.
+- **2.13.2** — the section demo is more expressive (dip, fold, wedges), demo boreholes hug the line.
+- **2.13.1** — fixed the boreholes layer creation in the section demo.
+- **2.13.0** — a new tool **Bed composition on a section** (3.4): colours a bed band by a composition grid along the line (continuous content as a gradient, categorical mineral type as facies zones). The section demo now also outputs composition grids of the industrial beds.
+- **2.12.1** — the section demo was extended to six surfaces (five beds: three host and two industrial).
+- **2.12.0** — a new tool **Boreholes on a section** (3.3): projects boreholes onto the line and draws columns of bed intervals on top of the drawing. The section example generator now also outputs boreholes.
+- **2.11.1** — the section tools were moved to a new **"Cross-sections"** group: Cross-section along a line is now 3.1, Example for a section (demo) is 3.2.
+- **2.11.0** — a new tool **Example for a section (demo)** (1.8): prepares surfaces and a line for a quick try of the cross-section along a line.
+- **2.10.0** — a new tool **Cross-section along a line** (2.6): from a line and a set of surfaces it builds a geological section (beds between roof and floor). Two outputs: a distance × elevation drawing for a layout and a 3D fence for the 3D Map View.
+- **2.9.3** — the "Value transform" (ln) list in 2D Kriging was moved under the Z field, closer and more visible.
+- **2.9.2** — downhill hachures (the "hachures down" style): fixed direction on QGIS 4 (the line-offset sign convention changed there relative to QGIS 3). QGIS 3 unchanged.
+- **2.9.1** — the demo K generation was brought to a realistic range (≈ 0.006…4 m/day, tail clipped), without single spikes into the hundreds.
+- **2.9.0** — **2D Kriging** gained an optional value log transform (ln/exp with a delta-method standard error) - kriging of log-normal K, T without a hand-built ln field. Tools 2.3 and 2.4 were swapped so the hydrogeology (gradient 2.4 and specific discharge 2.5) sits together. The example generator gained K and T fields.
+- **2.8.0** — a new tool **Specific discharge (Darcy law)** (2.5): from a head raster and K/T rasters it computes the specific discharge (m/day) and flow per width (m²/day). Hydrogeology now with permeability.
+- **2.7.1** — illustrations for the exceedance probability map were added to the manual (the tool window and a sample map).
+- **2.7.0** — a new tool **Exceedance probability map** (2.4): from the kriging estimate and standard-error rasters it builds P(Z>threshold) under a normal local distribution. A separate post-processor, it does not change the "2D Kriging" window. Cut-off grades, risk zones for any threshold.
+- **2.6.1** — tool groups are numbered ("1. Grid and isolines", "2. Additional analysis tools") so the group order in the Processing tree is the same in the Russian and English locales; illustrations were added to the manual (the External Drift Kriging window, the tool tree, and an ordinary-vs-external-drift comparison).
+- **2.6.0** — a new tool **External Drift Kriging**: regression kriging against an external raster known everywhere (an adjacent seam, a coarse model, a seismic attribute). The drift is removed by regression, the residuals are kriged, and the drift is added back from the raster. Degree 1 or 2; search, anisotropy, clipping and the standard error as in 2D Kriging. The demo generator can output a drift surface (raster) and a related dz field for an end-to-end check. Tools are renumbered per group: "Grid and isolines" 1.1-1.7, "Additional analysis tools" 2.1-2.3 (the old flat 1-10 sorted as strings).
+- **2.5.0** — a new tool **Hydraulic gradient and flow direction**
+  (hydrogeology): from a head raster it builds the gradient magnitude |∇h|, the
+  flow-direction azimuth (down-gradient) and a point layer of flow vectors
+  styled as arrows automatically. The geometry of the head field without
+  permeability, the
+  Darcy velocity is not computed. Optional smoothing of the head before
+  computing. The sample-wells generator gained a head field option with a
+  regional slope for an end-to-end learning cycle.
 
-- **2.3.0** - новый инструмент **Категориальный индикаторный кригинг**: по
-  категориальному полю строит индикатор на каждый класс, кригует ядром KB2D и
-  нормирует вероятности к сумме 1, на выходе многополосный растр вероятностей,
-  карта зон и уверенность. Демо-генератор скважин получил опцию категориального
-  поля минтипа для обучения.
+- **2.4.0** — the **2D Kriging** tool gained **block kriging** (a **Block
+  kriging** checkbox and a **Block discretization, N×N per cell** field, 4×4 by
+  default). It estimates the average over a grid cell rather than the value at
+  its centre: the cell is split into N×N discretization points and the
+  covariances are averaged over the block (GSLIB KB2D scheme). The surface is
+  smoother and the standard error is lower than for point kriging — for
+  estimating reserves and grades over a block. Off by default: ordinary point
+  kriging. Trend removal and block kriging work together.
 
-- **2.2.0** - в инструменте **Изолинии из растра** появился выбор **Стиль
-  изолиний** с двумя встроенными пресетами (папка `styles`): структурный (по
-  умолчанию) и депрессионный со штрихами вниз. Стиль накладывается на слой
-  автоматически. Депрессионный стиль сам включает расчёт стороны склона: линии
-  получают поле `dn_sign` сэмплированием исходного растра по обе стороны линии,
-  и штрихи на главных изолиниях ложатся в сторону склона вниз. Отдельной галки
-  нет.
+- **2.3.0** — a new tool **Categorical indicator kriging**: for a categorical
+  field it builds an indicator per class, krige each with the KB2D core and
+  normalises the probabilities to sum to 1, producing a multiband probability
+  raster, a zone map and a confidence raster. The sample-wells generator gains a
+  categorical mineral-type option for teaching.
 
-- **2.1.1** - тихие удобства. Выбранный профиль обработки запоминается между
-  сессиями и подставляется при открытии **2D Kriging** и **Кросс-валидации**.
-  Параметры запуска сохраняются только при успешном завершении. В Журнал
-  добавлены предупреждения о плохой кондиционности данных: мало точек,
-  совпадающие координаты, одинаковые значения.
+- **2.2.0** — the **Isolines from raster** tool gains an **Isoline style**
+  choice with two bundled presets (the `styles` folder): structural (default)
+  and depression with downhill hachures. The style is applied to the layer
+  automatically. The depression style turns on the downhill-side computation by
+  itself: lines get a `dn_sign` field by sampling the source raster on both
+  sides of the line, so the hachures on index contours point toward the low
+  ground. No separate checkbox.
 
-- **2.1.0** - снятие тренда (регрессия-кригинг) в **2D Kriging** и
-  **Кросс-валидации**: галка «Снять полиномиальный тренд» и степень тренда
-  (плоскость или квадратичная). Тренд снимается МНК перед кригингом, кригуются
-  остатки, тренд возвращается к оценке; полезно для отметок пласта и мощностей
-  с общим падением в пределах участка. В **Вариограммной карте** добавлено поле
-  «Записать анизотропию в профиль»: азимут, коэффициент и радиус главной оси
-  дописываются в выбранный профиль и при загрузке видны в подписи. Руководство
-  и PDF (RU/EN) дополнены.
+- **2.1.1** — quiet conveniences. The selected processing profile is remembered
+  between sessions and prefilled when **2D Kriging** and **Cross-validation**
+  open. Run parameters are saved only on success. Data-conditioning warnings are
+  added to the log: few points, coinciding coordinates, identical values.
 
-- **2.0.0** - полное двуязычие плагина (RU/EN): язык интерфейса определяется по
-  локали QGIS. Переведены диалоги, варианты списков, подсказки и панели справки,
-  а также логи, предупреждения, исключения, HTML-отчёты, имена выходных слоёв и
-  псевдонимы полей слоя остатков. Двуязычное руководство: `doc/Isoliner.pdf` (RU)
-  + `doc/Isoliner_en.pdf` (EN); кнопка **«Справка»** открывает PDF по языку
-  интерфейса. Движок переводов (словарный слой i18n) с тестами покрытия и импорта.
-- **1.9.1** - бикубическое сглаживание изолиний (сгущение грида ×2…×4 перед
-  контурингом, по умолчанию выкл.) - гладкие линии без «октагонов», для линий
-  и для полигонов; границы поясов совпадают с изолиниями. Полигонизация поясов
-  переведена на прямые вызовы GEOS (надёжно на густой сети).
-- **1.9.0** - новый инструмент «Вариограммная карта (анизотропия)»: поверхность
-  γ(h_x, h_y), эллипс анизотропии, оценка азимута/анизотропии/радиуса для кригинга.
-  Если радиус упирается в макс. лаг (γ не вышла на полку) - предупреждение, что
-  это нижняя оценка.
-- **1.8.3** - гауссова модель: принудительный минимальный наггет для устойчивости;
-  совместимость с QGIS 4; устойчивые контурные полигоны в QGIS 4 (GEOS 3.14);
-  уточнены формулировки руководства.
-- **1.8.2** - двуязычное описание плагина (английский и русский) в каталоге
-  QGIS и английский README для международной аудитории.
-- **1.8.1** - в справку каждого инструмента добавлена ссылка на страницу
-  плагина на сайте www.informpp.ru.
-- **1.8.0** - профили обработки: именованные наборы «вариограмма (Структура 1) +
-  отсев», глобальное хранилище. «Вариограмма» и «Кросс-валидация» сохраняют профиль,
-  «2D Kriging» подставляет (поле **Загрузить профиль**, заменило старую галку).
-  Новый шестой инструмент **Профили обработки** (показать/сохранить/удалить/очистить).
-  Структуры 2 и 3 вариограммы убраны (осталась одна с азимутом и анизотропией);
-  порядок параметров единый - отсев ураганных проб в конце.
-  Терминология: «изотропная» вместо «всенаправленная».
-- **1.7.4** - галка «Подставить последнюю рекомендованную модель» в **2D Kriging**
-  вынесена из «Дополнительно» в основные параметры (видна сразу). В руководство
-  добавлена таблица всех параметров инструмента **Вариограмма** и описание полей
-  выходной таблицы.
-- **1.7.3** - номер версии модуля показывается в трёх местах: в Журнале при
-  запуске инструмента, в подвале HTML-отчётов и в конце встроенной справки.
-  Читается из `metadata.txt`.
-- **1.7.2** - руководство дополнено разделом про инструмент **Вариограмма
-  (экспериментальная)** и рабочий цикл с кросс-валидацией, PDF пересобран.
-  Изменений в коде нет.
-- **1.7.1** - инструменты пронумерованы (1-5) для порядка в панели Processing.
-  Вариограмма: предупреждения о радиусе у края окна (нет выхода на плато) и о
-  слишком малом максимальном расстоянии, единицы у поля maxlag, минимум точек в
-  группе (% от выборки с полом 30), относительный порог гауссовых «бычьих глаз».
-  Кросс-валидация: точный приём правки MSDR (умножить наггет и вклады на MSDR).
-  Перенос модели в **2D Kriging** галкой «Подставить последнюю рекомендованную
-  модель».
-- **1.7.0** - новый инструмент **Вариограмма (экспериментальная)**:
-  экспериментальная вариограмма по точкам с подбором модели (наггет, порог,
-  радиус) на чистом numpy и HTML-отчётом. Поле группировки - сравнение
-  совокупностей разной плотности (поверхностная и подземная разведка).
-- **1.6.0** - гауссово сглаживание поля перенесено из «Изолинии из растра» в
-  **2D Kriging** (опция «Сгладить грид (Гаусс)», по умолчанию выключена):
-  изолинии строятся по видимому растру, без скрытого сужения диапазона
-  уровней. **Скругление линий** (Chaikin) осталось в изолиниях. Руководство
-  переработано: темы собраны в подразделы инструментов, автонумерация.
-- **1.5.0** - кросс-валидация: QQ-график ошибок, дисперсия данных в метриках,
-  номера скважин в подсказках. Руководство дополнено схемами для новичков.
-- **1.4.0** - инструмент «Пример скважин (демо)». Вывод дисперсии данных в Журнал. Правки руководства.
-- **1.3.0** - кросс-валидация: HTML-отчёт с интерактивным графиком (plotly) и метриками.
-- **1.2.0** - кросс-валидация: кнопка справки, поле номера скважины в слое остатков, `std_error` -> `std_resid`.
-- **1.1.0** - инструмент «Кросс-валидация вариограммы» (leave-one-out) + раздел в руководстве.
-- **1.0.0** - первый стабильный релиз.
+- **2.1.0** — trend removal (regression kriging) in **2D Kriging** and
+  **Cross-validation**: a "Remove polynomial trend" checkbox and a trend degree
+  (plane or quadratic). The trend is removed by least squares before kriging,
+  the residuals are kriged, and the trend is added back; useful for seam marks
+  and thicknesses with a general dip within an area. The **Variogram map** gains
+  a "Write anisotropy to a profile" field: the azimuth, the coefficient and the
+  major-axis range are written into a chosen profile and shown in the caption on
+  load. Manual and PDFs (EN/RU) updated.
 
-- **0.6.1** - исправлено: слой изолиний мог не появляться из-за переупорядочивания
-  слоёв (теперь переставляется только слой полигонов, безопасно).
-- **0.6.0** - руководство пользователя (PDF) в комплекте + кнопка «Справка».
-  слой изолиний размещается над полигонами.
-- **0.5.3** - заметка в README про обновление/перезагрузку без перезапуска QGIS.
-- **0.5.2** - вернул лёгкое скругление линий (Chaikin) поверх сглаженного
-  поля: убирает «октагоны», пересечений не создаёт.
-- **0.5.1** - сглаживание поля (гауссово, радиус в ячейках) вместо сглаживания
-  линий: нет пересечений изолиний в густых местах, плавные углы.
-- **0.5.0** - контурные полигоны по умолчанию (во временный слой). Запоминание
-  поля Z. Иконка плагина. Чистка кода и README.
-- **0.4.4** - обрезка по контуру скважин без `native:minimumboundinggeometry`
-  (`dissolve` + `convexhull`), работает в QGIS 3.40.
-- **0.4.3** - линии и пояса из одного набора линий. Границы совпадают и по
-  краям. Нодирование через `splitwithlines`.
-- **0.4.2** - переименование в Isoliner. Полигоны = пояса между изолиниями
-  (без дыр и «ступенек»), диапазон пояса - выборкой растра.
+- **2.0.0** — full bilingual plugin (EN/RU): the interface language follows
+  the QGIS locale. Dialogs, drop-down options, hints and help panels, plus
+  logs, warnings, exceptions, HTML reports, output layer names and
+  residual-field aliases are all translated. Bilingual manual:
+  `doc/Isoliner.pdf` (RU) + `doc/Isoliner_en.pdf` (EN); the **"Help"** button
+  opens the PDF by interface language. Dictionary-based i18n engine with
+  coverage and import tests.
+- **1.9.1** — bicubic isoline smoothing (grid densification ×2…×4 before
+  contouring, off by default) - smooth lines without "octagons", for both
+  lines and polygons; belt boundaries coincide with isolines. Belt
+  polygonization moved to direct GEOS calls (robust on dense networks).
+- **1.9.0** — new "Variogram map (anisotropy)" tool: γ(h_x, h_y) surface,
+  anisotropy ellipse, estimated azimuth/ratio/range to feed into kriging.
+  If the major range reaches the window edge (γ not on plateau), a warning marks
+  it as a lower bound.
+- **1.8.3** — Gaussian model: enforced minimum nugget for numerical stability;
+  QGIS 4 compatibility; robust contour polygons in QGIS 4 (GEOS 3.14);
+  refined manual wording.
+- **1.8.2** — bilingual plugin description (EN/RU) in the QGIS catalog and an
+  English README for an international audience.
+- **1.8.1** — added a link to the plugin's web page (www.informpp.ru) in each
+  tool's help panel.
+- **1.8.0** — processing profiles: named "variogram (Structure 1) + outliers"
+  sets with global storage. Variogram and Cross-validation save a profile, 2D
+  Kriging applies it (**Load profile** field, replacing the old checkbox). New
+  sixth tool **Processing profiles**. Variogram structures 2 and 3 removed (one
+  left, with azimuth and anisotropy); unified parameter order — outlier removal
+  last. Terminology: "isotropic" instead of "omnidirectional".
+- earlier versions — see `metadata.txt`.

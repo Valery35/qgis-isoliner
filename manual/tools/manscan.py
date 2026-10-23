@@ -3,7 +3,7 @@
 import pathlib
 import re
 
-FILES = ['manual/manual.md', 'manual/manual_en.md', 'README.md', 'README_en.md',
+FILES = ['manual/manual.md', 'manual/manual_en.md', 'README.md', 'README_ru.md',
          'CHANGELOG.md']
 WORDS = [
     r'наивн\w*', r'честн\w*', r'врё\w*', r'соблазн\w*', r'предъяв\w*',
