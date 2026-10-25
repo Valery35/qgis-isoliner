@@ -189,6 +189,19 @@ def test_flattening_cuts_at_the_foot_of_the_slope():
     assert 28 <= row <= 32, row      # у перелома, а не в середине полки
 
 
+def test_flattening_with_cell_not_dividing_window():
+    """Шаг 16.7 м не делит окно 50 м: прежде уклон окна не мерился,
+    и трасса шла до края листа."""
+    z = _slope_then_flat()
+    _idx, ds = tf.d8_directions(z)
+    path = tf.trace_downhill(ds, [0 * 20 + 10], z.shape)[0]
+    cut, was = tf.cut_on_flattening(path, z * 1.67, z.shape, 16.7,
+                                    min_slope=0.05, window=50.0)
+    assert was and len(cut) < len(path)
+    row = cut[-1] // 20
+    assert 28 <= row <= 32, row
+
+
 def test_short_shelf_is_skipped():
     """Ступенька в одну ячейку не считается выполаживанием.
 
