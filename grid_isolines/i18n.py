@@ -2281,6 +2281,7 @@ TRANSLATIONS = {
     'Версия %s': 'Version %s',
     'Исходный код': 'Source code',
     'Сообщить об ошибке': 'Report an issue',
+    'Поддержать разработку': 'Support development',
     'Руководство не найдено.': 'Manual not found.',
     # 5.07 Создать пример полиэдра (демо)
     'Пример': 'Example',

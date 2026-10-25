@@ -35,14 +35,22 @@ def test_manual_path_by_locale():
 
 def test_menu_strings_translated():
     for s in ("О плагине…", "Руководство (PDF)", "История изменений",
-              "Версия %s", "Руководство не найдено."):
+              "Версия %s", "Руководство не найдено.",
+              "Поддержать разработку"):
         i18n.set_language("en")
         assert i18n.tr(s) != s, s
         i18n.set_language(None)
+
+
+def test_support_url():
+    assert about.SUPPORT_URL.startswith("https://github.com/Valery35#")
+    from urllib.parse import unquote
+    assert unquote(about.SUPPORT_URL).endswith("#поддержать-разработку")
 
 
 if __name__ == "__main__":
     test_read_metadata()
     test_manual_path_by_locale()
     test_menu_strings_translated()
+    test_support_url()
     print("test_about: OK")
