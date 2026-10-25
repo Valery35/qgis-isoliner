@@ -2,7 +2,7 @@
 
 [English](README.md) · **Русский**
 
-[![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Страница плагина](https://img.shields.io/badge/%D0%A1%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0%20%D0%BF%D0%BB%D0%B0%D0%B3%D0%B8%D0%BD%D0%B0-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner)
+[![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Страница плагина](https://img.shields.io/badge/%D0%A1%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0%20%D0%BF%D0%BB%D0%B0%D0%B3%D0%B8%D0%BD%D0%B0-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner) [![Поддержать СБП](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-%D0%A1%D0%91%D0%9F-2ea44f)](https://github.com/Valery35#%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D1%83)
 
 Плагин-провайдер Processing для интерполяции точечных данных, построения
 изолиний и работы с рельефом. Инструменты разнесены по семи группам Processing - **«Грид и изолинии»**, **«Топография»**, **«Дополнительные инструменты анализа»**, **«Разрез»**, **«Геологическая модель»** (бета), **«Гидрология рек»** и **«Фрактальный анализ»**, всего шестьдесят восемь:
@@ -19,6 +19,8 @@
 > Isoliner развивается на задачах реальных предприятий. Нужна функция под ваше производство - напишите нам: [страница «Предприятиям»](https://www.informpp.ru/главная-страница/предприятиям).
 
 **Нашли ошибку или есть предложение?** Откройте [Issue](https://github.com/Valery35/qgis-isoliner/issues) и укажите версию QGIS, что делали, и приложите данные или проект для воспроизведения - так баг легче повторить и быстрее исправить.
+
+Модуль бесплатный и открытый. [Поддержать разработку](https://github.com/Valery35#%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D1%83)
 
 ### Группа «1. Грид и изолинии»
 
