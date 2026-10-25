@@ -339,6 +339,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.42** — a «Support development» link in the About window and in the tool help.
 - **5.13.41** — 3.09 accepts an extent in degrees and builds the demo in a UTM zone.
 - **5.13.40** — new demo tool 3.09 for 3.01 and 3.02, and 3.01 no longer shrinks narrow replacement zones when no weight field is given.
 - **5.13.39** — the plugin is now named simply Isoliner.

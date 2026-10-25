@@ -6,7 +6,7 @@ description=2D kriging (GSLIB KB2D) and isoline / contour-polygon generation in 
 about=A Processing toolset for point-data interpolation and isolines. It holds 2D kriging (points to raster, GSLIB KB2D core), the experimental variogram with model fitting and leave-one-out cross-validation. Next come optional trend removal (regression kriging), isolines and contour polygons whose boundaries coincide with the lines, reusable processing profiles and a sample-data generator. Suitable for roof elevations, thicknesses, geomechanical properties, chemistry and any numeric attribute. Bilingual (EN/RU) user manual (PDF) is bundled. The interface language and the help language can be chosen separately and by default follow QGIS. Two companion plugins work alongside it: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) shows the surfaces and bodies in a 3D scene, and Topoliner (https://github.com/Valery35/topoliner) puts the topology of polygon and line layers in order before interpolation. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Группа команд Processing для интерполяции точечных данных и построения изолиний. В набор входят 2D Kriging (точки в растр, ядро GSLIB KB2D), экспериментальная вариограмма с подбором модели и кросс-валидация (leave-one-out). Дальше идут необязательное снятие тренда (регрессия-кригинг), изолинии и контурные полигоны с совпадающими границами, профили обработки и генератор учебных данных. Подходит для отметок пласта, мощностей, ФМС, химии и любых числовых атрибутов. Двуязычное руководство пользователя (PDF, EN/RU) в комплекте. Язык интерфейса и язык справки выбираются отдельно и по умолчанию идут за QGIS. Рядом работают два плагина того же набора: Isoliner3D (https://github.com/Valery35/qgis-isoliner3d) показывает поверхности и тела в 3D-сцене, а Topoliner (https://github.com/Valery35/topoliner) приводит в порядок топологию полигональных и линейных слоёв перед интерполяцией. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=5.13.41
+version=5.13.42
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner
@@ -18,7 +18,10 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=5.13.41
+changelog=5.13.42
+    - Ссылка «Поддержать разработку» в окне «О плагине» и в конце
+      справки инструментов.
+    5.13.41
     - 3.09 принимает охват в градусах: демо строится в зоне UTM по
       центру охвата, все слои выходят в ней. Раньше инструмент
       останавливался с ошибкой на проекте в WGS 84.
@@ -65,12 +68,3 @@ changelog=5.13.41
       наклоны до тысячной мм/м, углы до десятой градуса. Двенадцати
       знаков после запятой у отметки кровли больше нет.
     - Поля ваших входных слоёв не округляются.
-    5.13.32
-    - Русские названия полей у всех инструментов, которые выдают векторные
-      слои: кригинг, изолинии, рельеф и водосборы, разрезы, гидрология,
-      фракталы, LandXML, сдвижения. Имена полей прежние.
-    - Подпись идёт за полем по цепочке: если у поля входного слоя есть
-      псевдоним, выход получает тот же. Реперы из 9.03 приходят в 9.01
-      подписанными, определение разреза из 4.01 подписано и в 4.02.
-    - Подписываются и выходы, которых нет в списке результатов, например
-      ураганные пробы 1.02.
