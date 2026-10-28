@@ -40,11 +40,11 @@ Minimum: **Relief source** = GEDTM30, **Download extent** over the area of inter
 Minimum: **Raster**, **Interval** of 5 or 10 m. The rest by default.
 *You get:* a contour layer. From here on it plays the part of source data, as if it had been handed to you.
 
-**Step 3.** **2.05 Flow and accumulation (D8)**
+**Step 3.** **6.01 Flow and accumulation (D8)**
 Minimum: the **DEM** from step 1. Leave the filling of depressions on.
 *You get:* rasters of flow direction and accumulated area.
 
-**Step 4.** **2.06 River network**
+**Step 4.** **6.02 River network**
 Minimum: the accumulation raster from step 3, **Catchment threshold** in cells. Start with a thousand and tune it until the network looks plausible.
 *You get:* watercourse lines directed downstream, that is, ready-made streamlines.
 
@@ -100,15 +100,15 @@ Minimum: **Section line**, **Surfaces top to bottom**, **Vertical scale**.
 
 Three minutes.
 
-**Step 1.** **6.04 Example river (demo)**
+**Step 1.** **6.11 Example river (demo)**
 Minimum: nothing to set, everything by default.
 *You get:* sections with the fields filled in, a table of soundings, a valley surface and a reference curve.
 
-**Step 2.** **6.01 Cross-sections and rating curves**
+**Step 2.** **6.08 Cross-sections and rating curves**
 Minimum: **Cross-sections**, the rest is picked up by the field names.
 *You get:* a table of the dependence of discharge on level by parts and in total, the section profiles and an HTML report with a table for every section.
 
-**Step 3.** **6.02 Flood extent polygon**
+**Step 3.** **6.09 Flood extent polygon**
 Minimum: the valley **Surface** from step 1, the **Sections** and the **Rating curve** from step 2, a **Discharge**, say 60.
 *You get:* the flood extent and a raster of depth. For every section a level is found backwards along the curve, and a water surface rises from them.
 
@@ -127,25 +127,25 @@ one channel with defaults. The discharges then come out several times too
 large, because a floodplain hundreds of metres wide gets the roughness of a
 channel. This is the most frequent cause of implausible numbers.
 
-**Step 1.** **6.03 Import section tables** - if the profiles are kept as tables of distance and elevation pairs.
+**Step 1.** **6.10 Import section tables** - if the profiles are kept as tables of distance and elevation pairs.
 Minimum: the **Table of soundings**. If the sections are already digitized on the map, supply them as a layer - the soundings will lie along the real lines.
 *You get:* lines with Z ready for the next step. Skip this step if your sections already carry elevations.
 
-**Step 2.** **6.01 Cross-sections and rating curves**
+**Step 2.** **6.08 Cross-sections and rating curves**
 Minimum: the **Sections**. The slope can be computed from the chain if you give the chainage and tick the corresponding box.
 *You get:* the curve, the profiles, the drawing footer, the ground elevations and a report with a graph. Check the accepted slope and roughness in the log: it also shows whether the fields were picked up or the defaults were taken.
 
-**Step 3.** **6.02 Flood extent polygon**
+**Step 3.** **6.09 Flood extent polygon**
 Minimum: the **Surface** (your DEM), the **Sections on the map**, the **Rating curve** from step 2 and a desired **Discharge**.
-*You get:* the flood extent and the depth. The discharge can be changed as many times as you like: the curve does not depend on it, and there is no need to run 6.01 again.
+*You get:* the flood extent and the depth. The discharge can be changed as many times as you like: the curve does not depend on it, and there is no need to run 6.08 again.
 
 ### Three places where people usually stumble
 
 **One elevation for the whole valley.** The level is not constant along the river, upstream it is higher. Supplying a single level as a plane floods the valley where the water does not reach. That is why the levels go by section.
 
-**The drawing layer of levels.** In the output "Probability levels (drawing)" the horizontal axis carries the distance along the section rather than a map coordinate. For 6.02 you need the output **Levels at the sections on the map**. The tool recognizes this and says so plainly.
+**The drawing layer of levels.** In the output "Probability levels (drawing)" the horizontal axis carries the distance along the section rather than a map coordinate. For 6.09 you need the output **Levels at the sections on the map**. The tool recognizes this and says so plainly.
 
-**A discharge above the curve.** The curve is built up to the top of the profile, and in a catastrophic scenario the water rises above the banks. Such a section is skipped with a warning. If you need large scenarios, raise the upper elevation in 6.01 and the curve will continue with a margin.
+**A discharge above the curve.** The curve is built up to the top of the profile, and in a catastrophic scenario the water rises above the banks. Such a section is skipped with a warning. If you need large scenarios, raise the upper elevation in 6.08 and the curve will continue with a margin.
 
 ---
 

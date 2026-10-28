@@ -17,21 +17,21 @@ header-includes:
 ---
 
 \begin{center}
-{\Large\sffamily\bfseries Isoliner · River hydrology: from a section to a flood extent}\\[1pt]
-{\small Cheat sheet for the "6. River hydrology" group · QGIS 3.16+ · Isoliner plugin · no external dependencies}
+{\Large\sffamily\bfseries Isoliner · Hydrology: from a section to a flood extent}\\[1pt]
+{\small Cheat sheet for the "6. Hydrology" group · QGIS 3.16+ · Isoliner plugin · no external dependencies}
 \end{center}
 
 \vspace{2pt}
 
 # The pipeline: from a section to a flood polygon
 
-**Step 1. Sections.** Lines across the valley with elevations in the **Z of the vertices**. A surveyed elevation is more accurate than any terrain model, so the source is the geometry itself rather than a DEM sample. Profiles kept as tables of distance and elevation pairs are turned into sections by **6.03 Import section tables**. Supply digitized section lines there as well, and the soundings will lie along them.
+**Step 1. Sections.** Lines across the valley with elevations in the **Z of the vertices**. A surveyed elevation is more accurate than any terrain model, so the source is the geometry itself rather than a DEM sample. Profiles kept as tables of distance and elevation pairs are turned into sections by **6.10 Import section tables**. Supply digitized section lines there as well, and the soundings will lie along them.
 
-**Step 2. The curve - 6.01 Cross-sections and rating curves.** Input: the layer of sections. Outputs: **Rating curve (table)**, **Section drawing as one layer**, **Levels at the sections on the map (for 6.02)** and an HTML report. **Rating curve plot (drawing)** is switched on separately. The computation is separate by part, the discharge by Manning on each and the sum over the section.
+**Step 2. The curve - 6.08 Cross-sections and rating curves.** Input: the layer of sections. Outputs: **Rating curve (table)**, **Section drawing as one layer**, **Levels at the sections on the map (for 6.09)** and an HTML report. **Rating curve plot (drawing)** is switched on separately. The computation is separate by part, the discharge by Manning on each and the sum over the section.
 
-**Step 3. Flooding - 6.02 Flood extent polygon.** Input: a DEM and water levels. They come from **Levels at the sections** of step 2, or from **Sections on the map** together with the curve table and a desired discharge. Outputs: the flood extent and a raster of depth. The curve does not depend on the discharge, so the discharge can be changed as many times as needed without going back to step 2.
+**Step 3. Flooding - 6.09 Flood extent polygon.** Input: a DEM and water levels. They come from **Levels at the sections** of step 2, or from **Sections on the map** together with the curve table and a desired discharge. Outputs: the flood extent and a raster of depth. The curve does not depend on the discharge, so the discharge can be changed as many times as needed without going back to step 2.
 
-For a first acquaintance **6.04 Example river (demo)** gives the sections, a table of soundings, a valley surface, a reference curve, probability discharges and observed levels. A discrepancy with the reference is an error of the tool rather than of the data.
+For a first acquaintance **6.11 Example river (demo)** gives the sections, a table of soundings, a valley surface, a reference curve, probability discharges and observed levels. A discrepancy with the reference is an error of the tool rather than of the data.
 
 # Fields of a section: names and units
 
@@ -72,7 +72,7 @@ Observed levels come in their own table with an elevation and a label such as **
 
 **One elevation for the whole valley.** The level is not constant along the river, upstream it is higher. Cutting the whole area by a single elevation floods the valley where the water does not reach. That is why the levels go by section and a water surface rises from them.
 
-**The drawing instead of the map.** In the section drawing the horizontal axis carries the distance along the section rather than a coordinate. For 6.02 you need the output **Levels at the sections on the map (for 6.02)**. The tool recognizes this and refuses with an explanation.
+**The drawing instead of the map.** In the section drawing the horizontal axis carries the distance along the section rather than a coordinate. For 6.09 you need the output **Levels at the sections on the map (for 6.09)**. The tool recognizes this and refuses with an explanation.
 
 # A river DEM with a bed: what to click
 
@@ -128,7 +128,7 @@ The Manning formula describes steady uniform flow. The curve is a hydraulic char
 
 The slope enters the discharge under a square root, so an error in it tells directly. On lowland rivers it is small, and the accepted value is always printed to the log.
 
-The curve is built up to the top of the profile. In a catastrophic scenario the water rises above the banks, and such a section is skipped with a warning. To compute large scenarios raise the upper elevation in 6.01.
+The curve is built up to the top of the profile. In a catastrophic scenario the water rises above the banks, and such a section is skipped with a warning. To compute large scenarios raise the upper elevation in 6.08.
 
 Connectivity of the flood zone with the channel is not checked. Closed depressions away from the river stay in the extent, and that is visible on the map.
 

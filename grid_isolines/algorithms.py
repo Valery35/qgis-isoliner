@@ -143,7 +143,7 @@ GROUP3 = _tr("4. Разрез")
 GROUP3_ID = "section"
 GROUP_GEO = _tr("5. Геологическая модель (бета)")
 GROUP_GEO_ID = "geomodel"
-GROUP_HYDRO = _tr("6. Гидрология рек")
+GROUP_HYDRO = _tr("6. Гидрология")
 GROUP_HYDRO_ID = "hydro_rivers"
 GROUP5 = _tr("7. Фрактальный анализ")
 GROUP5_ID = "fractal_analysis"
@@ -217,8 +217,8 @@ def _junction_check(lines, tol, feedback):
 def _fill_help():
     """Общий блок справки про заполнение понижений и epsilon.
 
-    Пара «Заполнить понижения» плюс «Epsilon уклона» повторяется у 2.05,
-    2.06, 2.07, 2.15 и 2.16 с одним и тем же смыслом. Текст один на всех,
+    Пара «Заполнить понижения» плюс «Epsilon уклона» повторяется у 6.01,
+    6.02, 6.03, 6.04 и 6.05 с одним и тем же смыслом. Текст один на всех,
     чтобы правка шла в одном месте и переводился он тоже один раз.
     """
     return _trh(FILL_HELP)
@@ -16680,7 +16680,7 @@ _hs_wet_spans = hydro_section.wet_spans
 
 
 class RatingCurveAlgorithm(IsolinerAlgorithm):
-    """6.01 Створы и кривые расходов."""
+    """6.08 Створы и кривые расходов."""
 
     SECTIONS = "SECTIONS"
     NAMEFLD, ROLEFLD, KMFLD = "NAMEFLD", "ROLEFLD", "KMFLD"
@@ -16738,7 +16738,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return RatingCurveAlgorithm()
     def name(self): return "rating_curve"
     def displayName(self):
-        return self.tr("6.01 Створы и кривые расходов")
+        return self.tr("6.08 Створы и кривые расходов")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_HYDRO)
     def groupId(self): return GROUP_HYDRO_ID
@@ -16751,7 +16751,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             "расход.\n\n**Профиль** берётся по вершинам створа, отметка из Z вершины. "
             "Промеренная отметка точнее любой модели рельефа, поэтому источником "
             "служит сама геометрия створа, а не срез ЦМР. Створы с промерами приходят "
-            "из **6.03** и из демо **6.04**. Срез с ЦМР и слой промеров отдельными "
+            "из **6.10** и из демо **6.11**. Срез с ЦМР и слой промеров отдельными "
             "точками пока не поддерживаются.\n\n**Разбивка** на левый берег, русло и "
             "правый берег задаётся одним из двух способов. Либо створ приходит одной "
             "линией, а границы стоят в полях расстояниями по профилю. Либо тремя "
@@ -16885,7 +16885,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             [QgsProcessing.SourceType.TypeVector], optional=True))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT_LEVELS_MAP,
-            self.tr("Уровни по створам на карте (для 6.02)"),
+            self.tr("Уровни по створам на карте (для 6.09)"),
             type=QgsProcessing.SourceType.TypeVectorLine, optional=True,
             createByDefault=True))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
@@ -17773,7 +17773,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
 
 
 class DemoRiverAlgorithm(IsolinerAlgorithm):
-    """6.04 Пример реки (демо)."""
+    """6.11 Пример реки (демо)."""
 
     CRS, EXTENT, COUNT, KM_STEP = "CRS", "EXTENT", "COUNT", "KM_STEP"
     CELL = "CELL"
@@ -17806,7 +17806,7 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return DemoRiverAlgorithm()
     def name(self): return "demo_river"
     def displayName(self):
-        return self.tr("6.04 Пример реки (демо)")
+        return self.tr("6.11 Пример реки (демо)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_HYDRO)
     def groupId(self): return GROUP_HYDRO_ID
@@ -17819,8 +17819,8 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
             "на кривой видно, как включается пойма: до бровок расход растёт круто, "
             "выше перелома пологая пойменная часть добавляет площадь, но мало "
             "добавляет расхода.\n\nКроме створов выдаются **таблица промеров** парами "
-            "расстояние-отметка,\nто есть вход для **6.03**, и **поверхность долины** "
-            "растром, то\nесть вход для **6.02**: резать затоплению нечего, пока "
+            "расстояние-отметка,\nто есть вход для **6.10**, и **поверхность долины** "
+            "растром, то\nесть вход для **6.09**: резать затоплению нечего, пока "
             "долина\nсуществует только линиями. Поверхность строится из тех же "
             "створов,\nчто и кривые, поэтому полигон затопления и кривая расходов "
             "говорят\nоб одной долине, а не о двух похожих.\n\nЕщё одной таблицей идут "
@@ -17833,8 +17833,8 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
             "растительность и\nгрунт по створу. Полоса идёт сплошь через несколько "
             "участков\nсразу, и на ней видно третий вид строки подвала, тот, "
             "который\nнельзя задать полем створа. Это вход подвала чертежа в "
-            "**6.01**.\n\nВторым выходом идёт эталонная кривая, посчитанная ядром "
-            "напрямую. Расхождение с тем, что даст **6.01** на этих же створах, есть "
+            "**6.08**.\n\nВторым выходом идёт эталонная кривая, посчитанная ядром "
+            "напрямую. Расхождение с тем, что даст **6.08** на этих же створах, есть "
             "ошибка инструмента, а не данных. Ответ известен заранее. Всё "
             "детерминировано.")
             + _credit())
@@ -17946,7 +17946,7 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
             rsink.addFeature(ft)
 
         # таблица промеров: тот вид, в котором профиль держат
-        # существующие программы, и вход для 6.03
+        # существующие программы, и вход для 6.10
         tf = QgsFields()
         for nm, tp in (("sec", QVariant.String), ("dist", QVariant.Double),
                        ("elev", QVariant.Double), ("km", QVariant.Double),
@@ -18032,7 +18032,7 @@ class DemoRiverAlgorithm(IsolinerAlgorithm):
 
 
 class FloodExtentAlgorithm(IsolinerAlgorithm):
-    """6.02 Полигон затопления."""
+    """6.09 Полигон затопления."""
 
     DEM, LEVEL = "DEM", "LEVEL"
     LEVEL_LINES, LEVEL_FIELD = "LEVEL_LINES", "LEVEL_FIELD"
@@ -18052,7 +18052,7 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return FloodExtentAlgorithm()
     def name(self): return "flood_extent"
-    def displayName(self): return self.tr("6.02 Полигон затопления")
+    def displayName(self): return self.tr("6.09 Полигон затопления")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_HYDRO)
     def groupId(self): return GROUP_HYDRO_ID
@@ -18065,17 +18065,17 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
             "только\nрасчётного, отметки берутся обратным ходом по уже "
             "посчитанной\nкривой. Подайте створы на карте, таблицу кривой и расход. "
             "По\nкаждому створу найдётся своя отметка, из них поднимется "
-            "поверхность\nводы, и пересобирать 6.01 не потребуется. Створ, у которого "
+            "поверхность\nводы, и пересобирать 6.08 не потребуется. Створ, у которого "
             "расход\nвне кривой, пропускается с предупреждением.\n\nУровень вдоль реки не "
             "постоянен, вверх по течению он выше. Если подать\n**уровни по створам** "
             "линиями с отметкой, инструмент поднимет из них\nповерхность воды и будет "
             "считать глубину от неё. Иначе вся площадь\nрежется одной отметкой, и "
             "долина заливается там, где дно ниже этой\nотметки, хотя вода туда не "
-            "доходит. Линии берутся прямо с выхода\n**6.01**.\n\nОтметку можно задать "
+            "доходит. Линии берутся прямо с выхода\n**6.08**.\n\nОтметку можно задать "
             "прямо, а можно **расходом**: тогда она берётся обратным ходом по кривой "
-            "от **6.01** - тем самым, что на ручных построениях рисуют красной "
+            "от **6.08** - тем самым, что на ручных построениях рисуют красной "
             "стрелкой. Кривая подаётся таблицей, расход числом, принятая отметка "
-            "печатается в журнал.\n\nИнструмент отделён от 6.01 намеренно. У него другой "
+            "печатается в журнал.\n\nИнструмент отделён от 6.08 намеренно. У него другой "
             "вход и другой потребитель, и пересчитывать всю кривую ради одного "
             "полигона незачем.\n\nМелкие пятна отсекаются по площади. На равнинной пойме "
             "одиночные ячейки ниже уреза дают крап, который к разливу отношения не "
@@ -18092,7 +18092,7 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double, optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.LEVEL_LINES,
-            self.tr("Уровни по створам, линии с отметкой (из 6.01)"),
+            self.tr("Уровни по створам, линии с отметкой (из 6.08)"),
             [QgsProcessing.SourceType.TypeVectorLine], optional=True))
         self.addParameter(_advanced(QgsProcessingParameterField(
             self.LEVEL_FIELD, self.tr("Поле отметки уровня (обычно level)"),
@@ -18104,7 +18104,7 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
             self.SEC_FIELD, self.tr("Поле имени створа (обычно sec)"),
             parentLayerParameterName=self.SECTIONS, optional=True)))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            self.CURVE, self.tr("Кривая расходов (из 6.01)"),
+            self.CURVE, self.tr("Кривая расходов (из 6.08)"),
             [QgsProcessing.SourceType.TypeVector], optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             self.Q, self.tr("Расход, м³/с (если отметка не задана)"),
@@ -18325,7 +18325,7 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
                 raise QgsProcessingException(self.tr(
                     "Слой уровней лежит вне охвата поверхности. Похоже, подан чертёжный слой "
                     "уровней. У него по горизонтали расстояние вдоль створа, а не координата "
-                    "на карте. Возьмите выход «Уровни по створам на карте» из 6.01."))
+                    "на карте. Возьмите выход «Уровни по створам на карте» из 6.08."))
             ext = (gt[0], gt[3] + gt[5] * arr.shape[0],
                    gt[0] + gt[1] * arr.shape[1], gt[3])
             try:
@@ -18423,7 +18423,7 @@ class FloodExtentAlgorithm(IsolinerAlgorithm):
 
 
 class ImportSectionTableAlgorithm(IsolinerAlgorithm):
-    """6.03 Импорт таблиц створов."""
+    """6.10 Импорт таблиц створов."""
 
     TABLE = "TABLE"
     LINES, LINEFLD = "LINES", "LINEFLD"
@@ -18449,7 +18449,7 @@ class ImportSectionTableAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return ImportSectionTableAlgorithm()
     def name(self): return "import_section_table"
-    def displayName(self): return self.tr("6.03 Импорт таблиц створов")
+    def displayName(self): return self.tr("6.10 Импорт таблиц створов")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_HYDRO)
     def groupId(self): return GROUP_HYDRO_ID
@@ -18461,7 +18461,7 @@ class ImportSectionTableAlgorithm(IsolinerAlgorithm):
             "начала створа и абсолютная отметка, и за годы работы таких таблиц "
             "накапливается много. Перебивать их вручную ради перехода в ГИС незачем. "
             "Инструмент читает их напрямую и строит линии с Z, готовые для "
-            "**6.01**.\n\nЕсли створы уже оцифрованы на карте, подайте их слоем. Промеры "
+            "**6.08**.\n\nЕсли створы уже оцифрованы на карте, подайте их слоем. Промеры "
             "лягут вдоль настоящих линий, и расстояние по створу станет расстоянием "
             "вдоль линии. Тогда никакой схемы не нужно вовсе.\n\nБез слоя линий "
             "геометрия строится прямыми створами: направление задаётся азимутом, "
@@ -19952,8 +19952,8 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
             "оврага это видно сразу. Такой рельеф нужен как проверочный набор для "
             "инструментов 2.11 и 2.12.\n\nЗаодно выдаются три демо-точки створов возле "
             "тальвегов, нарочно сдвинутые в сторону от водотока. Это готовый вход для "
-            "инструмента 2.15 «Отчёт по створу» и наглядная проверка притяжки. Рядом "
-            "идут две демо-трассы канав поперёк тальвегов для инструмента 2.16 "
+            "инструмента 6.04 «Отчёт по створу» и наглядная проверка притяжки. Рядом "
+            "идут две демо-трассы канав поперёк тальвегов для инструмента 6.05 "
             "«Водосбор линии».\n\nДва необязательных выхода дают готовую пару для "
             "инструмента 2.18 «Насыпи и выемки»: проектную поверхность и полигоны "
             "участков работ. Площадка горизонтальная, её отметка берётся медианой "
@@ -20105,7 +20105,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
                 ravine = True
                 feedback.pushInfo(self.tr(
                     "Пресет «овражно-балочная сеть»: врезы включены, "
-                    "рельеф годится для 2.05 и 2.06. Ручные значения ниже "
+                    "рельеф годится для 6.01 и 6.02. Ручные значения ниже "
                     "не действуют."))
             elif preset == 2:
                 ravine = False
@@ -20126,7 +20126,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
         _topo_group_layer(context, out_path, self.tr("Топография"))
         results = {self.OUTPUT: out_path}
 
-        # демо-створы для 2.15: три точки у тальвегов, нарочно сдвинутые
+        # демо-створы для 6.04: три точки у тальвегов, нарочно сдвинутые
         # чуть в сторону от водотока, чтобы притяжка была видна в деле.
         # Кандидаты - ячейки с большой аккумуляцией на заполненном рельефе,
         # разнесённые по гриду жадным отбором. Всё детерминировано зерном.
@@ -20168,14 +20168,14 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
             if picked:
                 feedback.pushInfo(self.tr(
                     "Демо-створы: %d, возле тальвегов со сдвигом в сторону "
-                    "(притяжка 2.15 вернёт их на водоток).") % len(picked))
+                    "(притяжка 6.04 вернёт их на водоток).") % len(picked))
                 _set_output_name(context, gdest,
                                  self.tr("Точки створов (демо)"))
                 _topo_group_layer(context, gdest, self.tr("Топография"),
                                   collapse=False)
                 results[self.GAUGES] = gdest
 
-        # демо-трассы канав для 2.16: нагорная канава выше створа поперёк
+        # демо-трассы канав для 6.05: нагорная канава выше створа поперёк
         # тальвега и короткий кювет ниже по склону. Ломаные, а не прямые,
         # чтобы проверялась растеризация с изломом. Всё от того же зерна.
         dfields = QgsFields()
@@ -20204,7 +20204,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
                 made += 1
             if made:
                 feedback.pushInfo(self.tr(
-                    "Демо-трассы: %d, поперёк тальвегов (готовый вход для 2.16 «Водосбор "
+                    "Демо-трассы: %d, поперёк тальвегов (готовый вход для 6.05 «Водосбор "
                     "линии»).") % made)
                 _set_output_name(context, ddest, self.tr("Трассы канав (демо)"))
                 _topo_group_layer(context, ddest, self.tr("Топография"),
@@ -20491,7 +20491,7 @@ def _topo_flow_from_dem(z, mask, do_fill, epsilon, feedback, tr):
     """Заполнение, D8 и аккумуляция для уже прочитанного массива.
 
     Нужен инструментам, которые правят рельеф перед расчётом стока
-    (врезка трассы в 2.16): читают ЦМР сами, меняют массив, зовут это.
+    (врезка трассы в 6.05): читают ЦМР сами, меняют массив, зовут это.
     """
     if do_fill:
         feedback.pushInfo(tr("Заполнение понижений..."))
@@ -20508,7 +20508,7 @@ def _topo_flow_from_dem(z, mask, do_fill, epsilon, feedback, tr):
 
 
 def _topo_prepare_flow(layer, do_fill, epsilon, feedback, tr):
-    """Общий вход 2.05-2.07: чтение, заполнение, D8, аккумуляция."""
+    """Общий вход 6.01-6.03: чтение, заполнение, D8, аккумуляция."""
     z, mask, gt, proj, cell = _topo_read_dem(layer, tr)
     if do_fill:
         feedback.pushInfo(tr("Заполнение понижений..."))
@@ -20525,7 +20525,7 @@ def _topo_prepare_flow(layer, do_fill, epsilon, feedback, tr):
 
 
 class FlowD8Algorithm(IsolinerAlgorithm):
-    """2.05 Сток и аккумуляция D8."""
+    """6.01 Сток и аккумуляция D8."""
 
     INPUT = "INPUT"
     FILL = "FILL"
@@ -20537,10 +20537,10 @@ class FlowD8Algorithm(IsolinerAlgorithm):
     def createInstance(self): return FlowD8Algorithm()
     def name(self): return "flow_d8"
     def displayName(self):
-        return self.tr("2.05 Сток и аккумуляция (D8)")
+        return self.tr("6.01 Сток и аккумуляция (D8)")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP_TOPO)
-    def groupId(self): return GROUP_TOPO_ID
+    def group(self): return self.tr(GROUP_HYDRO)
+    def groupId(self): return GROUP_HYDRO_ID
 
     def shortHelpString(self):
         return _help_version(_trh(
@@ -20603,7 +20603,7 @@ class FlowD8Algorithm(IsolinerAlgorithm):
 
 
 class RiverNetworkAlgorithm(IsolinerAlgorithm):
-    """2.06 Речная сеть по порогу аккумуляции, порядок Стралера."""
+    """6.02 Речная сеть по порогу аккумуляции, порядок Стралера."""
 
     INPUT = "INPUT"
     THRESHOLD = "THRESHOLD"
@@ -20623,10 +20623,10 @@ class RiverNetworkAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return RiverNetworkAlgorithm()
     def name(self): return "river_network"
     def displayName(self):
-        return self.tr("2.06 Речная сеть")
+        return self.tr("6.02 Речная сеть")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP_TOPO)
-    def groupId(self): return GROUP_TOPO_ID
+    def group(self): return self.tr(GROUP_HYDRO)
+    def groupId(self): return GROUP_HYDRO_ID
 
     def shortHelpString(self):
         return _help_version(_trh(
@@ -20701,7 +20701,7 @@ class RiverNetworkAlgorithm(IsolinerAlgorithm):
 
 
 class BasinsAlgorithm(IsolinerAlgorithm):
-    """2.07 Бассейны и водоразделы."""
+    """6.03 Бассейны и водоразделы."""
 
     INPUT = "INPUT"
     POUR_POINTS = "POUR_POINTS"
@@ -20724,10 +20724,10 @@ class BasinsAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return BasinsAlgorithm()
     def name(self): return "basins"
     def displayName(self):
-        return self.tr("2.07 Бассейны и водоразделы")
+        return self.tr("6.03 Бассейны и водоразделы")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP_TOPO)
-    def groupId(self): return GROUP_TOPO_ID
+    def group(self): return self.tr(GROUP_HYDRO)
+    def groupId(self): return GROUP_HYDRO_ID
 
     def shortHelpString(self):
         return _help_version(_trh(
@@ -20926,10 +20926,10 @@ class BasinsAlgorithm(IsolinerAlgorithm):
 
 
 # Псевдонимы полей водосбора. Имя поля короткое, и по нему величину не
-# опознать: пользователь 2.17 принял sp_iso_km за длину притоков, а это
+# опознать: пользователь 6.06 принял sp_iso_km за длину притоков, а это
 # суммарная длина горизонталей, число на два порядка больше. Псевдоним
 # ставится словами в заголовок таблицы атрибутов, само имя поля остаётся
-# прежним и выражения не ломаются. Словарь общий для 2.15 и 2.17: у них
+# прежним и выражения не ломаются. Словарь общий для 6.04 и 6.06: у них
 # разные имена трёх полей водотока, и лишние ключи просто не находятся.
 _CATCHMENT_ALIASES = {
     "area_km2": _tr("Площадь водосбора, км²"),
@@ -20955,7 +20955,7 @@ _CATCHMENT_ALIASES = {
 
 
 class GaugeReportAlgorithm(IsolinerAlgorithm):
-    """2.15 Отчёт по створу: морфометрия водосбора от точки замыкания."""
+    """6.04 Отчёт по створу: морфометрия водосбора от точки замыкания."""
 
     INPUT = "INPUT"
     GAUGES = "GAUGES"
@@ -20979,10 +20979,10 @@ class GaugeReportAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return GaugeReportAlgorithm()
     def name(self): return "gauge_report"
     def displayName(self):
-        return self.tr("2.15 Отчёт по створу")
+        return self.tr("6.04 Отчёт по створу")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP_TOPO)
-    def groupId(self): return GROUP_TOPO_ID
+    def group(self): return self.tr(GROUP_HYDRO)
+    def groupId(self): return GROUP_HYDRO_ID
 
     def shortHelpString(self):
         return _help_version(_trh(
@@ -21342,10 +21342,10 @@ class CatchmentStatsAlgorithm(IsolinerAlgorithm):
     def tr(self, s): return _tr(s)
     def createInstance(self): return CatchmentStatsAlgorithm()
     def name(self): return "catchment_stats"
-    def displayName(self): return self.tr("2.17 Отчёт по готовому водосбору")
+    def displayName(self): return self.tr("6.06 Отчёт по готовому водосбору")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP_TOPO)
-    def groupId(self): return GROUP_TOPO_ID
+    def group(self): return self.tr(GROUP_HYDRO)
+    def groupId(self): return GROUP_HYDRO_ID
 
     def shortHelpString(self):
         return _help_version(_trh(
@@ -21607,7 +21607,7 @@ class CatchmentStatsAlgorithm(IsolinerAlgorithm):
 
 
 class DitchCatchmentAlgorithm(IsolinerAlgorithm):
-    """2.16 Водосбор линии: площадь, которую перехватывает канава."""
+    """6.05 Водосбор линии: площадь, которую перехватывает канава."""
 
     INPUT = "INPUT"
     LINES = "LINES"
@@ -21641,10 +21641,10 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return DitchCatchmentAlgorithm()
     def name(self): return "ditch_catchment"
     def displayName(self):
-        return self.tr("2.16 Водосбор. Линии и контуры (канавы, карьеры)")
+        return self.tr("6.05 Водосбор. Линии и контуры (канавы, карьеры)")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP_TOPO)
-    def groupId(self): return GROUP_TOPO_ID
+    def group(self): return self.tr(GROUP_HYDRO)
+    def groupId(self): return GROUP_HYDRO_ID
 
     def shortHelpString(self):
         return _help_version(_trh(
@@ -22221,7 +22221,7 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             "сетки к тонкой, по мотивам ANUDEM. Каждый тип входа работает своим "
             "ограничением: точки высот и изолинии - жёсткие узлы, тальвеги - "
             "принудительное падение вниз по течению (вершины линий должны идти вниз по "
-            "течению, водотоки OSM и выход инструмента 2.06 подходят как есть), обрывы "
+            "течению, водотоки OSM и выход инструмента 6.02 подходят как есть), обрывы "
             "- барьер **Урез** работает в двух режимах. Плоскость заливает всю площадь "
             "внутри\nровной отметкой - это зеркало озера или пруда. Изолиния "
             "закрепляет\nтолько линию берега, а поверхность внутри остаётся за точками "
@@ -25571,7 +25571,7 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
 
 
 class DownhillTraceAlgorithm(IsolinerAlgorithm):
-    """2.23 Линии стока: куда стечёт вода из заданных ячеек."""
+    """6.07 Линии стока: куда стечёт вода из заданных ячеек."""
 
     INPUT = "INPUT"
     SEEDS = "SEEDS"
@@ -25604,10 +25604,10 @@ class DownhillTraceAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return DownhillTraceAlgorithm()
     def name(self): return "downhill_trace"
     def displayName(self):
-        return self.tr("2.23 Линии стока от точек, линий и контуров")
+        return self.tr("6.07 Линии стока от точек, линий и контуров")
     def helpUrl(self): return _help_url()
-    def group(self): return self.tr(GROUP_TOPO)
-    def groupId(self): return GROUP_TOPO_ID
+    def group(self): return self.tr(GROUP_HYDRO)
+    def groupId(self): return GROUP_HYDRO_ID
 
     def shortHelpString(self):
         return _help_version(_trh(
@@ -25643,7 +25643,7 @@ class DownhillTraceAlgorithm(IsolinerAlgorithm):
             "полигонов или линий, то есть пруд, реку или канаву. Порог накопления "
             "ловит водоток по самому рельефу, и трасса останавливается, придя в "
             "ячейку, куда стекает больше заданного количества ячеек. Порог тот же, что "
-            "в **2.06 Речная сеть**. Ноль отключает.\n\nТрасса D8 идёт по восьми "
+            "в **6.02 Речная сеть**. Ноль отключает.\n\nТрасса D8 идёт по восьми "
             "направлениям и потому выглядит ступенями под 45 градусов. Это свойство "
             "метода, а не ошибка. **Сглаживание трассы** скругляет ломаную для "
             "чертежа, отметки при этом не меняются.\n\nПоля выхода: src_id номер "
@@ -26178,7 +26178,7 @@ class LandXmlReadAlgorithm(IsolinerAlgorithm):
             "файл всё равно разбирается один раз.\n\nПоверхность выдаётся трёхмерными "
             "гранями, поэтому её сразу режет разрезом инструмент 4.06. Створы ложатся "
             "на местность поперёк трассы с отметками в вершинах, такую линию принимают "
-            "инструменты группы «Гидрология рек».\n\n**Порядок координат в файле** "
+            "инструменты группы «Гидрология».\n\n**Порядок координат в файле** "
             "решает, что записано первым. По схеме это север, затем восток, но пишут и "
             "наоборот. Ошибка даёт зеркальный поворот, поэтому охват прочитанного "
             "печатается в журнал. Сверьте его с ожидаемым.\n\n**Допуск спрямления "

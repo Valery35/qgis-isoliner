@@ -9,11 +9,11 @@ toc-title: "Contents"
 Isoliner is a Processing provider for interpolating point data, building isolines and working with terrain. The kriging core is the KB2D algorithm from GSLIB. It works on roof elevations, thicknesses, geomechanical properties, chemistry and any numeric well attribute. The tools are split into seven groups.
 
 - **Grid and isolines** - the main processing flow, from declustering to isolines.
-- **Topography** - terrain from open data and hydrological analysis.
+- **Topography** - terrain from open data, its checking and repair, earthwork volumes and open pits.
 - **Additional analysis tools** - computations from indicator kriging to variable-support density.
 - **Cross-sections** - building geological sections.
 - **Geological model** (beta) - consistency of a bed stack and a teaching example of a section.
-- **River hydrology** - cross-sections, rating curves and flooding.
+- **Hydrology** - flow, river network, basins and catchments, cross-sections, rating curves and flooding.
 - **Fractal analysis** - dimensions of surfaces, masks and lines.
 - **Data exchange** - reading and writing LandXML.
 
@@ -73,21 +73,14 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `2.02` Download base topography by extent
 - `2.03` Topo2Raster (terrain from vectors)
 - `2.04` Terrain preparation
-- `2.05` Flow and accumulation (D8)
-- `2.06` River network
-- `2.07` Basins and watersheds
 - `2.08` Slope and aspect
 - `2.09` Peaks and pits
 - `2.10` Demo relief
-- `2.15` Gauge point report
-- `2.16` Catchment of a line or an outline (ditches, open pits)
-- `2.17` Report on an existing catchment
 - `2.18` Cut and fill (earthwork volumes)
 - `2.19` Crest and toe candidates
 - `2.20` Crests and toes into work
 - `2.21` Example open pit (demo)
 - `2.22` Profiling of slopes
-- `2.23` Flow lines from points, lines and outlines
 - `2.24` Remove bridges from a DEM
 
 **2. Topography: diagnostics and repair**
@@ -134,12 +127,19 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `5.05` Model manifest
 - `5.06` Folding of a surface
 
-**6. River hydrology**
+**6. Hydrology**
 
-- `6.01` Cross-sections and rating curves
-- `6.02` Flood extent polygon
-- `6.03` Import section tables
-- `6.04` Example river (demo)
+- `6.01` Flow and accumulation (D8)
+- `6.02` River network
+- `6.03` Basins and watersheds
+- `6.04` Gauge point report
+- `6.05` Catchment of a line or an outline (ditches, open pits)
+- `6.06` Report on an existing catchment
+- `6.07` Flow lines from points, lines and outlines
+- `6.08` Cross-sections and rating curves
+- `6.09` Flood extent polygon
+- `6.10` Import section tables
+- `6.11` Example river (demo)
 
 **7. Fractal analysis**
 
@@ -192,17 +192,17 @@ There are no surveys of your own but a map is needed - the early and the most co
 
 **2.02 Download base topography by extent** takes the vector setting from OpenStreetMap over the same frame: water bodies, rivers, roads, buildings, forest. Water arrives as polygons, composite ones included - a lake with an island stays a lake with a hole rather than turning into a solid patch. This is the layer that later goes into the interpolation as the water edge.
 
-A downloaded DEM nearly always needs **2.04 Terrain preparation**. Open sets carry voids, noise and local pits that do not exist in nature. Filling the depressions here is not cosmetics. Without it the flow is not computed at all - the water runs into the first false pit. After that **2.05 Flow and accumulation** gives directions and accumulation. **2.06 River network** turns the accumulation into thalweg lines with orders. **2.07 Basins and watersheds** cuts the territory into catchments.
+A downloaded DEM nearly always needs **2.04 Terrain preparation**. Open sets carry voids, noise and local pits that do not exist in nature. Filling the depressions here is not cosmetics. Without it the flow is not computed at all - the water runs into the first false pit. After that **6.01 Flow and accumulation** gives directions and accumulation. **6.02 River network** turns the accumulation into thalweg lines with orders. **6.03 Basins and watersheds** cuts the territory into catchments.
 
 **2.09 Peaks and pits** finds the characteristic points of the terrain - the very spot heights that a paper map labels with a number.
 
 **And here comes the main step, the one everything before it was done for.** A downloaded DEM is hydrologically wrong. It holds false pits, rivers run uphill in places, lakes have a slope. Curing that with filters is pointless - filling the depressions treats the symptom, not the cause. The right way is different. Assemble the skeleton of the terrain out of the downloaded raster and **recompute the surface from scratch**, taking into account what has been learned about it.
 
-Everything gathered at the previous steps goes into **2.03 Topo2Raster**, each along its own input. Contours from 1.04 as hard nodes. Spot heights from 2.09 as hard nodes too, and with a weight above one if you want the peaks to outweigh contour vertices in a shared cell. Thalwegs from 2.06 as a downstream descent constraint, so that on the new terrain the rivers are guaranteed to run downhill. Water polygons from 2.02 as the water edge, so that the lakes lie flat rather than sloping. What comes out is a **hydrologically correct terrain**, which the downloaded raster by itself does not give.
+Everything gathered at the previous steps goes into **2.03 Topo2Raster**, each along its own input. Contours from 1.04 as hard nodes. Spot heights from 2.09 as hard nodes too, and with a weight above one if you want the peaks to outweigh contour vertices in a shared cell. Thalwegs from 6.02 as a downstream descent constraint, so that on the new terrain the rivers are guaranteed to run downhill. Water polygons from 2.02 as the water edge, so that the lakes lie flat rather than sloping. What comes out is a **hydrologically correct terrain**, which the downloaded raster by itself does not give.
 
 The contours from **1.04** are needed twice in this chain. First as a way of looking at the country, then as an input to the recomputation. Take the interval by the scale and the character of the country - five metres on a plain, twenty five in the mountains. The tool prints the range of elevations to the log. Too fine an interval only does harm here. It carries the noise of the original raster into the new terrain, the very thing the work was meant to remove.
 
-To check that it became better rather than merely different, use the same tools as in the next scenario, **2.12 Contour residuals against the DEM** and **2.13 Terracing check of a DEM**. And **2.05 Flow** over the new terrain should give rivers without breaks and without false lakes. That is the most telling check of all.
+To check that it became better rather than merely different, use the same tools as in the next scenario, **2.12 Contour residuals against the DEM** and **2.13 Terracing check of a DEM**. And **6.01 Flow** over the new terrain should give rivers without breaks and without false lakes. That is the most telling check of all.
 
 ## A topographic plan with contours on hand, terrain wanted
 
@@ -1385,13 +1385,13 @@ If empty cells do end up in the result, their count is reported in the log. A ce
 
 The **"2. Topography"** group answers a frequent request - the best possible terrain model from open data, out of the box. The front door to the group is the DEM downloader by extent. Next to it stand the vector base map from OpenStreetMap and Topo2Raster, which builds terrain from points and contours.
 
-Then comes the full hydrology set - depression filling, flow and accumulation, the river network, basins, slope with aspect, and peaks. Nothing has to be installed for it, no GRASS, no SAGA, no other third-party modules.
+Then come terrain preparation with depression filling, slope with aspect, and peaks. Flow and accumulation, the river network, basins and catchments are in the **«6. Hydrology»** group, which continues this chain. Nothing has to be installed for it, no GRASS, no SAGA, no other third-party modules.
 
 Next to it stands the **"2. Topography: diagnostics and repair"** group. It holds the tools that check a finished relief - splitting contours into sets, the residual against the DEM and the search for terracing. A separate group is needed because Processing has no subgroups, and keeping the checks inside the working chain is awkward, they break the sequence of building. The tool numbering stays continuous with topography.
 
-All output layers of the group land in the **Topography** group of the layer tree, so they do not drown among the working layers of the project. The tools of the group chain together. Downloader 2.01 delivers a ready metric DEM that goes straight into isolines (1.04) and any computation of the group. Watercourses from 2.02 and the river network from 2.06 fit Topo2Raster (2.03) as streamlines as is, because their vertices run downstream.
+All output layers of the group land in the **Topography** group of the layer tree, so they do not drown among the working layers of the project. The tools of the group chain together. Downloader 2.01 delivers a ready metric DEM that goes straight into isolines (1.04) and any computation of the group. Watercourses from 2.02 and the river network from 6.02 fit Topo2Raster (2.03) as streamlines as is, because their vertices run downstream.
 
-![The full chain of the group on the demo relief: hillshade, the river network with width by Strahler order (2.06), basin boundaries (2.07) and peaks (2.09).](images/topo_chain_demo.png){width=88%}
+![The full chain of the group on the demo relief: hillshade, the river network with width by Strahler order (6.02), basin boundaries (6.03) and peaks (2.09).](images/topo_chain_demo.png){width=88%}
 
 The full list of output-layer fields is in the **Electrical-prospecting / Subsidence profiles** appendix section ("Demo-layer fields" at the end of the manual).
 
@@ -1460,7 +1460,7 @@ Builds terrain from vector data by multigrid interpolation from a coarse grid to
 | Point elevation field | Z attribute of the points. | - |
 | Isolines | Contour layer (digitized plan or 1.04 over a DEM). | - |
 | Contour elevation field | Level attribute of the contours. | ELEV |
-| Streamlines (downstream) | River lines, vertices pointing downstream. The 2.06 network and OSM fit as is. | - |
+| Streamlines (downstream) | River lines, vertices pointing downstream. The 6.02 network and OSM fit as is. | - |
 | Cliffs (smoothing barriers) | Lines along which the drop is not smeared. | - |
 | Weight of measured elevations (adv.) | In a shared cell a measurement outweighs a digitized contour vertex. 1 = as before. | 1 |
 | Top of forms, Bottom of forms | The sides of forms with elevations: crests and toes, ridges and bases, a summit as a point. See the section on the surface between structural lines. | - |
@@ -1482,7 +1482,7 @@ Points or isolines are required (at least one elevation source). The water-edge 
 Every input type works as its own constraint:
 
 - **Elevation points** and **contours** - hard nodes, the surface passes through them exactly. At least one of these layers is required, each with a numeric elevation field.
-- **Streamlines** - a forced monotonic drop downstream. Line vertices must run downstream, and OSM watercourses (2.02) and the river network (2.06) fit as is. The minimum drop per cell is set under **Advanced**.
+- **Streamlines** - a forced monotonic drop downstream. Line vertices must run downstream, and OSM watercourses (2.02) and the river network (6.02) fit as is. The minimum drop per cell is set under **Advanced**.
 - **Cliffs** - smoothing barriers. The surfaces on the two sides of a cliff are independent, the step is not smeared. The line itself, one cell wide, gets an intermediate elevation.
 - **Water edge** - three height priorities per feature, and a layer may mix types. A polygon may have three-dimensional vertices, a Z at the nodes. Then the edge is interpolated from their heights and sloped along the channel. This is how a river's falling level from source to mouth is set. If there is no Z but an elevation field is filled, the feature is held as a horizontal plane. With neither, the level is taken automatically from the minimum of the adjacent shore. Mixed feature types in one layer are handled each by its own branch, a lake as a plane, a river as a slope.
 
@@ -1553,61 +1553,6 @@ The same smoothing checkbox is present in DEM download (2.01) for a quick path r
 
 ![A profile through a depression: the raw surface and the filling result. The raised part is shaded.](images/topo_fill_profile_en.png){width=85%}
 
-## 2.05 Flow and accumulation (D8)
-
-Computes flow directions over eight neighbors (D8, Jenson-Domingue) and accumulation, that is how many cells drain into each one, itself included. Directions are coded as in ArcGIS - E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128, sink=0, nodata=255.
-
-| Parameter | What it sets | Default / hint |
-|---|---|---|
-| Input DEM | Terrain raster. | - |
-| Fill depressions before computing | Hydrological correction before D8, otherwise flow stalls in pits. | on |
-| Slope epsilon for filling, m (adv.) | Minimum slope on flats. | 0.001 |
-| Flow directions (ESRI codes) | Output: byte direction raster. E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128, sink=0. | - |
-| Accumulation, cells | Output: float32, number of upstream cells. | - |
-
-The border semantics are deliberate. A cell on the grid frame leaves the grid only when it has no lower neighbor inside, otherwise flows running along the edge would break. A shore cell, on the contrary, pours into an adjacent nodata (the sea, a cutout) even when a lower land neighbor exists.
-
-The **Fill depressions before computing** checkbox is on by default, since on a raw DEM flow stops in pits and accumulation breaks. The computation is fully vectorized, a 2000×2000 grid takes seconds.
-
-## 2.06 River network
-
-Extracts the river network from a DEM. Cells with accumulation at or above the threshold are linked from heads and junctions downstream.
-
-| Parameter | What it sets | Default / hint |
-|---|---|---|
-| Input DEM | Terrain raster. | - |
-| Accumulation threshold, cells | Minimum catchment cells to start a channel. A denser network = a lower threshold. 1000 at 30 m is about 0.9 sq km. | 1000 |
-| Fill depressions before computing | Hydrological correction before tracing. | on |
-| Slope epsilon for filling, m (adv.) | Minimum slope on flats. | 0.001 |
-| River network | Output: lines with order (Strahler), acc_out, length_m. Vertices point downstream. | - |
-
-The **accumulation threshold** is set in cells and means the catchment area where a river starts, that is the head catchment area divided by the cell area. For a 30 m DEM a threshold of 1000 starts rivers at a catchment of about 0.9 sq. km. A smaller threshold gives a denser network.
-
-The output fields are **order** (the Strahler order, 1 at heads, growing where two equal orders merge), **acc_out** (accumulation at the link outlet) and **length_m** (the length). Line vertices run downstream, so the layer fits 2.03 as streamlines without preparation and compares against OSM watercourses from 2.02. Overlaying the extracted network on the real one is a quick DEM quality check.
-
-## 2.07 Basins and watersheds
-
-Divides the territory into drainage basins, polygon boundaries are the watersheds.
-
-| Parameter | What it sets | Default / hint |
-|---|---|---|
-| Input DEM | Terrain raster. | - |
-| Pour points | Basin outlet points. Empty = basins from mouths by threshold. | empty |
-| Mouth accumulation threshold, cells | Threshold for mouths when no points are given. | 1000 |
-| Fill depressions before computing | Hydrological correction before the computation. | on |
-| Point snap radius, m (adv.) | An outlet point snaps to the accumulation maximum within this radius. | 150 |
-| Slope epsilon for filling, m (adv.) | Minimum slope on flats. | 0.001 |
-| Basins (polygons) | Output: polygons with basin, area_m2. | - |
-| Basins (label raster) | Output: integer basin-label raster. | - |
-
-Two modes. With **pour points** every point snaps to the cell with the highest
-accumulation within the snap radius and then gathers the whole catchment above
-itself.
-Without the snap, a point placed by eye next to a river would collect a tiny
-hillslope basin. Without points the basins are built automatically from mouths, that is from cells where flow leaves the grid with accumulation at or above the threshold. Cells outside every basin get label 0 and are not exported to polygons.
-
-The output fields are **basin** (the basin number) and **area_m2** (the area by cell count). A label raster can be written additionally. Labeling runs by pointer jumping over the flow graph, so even long winding catchments take a fraction of a second.
-
 ## 2.08 Slope and aspect
 
 Slope in degrees and aspect with the Horn 3×3 kernel, as in gdaldem. Aspect is the downslope azimuth in degrees from north clockwise, north 0, east 90. Flat cells get an aspect of -1 so they are not confused with north-facing ones. Nodata cells and their neighbors get nodata, the 3×3 kernel is not computed across gaps.
@@ -1648,8 +1593,8 @@ A utility generator of synthetic terrain from a tilted plain, hills and a windin
 | Output CRS (metric) | Coordinate system of the demo raster. | EPSG:32640 |
 | Compact int16 (adv.) | Integer output for demo shipping. | off |
 | Demo relief | Output raster. | - |
-| Gauge points (demo) | Three points near the thalwegs for tool 2.15. | created |
-| Ditch traces (demo) | Two polylines across the thalwegs for tool 2.16. | created |
+| Gauge points (demo) | Three points near the thalwegs for tool 6.04. | created |
+| Ditch traces (demo) | Two polylines across the thalwegs for tool 6.05. | created |
 | Fraction of the area for the works (Adv.) | Size of the area under the design pad. | 0.4 |
 | Pad elevation offset, m (Adv.) | Moves the balance into imported or exported soil. | 0 |
 | Design surface (demo) | The pair to the relief for tool 2.18. | off |
@@ -1667,7 +1612,7 @@ The pad elevation is the mean of the relief inside the area, and that is not a m
 advanced parameters moves it into imported or exported soil, which checks all
 three verdicts of 2.18 in two runs.
 
-Three demo gauge points and two demo ditch traces are produced along with the relief. The ditches are a hillside one above the strongest thalweg and a gutter further downslope. Both are polylines with a bend, so that the rasterisation of a turning trace is exercised as well. The gauges are placed at the strongest thalwegs and spread across the grid. Each is deliberately shifted a few cells aside from the stream, so that the snapping in tool 2.15 can be seen bringing the gauge back. The points are deterministic from the same seed as the relief.
+Three demo gauge points and two demo ditch traces are produced along with the relief. The ditches are a hillside one above the strongest thalweg and a gutter further downslope. Both are polylines with a bend, so that the rasterisation of a turning trace is exercised as well. The gauges are placed at the strongest thalwegs and spread across the grid. Each is deliberately shifted a few cells aside from the stream, so that the snapping in tool 6.04 can be seen bringing the gauge back. The points are deterministic from the same seed as the relief.
 
 ### The gully and ravine network
 
@@ -1843,247 +1788,6 @@ It does not bring back what is not in the data. If a narrow cut was shaved off w
 | Before and after report (HTML) | Table, histograms, reading. | created |
 
 # 2. Topography (continued)
-
-## 2.15 Gauge point report
-
-The tool computes watershed morphometry from a **gauge** - a closure point on a stream. This is a classic task of engineering hydrology and site surveys, basin characteristics from a given point. Tools 2.05 - 2.07 give flow, the river network and basins over the territory as a whole, while 2.15 answers the question about one specific gauge.
-
-The fields of the source feature are carried into the output in the same way as in 2.07. Pick the ones you need in the advanced parameters, and on a name clash the incoming field gets the src_ prefix.
-
-### How it works
-
-Every gauge point is snapped to the cell of highest accumulation within the
-snapping radius. The gauge can therefore be placed by eye next to the thalweg,
-without hitting a stream cell with the mouse. The full watershed is collected from the snapped cell, and zonal statistics are computed over it. The main stream is traced upstream cell by cell towards the highest accumulation, until a cell without inflows.
-
-Watersheds of neighbouring gauges on one stream nest into each other, and every gauge gets its full basin rather than a remainder below the upper one. This is what sets 2.15 apart from 2.07, where the territory is split into non-overlapping basins.
-
-### What is computed
-
-| Value | Field | Units |
-|---|---|---|
-| Basin area | area_km2 | sq. km |
-| Mean elevation | z_mean | m |
-| Minimum elevation | z_min | m |
-| Maximum elevation | z_max | m |
-| Mean basin slope | slope_deg | degrees (Horn 3x3) |
-| Gauge elevation | z_gauge | m |
-| Main stream length | stream_km | km |
-| Stream fall | fall_m | m |
-| Mean stream slope | slope_ppm | permille |
-| Mean slope of the hillsides Isk (SP) | sp_slope_ppm | permille |
-| Total length of the **contours** | sp_iso_km | km |
-| Weighted mean slope of the stream (SP) | sp_stream_ppm | permille |
-| Length of the stream **network** in the catchment | net_km | km |
-| Stream network density | net_dens | km per sq. km |
-| Cells in the basin | cells | count |
-
-The five fields at the bottom of the table are filled only when the matching parameters are on. The three **sp_** fields need a contour interval, the two **net_** fields need an accumulation threshold, and otherwise they stay empty.
-
-A value that cannot be computed is written as null rather than zero, because zero is a measurement and null is the absence of one.
-
-### Three lengths that are easy to confuse
-
-Three length fields sit next to each other in the attribute table, and the short names do not tell them apart. The table headers carry the names in words, but an export to CSV and any expression keep the field names, so the difference is spelled out here.
-
-**stream_km** is the length of the **main** stream, from the gauge upstream by the highest accumulation to the source. One line, tributaries not included.
-
-**net_km** is the length of the **whole** stream network inside the catchment, the main stream together with its tributaries. Filled when an accumulation threshold is given.
-
-**sp_iso_km** is the length of the **contours**, not of the streams. It is the Σli factor of the SP formula for the slope of the hillsides. It is
-two orders of magnitude larger than the network, because contours run over the
-whole area at every step in elevation. For a catchment of 54 sq. km at a 5 m interval it comes out around 2800 km, and that is correct.
-
-### Parameters
-
-| Parameter | What it sets | Default / hint |
-|---|---|---|
-| Input DEM | Relief in metres in a metric CRS. | - |
-| Gauge points | A point layer, one point per gauge. | - |
-| Contour interval for the SP computation, m | Switches the sp_ fields on. Zero switches them off. | 10 |
-| Accumulation threshold for the stream network length, cells | Switches the net_ fields on. Zero switches them off. | 0 |
-| Snapping radius, m (adv.) | Search window for maximum accumulation. | 150 |
-| Fill depressions | Relief preparation before the flow routing. | on |
-| Slope epsilon, m (adv.) | Fill slope, as in 2.04. | as in 2.04 |
-| Gauge watersheds (polygons) | Polygons with the attributes listed above. | created |
-| Gauge report (HTML) | A table per gauge. | created |
-
-The key numbers for every gauge are echoed to the Processing log in two lines, so the result can be read without opening the attribute table.
-
-### A quick check on the demo
-
-Run **2.10 Demo relief**. Besides the raster it outputs the **Gauge points (demo)** layer, three points near the thalwegs shifted aside from the stream. Feed the relief and those points into 2.15 with the default snapping radius. The polygons will follow the watersheds, and in the report the gauges on one stream will share the fall while the slope grows upstream.
-
-### Scope
-
-The tool computes basin morphometry and nothing else. Discharges, runoff moduli, hydraulics and snowmelt are deliberately out of scope, that is computational hydrology by the codes of practice, a separate topic. Units are assumed metric, a DEM in metres in a metric coordinate system.
-
-Catchments are built from the topology of the relief. On terrain without clear flow boundaries - flat floodplains, hydraulic transfers and backwater - the result should be verified by hydrodynamic modelling.
-
-
-### Computation to SP 33-101-2003
-
-Hydrologists compute runoff by a normative method, and two of its quantities are defined by formulas that do not match the physical ones. The **contour interval** parameter switches their computation on, zero switches it off.
-
-**The mean slope of the hillsides Isk** is computed by
-
-Isk = h · Σli / (2A),
-
-where h is the contour interval, Σli the total length of the contours within the catchment and A its area. No contours are built for this, the length is counted from the crossings of a level between neighbouring cells and goes into the **sp_iso_km** field.
-
-Isk is not the physical slope. On a plane the formula gives half the tangent, because the two in the denominator accounts for the two-sidedness of the hillsides, the water runs to the stream from both flanks of the valley. The quantity makes sense only within the SP method, so it sits in a separate field beside the physical slope rather than instead of it.
-
-**The weighted mean slope of the stream** is a product over the reaches between the inflection points of the profile. Each partial slope is raised to the share of its length. On a straight profile it equals the plain fall over length. On a broken one it
-comes out lower, since a river with a steep head and a gentle lower course is
-not described by a single ratio.
-
-For comparison the physical quantities stay in the output as well - **slope_deg** is the mean slope of the cells by Horn's method, **stream_ppm** the fall of the stream divided by its length.
-
-### The length of the stream network
-
-The **accumulation threshold for the stream network length** parameter switches on the **net_km** and **net_dens** fields, zero switches them off.
-
-The network is the set of cells where the accumulation has reached the threshold, that is the same definition of a stream as in **2.06 River network**. The length is counted over the links of the flow grid, with a diagonal link
-weighing the square root of two cell sizes. The figure therefore matches the
-length of the lines 2.06 would build at the same threshold.
-
-A link counts only when both of its cells are inside the catchment. A link that leaves the boundary already belongs to the neighbouring catchment, and charging it here would count one river twice.
-
-The threshold decides what counts as a stream, and the length of the network changes with it severalfold. At a small threshold the network grows into every hollow, at a large one only the major streams remain. A figure without the threshold beside it therefore means nothing, and the log prints the threshold next to the length.
-
-**The network density net_dens** is the length of the network divided by the area of the catchment, in kilometres per square kilometre. It is comparable between basins, unlike the length itself.
-
-## 2.16 Catchment of a line or an outline (ditches, open pits)
-
-The tool computes the catchment area of an intake - a hillside ditch, a chute, a road gutter or the outline of an open pit. The question is how much area the intake intercepts when the intake itself is not on the DEM yet.
-
-The fields of the source feature are carried into the output in the same way as in 2.07. Pick the ones you need in the advanced parameters, and on a name clash the incoming field gets the src_ prefix.
-
-### How it works
-
-Burning the trace into the relief is not needed for that. The trace is rasterised into grid cells, all of them are taken as intakes, and the catchment is the set of cells whose flow path arrives at any cell of the trace. The trace may be a polyline, may cross a divide and may run outside the DEM frame - the outside part simply does not take part.
-
-Rasterisation steps along the segments by half a cell, so there are no gaps at bends and diagonals through which water could slip past the intake.
-
-Catchments of neighbouring traces nest into each other, so the ditch further downslope also gets what the upper one intercepts. This is the same behaviour as for gauges in 2.15, and it is the right one - every trace gets its full catchment rather than a remainder.
-
-### An outline instead of a line
-
-Both lines and polygons are accepted as input. A polygon is treated as an intake in its entirety, the outline and the whole area inside it.
-
-For an open pit this is essential. Inside it the pit is a depression, and once the depressions are filled the flow directions there become arbitrary - the traversal order of a flat filled surface assigns them at random. Take only the line of the pit wall as the intake, and some of the inner cells will flow past it along those arbitrary directions, dragging the outer ones with them. Relying on the whole interior removes the question. Whatever happens to the directions inside the pit, its entire area is already in the catchment, while outside the water is traced along the real relief.
-
-The holes of a polygon enter the intake on equal terms with the rest of the area - there is no external relief inside the outline. A multipolygon is processed part by part. There is no longer any need to trace the wall with a line, the ready outline is supplied instead.
-
-### Burning the trace
-
-The separate **Burn the trace into the relief** checkbox answers a different question - will the ditch hold the flow if it is shallower than the local landforms. Burning lowers the relief along the trace by a given depth, and the flow is then computed on the changed relief.
-
-Burning changes the hydrology deliberately, so it is off by default and the result depends on the depth. The fact of burning and the depth are printed to the log and go into the HTML report, so the figure cannot be taken for a computation on the original relief.
-
-### What is computed
-
-| Value | Field | Units |
-|---|---|---|
-| Catchment area | area_km2 | sq. km |
-| Mean elevation | z_mean | m |
-| Minimum elevation | z_min | m |
-| Maximum elevation | z_max | m |
-| Mean catchment slope | slope_deg | degrees (Horn 3x3) |
-| Trace or outline length | trace_km | km |
-| Intake area | seed_km2 | sq. km |
-| Intake cells | trace_cells | count |
-| Cells in the catchment | cells | count |
-
-### Parameters
-
-| Parameter | What it sets | Default / hint |
-|---|---|---|
-| Input DEM | Relief in metres in a metric CRS. | - |
-| Traces and outlines | Lines or polygons, one feature per intake. | - |
-| All features as one catchment | A joint catchment instead of separate ones. | off |
-| Burn the trace into the relief | The flow-holding check. | off |
-| Burn depth, m (adv.) | How far to lower the relief along the trace. | 2.0 |
-| Fill depressions | Relief preparation before the flow routing. | on |
-| Slope epsilon, m (adv.) | Fill slope, as in 2.04. | as in 2.04 |
-| Trace catchments (polygons) | Polygons with the attributes listed above. | created |
-| Trace report (HTML) | A table per trace. | created |
-
-### A quick check on the demo
-
-**2.10 Demo relief** outputs the **Ditch traces (demo)** layer: a hillside ditch above a strong thalweg and a gutter further downslope, both polylines with a bend. Feed the relief and that layer into 2.16. The catchment should lie upslope of the traces and stop at the divides rather than at the grid frame.
-
-### Scope
-
-The tool answers the question about area, not about discharge. Discharges, runoff moduli and the capacity of the ditch belong to computational hydrology by the codes of practice and are out of scope. Units are assumed metric.
-
-Catchments are built from the topology of the relief. On terrain without clear flow boundaries - flat floodplains, hydraulic transfers and backwater - the result should be verified by hydrodynamic modelling.
-
-## 2.17 Report on an existing catchment
-
-The tool computes the morphometry over **existing** catchment polygons. It gives the area, the mean and extreme elevations, the mean slope of the basin, the length of the main stream and the fall.
-
-It is needed where a catchment already exists, drawn manually, taken from somebody else's project or computed by another program. The boundaries are not recomputed - the figures are for the polygon that was supplied, otherwise the answer would be about a different catchment.
-
-| Parameter | What it sets | Default / advice |
-|---|---|---|
-| Input DEM | The elevation raster the characteristics are computed over. | - |
-| Catchment polygons | The existing outlines to compute over. | - |
-| Outlet points | Gauges. Empty - the point is taken by the highest accumulation inside the polygon. | empty |
-| Compute the stream length and the fall | Requires tracing over the DEM and costs noticeably more than the rest. | on |
-| Contour interval for the SP computation, m | Switches the sp_ fields on. Zero switches them off. | 10 |
-| Accumulation threshold for the stream network length, cells | Switches the net_ fields on. Zero switches them off. | 0 |
-| Snapping radius (adv.) | Moves a gauge to the cell with the highest accumulation nearby. | 0 |
-| Fill the depressions (adv.) | Without filling the water stops in the local pits of the DEM. | on |
-| Catchments with characteristics | Output: the same polygons with the computed fields appended. | - |
-
-### The fields of the output layer
-
-| Value | Field | Units |
-|---|---|---|
-| Catchment area | area_km2 | sq. km |
-| Mean elevation | z_mean | m |
-| Minimum elevation | z_min | m |
-| Maximum elevation | z_max | m |
-| Mean slope of the catchment | slope_mean | degrees (Horn 3x3) |
-| Elevation of the outlet | z_gauge | m |
-| Main stream length | stream_km | km |
-| Stream fall | stream_fall_m | m |
-| Mean stream slope | stream_ppm | permille |
-| Mean slope of the hillsides Isk (SP) | sp_slope_ppm | permille |
-| Total length of the **contours** | sp_iso_km | km |
-| Weighted mean slope of the stream (SP) | sp_stream_ppm | permille |
-| Length of the stream **network** in the catchment | net_km | km |
-| Stream network density | net_dens | km per sq. km |
-| How the outlet was chosen | outlet | - |
-| Cells in the catchment | cells | count |
-
-The **sp_** fields are filled when a contour interval is given, the **net_** fields need an accumulation threshold, and the stream fields need the length checkbox on. Otherwise they stay empty, and empty is the absence of a measurement, not a zero.
-
-Three lengths in this table are easy to confuse, and the difference is large. **stream_km** is the length of the main stream, one line from the outlet to the source. **net_km** is the length of the whole network including tributaries. **sp_iso_km** is the length of the **contours**, the Σli factor of the SP formula for the slope of the hillsides. It is two orders of magnitude larger than the network, because contours run over the whole area at every step in elevation. For a catchment of 54 sq. km at a 5 m interval it comes out around 2800 km, and that figure is right rather than broken.
-
-The attribute table headers carry the names in words, but an export to CSV and any expression keep the field names.
-
-### The outlet
-
-The stream length and the fall are measured from the point the water flows to. When a catchment is built that point is known from the gauge, an existing polygon has none.
-
-If points are given they are used, and a gauge is looked for inside every polygon. If not, the cell with the highest accumulation inside the outline is taken.
-
-The highest accumulation rather than the lowest elevation. The lowest point may lie in a pit inside the area, or on an edge that caught a neighbouring valley, and the stream would then run the wrong way. The **outlet** field records which way it went for every polygon.
-
-The stream is cut by the boundary of the polygon, and the length is measured inside the given catchment rather than along the whole trace, which may run beyond it.
-
-The fields of the source polygons are kept, the computed ones are appended. If a name clashes, a suffix is added to the computed field.
-
-
-### Computation to SP 33-101-2003 and the stream network length
-
-The same quantities are computed by the same formulas as in **2.15 Gauge point report**. The **contour interval** parameter switches on the mean slope of the hillsides
-Isk and the weighted mean slope of the stream. The **accumulation threshold**
-parameter switches on the length of the stream network and its density. The formulas and the meaning of every field are explained there.
-
-There is one difference. The physical slope of the basin lives here in the **slope_mean** field rather than **slope_deg**.
 
 ## 2.18 Cut and fill (earthwork volumes)
 
@@ -2271,44 +1975,9 @@ elevation lands in it exactly, and the line gains no extra nodes. If the nearest
 
 The insertions are thinned by the smallest step, two in a row are no closer than the given distance. On dense contours the line would otherwise grow more nodes than the relief needs. A control point that gets no vertex is not lost, the profile is computed over the whole series, and the neighbouring vertices are drawn towards it.
 
-## 2.23 Flow lines from points, lines and outlines
-
-Where the water goes from a given place. From every seed cell the tool walks downhill along the D8 flow directions and draws the path travelled as a line.
-
-| Parameter | What it sets | Default / advice |
-|---|---|---|
-| Input DEM | Terrain in metres in a metric coordinate system. | - |
-| Where it flows from | Points, lines or outlines. A point gives one cell, a line the cells under it, a polygon every cell inside. | - |
-| Receivers | Ponds, rivers, ditches. A trace stops when it reaches them. | - |
-| Stop at a watercourse: threshold, cells | Stop in a cell that more than the given number of cells drain into. The same threshold as in 2.06. 0 = off. | 0 |
-| Stop at flattening: slope, degrees | Stop where the flow loses its force. 0 = off. | 0 |
-| Length of the flat stretch, m | A shelf shorter than this is skipped. | 50 |
-| Release zone: slope, degrees | Keeps only traces that have a steep enough stretch. 0 = do not check. | 0 |
-| Length of the release zone, m | How long the steep stretch has to be. | 100 |
-| Break a trace at a merge | A trace stops once it joins one already walked. | off |
-| Trace smoothing, iterations (adv.) | Rounds the D8 steps for the drawing. Elevations do not change. | 0 |
-| Carry over fields of the source object (adv.) | Which attributes of the source go into the trace. | - |
-| Fill depressions | Planchon-Darboux before tracing: otherwise the path drowns in the first pit. | on |
-
-**Areal sources.** A ditch of eight cells gives eight lines, the outline of a dump as many as it covers. Downhill the traces converge into one channel, and without a break every one of them walks it, so a thousand cells of a dump give a thousand copies of the same channel. The **Break a trace at a merge** checkbox turns the bundle into a tree. Every
-cell is then walked once, connectivity is kept, and the trace is carried up to
-the point of the merge.
-
-**The release zone** keeps the traces that have a stretch steeper than the given angle and no shorter than the given length. That is how an avalanche release is looked for - it starts where the slope holds its steepness over a distance rather than in a single cell. The usual thresholds are 25 degrees and a hundred metres, the length found is written into the `steep_m` field.
-
-**Flattening** stops a trace at the foot of a slope, on a terrace, on a floodplain. The slope is measured as an average over the last metres of the path, and the length of that stretch is set next to it. A short shelf inside a steep slope will not pull the average down and is skipped, while real flattening will. The cut is made at the start of the stretch, and that is the place where the flow spreads out.
-
-**Why degrees.** The thresholds are set by an angle rather than a ratio. Avalanche and geotechnical criteria are written in degrees, and a surveyor's slope raster is in degrees too.
-
-**The reason for stopping** is written into the `reason` field and tells four cases apart. **sink** - nowhere lower to go. **sheet edge** - the terrain ran out. **receiver** - a given pond or watercourse was reached. **merge** - the trace joined one already walked.
-
-Output fields. `src_id` is the number of the source object, `cells` the number of cells, `length_m` the length of the path. `drop_m` is the fall, `slope` the mean slope, `z_start` and `z_end` the elevations of the ends, `reason` the reason for stopping.
-
-A D8 trace runs along eight directions and therefore looks like a series of steps at 45 degrees. That is a property of the method rather than an error, and smoothing rounds the polyline for the drawing while elevations do not change. A downhill trace shows the path by the topology of the terrain and accounts for neither infiltration nor backwater nor pipes.
-
 ## 2.24 Remove bridges from a DEM
 
-Removes bridges from a DEM and puts the river surface in their place. A satellite surface model takes the height from the top of the deck, so a bridge lies across the river like a dam. Flow over such a model stops at the embankment, a false lake spreads upstream of the bridge, and the river network from 2.06 breaks at the crossing.
+Removes bridges from a DEM and puts the river surface in their place. A satellite surface model takes the height from the top of the deck, so a bridge lies across the river like a dam. Flow over such a model stops at the embankment, a false lake spreads upstream of the bridge, and the river network from 6.02 breaks at the crossing.
 
 | Parameter | What it sets | Default / hint |
 |---|---|---|
@@ -2328,7 +1997,7 @@ The surface is only lowered. A cell that is already below the interpolation, suc
 
 **Log.** For each bridge the log reports how many cells were recomputed, how far the surface was lowered and the heights of the surroundings. A bridge under which nothing was lowered gets a warning, usually the outline is not where it belongs.
 
-The tool does not fill depressions. For flow calculations the corrected DEM goes into **2.04 Terrain preparation**, then into 2.05 and 2.06. The easiest check is the river network: it no longer breaks at the crossing.
+The tool does not fill depressions. For flow calculations the corrected DEM goes into **2.04 Terrain preparation**, then into 6.01 and 6.02. The easiest check is the river network: it no longer breaks at the crossing.
 
 # 3. Additional analysis tools
 
@@ -3600,17 +3269,350 @@ The residual of the surface is produced separately and serves as an input for th
 
 The thickness from the database stays a second, independent sign of folding. It is the penetrated thickness rather than the true one, and on a limb it grows the more steeply the steeper the dip.
 
-## River hydrology
+## Hydrology
 
-The group answers the question by which flooding is justified. How high does the water rise at a given discharge, and what discharge passes at a given level. The link between discharge and level is built for a cross-section and is called a rating curve.
+The group follows the order of the task. Tools 6.01-6.07 work on the terrain model. They build flow directions and accumulation, the river network, basins and the catchment of a gauge point, a ditch or an open pit, and compute the catchment morphometry for a report. The terrain model for them is prepared in the «Topography» group, by DEM download (2.01) and terrain preparation (2.04).
+
+Tools 6.08-6.11 answer the question by which flooding is justified. How high does the water rise at a given discharge, and what discharge passes at a given level. The link between discharge and level is built for a cross-section and is called a rating curve.
 
 The task came from practice. Hydrologists build such curves in programs with manual entry. The distance and elevation pairs are entered as a table for every section, and the coefficients and slopes are set manually. Meanwhile all of that is data already present in GIS. The distances are held in the geometry of the section, the elevations in the soundings, and the slope between sections is computed from the chainage.
 
 The branch stands on its own and does not overlap with the geological model, the only thing they share is the machinery of profiles.
 
-# 6. River hydrology
+# 6. Hydrology
 
-## 6.01 Cross-sections and rating curves
+## 6.01 Flow and accumulation (D8)
+
+Computes flow directions over eight neighbors (D8, Jenson-Domingue) and accumulation, that is how many cells drain into each one, itself included. Directions are coded as in ArcGIS - E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128, sink=0, nodata=255.
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Terrain raster. | - |
+| Fill depressions before computing | Hydrological correction before D8, otherwise flow stalls in pits. | on |
+| Slope epsilon for filling, m (adv.) | Minimum slope on flats. | 0.001 |
+| Flow directions (ESRI codes) | Output: byte direction raster. E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128, sink=0. | - |
+| Accumulation, cells | Output: float32, number of upstream cells. | - |
+
+The border semantics are deliberate. A cell on the grid frame leaves the grid only when it has no lower neighbor inside, otherwise flows running along the edge would break. A shore cell, on the contrary, pours into an adjacent nodata (the sea, a cutout) even when a lower land neighbor exists.
+
+The **Fill depressions before computing** checkbox is on by default, since on a raw DEM flow stops in pits and accumulation breaks. The computation is fully vectorized, a 2000×2000 grid takes seconds.
+
+## 6.02 River network
+
+Extracts the river network from a DEM. Cells with accumulation at or above the threshold are linked from heads and junctions downstream.
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Terrain raster. | - |
+| Accumulation threshold, cells | Minimum catchment cells to start a channel. A denser network = a lower threshold. 1000 at 30 m is about 0.9 sq km. | 1000 |
+| Fill depressions before computing | Hydrological correction before tracing. | on |
+| Slope epsilon for filling, m (adv.) | Minimum slope on flats. | 0.001 |
+| River network | Output: lines with order (Strahler), acc_out, length_m. Vertices point downstream. | - |
+
+The **accumulation threshold** is set in cells and means the catchment area where a river starts, that is the head catchment area divided by the cell area. For a 30 m DEM a threshold of 1000 starts rivers at a catchment of about 0.9 sq. km. A smaller threshold gives a denser network.
+
+The output fields are **order** (the Strahler order, 1 at heads, growing where two equal orders merge), **acc_out** (accumulation at the link outlet) and **length_m** (the length). Line vertices run downstream, so the layer fits 2.03 as streamlines without preparation and compares against OSM watercourses from 2.02. Overlaying the extracted network on the real one is a quick DEM quality check.
+
+## 6.03 Basins and watersheds
+
+Divides the territory into drainage basins, polygon boundaries are the watersheds.
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Terrain raster. | - |
+| Pour points | Basin outlet points. Empty = basins from mouths by threshold. | empty |
+| Mouth accumulation threshold, cells | Threshold for mouths when no points are given. | 1000 |
+| Fill depressions before computing | Hydrological correction before the computation. | on |
+| Point snap radius, m (adv.) | An outlet point snaps to the accumulation maximum within this radius. | 150 |
+| Slope epsilon for filling, m (adv.) | Minimum slope on flats. | 0.001 |
+| Basins (polygons) | Output: polygons with basin, area_m2. | - |
+| Basins (label raster) | Output: integer basin-label raster. | - |
+
+Two modes. With **pour points** every point snaps to the cell with the highest
+accumulation within the snap radius and then gathers the whole catchment above
+itself.
+Without the snap, a point placed by eye next to a river would collect a tiny
+hillslope basin. Without points the basins are built automatically from mouths, that is from cells where flow leaves the grid with accumulation at or above the threshold. Cells outside every basin get label 0 and are not exported to polygons.
+
+The output fields are **basin** (the basin number) and **area_m2** (the area by cell count). A label raster can be written additionally. Labeling runs by pointer jumping over the flow graph, so even long winding catchments take a fraction of a second.
+
+## 6.04 Gauge point report
+
+The tool computes watershed morphometry from a **gauge** - a closure point on a stream. This is a classic task of engineering hydrology and site surveys, basin characteristics from a given point. Tools 6.01 - 6.03 give flow, the river network and basins over the territory as a whole, while 6.04 answers the question about one specific gauge.
+
+The fields of the source feature are carried into the output in the same way as in 6.03. Pick the ones you need in the advanced parameters, and on a name clash the incoming field gets the src_ prefix.
+
+### How it works
+
+Every gauge point is snapped to the cell of highest accumulation within the
+snapping radius. The gauge can therefore be placed by eye next to the thalweg,
+without hitting a stream cell with the mouse. The full watershed is collected from the snapped cell, and zonal statistics are computed over it. The main stream is traced upstream cell by cell towards the highest accumulation, until a cell without inflows.
+
+Watersheds of neighbouring gauges on one stream nest into each other, and every gauge gets its full basin rather than a remainder below the upper one. This is what sets 6.04 apart from 6.03, where the territory is split into non-overlapping basins.
+
+### What is computed
+
+| Value | Field | Units |
+|---|---|---|
+| Basin area | area_km2 | sq. km |
+| Mean elevation | z_mean | m |
+| Minimum elevation | z_min | m |
+| Maximum elevation | z_max | m |
+| Mean basin slope | slope_deg | degrees (Horn 3x3) |
+| Gauge elevation | z_gauge | m |
+| Main stream length | stream_km | km |
+| Stream fall | fall_m | m |
+| Mean stream slope | slope_ppm | permille |
+| Mean slope of the hillsides Isk (SP) | sp_slope_ppm | permille |
+| Total length of the **contours** | sp_iso_km | km |
+| Weighted mean slope of the stream (SP) | sp_stream_ppm | permille |
+| Length of the stream **network** in the catchment | net_km | km |
+| Stream network density | net_dens | km per sq. km |
+| Cells in the basin | cells | count |
+
+The five fields at the bottom of the table are filled only when the matching parameters are on. The three **sp_** fields need a contour interval, the two **net_** fields need an accumulation threshold, and otherwise they stay empty.
+
+A value that cannot be computed is written as null rather than zero, because zero is a measurement and null is the absence of one.
+
+### Three lengths that are easy to confuse
+
+Three length fields sit next to each other in the attribute table, and the short names do not tell them apart. The table headers carry the names in words, but an export to CSV and any expression keep the field names, so the difference is spelled out here.
+
+**stream_km** is the length of the **main** stream, from the gauge upstream by the highest accumulation to the source. One line, tributaries not included.
+
+**net_km** is the length of the **whole** stream network inside the catchment, the main stream together with its tributaries. Filled when an accumulation threshold is given.
+
+**sp_iso_km** is the length of the **contours**, not of the streams. It is the Σli factor of the SP formula for the slope of the hillsides. It is
+two orders of magnitude larger than the network, because contours run over the
+whole area at every step in elevation. For a catchment of 54 sq. km at a 5 m interval it comes out around 2800 km, and that is correct.
+
+### Parameters
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Relief in metres in a metric CRS. | - |
+| Gauge points | A point layer, one point per gauge. | - |
+| Contour interval for the SP computation, m | Switches the sp_ fields on. Zero switches them off. | 10 |
+| Accumulation threshold for the stream network length, cells | Switches the net_ fields on. Zero switches them off. | 0 |
+| Snapping radius, m (adv.) | Search window for maximum accumulation. | 150 |
+| Fill depressions | Relief preparation before the flow routing. | on |
+| Slope epsilon, m (adv.) | Fill slope, as in 2.04. | as in 2.04 |
+| Gauge watersheds (polygons) | Polygons with the attributes listed above. | created |
+| Gauge report (HTML) | A table per gauge. | created |
+
+The key numbers for every gauge are echoed to the Processing log in two lines, so the result can be read without opening the attribute table.
+
+### A quick check on the demo
+
+Run **2.10 Demo relief**. Besides the raster it outputs the **Gauge points (demo)** layer, three points near the thalwegs shifted aside from the stream. Feed the relief and those points into 6.04 with the default snapping radius. The polygons will follow the watersheds, and in the report the gauges on one stream will share the fall while the slope grows upstream.
+
+### Scope
+
+The tool computes basin morphometry and nothing else. Discharges, runoff moduli, hydraulics and snowmelt are deliberately out of scope, that is computational hydrology by the codes of practice, a separate topic. Units are assumed metric, a DEM in metres in a metric coordinate system.
+
+Catchments are built from the topology of the relief. On terrain without clear flow boundaries - flat floodplains, hydraulic transfers and backwater - the result should be verified by hydrodynamic modelling.
+
+
+### Computation to SP 33-101-2003
+
+Hydrologists compute runoff by a normative method, and two of its quantities are defined by formulas that do not match the physical ones. The **contour interval** parameter switches their computation on, zero switches it off.
+
+**The mean slope of the hillsides Isk** is computed by
+
+Isk = h · Σli / (2A),
+
+where h is the contour interval, Σli the total length of the contours within the catchment and A its area. No contours are built for this, the length is counted from the crossings of a level between neighbouring cells and goes into the **sp_iso_km** field.
+
+Isk is not the physical slope. On a plane the formula gives half the tangent, because the two in the denominator accounts for the two-sidedness of the hillsides, the water runs to the stream from both flanks of the valley. The quantity makes sense only within the SP method, so it sits in a separate field beside the physical slope rather than instead of it.
+
+**The weighted mean slope of the stream** is a product over the reaches between the inflection points of the profile. Each partial slope is raised to the share of its length. On a straight profile it equals the plain fall over length. On a broken one it
+comes out lower, since a river with a steep head and a gentle lower course is
+not described by a single ratio.
+
+For comparison the physical quantities stay in the output as well - **slope_deg** is the mean slope of the cells by Horn's method, **stream_ppm** the fall of the stream divided by its length.
+
+### The length of the stream network
+
+The **accumulation threshold for the stream network length** parameter switches on the **net_km** and **net_dens** fields, zero switches them off.
+
+The network is the set of cells where the accumulation has reached the threshold, that is the same definition of a stream as in **6.02 River network**. The length is counted over the links of the flow grid, with a diagonal link
+weighing the square root of two cell sizes. The figure therefore matches the
+length of the lines 6.02 would build at the same threshold.
+
+A link counts only when both of its cells are inside the catchment. A link that leaves the boundary already belongs to the neighbouring catchment, and charging it here would count one river twice.
+
+The threshold decides what counts as a stream, and the length of the network changes with it severalfold. At a small threshold the network grows into every hollow, at a large one only the major streams remain. A figure without the threshold beside it therefore means nothing, and the log prints the threshold next to the length.
+
+**The network density net_dens** is the length of the network divided by the area of the catchment, in kilometres per square kilometre. It is comparable between basins, unlike the length itself.
+
+## 6.05 Catchment of a line or an outline (ditches, open pits)
+
+The tool computes the catchment area of an intake - a hillside ditch, a chute, a road gutter or the outline of an open pit. The question is how much area the intake intercepts when the intake itself is not on the DEM yet.
+
+The fields of the source feature are carried into the output in the same way as in 6.03. Pick the ones you need in the advanced parameters, and on a name clash the incoming field gets the src_ prefix.
+
+### How it works
+
+Burning the trace into the relief is not needed for that. The trace is rasterised into grid cells, all of them are taken as intakes, and the catchment is the set of cells whose flow path arrives at any cell of the trace. The trace may be a polyline, may cross a divide and may run outside the DEM frame - the outside part simply does not take part.
+
+Rasterisation steps along the segments by half a cell, so there are no gaps at bends and diagonals through which water could slip past the intake.
+
+Catchments of neighbouring traces nest into each other, so the ditch further downslope also gets what the upper one intercepts. This is the same behaviour as for gauges in 6.04, and it is the right one - every trace gets its full catchment rather than a remainder.
+
+### An outline instead of a line
+
+Both lines and polygons are accepted as input. A polygon is treated as an intake in its entirety, the outline and the whole area inside it.
+
+For an open pit this is essential. Inside it the pit is a depression, and once the depressions are filled the flow directions there become arbitrary - the traversal order of a flat filled surface assigns them at random. Take only the line of the pit wall as the intake, and some of the inner cells will flow past it along those arbitrary directions, dragging the outer ones with them. Relying on the whole interior removes the question. Whatever happens to the directions inside the pit, its entire area is already in the catchment, while outside the water is traced along the real relief.
+
+The holes of a polygon enter the intake on equal terms with the rest of the area - there is no external relief inside the outline. A multipolygon is processed part by part. There is no longer any need to trace the wall with a line, the ready outline is supplied instead.
+
+### Burning the trace
+
+The separate **Burn the trace into the relief** checkbox answers a different question - will the ditch hold the flow if it is shallower than the local landforms. Burning lowers the relief along the trace by a given depth, and the flow is then computed on the changed relief.
+
+Burning changes the hydrology deliberately, so it is off by default and the result depends on the depth. The fact of burning and the depth are printed to the log and go into the HTML report, so the figure cannot be taken for a computation on the original relief.
+
+### What is computed
+
+| Value | Field | Units |
+|---|---|---|
+| Catchment area | area_km2 | sq. km |
+| Mean elevation | z_mean | m |
+| Minimum elevation | z_min | m |
+| Maximum elevation | z_max | m |
+| Mean catchment slope | slope_deg | degrees (Horn 3x3) |
+| Trace or outline length | trace_km | km |
+| Intake area | seed_km2 | sq. km |
+| Intake cells | trace_cells | count |
+| Cells in the catchment | cells | count |
+
+### Parameters
+
+| Parameter | What it sets | Default / hint |
+|---|---|---|
+| Input DEM | Relief in metres in a metric CRS. | - |
+| Traces and outlines | Lines or polygons, one feature per intake. | - |
+| All features as one catchment | A joint catchment instead of separate ones. | off |
+| Burn the trace into the relief | The flow-holding check. | off |
+| Burn depth, m (adv.) | How far to lower the relief along the trace. | 2.0 |
+| Fill depressions | Relief preparation before the flow routing. | on |
+| Slope epsilon, m (adv.) | Fill slope, as in 2.04. | as in 2.04 |
+| Trace catchments (polygons) | Polygons with the attributes listed above. | created |
+| Trace report (HTML) | A table per trace. | created |
+
+### A quick check on the demo
+
+**2.10 Demo relief** outputs the **Ditch traces (demo)** layer: a hillside ditch above a strong thalweg and a gutter further downslope, both polylines with a bend. Feed the relief and that layer into 6.05. The catchment should lie upslope of the traces and stop at the divides rather than at the grid frame.
+
+### Scope
+
+The tool answers the question about area, not about discharge. Discharges, runoff moduli and the capacity of the ditch belong to computational hydrology by the codes of practice and are out of scope. Units are assumed metric.
+
+Catchments are built from the topology of the relief. On terrain without clear flow boundaries - flat floodplains, hydraulic transfers and backwater - the result should be verified by hydrodynamic modelling.
+
+## 6.06 Report on an existing catchment
+
+The tool computes the morphometry over **existing** catchment polygons. It gives the area, the mean and extreme elevations, the mean slope of the basin, the length of the main stream and the fall.
+
+It is needed where a catchment already exists, drawn manually, taken from somebody else's project or computed by another program. The boundaries are not recomputed - the figures are for the polygon that was supplied, otherwise the answer would be about a different catchment.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Input DEM | The elevation raster the characteristics are computed over. | - |
+| Catchment polygons | The existing outlines to compute over. | - |
+| Outlet points | Gauges. Empty - the point is taken by the highest accumulation inside the polygon. | empty |
+| Compute the stream length and the fall | Requires tracing over the DEM and costs noticeably more than the rest. | on |
+| Contour interval for the SP computation, m | Switches the sp_ fields on. Zero switches them off. | 10 |
+| Accumulation threshold for the stream network length, cells | Switches the net_ fields on. Zero switches them off. | 0 |
+| Snapping radius (adv.) | Moves a gauge to the cell with the highest accumulation nearby. | 0 |
+| Fill the depressions (adv.) | Without filling the water stops in the local pits of the DEM. | on |
+| Catchments with characteristics | Output: the same polygons with the computed fields appended. | - |
+
+### The fields of the output layer
+
+| Value | Field | Units |
+|---|---|---|
+| Catchment area | area_km2 | sq. km |
+| Mean elevation | z_mean | m |
+| Minimum elevation | z_min | m |
+| Maximum elevation | z_max | m |
+| Mean slope of the catchment | slope_mean | degrees (Horn 3x3) |
+| Elevation of the outlet | z_gauge | m |
+| Main stream length | stream_km | km |
+| Stream fall | stream_fall_m | m |
+| Mean stream slope | stream_ppm | permille |
+| Mean slope of the hillsides Isk (SP) | sp_slope_ppm | permille |
+| Total length of the **contours** | sp_iso_km | km |
+| Weighted mean slope of the stream (SP) | sp_stream_ppm | permille |
+| Length of the stream **network** in the catchment | net_km | km |
+| Stream network density | net_dens | km per sq. km |
+| How the outlet was chosen | outlet | - |
+| Cells in the catchment | cells | count |
+
+The **sp_** fields are filled when a contour interval is given, the **net_** fields need an accumulation threshold, and the stream fields need the length checkbox on. Otherwise they stay empty, and empty is the absence of a measurement, not a zero.
+
+Three lengths in this table are easy to confuse, and the difference is large. **stream_km** is the length of the main stream, one line from the outlet to the source. **net_km** is the length of the whole network including tributaries. **sp_iso_km** is the length of the **contours**, the Σli factor of the SP formula for the slope of the hillsides. It is two orders of magnitude larger than the network, because contours run over the whole area at every step in elevation. For a catchment of 54 sq. km at a 5 m interval it comes out around 2800 km, and that figure is right rather than broken.
+
+The attribute table headers carry the names in words, but an export to CSV and any expression keep the field names.
+
+### The outlet
+
+The stream length and the fall are measured from the point the water flows to. When a catchment is built that point is known from the gauge, an existing polygon has none.
+
+If points are given they are used, and a gauge is looked for inside every polygon. If not, the cell with the highest accumulation inside the outline is taken.
+
+The highest accumulation rather than the lowest elevation. The lowest point may lie in a pit inside the area, or on an edge that caught a neighbouring valley, and the stream would then run the wrong way. The **outlet** field records which way it went for every polygon.
+
+The stream is cut by the boundary of the polygon, and the length is measured inside the given catchment rather than along the whole trace, which may run beyond it.
+
+The fields of the source polygons are kept, the computed ones are appended. If a name clashes, a suffix is added to the computed field.
+
+
+### Computation to SP 33-101-2003 and the stream network length
+
+The same quantities are computed by the same formulas as in **6.04 Gauge point report**. The **contour interval** parameter switches on the mean slope of the hillsides
+Isk and the weighted mean slope of the stream. The **accumulation threshold**
+parameter switches on the length of the stream network and its density. The formulas and the meaning of every field are explained there.
+
+There is one difference. The physical slope of the basin lives here in the **slope_mean** field rather than **slope_deg**.
+
+## 6.07 Flow lines from points, lines and outlines
+
+Where the water goes from a given place. From every seed cell the tool walks downhill along the D8 flow directions and draws the path travelled as a line.
+
+| Parameter | What it sets | Default / advice |
+|---|---|---|
+| Input DEM | Terrain in metres in a metric coordinate system. | - |
+| Where it flows from | Points, lines or outlines. A point gives one cell, a line the cells under it, a polygon every cell inside. | - |
+| Receivers | Ponds, rivers, ditches. A trace stops when it reaches them. | - |
+| Stop at a watercourse: threshold, cells | Stop in a cell that more than the given number of cells drain into. The same threshold as in 6.02. 0 = off. | 0 |
+| Stop at flattening: slope, degrees | Stop where the flow loses its force. 0 = off. | 0 |
+| Length of the flat stretch, m | A shelf shorter than this is skipped. | 50 |
+| Release zone: slope, degrees | Keeps only traces that have a steep enough stretch. 0 = do not check. | 0 |
+| Length of the release zone, m | How long the steep stretch has to be. | 100 |
+| Break a trace at a merge | A trace stops once it joins one already walked. | off |
+| Trace smoothing, iterations (adv.) | Rounds the D8 steps for the drawing. Elevations do not change. | 0 |
+| Carry over fields of the source object (adv.) | Which attributes of the source go into the trace. | - |
+| Fill depressions | Planchon-Darboux before tracing: otherwise the path drowns in the first pit. | on |
+
+**Areal sources.** A ditch of eight cells gives eight lines, the outline of a dump as many as it covers. Downhill the traces converge into one channel, and without a break every one of them walks it, so a thousand cells of a dump give a thousand copies of the same channel. The **Break a trace at a merge** checkbox turns the bundle into a tree. Every
+cell is then walked once, connectivity is kept, and the trace is carried up to
+the point of the merge.
+
+**The release zone** keeps the traces that have a stretch steeper than the given angle and no shorter than the given length. That is how an avalanche release is looked for - it starts where the slope holds its steepness over a distance rather than in a single cell. The usual thresholds are 25 degrees and a hundred metres, the length found is written into the `steep_m` field.
+
+**Flattening** stops a trace at the foot of a slope, on a terrace, on a floodplain. The slope is measured as an average over the last metres of the path, and the length of that stretch is set next to it. A short shelf inside a steep slope will not pull the average down and is skipped, while real flattening will. The cut is made at the start of the stretch, and that is the place where the flow spreads out.
+
+**Why degrees.** The thresholds are set by an angle rather than a ratio. Avalanche and geotechnical criteria are written in degrees, and a surveyor's slope raster is in degrees too.
+
+**The reason for stopping** is written into the `reason` field and tells four cases apart. **sink** - nowhere lower to go. **sheet edge** - the terrain ran out. **receiver** - a given pond or watercourse was reached. **merge** - the trace joined one already walked.
+
+Output fields. `src_id` is the number of the source object, `cells` the number of cells, `length_m` the length of the path. `drop_m` is the fall, `slope` the mean slope, `z_start` and `z_end` the elevations of the ends, `reason` the reason for stopping.
+
+A D8 trace runs along eight directions and therefore looks like a series of steps at 45 degrees. That is a property of the method rather than an error, and smoothing rounds the polyline for the drawing while elevations do not change. A downhill trace shows the path by the topology of the terrain and accounts for neither infiltration nor backwater nor pipes.
+
+## 6.08 Cross-sections and rating curves
 
 The main tool of the group. From a section and its elevations it builds a table and a graph of the dependence of discharge on level.
 
@@ -3648,7 +3650,7 @@ Sections on input:
 | `n_left`, `n_channel`, `n_right` | Manning roughness by part | dimensionless |
 | `slope` | slope of the water surface | m/m |
 
-The table of soundings on input of **6.03** holds `sec`, `dist` and `elev`. `dist` is the distance along the section in metres, `elev` the absolute elevation in metres. Then `km` and the same computation fields, if they are present.
+The table of soundings on input of **6.10** holds `sec`, `dist` and `elev`. `dist` is the distance along the section in metres, `elev` the absolute elevation in metres. Then `km` and the same computation fields, if they are present.
 
 The table of probability discharges carries `prob` in percent and `q` in cubic metres per second. The table of observed levels carries `level` in metres and `label` as text.
 
@@ -3703,7 +3705,7 @@ The slope enters the discharge under a square root, so an error in it tells dire
 ### What comes out
 
 Out comes a table of the curve by parts and in total, with the area, width,
-perimeter, radius, velocity and discharge at every level. With it come **Section drawing as one layer** in drawing coordinates and **Levels at the sections on the map (for 6.02)** in map coordinates. **Rating curve plot (drawing)** is switched on separately.
+perimeter, radius, velocity and discharge at every level. With it come **Section drawing as one layer** in drawing coordinates and **Levels at the sections on the map (for 6.09)** in map coordinates. **Rating curve plot (drawing)** is switched on separately.
 
 An HTML report is made for every section. It holds the profile with the levels and the division boundaries drawn on it.
 Then come a graph of discharge against level with the probability lines, a
@@ -3725,29 +3727,29 @@ The exceedance levels arrive as discharges, and the elevation for a mark is obta
 The **kind** field in the attributes tells the parts of the drawing apart - curve, axis, tick, mark, label. The presentation is set up by it.
 
 
-## 6.02 Flood extent polygon
+## 6.09 Flood extent polygon
 
 Cuts the surface by a water level and produces the flood extent and a raster of depth.
 
-The level can be set directly or by a discharge. In the second case it is taken backwards along the curve from 6.01 - the very move drawn as a red arrow on manual constructions. The curve is supplied as a table, the discharge as a number, the accepted level is printed to the log.
+The level can be set directly or by a discharge. In the second case it is taken backwards along the curve from 6.08 - the very move drawn as a red arrow on manual constructions. The curve is supplied as a table, the discharge as a number, the accepted level is printed to the log.
 
-The tool is deliberately separate from 6.01. It has a different input and a different consumer, and there is no point in performing the whole curve computation for the sake of one polygon.
+The tool is deliberately separate from 6.08. It has a different input and a different consumer, and there is no point in performing the whole curve computation for the sake of one polygon.
 
 ### The level is not constant along the river
 
 Upstream it is higher. Cutting the whole area by a single elevation floods the valley wherever the bed lies below that elevation, even though the water does not reach there. Therefore the levels are supplied at the sections, a water surface rises from them, and the depth is computed from it.
 
-There are two paths. Ready levels as lines - take the output **Levels at the sections on the map** from 6.01. Or a desired discharge over a curve already computed. You supply the sections on the map, the table of the curve and a number, and for every section the level is found backwards along the curve.
+There are two paths. Ready levels as lines - take the output **Levels at the sections on the map** from 6.08. Or a desired discharge over a curve already computed. You supply the sections on the map, the table of the curve and a number, and for every section the level is found backwards along the curve.
 
-The second path answers the frequent question about a catastrophic scenario. The curve does not depend on the discharge, it is a characteristic of the section. So any discharge, not only the design one, is cut without running 6.01 again. A section whose discharge went above the top of the curve is skipped with a
+The second path answers the frequent question about a catastrophic scenario. The curve does not depend on the discharge, it is a characteristic of the section. So any discharge, not only the design one, is cut without running 6.08 again. A section whose discharge went above the top of the curve is skipped with a
 warning. The curve is built up to the top of the profile, and above it there
-is nowhere to take an elevation from. If such scenarios are needed, raise the upper elevation in 6.01 and the curve will continue with a margin.
+is nowhere to take an elevation from. If such scenarios are needed, raise the upper elevation in 6.08 and the curve will continue with a margin.
 
 The drawing layer of levels will not do for the map, because along its horizontal axis runs the distance along the section rather than a coordinate. The tool recognizes this and refuses with an explanation of which output to take.
 
 Small patches are dropped by area, since on a flat floodplain single cells below the water line give speckle that has nothing to do with the flood. Connectivity with the channel is not checked, and the log says so. Closed depressions away from the river will stay in the extent, and that is visible on the map.
 
-## 6.03 Import section tables
+## 6.10 Import section tables
 
 Turns a table of soundings into sections with elevations in the vertices.
 
@@ -3759,21 +3761,21 @@ Without a line layer the geometry is built as straight sections by an azimuth an
 
 Computation properties are carried along with the profile if the table holds them - the division boundaries, the roughness values and the slope. Without them the geometry would come back but not the computation, and the curve over the restored sections would part from the original one.
 
-## 6.04 Example river (demo)
+## 6.11 Example river (demo)
 
 A teaching chain of sections with a known answer. It is a valley with a channel and two floodplains, elevations in the vertex Z. The fields of division, roughness, slope and chainage are filled in.
 
 The channel and the floodplains have different roughness, so the curve shows how the floodplain comes in. Up to the banks the discharge grows steeply, while above the break the floodplain adds area but adds little discharge.
 
-Besides the sections it produces a table of soundings, the input for 6.03, and
-a valley surface as a raster, the input for 6.02. While the valley exists as
+Besides the sections it produces a table of soundings, the input for 6.10, and
+a valley surface as a raster, the input for 6.09. While the valley exists as
 lines only, there is nothing for the flooding to cut. The surface is built from the same sections as the curves, so the flood extent and the rating curve speak of one valley rather than of two similar ones.
 
-A separate output is a reference curve computed directly from the gauge line itself. A discrepancy with what 6.01 gives on the same sections is an error of the tool rather than of the data, because the answer is known in advance.
+A separate output is a reference curve computed directly from the gauge line itself. A discrepancy with what 6.08 gives on the same sections is an error of the tool rather than of the data, because the answer is known in advance.
 
 ### How to check the group
 
-Build the example, feed the sections into 6.01 and compare the table of the curve with the reference one - they must coincide. Then feed the table of soundings into 6.03 together with the layer of the demo sections. The restored sections will lie over the originals and give the same curve. Finally feed the valley surface, the rating curve and a discharge into 6.02 - you get the flood extent and the depth.
+Build the example, feed the sections into 6.08 and compare the table of the curve with the reference one - they must coincide. Then feed the table of soundings into 6.10 together with the layer of the demo sections. The restored sections will lie over the originals and give the same curve. Finally feed the valley surface, the rating curve and a discharge into 6.09 - you get the flood extent and the depth.
 
 ## What the group does not have yet
 
@@ -3906,7 +3908,7 @@ Until this tool the data from such programs had to be reduced to tables by hand.
 
 The outputs are optional. Switch off the ones you do not need, the file is parsed once either way.
 
-The surface comes out as 3D faces rather than as a mesh, and that is deliberate - such a layer is taken straight away by **4.06 Intersect a TIN with the section**. Cross sections are placed on the ground across the alignment, and a line with elevations like that is what the tools of the **6. River hydrology** group take.
+The surface comes out as 3D faces rather than as a mesh, and that is deliberate - such a layer is taken straight away by **4.06 Intersect a TIN with the section**. Cross sections are placed on the ground across the alignment, and a line with elevations like that is what the tools of the **6. Hydrology** group take.
 
 Cadastral parcels, pipe networks, roadway objects, field observations and monuments are deliberately not read. These are other people's subject areas, and supporting them halfway is worse than not supporting them at all. When found in the file they are listed in the log.
 
@@ -4216,11 +4218,11 @@ Minimum - **Relief source** = GEDTM30, **Download extent** over the area of inte
 Minimum - **Raster**, **Interval** of 5 or 10 m. The rest by default.
 *You get* - a contour layer. From here on it plays the part of source data, as if it had been handed to you.
 
-**Step 3.** **2.05 Flow and accumulation (D8)**
+**Step 3.** **6.01 Flow and accumulation (D8)**
 Minimum - the **DEM** from step 1. Leave the filling of depressions on.
 *You get* - rasters of flow direction and accumulated area.
 
-**Step 4.** **2.06 River network**
+**Step 4.** **6.02 River network**
 Minimum - the accumulation raster from step 3, **Catchment threshold** in cells. Start with a thousand and tune it until the network looks plausible.
 *You get* - watercourse lines directed downstream, that is, ready-made streamlines.
 
@@ -4278,9 +4280,9 @@ OpenStreetMap data are © OpenStreetMap contributors, ODbL. The Copernicus GLO-3
 
 A summary of the fields of all demo-data generators with units. The values are demonstrational, and where a quantity is abstract the units are nominal.
 
-## Topography group outputs
+## Topography and Hydrology group outputs
 
-Line layer **River network** (tool 2.06):
+Line layer **River network** (tool 6.02):
 
 | Field | Type | Meaning, units |
 |---|---|---|
@@ -4288,7 +4290,7 @@ Line layer **River network** (tool 2.06):
 | acc_out | real | accumulation at the link outlet, cells |
 | length_m | real | link length, m |
 
-Polygon layer **Basins** (2.07) carries **basin** (the basin number, integer) and **area_m2** (the area, m²). Point layer **Peaks** (2.09) carries **z** (the elevation, m) and **drop** (the drop over the window minimum, m). Base topography layers (2.02) carry **name** and **osm_id**, watercourses also **waterway**, water bodies **water**, peaks **ele** (elevation, m), cliffs **kind**. The demo relief (2.10) is a raster without fields.
+Polygon layer **Basins** (6.03) carries **basin** (the basin number, integer) and **area_m2** (the area, m²). Point layer **Peaks** (2.09) carries **z** (the elevation, m) and **drop** (the drop over the window minimum, m). Base topography layers (2.02) carry **name** and **osm_id**, watercourses also **waterway**, water bodies **water**, peaks **ele** (elevation, m), cliffs **kind**. The demo relief (2.10) is a raster without fields.
 
 ## Sample wells (demo) - tool 1.10
 

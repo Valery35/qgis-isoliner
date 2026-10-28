@@ -5,7 +5,7 @@
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/grid_isolines/) [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner) [![Support development](https://img.shields.io/badge/Support-development-2ea44f)](https://github.com/Valery35#%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D1%83)
 
 A Processing-provider plugin for interpolating point data, building isolines and working with terrain.
-The tools are split into seven Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"**, **"Geological model"** (beta), **"River hydrology"** and **"Fractal analysis"** — sixty-eight in all:
+The tools are split into seven Processing groups — **"Grid and isolines"**, **"Topography"**, **"Additional analysis tools"**, **"Cross-sections"**, **"Geological model"** (beta), **"Hydrology"** and **"Fractal analysis"** — sixty-eight in all:
 
 **Two companion plugins work alongside it.**
 [Isoliner3D](https://github.com/Valery35/qgis-isoliner3d) shows the
@@ -44,24 +44,18 @@ The plugin is free and open source. [Support development](https://github.com/Val
 - **2.02 Download base topography by extent** — OpenStreetMap layers for terrain work: watercourses (ready streamlines), water bodies, peaks with elevations, cliffs and embankments, the coastline.
 - **2.03 Topo2Raster (terrain from vectors)** — terrain from points, contours, streamlines, cliffs and lakes by multigrid interpolation in the spirit of ANUDEM: a membrane frame plus minimum-curvature polishing.
 - **2.04 Terrain preparation** — depression filling by the Planchon-Darboux method with a tunable epsilon and smoothing: pits only up to the spill level, or a through slope across flats.
-- **2.05 Flow and accumulation (D8)** — flow directions in ArcGIS codes and accumulation by a vectorized sweep. A 2000×2000 grid in seconds.
-- **2.06 River network** — links from heads and junctions downstream, the Strahler order, the output fits 2.03 as streamlines.
-- **2.07 Basins and watersheds** — from pour points snapped to the accumulation maximum, or automatically from mouths. Polygons and a label raster.
 - **2.08 Slope and aspect** — the Horn 3×3 kernel as in gdaldem, aspect as the downslope azimuth, flat cells flagged.
 - **2.09 Peaks and pits** — local extremes of both signs with two filters: the radius suppresses secondary tops, the relief threshold cuts off bumps and puddles. The elevation is written into the geometry Z: the spot points go to DXF together with the contours and remove the flat caps of a surface at closed contours.
-- **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Outputs gauge points for 2.15, ditch traces for 2.16 and, optionally, a pair of surfaces with work areas for 2.18.
+- **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Outputs gauge points for 6.04, ditch traces for 6.05 and, optionally, a pair of surfaces with work areas for 2.18.
 - **2.11 Split contours for validation** — splits a contour layer into a working and a held-out part for strict evaluation of the build: held-out lines do not go into the interpolation.
 - **2.12 Contour residuals against the DEM** — compares contour elevations with the built surface: reproduction and held-out control, a summary and a map of deviations.
 - **2.13 Terracing check of a DEM** — vertical curvature as a marker of steps from contour lines: where the surface goes in terraces, it was built from contours with no relief in between.
 - **2.14 Remove steps (clamped smoothing)** — smoothing clamped by a tolerance to the source elevations, with an HTML report before and after: the steps go while the surface does not drift.
-- **2.15 Gauge point report** — watershed morphometry from a closure point: area, elevations, mean basin slope, length, fall and slope of the main stream. Polygons with attributes and an HTML report.
-- **2.16 Catchment of a line or an outline (ditches, open pits)** — the area intercepted by a hillside ditch, a gutter or an open pit outline. A line is rasterised and taken as the intake, a polygon is treated as an intake in its entirety, the catchment is collected by flow. Burning the trace is a separate checkbox.
 - **2.18 Cut and fill (earthwork volumes)** — volumes between two surfaces, or a surface and an elevation: fill, cut, balance. Grids are aligned bilinearly, the dead band cuts background noise, work areas are counted separately. A difference raster and an HTML statement.
 - **2.19 Crest and toe candidates** - the places where the slope changes fastest, traced into lines with the drop, the length and the kind in the attributes.
 - **2.20 Crests and toes into work** - elevations off the DEM, crest-toe forms by descending the slope, ready Top and Bottom inputs.
 - **2.21 Example open pit (demo)** - a pit with benches, a ramp, a dump and a ditch plus the true structural lines as a reference.
 - **2.22 Profiling of slopes** — elevations for structural lines from the contours they adjoin: an input for mute crests and toes without a DEM.
-- **2.23 Flow lines from points, lines and outlines** — where the water will run from a given place: downhill along D8 from every starting cell, stopping at a water body, at a watercourse by the accumulation threshold, at the edge of the sheet or at a merge with a trace already walked. It answers where the water from a dump or a site will go.
 - **2.24 Remove bridges from a DEM** — removes the bridges a surface model lays across a river like a dam. The river surface, interpolated from the water upstream and downstream, settles under the deck. A bridge is given by an outline or by an axis with a width.
 
 ### "3. Additional analysis tools" group
@@ -100,12 +94,18 @@ The plugin is free and open source. [Support development](https://github.com/Val
 - **5.05 Model manifest** — the roles of the layers in the project properties: the datum, a contact, the mirror, the collars, the intervals, the axis surveys, the reference, the observations. The tools read the manifest but do not require it.
 - **5.06 Folding of a surface** — the spread of elevations around the local slope plus the rate of its growth with scale. A plain variance on a general slope is large everywhere, hence a plane is fitted in the window.
 
-### "6. River hydrology" group
+### "6. Hydrology" group
 
-- **6.01 Cross-sections and rating curves** — the dependence of discharge on level for a section: the profile along the vertices, the division into the left bank, the channel and the right bank, the discharge by Manning separately on every part. Roughness and slope from the fields of the section, the slope can be computed from the chain of sections. Probability and observed levels as lines onto the drawing, the footer of a gauging sheet as a row per part, ground elevations and distances as points. An HTML report with the profile and the Q(H) graph on the page itself.
-- **6.02 Flood extent polygon** — cutting the surface by a water level with an extent and a raster of depth. The level can be set by a discharge: it is taken backwards along the curve.
-- **6.03 Import section tables** — distance and elevation pairs from existing programs become lines with Z. If the sections are digitized on the map, the soundings lie along the real lines. Computation properties are carried along with the profile.
-- **6.04 Example river (demo)** — a chain of sections with a known answer, a table of soundings, a valley surface, a reference curve, teaching probability discharges and observed levels.
+- **6.01 Flow and accumulation (D8)** — flow directions in ArcGIS codes and accumulation by a vectorized sweep. A 2000×2000 grid in seconds.
+- **6.02 River network** — links from heads and junctions downstream, the Strahler order, the output fits 2.03 as streamlines.
+- **6.03 Basins and watersheds** — from pour points snapped to the accumulation maximum, or automatically from mouths. Polygons and a label raster.
+- **6.04 Gauge point report** — watershed morphometry from a closure point: area, elevations, mean basin slope, length, fall and slope of the main stream. Polygons with attributes and an HTML report.
+- **6.05 Catchment of a line or an outline (ditches, open pits)** — the area intercepted by a hillside ditch, a gutter or an open pit outline. A line is rasterised and taken as the intake, a polygon is treated as an intake in its entirety, the catchment is collected by flow. Burning the trace is a separate checkbox.
+- **6.07 Flow lines from points, lines and outlines** — where the water will run from a given place: downhill along D8 from every starting cell, stopping at a water body, at a watercourse by the accumulation threshold, at the edge of the sheet or at a merge with a trace already walked. It answers where the water from a dump or a site will go.
+- **6.08 Cross-sections and rating curves** — the dependence of discharge on level for a section: the profile along the vertices, the division into the left bank, the channel and the right bank, the discharge by Manning separately on every part. Roughness and slope from the fields of the section, the slope can be computed from the chain of sections. Probability and observed levels as lines onto the drawing, the footer of a gauging sheet as a row per part, ground elevations and distances as points. An HTML report with the profile and the Q(H) graph on the page itself.
+- **6.09 Flood extent polygon** — cutting the surface by a water level with an extent and a raster of depth. The level can be set by a discharge: it is taken backwards along the curve.
+- **6.10 Import section tables** — distance and elevation pairs from existing programs become lines with Z. If the sections are digitized on the map, the soundings lie along the real lines. Computation properties are carried along with the profile.
+- **6.11 Example river (demo)** — a chain of sections with a known answer, a table of soundings, a valley surface, a reference curve, teaching probability discharges and observed levels.
 
 **Fields of the hydrology group.** Sections: `sec` the name, `km` the chainage in km, `div_l` and `div_r` the part boundaries as distances along the profile in m, `n_left`, `n_channel`, `n_right` the Manning roughness by part (dimensionless), `slope` the slope in m/m, `role` the role of the line when supplied as three lines. Probability discharges: `prob` in percent, `q` in m3/s. Observed levels: `level` in m, `label` as text. The full list of fields of every input and output with units is in the [manual](manual/manual_en.md).
 
@@ -339,6 +339,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.43** — flow, river network, basins and catchments moved from «Topography» to the «6. Hydrology» group (6.01-6.07), sections and flooding became 6.08-6.11.
 - **5.13.42** — a «Support development» link in the About window and in the tool help.
 - **5.13.41** — 3.09 accepts an extent in degrees and builds the demo in a UTM zone.
 - **5.13.40** — new demo tool 3.09 for 3.01 and 3.02, and 3.01 no longer shrinks narrow replacement zones when no weight field is given.
@@ -413,7 +414,7 @@ the last ten versions. The user manual (PDF) is
 - **4.92.0—4.95.0** — faults arrived in 1.02: lines act as barriers of influence, a sample beyond a fault does not enter the neighbourhood of a cell, and the surface breaks along the line. A cell on the line itself is written as nodata, so the break is visible to everything that works off the grid and contour polygons close along the fault by themselves. A fallback filter of narrow strips by thickness was added to 1.04. Tool names were brought to a single form. In the tests, guards that stayed silent in a full run were repaired.
 - **4.91.0** — the geological model has grown up to assembly: a stack from the relief and from a datum surface, a correction by the statistics of thicknesses, the model manifest, a map of folding, telling a cut from a pinch-out by the mirror. In hydrology the flood extent is built for any desired discharge over a curve already computed.
 - **4.74.1** — probability and observed levels on the drawing, the footer of a gauging sheet, a report with graphics: the profile with the levels and the graph of discharge against level on the page itself.
-- **4.69.1** — the new "6. River hydrology" group: cross-sections and rating curves by Manning with a separate count over the channel and the floodplains, a flood extent polygon with the backward move along the curve, an import of sounding tables laid along digitized lines, a demo river with a known answer. Fractal analysis moved to the seventh group, the geological model is marked beta.
+- **4.69.1** — the new "6. Hydrology" group: cross-sections and rating curves by Manning with a separate count over the channel and the floodplains, a flood extent polygon with the backward move along the curve, an import of sounding tables laid along digitized lines, a demo river with a known answer. Fractal analysis moved to the seventh group, the geological model is marked beta.
 - **4.63.0** — 4.02 gains a new output: label anchors of intervals, a point in the middle of every interval with all its attributes. Composite grade labels attach to points and place normally.
 - **4.62.0** — the demo became a full section of the Verkhnekamskoye type: the whole column from the reference, erosion from the dissolution level, a subcrop map, the water-protective sequence, a folder output.
 - **4.59.0–4.60.0** — a salt dome with a dissolved top in the demo, the cut carried onto the mirror without steps, the group layer order in the tree made deterministic.
