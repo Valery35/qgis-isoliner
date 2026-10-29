@@ -18,7 +18,7 @@ header-includes:
 
 \begin{center}
 {\Large\sffamily\bfseries Isoliner · Terrain from a topographic plan: quarries, cuts, fills, dumps}\\[1pt]
-{\small A cheat sheet for the 2.22 → 2.20 → 2.03 chain · two sheets · QGIS 3.16+ · Isoliner plugin · no GRASS or SAGA}
+{\small A cheat sheet for the 2.16 → 2.14 → 2.03 chain · two sheets · QGIS 3.16+ · Isoliner plugin · no GRASS or SAGA}
 \end{center}
 
 \vspace{2pt}
@@ -37,23 +37,23 @@ The industry requirements state plainly that terrain created automatically has t
 
 # The chain
 
-**Step 1. Elevations - 2.22 Profiling of slopes.** Input: the crest and toe lines plus the contour layer, adjoining tolerance 0.5 m. Output: the same lines as LineStringZ with a profile, and a separate layer of mute lines with the reason.
+**Step 1. Elevations - 2.16 Profiling of slopes.** Input: the crest and toe lines plus the contour layer, adjoining tolerance 0.5 m. Output: the same lines as LineStringZ with a profile, and a separate layer of mute lines with the reason.
 
 A contour **does not run along the crest**, contours break off at slopes. But the standard requires bringing them up to the object line with node points. Every such point carries the elevation of its contour, and the profile of the line is recovered from them.
 
 The log prints the median and the minimum of support points per line. One point means a constant elevation along the whole line, that is, no profile came out.
 
-**Step 2. Forms - 2.20 Crests and toes into work.** Input: the lines with elevations from step 1. **Leave the DEM empty**. Without it the pairs are assembled from the elevations, and the toe is the nearest line lying below the crest. Keep the path limit close to the width of the face. Output: the **Top** and **Bottom** layers sharing the **link** field, plus the unpaired with a reason.
+**Step 2. Forms - 2.14 Crests and toes into work.** Input: the lines with elevations from step 1. **Leave the DEM empty**. Without it the pairs are assembled from the elevations, and the toe is the nearest line lying below the crest. Keep the path limit close to the width of the face. Output: the **Top** and **Bottom** layers sharing the **link** field, plus the unpaired with a reason.
 
 The kind field is read tolerantly. The brow and toe values work, as do the crest codes of the classifiers, names containing the words for a crest or a toe. How every value was read is printed to the log as a table, worth checking on the very first layer.
 
 **Step 3. Terrain - 2.03 Topo2Raster.** The usual inputs plus **Top of forms** and **Bottom of forms** from step 2, link field. Set the cell size explicitly.
 
-**Step 4. Check.** Overlay contours from 1.04 over the result on the original ones. Outside the form they must coincide, and inside they must appear where there were none. The residual is measured by 2.12.
+**Step 4. Check.** Overlay contours from 1.04 over the result on the original ones. Outside the form they must coincide, and inside they must appear where there were none. The residual is measured by 2.09.
 
 # Why the order is what it is
 
-The descent in 2.20 answers a single question, which way is down. That used to require a DEM, and the scenario went in a circle. To build terrain from forms you need pairs, and for pairs by descent you need terrain that does not exist yet. When the lines carry elevations, the answer is already in the data. Hence the order. Elevations first, then pairs, then terrain.
+The descent in 2.14 answers a single question, which way is down. That used to require a DEM, and the scenario went in a circle. To build terrain from forms you need pairs, and for pairs by descent you need terrain that does not exist yet. When the lines carry elevations, the answer is already in the data. Hence the order. Elevations first, then pairs, then terrain.
 
 # How it is computed
 
@@ -63,15 +63,15 @@ The descent in 2.20 answers a single question, which way is down. That used to r
 
 # What to read in the log
 
-- **2.22** - contours with an elevation, how many lines received a profile, how many stayed mute, the median and the minimum of support points.
-- **2.20** - the table of how the kind field was read, the number of forms, toes and crests at them, the unpaired.
+- **2.16** - contours with an elevation, how many lines received a profile, how many stayed mute, the median and the minimum of support points.
+- **2.14** - the table of how the kind field was read, the number of forms, toes and crests at them, the unpaired.
 - **2.03** - per form body cells, median width in cells, the mismatch of elevations where the sides converge.
 
 # Common misfires
 
 - **"Forms narrower than two cells".** The cell is coarser than the face. With a 7 m width and a 30 m cell the bench does not exist in the raster at any scale. Make the cell smaller, parameters will not help here.
 - **The lines stayed mute.** The contours are not brought up to the crest with node points. Raise the adjoining tolerance, but carefully, because a large one starts catching foreign contours.
-- **The pair did not form.** No toes lie below the crest, or the nearest one is beyond the limit. The reason is in the attribute of the unpaired layer. Flat lines without Z are skipped in the no-DEM mode, so put them through 2.22.
+- **The pair did not form.** No toes lie below the crest, or the nearest one is beyond the limit. The reason is in the attribute of the unpaired layer. Flat lines without Z are skipped in the no-DEM mode, so put them through 2.16.
 - **Values of the kind field are not recognised.** The tool lists them in the log and skips them, it will not guess. Add a field of your own with brow and toe.
 - **The surface is smooth where it should be benched.** There are several benches and one link for all of them. Give every bench its own link value.
 

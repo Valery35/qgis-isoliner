@@ -31,7 +31,7 @@ header-includes:
 
 **Step 3. Streamlines - 6.02 River network.** Input: the DEM of step 1. Threshold 1000 cells, the lower the threshold, the denser the network. Line vertices already run downstream, as Topo2Raster requires.
 
-**Step 4. Peak and pit elevations - 2.09 Peaks and pits.** Input: the DEM of step 1. Window radius 500 m, drop 20 m. Output: points with the **z**, **drop** and **kind** (peak or pit) fields, the elevation also sits in the geometry Z. Without these points Topo2Raster cuts hilltops and hollows inside closed contours into flat pads.
+**Step 4. Peak and pit elevations - 2.06 Peaks and pits.** Input: the DEM of step 1. Window radius 500 m, drop 20 m. Output: points with the **z**, **drop** and **kind** (peak or pit) fields, the elevation also sits in the geometry Z. Without these points Topo2Raster cuts hilltops and hollows inside closed contours into flat pads.
 
 **Step 5. Water bodies and cliffs - 2.02 Download base topography by extent.** The same extent. Take from OSM what a raster cannot give, that is water bodies and cliffs. OSM watercourses and peaks are a fallback for steps 3-4 when the ele field is filled.
 
@@ -53,11 +53,11 @@ Check: run 1.04 over the result with the same step and overlay it on the contour
 | **6.01** Flow and accumulation (D8) | DEM | directions (ArcGIS codes, byte) + accumulation (cells, float32) | codes: E=1, SE=2, S=4, SW=8, W=16, NW=32, N=64, NE=128, sink=0 |
 | **6.02** River network | DEM | lines: order (Strahler), acc\_out, length\_m | threshold = head catchment / cell area. 1000 at 30 m ≈ 0.9 km² |
 | **6.03** Basins and watersheds | DEM, pour points (empty = mouths) | polygons: basin, area\_m2 (+ label raster) | without points, basins start at mouths by threshold. Snap radius 150 m |
-| **2.08** Slope and aspect | DEM | two rasters, degrees | Horn 3×3 as gdaldem. Aspect: downslope azimuth, flats = -1 |
-| **2.09** Peaks and pits | DEM | points: z, drop, kind (PointZ) | both signs always. A 500 m window radius keeps one peak per window, a 20 m drop discards bumps and small hollows |
+| **2.05** Slope and aspect | DEM | two rasters, degrees | Horn 3×3 as gdaldem. Aspect: downslope azimuth, flats = -1 |
+| **2.06** Peaks and pits | DEM | points: z, drop, kind (PointZ) | both signs always. A 500 m window radius keeps one peak per window, a 20 m drop discards bumps and small hollows |
 | **6.04** Gauge point report | DEM, gauge points | gauge watersheds (polygons), HTML report | a point snaps to the accumulation maximum within 150 m |
 | **6.05** Catchment of a line or an outline | DEM, lines or polygons | catchment polygon, area | a polygon is an intake as a whole, the outline and everything inside. For a pit the catchment does not depend on flow directions in the hollow |
-| **2.18** Cut and fill | two surfaces, or a surface and an elevation | difference raster, HTML statement | the sign is "after minus before". Grids are aligned bilinearly. The dead band discards background noise |
+| **2.12** Cut and fill | two surfaces, or a surface and an elevation | difference raster, HTML statement | the sign is "after minus before". Grids are aligned bilinearly. The dead band discards background noise |
 
 \endgroup
 

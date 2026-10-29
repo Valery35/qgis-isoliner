@@ -73,22 +73,22 @@ Below is the whole provider as it stands in the **Processing** toolbox.
 - `2.02` Download base topography by extent
 - `2.03` Topo2Raster (terrain from vectors)
 - `2.04` Terrain preparation
-- `2.08` Slope and aspect
-- `2.09` Peaks and pits
-- `2.10` Demo relief
-- `2.18` Cut and fill (earthwork volumes)
-- `2.19` Crest and toe candidates
-- `2.20` Crests and toes into work
-- `2.21` Example open pit (demo)
-- `2.22` Profiling of slopes
-- `2.24` Remove bridges from a DEM
+- `2.05` Slope and aspect
+- `2.06` Peaks and pits
+- `2.07` Demo relief
+- `2.12` Cut and fill (earthwork volumes)
+- `2.13` Crest and toe candidates
+- `2.14` Crests and toes into work
+- `2.15` Example open pit (demo)
+- `2.16` Profiling of slopes
+- `2.17` Remove bridges from a DEM
 
 **2. Topography: diagnostics and repair**
 
-- `2.11` Split contours for validation
-- `2.12` Contour residuals against the DEM
-- `2.13` Terracing check of a DEM
-- `2.14` Remove steps (clamped smoothing)
+- `2.08` Split contours for validation
+- `2.09` Contour residuals against the DEM
+- `2.10` Terracing check of a DEM
+- `2.11` Remove steps (clamped smoothing)
 
 **3. Additional analysis tools**
 
@@ -194,15 +194,15 @@ There are no surveys of your own but a map is needed - the early and the most co
 
 A downloaded DEM nearly always needs **2.04 Terrain preparation**. Open sets carry voids, noise and local pits that do not exist in nature. Filling the depressions here is not cosmetics. Without it the flow is not computed at all - the water runs into the first false pit. After that **6.01 Flow and accumulation** gives directions and accumulation. **6.02 River network** turns the accumulation into thalweg lines with orders. **6.03 Basins and watersheds** cuts the territory into catchments.
 
-**2.09 Peaks and pits** finds the characteristic points of the terrain - the very spot heights that a paper map labels with a number.
+**2.06 Peaks and pits** finds the characteristic points of the terrain - the very spot heights that a paper map labels with a number.
 
 **And here comes the main step, the one everything before it was done for.** A downloaded DEM is hydrologically wrong. It holds false pits, rivers run uphill in places, lakes have a slope. Curing that with filters is pointless - filling the depressions treats the symptom, not the cause. The right way is different. Assemble the skeleton of the terrain out of the downloaded raster and **recompute the surface from scratch**, taking into account what has been learned about it.
 
-Everything gathered at the previous steps goes into **2.03 Topo2Raster**, each along its own input. Contours from 1.04 as hard nodes. Spot heights from 2.09 as hard nodes too, and with a weight above one if you want the peaks to outweigh contour vertices in a shared cell. Thalwegs from 6.02 as a downstream descent constraint, so that on the new terrain the rivers are guaranteed to run downhill. Water polygons from 2.02 as the water edge, so that the lakes lie flat rather than sloping. What comes out is a **hydrologically correct terrain**, which the downloaded raster by itself does not give.
+Everything gathered at the previous steps goes into **2.03 Topo2Raster**, each along its own input. Contours from 1.04 as hard nodes. Spot heights from 2.06 as hard nodes too, and with a weight above one if you want the peaks to outweigh contour vertices in a shared cell. Thalwegs from 6.02 as a downstream descent constraint, so that on the new terrain the rivers are guaranteed to run downhill. Water polygons from 2.02 as the water edge, so that the lakes lie flat rather than sloping. What comes out is a **hydrologically correct terrain**, which the downloaded raster by itself does not give.
 
 The contours from **1.04** are needed twice in this chain. First as a way of looking at the country, then as an input to the recomputation. Take the interval by the scale and the character of the country - five metres on a plain, twenty five in the mountains. The tool prints the range of elevations to the log. Too fine an interval only does harm here. It carries the noise of the original raster into the new terrain, the very thing the work was meant to remove.
 
-To check that it became better rather than merely different, use the same tools as in the next scenario, **2.12 Contour residuals against the DEM** and **2.13 Terracing check of a DEM**. And **6.01 Flow** over the new terrain should give rivers without breaks and without false lakes. That is the most telling check of all.
+To check that it became better rather than merely different, use the same tools as in the next scenario, **2.09 Contour residuals against the DEM** and **2.10 Terracing check of a DEM**. And **6.01 Flow** over the new terrain should give rivers without breaks and without false lakes. That is the most telling check of all.
 
 ## A topographic plan with contours on hand, terrain wanted
 
@@ -212,27 +212,27 @@ The task is the reverse of the first one. Here you do not build a surface from s
 
 Set the cell explicitly, otherwise the default may turn out coarser than what you want to see. This is the first of the common mistakes. On a kilometre-wide area the automatic size gives a thirty-metre cell, and a seven-metre bench simply does not exist in such a grid. The tool warns about it in the log, but it is better to set the cell at once.
 
-The result must not be checked by eye. **2.11 Split contours for validation** holds part of the lines back. **2.12 Contour residuals against the DEM** measures how far the built surface departed from the ones held back. This is the same device as cross-validation in kriging, and it answers the same question. Separately there is **2.13 Terracing check of a DEM**, which looks for the characteristic defect of interpolation over contours, where the surface steps along the original lines, and **2.14** removes it.
+The result must not be checked by eye. **2.08 Split contours for validation** holds part of the lines back. **2.09 Contour residuals against the DEM** measures how far the built surface departed from the ones held back. This is the same device as cross-validation in kriging, and it answers the same question. Separately there is **2.10 Terracing check of a DEM**, which looks for the characteristic defect of interpolation over contours, where the surface steps along the original lines, and **2.11** removes it.
 
 ## A dense survey on hand, crests and toes wanted
 
 A UAV or laser-scanning survey gives terrain in which the benches are visible but not digitized. Digitizing them by hand is slow, and Isoliner can find them itself.
 
-The mechanics in **2.19 Crest and toe candidates** are these. The evidence of a break is not the slope but the **rate at which it changes**. On an even face, however sheer, the slope is constant and the evidence is small. It is large where the slope changes, that is on the crest itself and on the toe itself. The sign of the curvature splits the lines found into crests and toes automatically.
+The mechanics in **2.13 Crest and toe candidates** are these. The evidence of a break is not the slope but the **rate at which it changes**. On an even face, however sheer, the slope is constant and the evidence is small. It is large where the slope changes, that is on the crest itself and on the toe itself. The sign of the curvature splits the lines found into crests and toes automatically.
 
 Two parameters here are not obvious. The **probe base** is the half-width of the window in which the drop across the line is measured. The drop in the `drop` attribute is computed within it, so on a ten-metre bench with a three-cell base it will read three metres rather than ten. Set the base by the width of the face in cells. The **drop cut-off** is a noise filter, not a criterion of significance. A formal definition of a crest does not exist, and deciding what counts as a bench stays with the human. The tool therefore deliberately returns more than needed. It puts the numbers for the selection into the attributes and prints the percentiles to the log, and you then move the layer filter while watching the map, recomputing nothing.
 
-Next, **2.20 Crests and toes into work** takes the elevations off the terrain and assembles the forms. The pairs are determined by descending the slope rather than by proximity. Water from a crest runs exactly to its toe, while on a curved wall with narrow berms the nearest toe by distance often belongs to the neighbouring bench. A form comes out as one toe with several crests at it, because the tracing cuts a long crest into pieces, yet all the pieces descend to the same toe. Unpaired lines do not vanish, they go into a separate layer where the attribute records the reason - the descent did not reach a toe, or it scattered over different toes.
+Next, **2.14 Crests and toes into work** takes the elevations off the terrain and assembles the forms. The pairs are determined by descending the slope rather than by proximity. Water from a crest runs exactly to its toe, while on a curved wall with narrow berms the nearest toe by distance often belongs to the neighbouring bench. A form comes out as one toe with several crests at it, because the tracing cuts a long crest into pieces, yet all the pieces descend to the same toe. Unpaired lines do not vanish, they go into a separate layer where the attribute records the reason - the descent did not reach a toe, or it scattered over different toes.
 
-The whole chain can be checked on synthetic data. **2.21 Example open pit (demo)** builds a pit with benches, berms, a ramp, a dump and a ditch, and along with it the true structural lines. The completeness of the detector is measured as a number against them, not by eye.
+The whole chain can be checked on synthetic data. **2.15 Example open pit (demo)** builds a pit with benches, berms, a ramp, a dump and a ditch, and along with it the true structural lines. The completeness of the detector is measured as a number against them, not by eye.
 
 ## A quarry on a topographic plan with no contours inside
 
 A case that looks hopeless until you look into it. By the standard, contours inside areal quarries, cuts, fills and dumps **are not described** - only the outer outline is agreed. So the terrain from such a plan has a hole exactly where the working is, and there is nothing to fill it with except crests and toes.
 
-The catch is that the slope lines in the drawing carry no elevations. But the contours that adjoin them do. The standard requires the contours to be brought up to the object line with node points. **2.22 Profiling of slopes** gathers those points and recovers the profile of the whole line from them. The result is a varying elevation taken from the data itself rather than one number per object.
+The catch is that the slope lines in the drawing carry no elevations. But the contours that adjoin them do. The standard requires the contours to be brought up to the object line with node points. **2.16 Profiling of slopes** gathers those points and recovers the profile of the whole line from them. The result is a varying elevation taken from the data itself rather than one number per object.
 
-Then **2.20**, but this time **without a DEM**. When the lines carry elevations of their own the descent is not needed, and the toe is the nearest line lying below the crest. That matters, because otherwise the work goes in a circle. To build the terrain you need pairs, and for pairs by descent you need terrain that does not exist yet.
+Then **2.14**, but this time **without a DEM**. When the lines carry elevations of their own the descent is not needed, and the toe is the nearest line lying below the crest. That matters, because otherwise the work goes in a circle. To build the terrain you need pairs, and for pairs by descent you need terrain that does not exist yet.
 
 **2.03** closes it. Contours as usual, and the forms go into the **Top of forms** and **Bottom of forms** inputs. The surface between the crest and the toe is built by the distance method. The body goes into the interpolation as hard nodes, and the border works as a barrier. There is no significance threshold in the tool on purpose: give two sides and a surface is built, give one and it works as a barrier. The decision is made by the person drawing the second line.
 
@@ -248,7 +248,7 @@ The easiest start is the demo. **4.10 Example for a section (demo)** produces si
 
 ## Volumes of work wanted
 
-**2.18 Cut and fill** compares two surfaces and computes how much was taken out and how much was laid in. Usually that is the terrain before the works and after, or a design surface against the actual one.
+**2.12 Cut and fill** compares two surfaces and computes how much was taken out and how much was laid in. Usually that is the terrain before the works and after, or a design surface against the actual one.
 
 It is computed cell by cell, the difference of the elevations is multiplied by the area of the cell, and the positive and the negative parts are summed separately. Hence the obvious but important point - **the accuracy of the volume rests on the accuracy of both surfaces**. If one of them was built from sparse points, a handsome number in the report means nothing. The kriging error map and the residuals over the held-back contours are exactly about this.
 
@@ -1377,7 +1377,7 @@ the two together and fill the void by interpolation. Here no hole is cut at all 
 
 And the main point. The step at the seam comes not from the way of gluing but from the systematic offset between the products. If it is not removed, the seam stays as high as the whole datum, whatever the hole is filled with. On a test scene, closing the hole with the regional surface without removing
 the offset gives a step of 14.4 m. The graft with the correction gives 1.62 m
-against a terrain background of 2.18 m.
+against a terrain background of 2.12 m.
 
 If empty cells do end up in the result, their count is reported in the log. A cell can be empty only where neither of the two surfaces exists, and usually the regional one does not cover the given extent.
 
@@ -1391,7 +1391,7 @@ Next to it stands the **"2. Topography: diagnostics and repair"** group. It hold
 
 All output layers of the group land in the **Topography** group of the layer tree, so they do not drown among the working layers of the project. The tools of the group chain together. Downloader 2.01 delivers a ready metric DEM that goes straight into isolines (1.04) and any computation of the group. Watercourses from 2.02 and the river network from 6.02 fit Topo2Raster (2.03) as streamlines as is, because their vertices run downstream.
 
-![The full chain of the group on the demo relief: hillshade, the river network with width by Strahler order (6.02), basin boundaries (6.03) and peaks (2.09).](images/topo_chain_demo.png){width=88%}
+![The full chain of the group on the demo relief: hillshade, the river network with width by Strahler order (6.02), basin boundaries (6.03) and peaks (2.06).](images/topo_chain_demo.png){width=88%}
 
 The full list of output-layer fields is in the **Electrical-prospecting / Subsidence profiles** appendix section ("Demo-layer fields" at the end of the manual).
 
@@ -1444,7 +1444,7 @@ The output layers are watercourses, water bodies (planes), peaks with the **ele*
 
 - **Watercourses** - rivers, streams and canals. In OSM watercourses are drawn downstream, so the layer fits 2.03 as streamlines without preparation.
 - **Water bodies** - closed outlines of lakes and ponds, constant-elevation planes for 2.03. Compound multipolygons (large lakes assembled from several ways) are skipped by the first version.
-- **Peaks with elevations** - natural=peak points with the ele elevation, ready summit marks for 2.03 and a control for 2.09.
+- **Peaks with elevations** - natural=peak points with the ele elevation, ready summit marks for 2.03 and a control for 2.06.
 - **Cliffs and embankments** - terrain breaklines for 2.03.
 - **Coastline** - off by default, needed on coastal territories.
 
@@ -1456,7 +1456,7 @@ Builds terrain from vector data by multigrid interpolation from a coarse grid to
 
 | Parameter | What it sets | Default / hint |
 |---|---|---|
-| Elevation points | Layer of spot heights (e.g. peaks from 2.09). | - |
+| Elevation points | Layer of spot heights (e.g. peaks from 2.06). | - |
 | Point elevation field | Z attribute of the points. | - |
 | Isolines | Contour layer (digitized plan or 1.04 over a DEM). | - |
 | Contour elevation field | Level attribute of the contours. | ELEV |
@@ -1553,7 +1553,7 @@ The same smoothing checkbox is present in DEM download (2.01) for a quick path r
 
 ![A profile through a depression: the raw surface and the filling result. The raised part is shaded.](images/topo_fill_profile_en.png){width=85%}
 
-## 2.08 Slope and aspect
+## 2.05 Slope and aspect
 
 Slope in degrees and aspect with the Horn 3×3 kernel, as in gdaldem. Aspect is the downslope azimuth in degrees from north clockwise, north 0, east 90. Flat cells get an aspect of -1 so they are not confused with north-facing ones. Nodata cells and their neighbors get nodata, the 3×3 kernel is not computed across gaps.
 
@@ -1565,7 +1565,7 @@ Slope in degrees and aspect with the Horn 3×3 kernel, as in gdaldem. Aspect is 
 
 ![Slope (left) and aspect (right) of the demo relief. The cyclic aspect palette stitches 0 and 360 degrees.](images/topo_slope_aspect.png){width=92%}
 
-## 2.09 Peaks and pits
+## 2.06 Peaks and pits
 
 Finds peaks - cells that are the highest in a square window of the given radius, with a drop over the window minimum at or above the threshold.
 
@@ -1580,7 +1580,7 @@ The two filters work as a pair. The **window radius** suppresses secondary tops 
 
 The output fields are **z** (the elevation) and **drop** (the drop over the window minimum). The layer compares against OSM peaks from 2.02, and matching the ele marks with the DEM elevations is one more quick data check.
 
-## 2.10 Demo relief
+## 2.07 Demo relief
 
 A utility generator of synthetic terrain from a tilted plain, hills and a winding valley with a constant fall. The relief is deterministic by seed, and local depressions are left between the hills on purpose so the filling tool has something to show. All figures of this chapter are built on it.
 
@@ -1597,8 +1597,8 @@ A utility generator of synthetic terrain from a tilted plain, hills and a windin
 | Ditch traces (demo) | Two polylines across the thalwegs for tool 6.05. | created |
 | Fraction of the area for the works (Adv.) | Size of the area under the design pad. | 0.4 |
 | Pad elevation offset, m (Adv.) | Moves the balance into imported or exported soil. | 0 |
-| Design surface (demo) | The pair to the relief for tool 2.18. | off |
-| Work areas (demo) | Three polygons for the 2.18 breakdown. | off |
+| Design surface (demo) | The pair to the relief for tool 2.12. | off |
+| Work areas (demo) | Three polygons for the 2.12 breakdown. | off |
 
 The tool is meant for teaching examples and for work without a network. Live data comes from 2.01. The **Compact int16** checkbox outputs the raster in whole meters for shipping demo fragments.
 
@@ -1606,11 +1606,11 @@ The fields of the source feature are carried into the output. Pick the ones you 
 
 ### A pair of surfaces for volumes
 
-Two outputs, off by default, give a ready pair for tool **2.18 Cut and fill** - a design pad and work area polygons. The pad is horizontal, and outside the work area the natural relief remains.
+Two outputs, off by default, give a ready pair for tool **2.12 Cut and fill** - a design pad and work area polygons. The pad is horizontal, and outside the work area the natural relief remains.
 
 The pad elevation is the mean of the relief inside the area, and that is not a matter of taste but the exact answer. Volume is a sum of differences multiplied by the cell area, and the net turns to zero exactly when the elevation equals the mean. The median splits cells in half, not cubic metres, and the balance does not close with it. So the demo comes out with a balance that closes. The elevation offset in the
 advanced parameters moves it into imported or exported soil, which checks all
-three verdicts of 2.18 in two runs.
+three verdicts of 2.12 in two runs.
 
 Three demo gauge points and two demo ditch traces are produced along with the relief. The ditches are a hillside one above the strongest thalweg and a gutter further downslope. Both are polylines with a bend, so that the rasterisation of a turning trace is exercised as well. The gauges are placed at the strongest thalwegs and spread across the grid. Each is deliberately shifted a few cells aside from the stream, so that the snapping in tool 6.04 can be seen bringing the gauge back. The points are deterministic from the same seed as the relief.
 
@@ -1618,7 +1618,7 @@ Three demo gauge points and two demo ditch traces are produced along with the re
 
 The **Gully and ravine network** tick cuts thalwegs with steep sides into the relief, with tributaries entering at an acute angle. The cut deepens downstream, as in a real gully, shallow at the head and deep at the mouth.
 
-This mode exists for validation sets. A narrow cut between adjacent contours is the hardest place for any interpolation. The contours barely describe it, and a surface built from them shaves the gully off. On a profile across it this shows at once, and tools 2.11 and 2.12 put a number on it.
+This mode exists for validation sets. A narrow cut between adjacent contours is the hardest place for any interpolation. The contours barely describe it, and a surface built from them shaves the gully off. On a profile across it this shows at once, and tools 2.08 and 2.09 put a number on it.
 
 ### Where the demo lands
 
@@ -1628,7 +1628,7 @@ So in an empty project set the **Where to place it (extent)** parameter. The rel
 
 # 2. Topography: diagnostics and repair
 
-## 2.11 Split contours for validation
+## 2.08 Split contours for validation
 
 The tool splits a set of contours into two. One is used to build the relief, the other to check the result. Its purpose is to produce a numerical estimate fit for a report.
 
@@ -1661,7 +1661,7 @@ Split the contours, build the relief from the building set, with **Topo2Raster**
 | Hold out every Nth elevation | Thinning step over levels. 4 sends about a quarter to validation. | 4 |
 | Selection offset (Adv.) | Shifts the choice of levels so the check can be run over different subsets. | 0 |
 
-## 2.12 Contour residuals against the DEM
+## 2.09 Contour residuals against the DEM
 
 The tool measures how well the built DEM reproduces the source contours. At points along a contour the raster value is taken and compared with the elevation of the contour itself. The residual is positive where the DEM lies below the contour.
 
@@ -1675,7 +1675,7 @@ The tool detects the contour interval from the set of elevations as the smallest
 
 ### Two figures instead of one
 
-If the layer carries a **hold** field from tool 2.11, the residual is computed separately for building and for validation, and both lines go to the log. The first says how the model reproduces the input, the second how it predicts. The second is always worse than the first, and that is normal. What matters is the gap between them. A large gap means the model memorises well and generalises poorly, and the shape of the relief between the contours is restored wrongly. Without a **hold** field the tool reports a single figure and warns in the log that this is reproduction of the input.
+If the layer carries a **hold** field from tool 2.08, the residual is computed separately for building and for validation, and both lines go to the log. The first says how the model reproduces the input, the second how it predicts. The second is always worse than the first, and that is normal. What matters is the gap between them. A large gap means the model memorises well and generalises poorly, and the shape of the relief between the contours is restored wrongly. Without a **hold** field the tool reports a single figure and warns in the log that this is reproduction of the input.
 
 ### The report
 
@@ -1703,7 +1703,7 @@ A point layer of residuals is produced with the fields **fid_src** (the source c
 | Residual points | The output point layer. | created |
 | Residual report (HTML) | Table, histogram, reading. | created |
 
-## 2.13 Terracing check of a DEM
+## 2.10 Terracing check of a DEM
 
 The tool looks for terracing, the characteristic defect of a relief built from contours. The slope goes in steps, with a bench near a contour level and an abrupt drop between levels. On a hillshade it shows as a system of concentric benches, on a profile as steps. Slopes in such a relief are wrong, and flow computations over it break down.
 
@@ -1753,7 +1753,7 @@ Terracing is removed by breaklines (thalwegs, breaks of slope, ridges) and by de
 | Vertical curvature | The output raster. | created |
 | Terracing report (HTML) | Table, phase histogram, reading. | created |
 
-## 2.14 Remove steps (clamped smoothing)
+## 2.11 Remove steps (clamped smoothing)
 
 The tool treats terracing, that is it removes the steps from slopes without moving the contours themselves.
 
@@ -1789,7 +1789,7 @@ It does not bring back what is not in the data. If a narrow cut was shaved off w
 
 # 2. Topography (continued)
 
-## 2.18 Cut and fill (earthwork volumes)
+## 2.12 Cut and fill (earthwork volumes)
 
 The tool computes earthwork volumes between two surfaces - what was filled, what was removed and whether the balance closes. It is needed wherever there is a before-and-after survey or a design surface, be it a pad to be graded, a spoil heap, an open pit, the silting of a pond or ground subsidence.
 
@@ -1854,7 +1854,7 @@ The line of zero works is not built by a separate tool, and that is deliberate. 
 
 ### A quick check on the demo
 
-**2.10 Demo relief** produces a ready pair: switch on the **Design surface (demo)** and **Work areas (demo)** outputs. Feed the pad as "after", the relief as "before" and the areas as polygons. Fill and cut must come out equal figure for figure, the net zero and the verdict about a balance that closes. The pad elevation offset in the advanced parameters of 2.10 moves the balance into imported or exported soil, so all three verdicts are checked in two runs.
+**2.07 Demo relief** produces a ready pair: switch on the **Design surface (demo)** and **Work areas (demo)** outputs. Feed the pad as "after", the relief as "before" and the areas as polygons. Fill and cut must come out equal figure for figure, the net zero and the verdict about a balance that closes. The pad elevation offset in the advanced parameters of 2.07 moves the balance into imported or exported soil, so all three verdicts are checked in two runs.
 
 Fill matching cut at a zero offset is also an independent check of the tool itself. An error in the formula or in the grid alignment would show up right here.
 
@@ -1866,7 +1866,7 @@ The accuracy at the boundary of the works is set by the cell size. The volume al
 
 The tool does not build side slopes, benches or layered statements, and it does not fit a design surface onto the terrain. That is the work of computer-aided design systems.
 
-## 2.19 Crest and toe candidates
+## 2.13 Crest and toe candidates
 
 Finds the places where the slope changes fastest and traces them into lines - the crests and toes of benches, pit walls, the edges of fills and cuts.
 
@@ -1887,26 +1887,26 @@ The output fields are **kind**, **drop** (m), **length_m** and **slope_deg** (th
 
 **The significance threshold stays with the human.** A formal definition of a crest does not exist, recognition rests on the surveyor's experience. What exists is the drop you are prepared to call a bench, and it differs on a quarry, a road embankment and a river bank. The tool therefore deliberately returns more than needed, together with the numbers for the selection, and the percentiles of the drop go to the log as a ready hint where to cut. Select with a layer filter over the drop field while watching the map, nothing has to be recomputed.
 
-## 2.20 Crests and toes into work
+## 2.14 Crests and toes into work
 
 Turns crest and toe lines into working structural lines. It takes the elevations off the DEM, assembles crest-toe forms and lays them into two layers.
 
-**There are two scenarios, and the second matters more.** The first is obvious, the lines came from 2.19 over a dense survey. In the second the lines are already in a topographic deliverable, where crests are described as a matter of course and carry their own classifier codes. No detector is needed there, only what this tool does. The kind of a line is coded, but which crest goes with which toe is not, and the link has to be assembled. There are many such deliverables and few dense surveys.
+**There are two scenarios, and the second matters more.** The first is obvious, the lines came from 2.13 over a dense survey. In the second the lines are already in a topographic deliverable, where crests are described as a matter of course and carry their own classifier codes. No detector is needed there, only what this tool does. The kind of a line is coded, but which crest goes with which toe is not, and the link has to be assembled. There are many such deliverables and few dense surveys.
 
 | Parameter | What it sets | Default / advice |
 |---|---|---|
-| Candidates (output of 2.19) | A line layer with a kind field. A layer of crests and toes from a topographic deliverable will do as well. | - |
-| DEM | The same one supplied to 2.19. | optional |
+| Candidates (output of 2.13) | A line layer with a kind field. A layer of crests and toes from a topographic deliverable will do as well. | - |
+| DEM | The same one supplied to 2.13. | optional |
 | Kind field | The field holding brow and toe. | kind |
-| Drop cut-off, m | Repeats the filter of 2.19 so that no separate filtered layer is needed. | 0 (take everything) |
+| Drop cut-off, m | Repeats the filter of 2.13 so that no separate filtered layer is needed. | 0 (take everything) |
 | Descent path limit, m | Beyond this the descent stops and the crest goes to the unpaired. | 50 |
 | Share of agreeing probes (Adv.) | Below this share a form is not assembled. | 0.4 |
 
 **Forms are assembled by descending the slope, not by proximity.** From the probe vertices of a crest a descent follows the flow directions until a toe is met, and the toes vote. This is how a bench works physically, water from the crest runs down the face exactly to its toe. On a curved wall with narrow berms the nearest toe by distance often belongs to the neighbouring bench, so the choice by proximity errs where the descent is right. Keep the path limit close to the width of the face. Too large a limit lets a crest run to a foreign toe and form a plausible false pair with it.
 
-**The DEM is optional, and that matters more than it seems.** The descent answers a single question - which way is down. When the lines carry elevations of their own (the output of 2.22), the answer is already in the data. No terrain is needed, and the toe is the nearest line lying below the crest.
+**The DEM is optional, and that matters more than it seems.** The descent answers a single question - which way is down. When the lines carry elevations of their own (the output of 2.16), the answer is already in the data. No terrain is needed, and the toe is the nearest line lying below the crest.
 
-Without this the topographic scenario closed into a circle. To build the terrain from forms you need pairs, and to assemble pairs by descent you need terrain, which does not exist yet and is the very thing being built. A draft pass of 2.03 over the contours alone had to be made, knowing it was wrong inside the quarry. Now the order is straight. 2.22 gives the elevations, 2.20 without a DEM assembles the pairs, 2.03 builds the surface.
+Without this the topographic scenario closed into a circle. To build the terrain from forms you need pairs, and to assemble pairs by descent you need terrain, which does not exist yet and is the very thing being built. A draft pass of 2.03 over the contours alone had to be made, knowing it was wrong inside the quarry. Now the order is straight. 2.16 gives the elevations, 2.14 without a DEM assembles the pairs, 2.03 builds the surface.
 
 With a DEM the former descent is used. On a curved wall with narrow berms it is more accurate, because there the nearest toe by distance often belongs to the neighbouring bench.
 
@@ -1916,9 +1916,9 @@ With a DEM the former descent is used. On a curved wall with narrow berms it is 
 
 The **Top** and **Bottom** outputs are LineStringZ with the kind and link fields, the elevations taken off the DEM into the geometry. These are ready inputs for surface building and for an export as 3D lines into AutoCAD and Credo.
 
-## 2.21 Example open pit (demo)
+## 2.15 Example open pit (demo)
 
-Builds a demo pit and, more importantly, the true structural lines for it. The raster-lines pair serves as a reference for 2.19, as an input for surface building and as a teaching example, all without closed data.
+Builds a demo pit and, more importantly, the true structural lines for it. The raster-lines pair serves as a reference for 2.13, as an input for surface building and as a teaching example, all without closed data.
 
 | Parameter | What it sets | Default / advice |
 |---|---|---|
@@ -1938,15 +1938,15 @@ The composition of the terrain is chosen so that every shape tests its own side 
 CRS. Reprojecting an extent out of an unknown system into UTM gives a wrong
 result, and the demo lands far from where it is needed.
 
-The second output, the **true lines**, carries the kind (brow, toe, thalweg) and link fields, with the elevations in the Z geometry. Against it the completeness and the precision of the detector are measured as numbers rather than by eye. Put the candidates of 2.19 over the true lines and see where they diverge.
+The second output, the **true lines**, carries the kind (brow, toe, thalweg) and link fields, with the elevations in the Z geometry. Against it the completeness and the precision of the detector are measured as numbers rather than by eye. Put the candidates of 2.13 over the true lines and see where they diverge.
 
-## 2.22 Profiling of slopes
+## 2.16 Profiling of slopes
 
 Gives mute lines a profile from the contours that adjoin them.
 
 | Parameter | What it sets | Default / advice |
 |---|---|---|
-| Lines without elevations | Crests and toes from a deliverable or from 2.20. | - |
+| Lines without elevations | Crests and toes from a deliverable or from 2.14. | - |
 | Contours | The contour layer of the same deliverable. | - |
 | Contour elevation field | The elevation attribute. Empty - Z of the vertices. | ELEV |
 | Adjoining tolerance, m | How far a contour end may stop short of the line. | 0.5 |
@@ -1959,7 +1959,7 @@ An important correction. A contour **does not run along the crest**. Contours ar
 
 **The limits of the method.** The method works exactly as far as the deliverable is topologically consistent. If the contours are not brought up to the line, the line stays mute and goes into a separate layer with the reason. The number of support points is written into the `n_samples` attribute, and into the log as a median and a minimum. One point means a constant elevation along the whole line, and that is visible at once.
 
-**Place in the pipeline.** The output is LineStringZ, a ready form side for the **Top of forms** and **Bottom of forms** inputs of 2.03. Together with 2.20, which assembles the pairs and fills the link field, this closes the topographic scenario. Areal quarries, cuts, fills and dumps, which have no contours inside them described by the standard, receive a surface out of crests and toes alone.
+**Place in the pipeline.** The output is LineStringZ, a ready form side for the **Top of forms** and **Bottom of forms** inputs of 2.03. Together with 2.14, which assembles the pairs and fills the link field, this closes the topographic scenario. Areal quarries, cuts, fills and dumps, which have no contours inside them described by the standard, receive a surface out of crests and toes alone.
 
 ### Spot heights as a second source
 
@@ -1975,7 +1975,7 @@ elevation lands in it exactly, and the line gains no extra nodes. If the nearest
 
 The insertions are thinned by the smallest step, two in a row are no closer than the given distance. On dense contours the line would otherwise grow more nodes than the relief needs. A control point that gets no vertex is not lost, the profile is computed over the whole series, and the neighbouring vertices are drawn towards it.
 
-## 2.24 Remove bridges from a DEM
+## 2.17 Remove bridges from a DEM
 
 Removes bridges from a DEM and puts the river surface in their place. A satellite surface model takes the height from the top of the deck, so a bridge lies across the river like a dam. Flow over such a model stops at the embankment, a false lake spreads upstream of the bridge, and the river network from 6.02 breaks at the crossing.
 
@@ -3080,7 +3080,7 @@ The method follows Allmendinger. The normal to the plane is the eigenvector of t
 
 **A fold is caught by the residual.** The method assumes the trace lies on one plane, and a long boundary rarely does, there is a flexure, a displacement by a fault, an inflection. The mean residual goes into the **rms** field, and a large value means that no single attitude exists for the whole trace. Then turn on the window, the attitude is computed over a sliding stretch and the output carries its change along the boundary.
 
-**Place in the chain.** The output feeds straight into 4.05, which expects exactly the dip and dip_az fields. If the terrain is given by contours and the trace is flat, put it through 2.22 first - the elevations will be taken off the adjoining contours.
+**Place in the chain.** The output feeds straight into 4.05, which expects exactly the dip and dip_az fields. If the terrain is given by contours and the trace is flat, put it through 2.16 first - the elevations will be taken off the adjoining contours.
 
 ## 4.13 Bed grades at the collars
 
@@ -3404,7 +3404,7 @@ The key numbers for every gauge are echoed to the Processing log in two lines, s
 
 ### A quick check on the demo
 
-Run **2.10 Demo relief**. Besides the raster it outputs the **Gauge points (demo)** layer, three points near the thalwegs shifted aside from the stream. Feed the relief and those points into 6.04 with the default snapping radius. The polygons will follow the watersheds, and in the report the gauges on one stream will share the fall while the slope grows upstream.
+Run **2.07 Demo relief**. Besides the raster it outputs the **Gauge points (demo)** layer, three points near the thalwegs shifted aside from the stream. Feed the relief and those points into 6.04 with the default snapping radius. The polygons will follow the watersheds, and in the report the gauges on one stream will share the fall while the slope grows upstream.
 
 ### Scope
 
@@ -3503,7 +3503,7 @@ Burning changes the hydrology deliberately, so it is off by default and the resu
 
 ### A quick check on the demo
 
-**2.10 Demo relief** outputs the **Ditch traces (demo)** layer: a hillside ditch above a strong thalweg and a gutter further downslope, both polylines with a bend. Feed the relief and that layer into 6.05. The catchment should lie upslope of the traces and stop at the divides rather than at the grid frame.
+**2.07 Demo relief** outputs the **Ditch traces (demo)** layer: a hillside ditch above a strong thalweg and a gutter further downslope, both polylines with a bend. Feed the relief and that layer into 6.05. The catchment should lie upslope of the traces and stop at the divides rather than at the grid frame.
 
 ### Scope
 
@@ -4180,7 +4180,7 @@ Build the example and feed the raster into **9.01**, and the demo benchmarks int
 
 You need no data of your own. In every scenario the first step creates or downloads the data itself, so the route can be walked on an empty project.
 
-The tool list is long, and that is daunting at first sight. Start with five - **1.01**, **1.04**, **2.03**, **2.13** and **4.01**. The rest will find you when a task calls for it.
+The tool list is long, and that is daunting at first sight. Start with five - **1.01**, **1.04**, **2.03**, **2.10** and **4.01**. The rest will find you when a task calls for it.
 
 After every step there is a line saying what should come out. If something else came out, that is the place to stop and look into it rather than to move on.
 
@@ -4226,7 +4226,7 @@ Minimum - the **DEM** from step 1. Leave the filling of depressions on.
 Minimum - the accumulation raster from step 3, **Catchment threshold** in cells. Start with a thousand and tune it until the network looks plausible.
 *You get* - watercourse lines directed downstream, that is, ready-made streamlines.
 
-**Step 5.** **2.09 Peaks and pits**
+**Step 5.** **2.06 Peaks and pits**
 Minimum - the **DEM** from step 1, **Search radius** in cells.
 *You get* - points of local maxima with elevations.
 
@@ -4238,19 +4238,19 @@ Minimum - the same **Extent**. From OSM take areal water bodies and dry channels
 Minimum - **Contours** from step 2 and the **elevation field**, **Streamlines** from step 4. Then **Spot heights** from step 5 and the elevation field, **Lakes and shoreline** from step 6 and the shoreline elevation field, and **Cell size**. Supply cliffs if the topographic base holds any.
 *You get* - a new relief raster built from typed vectors rather than from contours alone.
 
-**Step 8.** **2.12 Contour residuals against the DEM**
+**Step 8.** **2.09 Contour residuals against the DEM**
 Minimum - **Contours** from step 2, the **elevation field**, the **DEM** from step 7.
 *You get* - a point layer of residuals and an HTML report. Look at the mean offset and at the share of points that missed by more than half the interval.
 
-**Step 9.** **2.13 Terracing check of a DEM**
+**Step 9.** **2.10 Terracing check of a DEM**
 Minimum - the **DEM** from step 7 and the **Contour interval**, the same as in step 2.
 *You get* - the index of attraction of elevations to the levels. Near one means there are no steps, two and above means terracing.
 
-**Step 10.** **2.14 Remove steps (clamped smoothing)**
+**Step 10.** **2.11 Remove steps (clamped smoothing)**
 Needed only if the previous step found terracing. Minimum - **DEM with steps**, **Contour interval**, **Iterations** 50.
 *You get* - a corrected relief and a before and after report. The index should come down towards one.
 
-If you want to test the method rather than your data, replace the first step with **2.10 Demo relief** and its **Gully network** tick. Then the true surface is known in advance and it is plain to see what gets lost in the building. Gullies are lost first.
+If you want to test the method rather than your data, replace the first step with **2.07 Demo relief** and its **Gully network** tick. Then the true surface is known in advance and it is plain to see what gets lost in the building. Gullies are lost first.
 
 There are two ways to check against the truth. By eye - build isolines over the restored relief with the same interval and lay them over the contours of step 2 in another colour. The lines should coincide and part only on the summits above the last contour. By number - the raster calculator, the expression "restored minus truth", and the statistics of the difference in the layer properties. At an interval of 5 m expect a mean near zero and a spread of about a metre, with the largest discrepancies on the peaks. Adding the peak points from step 5 into step 7 shrinks those summit discrepancies noticeably. That is exactly the answer to why topographers write peak elevations on maps.
 
@@ -4290,7 +4290,7 @@ Line layer **River network** (tool 6.02):
 | acc_out | real | accumulation at the link outlet, cells |
 | length_m | real | link length, m |
 
-Polygon layer **Basins** (6.03) carries **basin** (the basin number, integer) and **area_m2** (the area, m²). Point layer **Peaks** (2.09) carries **z** (the elevation, m) and **drop** (the drop over the window minimum, m). Base topography layers (2.02) carry **name** and **osm_id**, watercourses also **waterway**, water bodies **water**, peaks **ele** (elevation, m), cliffs **kind**. The demo relief (2.10) is a raster without fields.
+Polygon layer **Basins** (6.03) carries **basin** (the basin number, integer) and **area_m2** (the area, m²). Point layer **Peaks** (2.06) carries **z** (the elevation, m) and **drop** (the drop over the window minimum, m). Base topography layers (2.02) carry **name** and **osm_id**, watercourses also **waterway**, water bodies **water**, peaks **ele** (elevation, m), cliffs **kind**. The demo relief (2.07) is a raster without fields.
 
 ## Sample wells (demo) - tool 1.10
 

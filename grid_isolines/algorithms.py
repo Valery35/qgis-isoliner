@@ -187,7 +187,7 @@ def _sampling_help():
 
 
 def _demo_grid_help():
-    """Общий блок про размеры учебной сетки: 2.10 и 5.02."""
+    """Общий блок про размеры учебной сетки: 2.07 и 5.02."""
     return _trh(DEMO_GRID_HELP)
 
 
@@ -953,7 +953,7 @@ class _BreakStylePostProcessor(QgsProcessingLayerPostProcessorInterface):
     вылезло на полосах разреза, теперь повторилось на кандидатах бровок.
     Поэтому рендерер строится правилами, без выражений в свойствах символа.
 
-    Режим solid - один цвет на слой (выходы 2.20, там перепада в полях
+    Режим solid - один цвет на слой (выходы 2.14, там перепада в полях
     нет). Режим по перепаду - два семейства по виду (бровки тёплые, подошвы
     холодные) и четыре класса по величине, границы классов берутся
     квантилями самого слоя, поэтому раскраска подстраивается под данные.
@@ -9131,7 +9131,7 @@ class AttitudeFromTraceAlgorithm(IsolinerAlgorithm):
             "считается по скользящему участку, и на выходе будет его изменение вдоль "
             "границы, а не одно среднее значение.\n\nВыход подаётся прямо в 4.05: поля "
             "dip и dip_az там и ожидаются. Если рельеф задан горизонталями, а след "
-            "плоский, проведите его сперва через 2.22 - отметки снимутся с примыкающих "
+            "плоский, проведите его сперва через 2.16 - отметки снимутся с примыкающих "
             "горизонталей.")
             + _credit())
 
@@ -19904,7 +19904,7 @@ class TopoFillDepressionsAlgorithm(IsolinerAlgorithm):
 
 
 class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
-    """2.10 Демо-рельеф: детерминированный синтетический грид."""
+    """2.07 Демо-рельеф: детерминированный синтетический грид."""
 
     NX = "NX"
     NY = "NY"
@@ -19933,7 +19933,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return TopoDemoReliefAlgorithm()
     def name(self): return "topo_demo_relief"
     def displayName(self):
-        return self.tr("2.10 Демо-рельеф")
+        return self.tr("2.07 Демо-рельеф")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
@@ -19950,12 +19950,12 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
             "углом. Это самая трудная проверка для построения рельефа по горизонталям. "
             "Узкий врез между соседними горизонталями срезается, и на профиле поперёк "
             "оврага это видно сразу. Такой рельеф нужен как проверочный набор для "
-            "инструментов 2.11 и 2.12.\n\nЗаодно выдаются три демо-точки створов возле "
+            "инструментов 2.08 и 2.09.\n\nЗаодно выдаются три демо-точки створов возле "
             "тальвегов, нарочно сдвинутые в сторону от водотока. Это готовый вход для "
             "инструмента 6.04 «Отчёт по створу» и наглядная проверка притяжки. Рядом "
             "идут две демо-трассы канав поперёк тальвегов для инструмента 6.05 "
             "«Водосбор линии».\n\nДва необязательных выхода дают готовую пару для "
-            "инструмента 2.18 «Насыпи и выемки»: проектную поверхность и полигоны "
+            "инструмента 2.12 «Насыпи и выемки»: проектную поверхность и полигоны "
             "участков работ. Площадка горизонтальная, её отметка берётся медианой "
             "рельефа внутри области. Это не произвольный выбор. Объём есть сумма "
             "разностей, и нетто обращается в ноль ровно при отметке, равной среднему, "
@@ -19970,7 +19970,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
         # Пресет первым: у демо-рельефа десяток параметров, а для первого
-        # запуска нужен один выбор. Тот же приём, что в 2.21, и по той же
+        # запуска нужен один выбор. Тот же приём, что в 2.15, и по той же
         # причине - учебному примеру полагается запускаться с одного
         # клика, иначе он отпугивает раньше, чем чему-то научит.
         self.addParameter(QgsProcessingParameterEnum(
@@ -20032,10 +20032,10 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.PAD_DZ, 0.0))))
         self.addParameter(QgsProcessingParameterRasterDestination(
-            self.DESIGN, self.tr("Проектная поверхность (демо для 2.18)"),
+            self.DESIGN, self.tr("Проектная поверхность (демо для 2.12)"),
             optional=True, createByDefault=False))
         self.addParameter(QgsProcessingParameterFeatureSink(
-            self.WORKZONES, self.tr("Участки работ (демо для 2.18)"),
+            self.WORKZONES, self.tr("Участки работ (демо для 2.12)"),
             type=QgsProcessing.SourceType.TypeVectorPolygon, optional=True,
             createByDefault=False))
 
@@ -20112,7 +20112,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
                 feedback.pushInfo(self.tr(
                     "Пресет «площадка работ»: ровный рельеф под объёмы. "
                     "Включите выходы проектной поверхности и участков "
-                    "работ - они нужны для 2.18. Ручные значения ниже не "
+                    "работ - они нужны для 2.12. Ручные значения ниже не "
                     "действуют."))
             z = demo_relief.generate(nx=nx, ny=ny, cell=cell, seed=seed,
                                      ravine=ravine)
@@ -20211,7 +20211,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
                                   collapse=False)
                 results[self.DITCHES] = ddest
 
-        # демо-пара для 2.18: проектная площадка и участки работ. Считается
+        # демо-пара для 2.12: проектная площадка и участки работ. Считается
         # только если человек задал выход, по умолчанию выключено - тем, кому
         # нужен один рельеф, лишних слоёв в дереве не появится.
         out_design = self.parameterAsOutputLayer(parameters, self.DESIGN,
@@ -20239,7 +20239,7 @@ class TopoDemoReliefAlgorithm(IsolinerAlgorithm):
                     "Проектная площадка: отметка %.2f м, область %d на %d "
                     "ячеек. Отметка равна среднему рельефа внутри области "
                     "плюс сдвиг %.2f м, при нулевом сдвиге баланс сходится "
-                    "точно. Пара для 2.18 готова: «стало» это площадка, "
+                    "точно. Пара для 2.12 готова: «стало» это площадка, "
                     "«было» это рельеф.")
                     % (pad_z, c1 - c0, r1 - r0, dz))
                 _set_output_name(context, out_design,
@@ -22007,7 +22007,7 @@ class DitchCatchmentAlgorithm(IsolinerAlgorithm):
 
 
 class SlopeAspectAlgorithm(IsolinerAlgorithm):
-    """2.08 Уклон и экспозиция (Horn 3x3)."""
+    """2.05 Уклон и экспозиция (Horn 3x3)."""
 
     INPUT = "INPUT"
     OUT_SLOPE = "OUT_SLOPE"
@@ -22017,7 +22017,7 @@ class SlopeAspectAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return SlopeAspectAlgorithm()
     def name(self): return "slope_aspect"
     def displayName(self):
-        return self.tr("2.08 Уклон и экспозиция")
+        return self.tr("2.05 Уклон и экспозиция")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
@@ -22084,7 +22084,7 @@ class SlopeAspectAlgorithm(IsolinerAlgorithm):
 
 
 class PeaksAlgorithm(IsolinerAlgorithm):
-    """2.09 Вершины и ямы: локальные экстремумы с фильтром превышения."""
+    """2.06 Вершины и ямы: локальные экстремумы с фильтром превышения."""
 
     INPUT = "INPUT"
     RADIUS = "RADIUS"
@@ -22103,7 +22103,7 @@ class PeaksAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return PeaksAlgorithm()
     def name(self): return "peaks_extract"
     def displayName(self):
-        return self.tr("2.09 Вершины и ямы")
+        return self.tr("2.06 Вершины и ямы")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
@@ -22939,7 +22939,7 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
 
 
 class ContourSplitAlgorithm(IsolinerAlgorithm):
-    """2.11 Разделить горизонтали на построение и проверку.
+    """2.08 Разделить горизонтали на построение и проверку.
 
     Делит набор горизонталей по УРОВНЯМ: каждая N-я отметка целиком уходит в
     проверочный набор. Смысл в том, чтобы измерять не воспроизведение входа, а
@@ -22961,7 +22961,7 @@ class ContourSplitAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return ContourSplitAlgorithm()
     def name(self): return "contoursplit"
     def displayName(self):
-        return self.tr("2.11 Разделить горизонтали для проверки")
+        return self.tr("2.08 Разделить горизонтали для проверки")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPODIAG)
     def groupId(self): return GROUP_TOPODIAG_ID
@@ -23089,10 +23089,10 @@ class ContourSplitAlgorithm(IsolinerAlgorithm):
 
 
 class ContourResidualAlgorithm(IsolinerAlgorithm):
-    """2.12 Невязка горизонталей против ЦМР.
+    """2.09 Невязка горизонталей против ЦМР.
 
     Отвечает на вопрос, насколько построенная поверхность воспроизводит
-    исходные горизонтали. Если в слое есть поле hold от инструмента 2.11,
+    исходные горизонтали. Если в слое есть поле hold от инструмента 2.08,
     цифры печатаются отдельно для построения и для проверки.
     """
 
@@ -23115,7 +23115,7 @@ class ContourResidualAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return ContourResidualAlgorithm()
     def name(self): return "contourresidual"
     def displayName(self):
-        return self.tr("2.12 Невязка горизонталей против ЦМР")
+        return self.tr("2.09 Невязка горизонталей против ЦМР")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPODIAG)
     def groupId(self): return GROUP_TOPODIAG_ID
@@ -23202,7 +23202,7 @@ class ContourResidualAlgorithm(IsolinerAlgorithm):
         gt = ds.GetGeoTransform()
         ds = None
 
-        # поле hold от инструмента 2.11 узнаём сами
+        # поле hold от инструмента 2.08 узнаём сами
         names = [f.name().lower() for f in src.fields()]
         has_hold = "hold" in names
 
@@ -23305,7 +23305,7 @@ class ContourResidualAlgorithm(IsolinerAlgorithm):
                 feedback.pushWarning(_tr(
                     "Это воспроизведение входа, а не точность предсказания. Растр строился по "
                     "этим же горизонталям. Чтобы получить цифру предсказания, разделите набор "
-                    "инструментом 2.11."))
+                    "инструментом 2.08."))
 
         # --- слой точек ---
         res_dict = {}
@@ -23435,7 +23435,7 @@ def _write_residual_report(path, st_all, st_build, st_check, res, levels,
 
 
 class TerracingCheckAlgorithm(IsolinerAlgorithm):
-    """2.13 Диагностика террасинга ЦМР.
+    """2.10 Диагностика террасинга ЦМР.
 
     Ищет характерную болезнь рельефа, построенного по горизонталям: склон
     идёт ступенями, полка возле уровня горизонтали и резкий сброс к
@@ -23453,7 +23453,7 @@ class TerracingCheckAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return TerracingCheckAlgorithm()
     def name(self): return "terracingcheck"
     def displayName(self):
-        return self.tr("2.13 Диагностика террасинга ЦМР")
+        return self.tr("2.10 Диагностика террасинга ЦМР")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPODIAG)
     def groupId(self): return GROUP_TOPODIAG_ID
@@ -23605,7 +23605,7 @@ class TerracingCheckAlgorithm(IsolinerAlgorithm):
                                            st["curv_max_abs"]))
         msg = {
             "terraced": _tr("Террасинг - отметки заметно скапливаются у уровней горизонталей. "
-                            "Устраняется инструментом 2.14."),
+                            "Устраняется инструментом 2.11."),
             "suspect": _tr("Есть признаки террасинга, стоит посмотреть растр кривизны."),
             "clean": _tr("Признаков террасинга нет."),
             "unknown": _tr("Оценить не удалось. Проверьте сечение и данные."),
@@ -23667,7 +23667,7 @@ def _write_terracing_report(path, st, keys, z, interval, base, feedback=None):
     texts = {
         "terraced": _tr("Отношение два и выше - отметки скапливаются у уровней горизонталей, "
                         "поверхность ступенчатая. Такой рельеф даёт неверные уклоны и рвёт "
-                        "расчёты стока. Устраняется инструментом 2.14, который убирает ступени, "
+                        "расчёты стока. Устраняется инструментом 2.11, который убирает ступени, "
                         "не сдвигая горизонтали."),
         "suspect": _tr("Отношение между полутора и двумя: признаки есть, но картина неоднозначна. "
                        "Посмотрите растр кривизны. Если полосы повторяют рисунок горизонталей, "
@@ -23711,7 +23711,7 @@ def _write_terracing_report(path, st, keys, z, interval, base, feedback=None):
 
 
 class TerraceSmoothAlgorithm(IsolinerAlgorithm):
-    """2.14 Снятие ступеней (сглаживание с ограничением).
+    """2.11 Снятие ступеней (сглаживание с ограничением).
 
     Лечение террасинга: ступени уходят, а горизонтали остаются на месте,
     потому что каждой точке запрещено уходить от исходного значения дальше
@@ -23727,7 +23727,7 @@ class TerraceSmoothAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return TerraceSmoothAlgorithm()
     def name(self): return "terracesmooth"
     def displayName(self):
-        return self.tr("2.14 Снятие ступеней (сглаживание с ограничением)")
+        return self.tr("2.11 Снятие ступеней (сглаживание с ограничением)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPODIAG)
     def groupId(self): return GROUP_TOPODIAG_ID
@@ -23869,7 +23869,7 @@ class TerraceSmoothAlgorithm(IsolinerAlgorithm):
             feedback.pushWarning(_tr(
                 "Во входном рельефе ступеней не было: притяжение к уровням %.3g, это ниже "
                 "порога 1.5. Сглаживание всё равно сдвинуло отметки на %.4g м. Проверьте по "
-                "2.13, нужен ли этот шаг. Если ступеней нет, берите исходный рельеф.")
+                "2.10, нужен ли этот шаг. Если ступеней нет, берите исходный рельеф.")
                 % (before["attract_ratio"], moved))
 
         smoothed = out.copy()      # для отчёта, до подстановки nodata
@@ -23986,7 +23986,7 @@ def _write_smooth_report(path, before, after, z_before, z_after, interval,
 
 
 class CutFillAlgorithm(IsolinerAlgorithm):
-    """2.18 Насыпи и выемки: объёмы между двумя поверхностями."""
+    """2.12 Насыпи и выемки: объёмы между двумя поверхностями."""
 
     AFTER = "AFTER"
     AFTER_BAND = "AFTER_BAND"
@@ -24020,7 +24020,7 @@ class CutFillAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return CutFillAlgorithm()
     def name(self): return "cutfill"
     def displayName(self):
-        return self.tr("2.18 Насыпи и выемки (объёмы работ)")
+        return self.tr("2.12 Насыпи и выемки (объёмы работ)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
@@ -24425,7 +24425,7 @@ def _write_cutfill_report(path, st, zones, verdict, gt, dead):
 
 
 class BreaklineCandidatesAlgorithm(IsolinerAlgorithm):
-    """2.19 Кандидаты бровок и подошв из ЦМР."""
+    """2.13 Кандидаты бровок и подошв из ЦМР."""
 
     INPUT = "INPUT"
     MIN_DROP = "MIN_DROP"
@@ -24446,7 +24446,7 @@ class BreaklineCandidatesAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return BreaklineCandidatesAlgorithm()
     def name(self): return "breakline_candidates"
     def displayName(self):
-        return self.tr("2.19 Кандидаты бровок и подошв")
+        return self.tr("2.13 Кандидаты бровок и подошв")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
@@ -24557,7 +24557,7 @@ class BreaklineCandidatesAlgorithm(IsolinerAlgorithm):
 
 
 class BreaklinePairsAlgorithm(IsolinerAlgorithm):
-    """2.20 Бровки и подошвы в работу: отметки, пары, готовые входы."""
+    """2.14 Бровки и подошвы в работу: отметки, пары, готовые входы."""
 
     INPUT = "INPUT"
     DEM = "DEM"
@@ -24581,7 +24581,7 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return BreaklinePairsAlgorithm()
     def name(self): return "breakline_pairs"
     def displayName(self):
-        return self.tr("2.20 Бровки и подошвы в работу")
+        return self.tr("2.14 Бровки и подошвы в работу")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
@@ -24591,7 +24591,7 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
             "Превращает линии бровок и подошв в рабочие структурные линии: снимает "
             "отметки с ЦМР, собирает формы бровка-подошва и раскладывает их по двум "
             "слоям, Верх и Низ, с общим полем связи. Выход подаётся дальше как есть, "
-            "править вручную нечего.\n\n**Два сценария.** Первый - линии пришли из 2.19 "
+            "править вручную нечего.\n\n**Два сценария.** Первый - линии пришли из 2.13 "
             "по плотной съёмке. Второй - линии уже есть в топографическом комплекте, "
             "потому что бровки там описываются обязательно и своими кодами "
             "классификатора. Детектор в этом случае не нужен вовсе, а нужно ровно то, "
@@ -24599,7 +24599,7 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
             "бровка с какой подошвой образуют форму - нет, и связь приходится "
             "собирать. Таких комплектов много, а плотных съёмок мало.\n\n**ЦМР "
             "необязательна.** Спуск по склону отвечает на один вопрос: где низ. Когда "
-            "у линий есть собственные отметки (выход 2.22), ответ уже в данных, и "
+            "у линий есть собственные отметки (выход 2.16), ответ уже в данных, и "
             "рельеф не нужен - подошвой считается ближайшая линия, лежащая ниже "
             "бровки. Это разрывает круг топографического сценария, где рельеф как раз "
             "и строится, и подать его в спуск нечего. С ЦМР работает прежний спуск, он "
@@ -24617,13 +24617,13 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
             "пропадают молча, а уходят в третий слой с причиной в атрибуте. Спуск не "
             "дошёл до подошвы (обычно предел пути мал или бровка ложная) либо "
             "разошёлся по разным подошвам (обычно линия склеила два уступа).\n\n**Поле "
-            "вида читается терпимо.** 2.19 пишет brow и toe, а в сдаточном комплекте "
+            "вида читается терпимо.** 2.13 пишет brow и toe, а в сдаточном комплекте "
             "будет «Бровка откоса, насыпи, выемки укреплённая» или код 62350400. "
-            "Понимаются значения из 2.19, коды бровок из классификаторов и названия со "
+            "Понимаются значения из 2.13, коды бровок из классификаторов и названия со "
             "словами «бровка» или «подошва». Как прочитано каждое значение, печатается "
             "в журнал таблицей, а неузнанные значения перечисляются отдельно и "
             "пропускаются. Значение, которое не удалось прочитать, не "
-            "угадывается.\n\nОтсечка по перепаду повторяет фильтр 2.19: сюда можно "
+            "угадывается.\n\nОтсечка по перепаду повторяет фильтр 2.13: сюда можно "
             "подать весь слой кандидатов и отобрать значимые прямо здесь, не заводя "
             "отдельный отфильтрованный слой. Выходы: два линейных слоя LineStringZ с "
             "полями kind и link, готовые входы для построения поверхности, и слой "
@@ -24637,10 +24637,10 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
         self.addParameter(QgsProcessingParameterFeatureSource(
-            self.INPUT, self.tr("Кандидаты (выход 2.19)"),
+            self.INPUT, self.tr("Кандидаты (выход 2.13)"),
             [QgsProcessing.SourceType.TypeVectorLine]))
         self.addParameter(QgsProcessingParameterRasterLayer(
-            self.DEM, self.tr("ЦМР (та же, что в 2.19)"), optional=True))
+            self.DEM, self.tr("ЦМР (та же, что в 2.13)"), optional=True))
         self.addParameter(QgsProcessingParameterField(
             self.KIND_FIELD, self.tr("Поле вида (brow, toe)"),
             parentLayerParameterName=self.INPUT, defaultValue="kind",
@@ -24683,7 +24683,7 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
         min_share = self.parameterAsDouble(parameters, self.MIN_SHARE, context)
         # Два режима. С ЦМР пара собирается спуском по склону. Без ЦМР -
         # по отметкам самих линий: спуск отвечал на вопрос «где низ», а
-        # когда отметки есть (после 2.22), ответ уже в данных. Это
+        # когда отметки есть (после 2.16), ответ уже в данных. Это
         # разрывает круг топографического сценария, где рельеф как раз и
         # строится и подать его в спуск нечего.
         by_z = dem is None
@@ -24694,7 +24694,7 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
             ny = nx = 0
             feedback.pushInfo(self.tr(
                 "ЦМР не задана: пары собираются по отметкам линий. Линии "
-                "обязаны быть трёхмерными (выход 2.22), подошвой считается "
+                "обязаны быть трёхмерными (выход 2.16), подошвой считается "
                 "ближайшая линия, лежащая ниже бровки."))
         else:
             z, mask, gt, proj, cell = _topo_read_dem(dem, self.tr)
@@ -24799,11 +24799,11 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
             feedback.pushInfo(self.tr(
                 "Пропущено плоских линий без отметок: %d. Без ЦМР пары "
                 "собираются по отметкам, поэтому линии обязаны нести Z: "
-                "проведите их через 2.22.") % no_z)
+                "проведите их через 2.16.") % no_z)
         if not brows or not toes:
             raise QgsProcessingException(self.tr(
                 "Нужны линии обоих видов. В поле вида понимаются значения "
-                "brow и toe из 2.19, коды бровок из классификаторов и "
+                "brow и toe из 2.13, коды бровок из классификаторов и "
                 "названия со словами «бровка» или «подошва». Как прочитано "
                 "каждое значение, напечатано в журнале выше."))
 
@@ -24834,7 +24834,7 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
         def write(sink, cells, flds, values, with_z=True, own_z=None):
             """Отметки: с ЦМР снимаются с неё, без ЦМР берутся у линии.
 
-            Во втором режиме линия уже трёхмерная (её провели через 2.22),
+            Во втором режиме линия уже трёхмерная (её провели через 2.16),
             и снимать нечего - отметка приходит средней по линии, той же,
             по которой собиралась пара.
             """
@@ -24899,7 +24899,7 @@ class BreaklinePairsAlgorithm(IsolinerAlgorithm):
 
 
 class SnapElevationsAlgorithm(IsolinerAlgorithm):
-    """2.22 Профилирование откосов (отметки с горизонталей и точек)."""
+    """2.16 Профилирование откосов (отметки с горизонталей и точек)."""
 
     INPUT = "INPUT"
     CONTOURS = "CONTOURS"
@@ -24924,7 +24924,7 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return SnapElevationsAlgorithm()
     def name(self): return "snap_elevations"
     def displayName(self):
-        return self.tr("2.22 Профилирование откосов")
+        return self.tr("2.16 Профилирование откосов")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
@@ -24959,7 +24959,7 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
             "поэтому по умолчанию она снята.\n\nИмя выходного слоя берётся от исходного: "
             "«Бровки» дают «Бровки с Z», немые линии «Бровки: немые». В дереве проекта "
             "видно, откуда слой взялся.\n\nЗачем: выход подаётся стороной формы в **Верх "
-            "форм** или **Низ форм** инструмента 2.03 Topo2Raster. Вместе с 2.20 это "
+            "форм** или **Низ форм** инструмента 2.03 Topo2Raster. Вместе с 2.14 это "
             "закрывает площадные карьеры, выемки, насыпи и отвалы в топопланах. "
             "Горизонтали внутри них по нормативу не описываются, и бровки с подошвами "
             "- единственный источник рельефа там.\n\nМетод работает ровно настолько, "
@@ -25335,7 +25335,7 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
 
 
 class TopoDemoPitAlgorithm(IsolinerAlgorithm):
-    """2.21 Демо-карьер: рельеф с известными бровками и подошвами."""
+    """2.15 Демо-карьер: рельеф с известными бровками и подошвами."""
 
     NX = "NX"
     NY = "NY"
@@ -25363,7 +25363,7 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return TopoDemoPitAlgorithm()
     def name(self): return "topo_demo_pit"
     def displayName(self):
-        return self.tr("2.21 Пример карьера (демо)")
+        return self.tr("2.15 Пример карьера (демо)")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID
@@ -25380,7 +25380,7 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
             "журнал.\n\nГлавная ценность - второй выход, истинные структурные линии с "
             "трёхмерными вершинами: бровки, подошвы и тальвег канавы с полем связи "
             "пары. На дуге съезда линии уступов разорваны, у канавы три линии сходятся "
-            "в точку. Пара растр-линии служит эталоном для 2.19 (полнота и точность "
+            "в точку. Пара растр-линии служит эталоном для 2.13 (полнота и точность "
             "детектора меряются числом), готовым входом для построения поверхности и "
             "учебным примером - и всё это без закрытых данных.\n\n**Охват** только "
             "кладёт демо на место и не меняет его размер. Формы карьера физичны, уступ "
@@ -25499,7 +25499,7 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
         wkt = None if epsg is not None else crs.toWkt()
         origin_x, origin_y = 500000.0, 6500000.0
         # Охват только кладёт демо на место и НЕ меняет его размер. У
-        # 2.10 растяжение до охвата безобидно, там холмы и шум, а здесь
+        # 2.07 растяжение до охвата безобидно, там холмы и шум, а здесь
         # формы физичны: уступ 10 м, откос 7 м. Растянутый до километров
         # карьер превращается в чёрный блин, на котором детектору нечего
         # искать. Размер задают «Ширина» и «Высота» в ячейках.
@@ -25559,7 +25559,7 @@ class TopoDemoPitAlgorithm(IsolinerAlgorithm):
             feat["link"] = t["link"]
             sink.addFeature(feat)
         feedback.pushInfo(self.tr(
-            "Истинных линий: %d. Это эталон для 2.19 и вход для "
+            "Истинных линий: %d. Это эталон для 2.13 и вход для "
             "поверхности между линиями.") % len(truth))
         _set_output_name(context, dest_id,
                          self.tr("Истинные линии (бровки, подошвы)"))
@@ -25945,7 +25945,7 @@ class DownhillTraceAlgorithm(IsolinerAlgorithm):
 
 
 class BridgeRemovalAlgorithm(IsolinerAlgorithm):
-    """2.24 Снятие мостов с ЦМР."""
+    """2.17 Снятие мостов с ЦМР."""
 
     INPUT = "INPUT"
     BRIDGES = "BRIDGES"
@@ -25957,7 +25957,7 @@ class BridgeRemovalAlgorithm(IsolinerAlgorithm):
     def createInstance(self): return BridgeRemovalAlgorithm()
     def name(self): return "bridge_removal"
     def displayName(self):
-        return self.tr("2.24 Снятие мостов с ЦМР")
+        return self.tr("2.17 Снятие мостов с ЦМР")
     def helpUrl(self): return _help_url()
     def group(self): return self.tr(GROUP_TOPO)
     def groupId(self): return GROUP_TOPO_ID

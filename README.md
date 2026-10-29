@@ -44,19 +44,19 @@ The plugin is free and open source. [Support development](https://github.com/Val
 - **2.02 Download base topography by extent** — OpenStreetMap layers for terrain work: watercourses (ready streamlines), water bodies, peaks with elevations, cliffs and embankments, the coastline.
 - **2.03 Topo2Raster (terrain from vectors)** — terrain from points, contours, streamlines, cliffs and lakes by multigrid interpolation in the spirit of ANUDEM: a membrane frame plus minimum-curvature polishing.
 - **2.04 Terrain preparation** — depression filling by the Planchon-Darboux method with a tunable epsilon and smoothing: pits only up to the spill level, or a through slope across flats.
-- **2.08 Slope and aspect** — the Horn 3×3 kernel as in gdaldem, aspect as the downslope azimuth, flat cells flagged.
-- **2.09 Peaks and pits** — local extremes of both signs with two filters: the radius suppresses secondary tops, the relief threshold cuts off bumps and puddles. The elevation is written into the geometry Z: the spot points go to DXF together with the contours and remove the flat caps of a surface at closed contours.
-- **2.10 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Outputs gauge points for 6.04, ditch traces for 6.05 and, optionally, a pair of surfaces with work areas for 2.18.
-- **2.11 Split contours for validation** — splits a contour layer into a working and a held-out part for strict evaluation of the build: held-out lines do not go into the interpolation.
-- **2.12 Contour residuals against the DEM** — compares contour elevations with the built surface: reproduction and held-out control, a summary and a map of deviations.
-- **2.13 Terracing check of a DEM** — vertical curvature as a marker of steps from contour lines: where the surface goes in terraces, it was built from contours with no relief in between.
-- **2.14 Remove steps (clamped smoothing)** — smoothing clamped by a tolerance to the source elevations, with an HTML report before and after: the steps go while the surface does not drift.
-- **2.18 Cut and fill (earthwork volumes)** — volumes between two surfaces, or a surface and an elevation: fill, cut, balance. Grids are aligned bilinearly, the dead band cuts background noise, work areas are counted separately. A difference raster and an HTML statement.
-- **2.19 Crest and toe candidates** - the places where the slope changes fastest, traced into lines with the drop, the length and the kind in the attributes.
-- **2.20 Crests and toes into work** - elevations off the DEM, crest-toe forms by descending the slope, ready Top and Bottom inputs.
-- **2.21 Example open pit (demo)** - a pit with benches, a ramp, a dump and a ditch plus the true structural lines as a reference.
-- **2.22 Profiling of slopes** — elevations for structural lines from the contours they adjoin: an input for mute crests and toes without a DEM.
-- **2.24 Remove bridges from a DEM** — removes the bridges a surface model lays across a river like a dam. The river surface, interpolated from the water upstream and downstream, settles under the deck. A bridge is given by an outline or by an axis with a width.
+- **2.05 Slope and aspect** — the Horn 3×3 kernel as in gdaldem, aspect as the downslope azimuth, flat cells flagged.
+- **2.06 Peaks and pits** — local extremes of both signs with two filters: the radius suppresses secondary tops, the relief threshold cuts off bumps and puddles. The elevation is written into the geometry Z: the spot points go to DXF together with the contours and remove the flat caps of a surface at closed contours.
+- **2.07 Demo relief** — deterministic synthetic terrain for examples, tests and offline work. Outputs gauge points for 6.04, ditch traces for 6.05 and, optionally, a pair of surfaces with work areas for 2.12.
+- **2.08 Split contours for validation** — splits a contour layer into a working and a held-out part for strict evaluation of the build: held-out lines do not go into the interpolation.
+- **2.09 Contour residuals against the DEM** — compares contour elevations with the built surface: reproduction and held-out control, a summary and a map of deviations.
+- **2.10 Terracing check of a DEM** — vertical curvature as a marker of steps from contour lines: where the surface goes in terraces, it was built from contours with no relief in between.
+- **2.11 Remove steps (clamped smoothing)** — smoothing clamped by a tolerance to the source elevations, with an HTML report before and after: the steps go while the surface does not drift.
+- **2.12 Cut and fill (earthwork volumes)** — volumes between two surfaces, or a surface and an elevation: fill, cut, balance. Grids are aligned bilinearly, the dead band cuts background noise, work areas are counted separately. A difference raster and an HTML statement.
+- **2.13 Crest and toe candidates** - the places where the slope changes fastest, traced into lines with the drop, the length and the kind in the attributes.
+- **2.14 Crests and toes into work** - elevations off the DEM, crest-toe forms by descending the slope, ready Top and Bottom inputs.
+- **2.15 Example open pit (demo)** - a pit with benches, a ramp, a dump and a ditch plus the true structural lines as a reference.
+- **2.16 Profiling of slopes** — elevations for structural lines from the contours they adjoin: an input for mute crests and toes without a DEM.
+- **2.17 Remove bridges from a DEM** — removes the bridges a surface model lays across a river like a dam. The river surface, interpolated from the water upstream and downstream, settles under the deck. A bridge is given by an outline or by an axis with a width.
 
 ### "3. Additional analysis tools" group
 
@@ -339,6 +339,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.44** — the «2. Topography» group renumbered in sequence, without gaps (2.01-2.17).
 - **5.13.43** — flow, river network, basins and catchments moved from «Topography» to the «6. Hydrology» group (6.01-6.07), sections and flooding became 6.08-6.11.
 - **5.13.42** — a «Support development» link in the About window and in the tool help.
 - **5.13.41** — 3.09 accepts an extent in degrees and builds the demo in a UTM zone.

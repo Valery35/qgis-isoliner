@@ -62,19 +62,19 @@ def test_section_vectors_reserve_service_fid():
 
 
 def test_slope_aspect_reports_numbers():
-    """2.08 должна печатать хоть какие-то числа.
+    """2.05 должна печатать хоть какие-то числа.
 
     Инструмент не выдавал в журнал ни строки: отличить живой результат от
     мусора было нечем. Минимум - размах уклона и сколько ячеек посчитано.
     """
     body = _class_source("SlopeAspectAlgorithm")
-    assert "_version_line()" in body, "2.08 не печатает версию модуля"
-    assert "pushInfo" in body, "2.08 снова ничего не пишет в журнал"
-    assert "Уклон:" in body, "2.08 перестала печатать размах уклона"
+    assert "_version_line()" in body, "2.05 не печатает версию модуля"
+    assert "pushInfo" in body, "2.05 снова ничего не пишет в журнал"
+    assert "Уклон:" in body, "2.05 перестала печатать размах уклона"
 
 
 def test_terrace_smooth_checks_input_not_only_result():
-    """2.14 должна смотреть на «было», а не только на «стало».
+    """2.11 должна смотреть на «было», а не только на «стало».
 
     На рельефе без ступеней инструмент сдвигал отметки и рапортовал
     «ступеней не осталось», как будто что-то исправил.
@@ -82,7 +82,7 @@ def test_terrace_smooth_checks_input_not_only_result():
     body = _class_source("TerraceSmoothAlgorithm")
     at = body.find('before["attract_ratio"] < 1.5')
     assert at != -1, (
-        "2.14 снова не проверяет входной рельеф: вердикт выносится только "
+        "2.11 снова не проверяет входной рельеф: вердикт выносится только "
         "по результату")
     assert "pushWarning" in body[at:at + 400], (
         "проверка входа есть, но она молчит")

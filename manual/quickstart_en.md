@@ -2,7 +2,7 @@
 
 You need no data of your own. In every scenario the first step creates or downloads the data itself, so the route can be walked on an empty project.
 
-The tool list is long, and that is daunting at first sight. Start with five: **1.01**, **1.04**, **2.03**, **2.13** and **4.01**. The rest will find you when a task calls for it.
+The tool list is long, and that is daunting at first sight. Start with five: **1.01**, **1.04**, **2.03**, **2.10** and **4.01**. The rest will find you when a task calls for it.
 
 After every step there is a line saying what should come out. If something else came out, that is the place to stop and look into it rather than to move on.
 
@@ -48,7 +48,7 @@ Minimum: the **DEM** from step 1. Leave the filling of depressions on.
 Minimum: the accumulation raster from step 3, **Catchment threshold** in cells. Start with a thousand and tune it until the network looks plausible.
 *You get:* watercourse lines directed downstream, that is, ready-made streamlines.
 
-**Step 5.** **2.09 Peaks and pits**
+**Step 5.** **2.06 Peaks and pits**
 Minimum: the **DEM** from step 1, **Search radius** in cells.
 *You get:* points of local maxima with elevations.
 
@@ -62,19 +62,19 @@ From OSM they would come from another source and may not match the matrix.
 Minimum: **Contours** from step 2 and the **elevation field**, **Streamlines** from step 4, **Spot heights** from step 5 and the elevation field, **Lakes and shoreline** from step 6 and the shoreline elevation field, **Cell size**. Supply cliffs if the topographic base holds any.
 *You get:* a new relief raster built from typed vectors rather than from contours alone.
 
-**Step 8.** **2.12 Contour residuals against the DEM**
+**Step 8.** **2.09 Contour residuals against the DEM**
 Minimum: **Contours** from step 2, the **elevation field**, the **DEM** from step 7.
 *You get:* a point layer of residuals and an HTML report. Look at the mean offset and at the share of points that missed by more than half the interval.
 
-**Step 9.** **2.13 Terracing check of a DEM**
+**Step 9.** **2.10 Terracing check of a DEM**
 Minimum: the **DEM** from step 7 and the **Contour interval**, the same as in step 2.
 *You get:* the index of attraction of elevations to the levels. Near one means there are no steps, two and above means terracing.
 
-**Step 10.** **2.14 Remove steps (clamped smoothing)**
+**Step 10.** **2.11 Remove steps (clamped smoothing)**
 Needed only if the previous step found terracing. Minimum: **DEM with steps**, **Contour interval**, **Iterations** 50.
 *You get:* a corrected relief and a before and after report. The index should come down towards one.
 
-If you want to test the method rather than your data, replace the first step with **2.10 Demo relief** and its **Gully network** tick. Then the true surface is known in advance and it is plain to see what gets lost in the building. Gullies are lost first.
+If you want to test the method rather than your data, replace the first step with **2.07 Demo relief** and its **Gully network** tick. Then the true surface is known in advance and it is plain to see what gets lost in the building. Gullies are lost first.
 
 There are two ways to check against the truth. By eye: build isolines over the restored relief with the same interval and lay
 them over the contours of step 2 in another colour. The lines should coincide

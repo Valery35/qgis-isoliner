@@ -108,7 +108,7 @@ It computes over all the vertices at once through the eigenvectors of the orient
 
 For a topographic deliverable, where the lines carry no elevations, everything links up like this:
 
-1. **2.22 Profiling of slopes** - a flat boundary receives a profile from the node points where the contours adjoin it.
+1. **2.16 Profiling of slopes** - a flat boundary receives a profile from the node points where the contours adjoin it.
 2. **4.12 Attitude from an outcrop trace** - the dip and the dip direction are computed from the three-dimensional trace.
 3. **4.01 Cross-section along a line** - the coordinate system of the drawing is built.
 4. **4.05 Vector intersection with the section** - the objects land on the section with a real inclination.
