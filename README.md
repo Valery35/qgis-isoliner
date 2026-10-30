@@ -339,6 +339,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.45** — topography and flow tools accept a raster whose cell is square up to the last digits (0.1 percent tolerance).
 - **5.13.44** — the «2. Topography» group renumbered in sequence, without gaps (2.01-2.17).
 - **5.13.43** — flow, river network, basins and catchments moved from «Topography» to the «6. Hydrology» group (6.01-6.07), sections and flooding became 6.08-6.11.
 - **5.13.42** — a «Support development» link in the About window and in the tool help.

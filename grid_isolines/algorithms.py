@@ -20457,10 +20457,13 @@ def _topo_read_dem(layer, tr):
     mask = (z == nodata) if nodata is not None else ~np.isfinite(z)
     gt = src.GetGeoTransform()
     proj = src.GetProjection()
-    cell = abs(gt[1])
-    if abs(abs(gt[5]) - cell) > 1e-6 * max(cell, 1.0):
+    try:
+        cell, _rel = topo_flow.square_cell(gt)
+    except ValueError:
         raise QgsProcessingException(tr(
-            "Ячейка ЦМР не квадратная, переинтерполируйте грид."))
+            "Ячейка ЦМР не квадратная: %.6g по X и %.6g по Y. Допуск 0.1 "
+            "процента, переинтерполируйте грид в квадратную ячейку.")
+            % (abs(gt[1]), abs(gt[5])))
     src = None
     return z, mask, gt, proj, cell
 

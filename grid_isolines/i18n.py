@@ -3135,7 +3135,7 @@ TRANSLATIONS = {
     'Заполнение понижений...': 'Filling depressions...',
     'Направления стока D8...': 'D8 flow directions...',
     'Аккумуляция...': 'Accumulation...',
-    'Ячейка ЦМР не квадратная, переинтерполируйте грид.': 'The DEM cell is not square, resample the grid.',
+    'Ячейка ЦМР не квадратная: %.6g по X и %.6g по Y. Допуск 0.1 процента, переинтерполируйте грид в квадратную ячейку.': 'The DEM cell is not square: %.6g in X and %.6g in Y. The tolerance is 0.1 percent, resample the grid to a square cell.',
 
     # --- 2.03 Topo2Raster ---
     '2.03 Topo2Raster (рельеф из векторов)': '2.03 Topo2Raster (terrain from vectors)',
