@@ -339,6 +339,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.47** — 4.07 no longer drops objects of the second and further sections when writing to GeoPackage.
 - **5.13.46** — no Cyrillic left in the English interface: basemaps, messages, labels, reports, demo data.
 - **5.13.45** — topography and flow tools accept a raster whose cell is square up to the last digits (0.1 percent tolerance).
 - **5.13.44** — the «2. Topography» group renumbered in sequence, without gaps (2.01-2.17).

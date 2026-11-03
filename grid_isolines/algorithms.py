@@ -107,7 +107,7 @@ from .kb2d import (
     MODEL_GAUSSIAN, GAUSS_MIN_NUGGET_FRAC)
 from .isolines import (
     isolines_from_raster, isolines_and_polygons, compute_levels, DEFAULT_FIELD,
-    add_z_from_field,
+    add_z_from_field, fid_free_fields as _fid_free,
     _gaussian_nodata)
 from . import hydro
 from .fractal import (fractal_dimension_map, fractal_dimension_global,
@@ -9168,7 +9168,7 @@ class AttitudeFromTraceAlgorithm(IsolinerAlgorithm):
         window = self.parameterAsInt(parameters, self.WINDOW, context)
         minplan = self.parameterAsDouble(parameters, self.MINPLAN, context)
 
-        fields = QgsFields(src.fields())
+        fields = _fid_free(src.fields())
         for nm, tp in (("dip", QVariant.Double), ("dip_az", QVariant.Double),
                        ("planar", QVariant.Double), ("rms", QVariant.Double),
                        ("n_pts", QVariant.Int)):
@@ -9176,7 +9176,7 @@ class AttitudeFromTraceAlgorithm(IsolinerAlgorithm):
         sink, dest_id = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Type.LineStringZ, src.sourceCrs())
-        sfields = QgsFields(src.fields())
+        sfields = _fid_free(src.fields())
         sfields.append(QgsField("reason", QVariant.String))
         skip_sink, skip_id = self.parameterAsSink(
             parameters, self.SKIPPED, context, sfields,
@@ -12697,7 +12697,7 @@ class SectionProjectAlgorithm(IsolinerAlgorithm):
         gtype = QgsWkbTypes.geometryType(isrc.wkbType())
         wkb = {0: QgsWkbTypes.Type.Point, 1: QgsWkbTypes.Type.LineString,
                2: QgsWkbTypes.Type.Polygon}.get(gtype, QgsWkbTypes.Type.Point)
-        fields = QgsFields(isrc.fields())
+        fields = _fid_free(isrc.fields())
         names = [f.name() for f in fields]
 
         def _uniq(base):
@@ -12882,7 +12882,7 @@ class SectionUnprojectAlgorithm(IsolinerAlgorithm):
         as_pts = self.parameterAsBool(parameters, self.AS_POINTS, context)
         if as_pts:
             wkb = QgsWkbTypes.Type.PointZ
-        fields = QgsFields(isrc.fields())
+        fields = _fid_free(isrc.fields())
         # Пометка источника: контакт, снятый с разреза, это интерпретация,
         # а не замер. В общей выборке их надо различать, иначе рисунок
         # получит тот же вес, что и скважина.
@@ -18933,7 +18933,7 @@ class LineDimensionAlgorithm(IsolinerAlgorithm):
         _remember_layers(self, parameters, context, _saved,
                          single=(self.LINES,))
         src = self.parameterAsSource(parameters, self.LINES, context)
-        fields = QgsFields(src.fields())
+        fields = _fid_free(src.fields())
         fields.append(QgsField("D", QVariant.Double))
         fields.append(QgsField("steps", QVariant.Int))
         sink, dest = self.parameterAsSink(
@@ -19104,7 +19104,7 @@ class MinkowskiDimensionAlgorithm(IsolinerAlgorithm):
         n_sizes = self.parameterAsInt(parameters, self.N_SIZES, context)
         offsets = self.parameterAsInt(parameters, self.OFFSETS, context)
         densify = self.parameterAsDouble(parameters, self.DENSIFY, context)
-        fields = QgsFields(src.fields())
+        fields = _fid_free(src.fields())
         fields.append(QgsField("D_mink", QVariant.Double))
         fields.append(QgsField("D_r2", QVariant.Double))
         sink, dest = self.parameterAsSink(
@@ -21299,7 +21299,8 @@ def add_source_fields(alg, parameters, context, feedback, fields,
         if k < 0:
             continue
         out_name = nm
-        while out_name in own:
+        # fid - ключ GeoPackage, обычной колонкой его не выносить
+        while out_name in own or out_name.lower() == "fid":
             out_name = "src_" + out_name
         own.add(out_name)
         fields.append(QgsField(out_name, sfields.at(k).type()))
@@ -21510,7 +21511,7 @@ class CatchmentStatsAlgorithm(IsolinerAlgorithm):
             feedback.pushInfo(self.tr(
                 "Точек замыкания принято: %d.") % len(seeds))
 
-        fields = QgsFields(polys.fields())
+        fields = _fid_free(polys.fields())
         own = {f.name() for f in fields}
 
         def _uniq(base):
@@ -23055,7 +23056,7 @@ class ContourSplitAlgorithm(IsolinerAlgorithm):
             raise QgsProcessingException(self.tr(
                 "Проверочный набор пуст, уровней слишком мало для такого шага."))
 
-        fields = QgsFields(src.fields())
+        fields = _fid_free(src.fields())
         fields.append(QgsField("hold", QVariant.Int))
         sb, destb = self.parameterAsSink(
             parameters, self.OUTPUT_BUILD, context, fields,
@@ -25169,7 +25170,7 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
                           % len(contours))
 
         in_fields = src.fields()
-        out_fields = QgsFields(in_fields)
+        out_fields = _fid_free(in_fields)
         out_fields.append(QgsField("n_samples", QVariant.Int))
         keep_geom = self.parameterAsBoolean(parameters, self.KEEP_GEOM,
                                             context)
@@ -25185,7 +25186,7 @@ class SnapElevationsAlgorithm(IsolinerAlgorithm):
             parameters, self.OUTPUT, context, out_fields,
             QgsWkbTypes.Type.MultiPolygonZ if as_poly
             else QgsWkbTypes.Type.LineStringZ, src.sourceCrs())
-        sfields = QgsFields(in_fields)
+        sfields = _fid_free(in_fields)
         sfields.append(QgsField("reason", QVariant.String))
         skip_sink, skip_id = self.parameterAsSink(
             parameters, self.SKIPPED, context, sfields,
@@ -25866,7 +25867,7 @@ class DownhillTraceAlgorithm(IsolinerAlgorithm):
             if i < 0:
                 continue
             f = QgsField(src_fields.at(i))
-            if f.name().lower() in own:
+            if f.name().lower() in own or f.name().lower() == "fid":
                 f.setName("src_" + f.name())
             fields.append(f)
             keep_idx.append(i)

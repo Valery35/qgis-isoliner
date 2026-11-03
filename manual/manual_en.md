@@ -2907,6 +2907,8 @@ The **Project objects onto the section** tool projects points, lines and polygon
 
 This generalises the borehole projection to any objects - anomalies, sampling points, traces, outlines. The result is in the section axes, placed on top of the drawing.
 
+The definition may carry several lines, and each object is placed on every section whose corridor it falls into, with the **sec** and **sec_id** fields of that section. The **fid** field of the source layer goes to the output as **fid_2**. In a GeoPackage fid is the record key, and an object placed on a second section would not fit into the file with the same key.
+
 ### Every section of the definition
 
 The tool works over all sections of the definition rather than the first one. Every object is projected onto the drawing whose corridor its line fell within. The name of the section and its number stay in the attributes, and the result is split into drawings by them. The drawings are spread apart by the offset from the definition, as in 4.01.

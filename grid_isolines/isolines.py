@@ -41,12 +41,36 @@
 import math
 from contextlib import suppress
 
-from qgis.core import QgsProcessingException
+from qgis.core import QgsField, QgsFields, QgsProcessingException
 
 from .i18n import tr as _tr  # двуязычие RU/EN
 
 DEFAULT_FIELD = "ELEV"
 INDEX_FIELD = "is_index"
+
+
+def fid_free_fields(fields):
+    """Копия полей исходного слоя, где поле fid переименовано в fid_2.
+
+    fid в GeoPackage - ключ таблицы. Пока выход один к одному, совпадение
+    ключа с атрибутом незаметно. Но если объект пишется несколько раз
+    (4.07 на каждый разрез, части составного объекта), второй экземпляр с
+    тем же fid GeoPackage не принимает: UNIQUE constraint failed, и объект
+    молча пропадает. До 5.13.47 так 4.07 с тремя разрезами писал в файл
+    27 объектов вместо 81. Значение исходного ключа сохраняется в fid_2,
+    как в пересечении с разрезом (reserved в нём же)."""
+    out = QgsFields()
+    names = {f.name().lower() for f in fields}
+    for f in fields:
+        f = QgsField(f)
+        if f.name().lower() == "fid":
+            k = 2
+            while "fid_%d" % k in names:
+                k += 1
+            f.setName("fid_%d" % k)
+            names.add(f.name().lower())
+        out.append(f)
+    return out
 
 
 def _parse_levels(text):
@@ -336,7 +360,7 @@ def _mark_confidence(cur, raster, band, interval, frac, cut, context,
     drop = _vc.drop_per_cell(arr, cell)
     thr = float(frac) * float(interval)
 
-    fields = QgsFields(lyr.fields())
+    fields = fid_free_fields(lyr.fields())
     fields.append(QgsField("drop_min", QVariant.Double))
     fields.append(QgsField("drop_mean", QVariant.Double))
     if cut:
