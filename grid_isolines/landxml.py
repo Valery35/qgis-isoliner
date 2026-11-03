@@ -40,6 +40,15 @@ Y раньше X. Часть программ пишет наоборот, по�
 """
 import math
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 # Стрелка прогиба по умолчанию: на дуге радиусом 100 метров даёт шаг около
 # шести метров. Мельче незачем, крупнее уже видно на чертеже.
 DEFAULT_SAG = 0.05
@@ -181,19 +190,19 @@ def _parse_xml(text):
         if text.startswith("<!--", lt):
             i = text.find("-->", lt)
             if i < 0:
-                raise LandXmlError("Файл оборван внутри комментария XML")
+                raise LandXmlError(_tr("Файл оборван внутри комментария XML"))
             i += 3
             continue
         if text.startswith("<?", lt):
             i = text.find("?>", lt)
             if i < 0:
-                raise LandXmlError("Файл оборван внутри объявления XML")
+                raise LandXmlError(_tr("Файл оборван внутри объявления XML"))
             i += 2
             continue
         if text.startswith("<![CDATA[", lt):
             end = text.find("]]>", lt)
             if end < 0:
-                raise LandXmlError("Файл оборван внутри CDATA")
+                raise LandXmlError(_tr("Файл оборван внутри CDATA"))
             if stack:
                 stack[-1].text += text[lt + 9:end]
             i = end + 3
@@ -202,26 +211,26 @@ def _parse_xml(text):
             head = text[lt:lt + 200].upper()
             if "ENTITY" in head or "DOCTYPE" in head:
                 raise LandXmlError(
-                    "В файле объявлены сущности XML. Такие файлы не "
+                    _tr("В файле объявлены сущности XML. Такие файлы не "
                     "читаются: раскрытие сущностей это известный способ "
-                    "раздуть разбор до отказа машины")
+                    "раздуть разбор до отказа машины"))
             i = text.find(">", lt)
             if i < 0:
-                raise LandXmlError("Файл оборван внутри объявления XML")
+                raise LandXmlError(_tr("Файл оборван внутри объявления XML"))
             i += 1
             continue
         gt = text.find(">", lt)
         if gt < 0:
-            raise LandXmlError("Файл оборван внутри тега XML")
+            raise LandXmlError(_tr("Файл оборван внутри тега XML"))
         body = text[lt + 1:gt]
         if body.startswith("/"):
             name = body[1:].strip().split(":")[-1]
             if not stack:
-                raise LandXmlError("Лишний закрывающий тег XML: %s" % name)
+                raise LandXmlError(_tr("Лишний закрывающий тег XML: %s") % name)
             el = stack.pop()
             if el.tag != name:
                 raise LandXmlError(
-                    "Тег XML закрыт не тем именем: открыт %s, закрыт %s"
+                    _tr("Тег XML закрыт не тем именем: открыт %s, закрыт %s")
                     % (el.tag, name))
             i = gt + 1
             continue
@@ -233,24 +242,24 @@ def _parse_xml(text):
             sp += 1
         name = body[:sp].strip().split(":")[-1]
         if not name:
-            raise LandXmlError("Пустое имя тега XML")
+            raise LandXmlError(_tr("Пустое имя тега XML"))
         el = _El(name, _attrs(body[sp:]))
         if stack:
             stack[-1].children.append(el)
         elif root is None:
             root = el
         else:
-            raise LandXmlError("В файле больше одного корневого элемента")
+            raise LandXmlError(_tr("В файле больше одного корневого элемента"))
         if not selfclose:
             stack.append(el)
             if len(stack) > _MAX_DEPTH:
-                raise LandXmlError("Слишком глубокая вложенность XML")
+                raise LandXmlError(_tr("Слишком глубокая вложенность XML"))
         i = gt + 1
     if stack:
         raise LandXmlError(
-            "Файл XML оборван: тег %s не закрыт" % stack[-1].tag)
+            _tr("Файл XML оборван: тег %s не закрыт") % stack[-1].tag)
     if root is None:
-        raise LandXmlError("Файл не разобран как XML: корневого элемента нет")
+        raise LandXmlError(_tr("Файл не разобран как XML: корневого элемента нет"))
     return root
 
 
@@ -352,14 +361,14 @@ class _Reader(object):
                 name = ch.get("linearUnit") or name
         if not name:
             self.doc.warnings.append(
-                "В файле не указаны единицы измерения, числа взяты как есть. "
-                "Если файл в футах, отметки и длины окажутся втрое меньше")
+                _tr("В файле не указаны единицы измерения, числа взяты как есть. "
+                "Если файл в футах, отметки и длины окажутся втрое меньше"))
             return
         self.doc.units["linear"] = name
         k = _TO_METRE.get(name.strip().lower().replace(" ", ""))
         if k is None:
             self.doc.warnings.append(
-                "Единица измерения «%s» неизвестна, пересчёт не выполнен"
+                _tr("Единица измерения «%s» неизвестна, пересчёт не выполнен")
                 % name)
             return
         self.doc.units["to_metre"] = k
@@ -369,8 +378,8 @@ class _Reader(object):
         c = _find(root, "CoordinateSystem")
         if c is None:
             self.doc.warnings.append(
-                "В файле не указана система координат, слои получат систему "
-                "проекта. Проверьте её до работы с результатом")
+                _tr("В файле не указана система координат, слои получат систему "
+                "проекта. Проверьте её до работы с результатом"))
             return
         self.doc.crs["name"] = c.get("name") or c.get("desc")
         code = c.get("epsgCode")
@@ -438,8 +447,8 @@ class _Reader(object):
                         faces.append(tuple(idx))
                 if lost:
                     self.doc.warnings.append(
-                        "Поверхность «%s» - отброшено граней со ссылкой на "
-                        "неизвестную точку: %d" % (el.get("name") or "", lost))
+                        _tr("Поверхность «%s» - отброшено граней со ссылкой на "
+                        "неизвестную точку: %d") % (el.get("name") or "", lost))
                 nm = el.get("name") or ""
                 if not pts:
                     # Поверхность задана бровками, без точек и граней. Так
@@ -448,19 +457,19 @@ class _Reader(object):
                     n = self._breaklines(d, nm)
                     if n:
                         self.doc.warnings.append(
-                            "Поверхность «%s» задана только бровками, точек и "
+                            _tr("Поверхность «%s» задана только бровками, точек и "
                             "граней в файле нет. Бровки прочитаны линиями: %d. "
-                            "Поверхность не создана" % (nm, n))
+                            "Поверхность не создана") % (nm, n))
                     else:
                         self.doc.warnings.append(
-                            "Поверхность «%s» пуста, точек в файле нет. "
-                            "Поверхность не создана" % nm)
+                            _tr("Поверхность «%s» пуста, точек в файле нет. "
+                            "Поверхность не создана") % nm)
                     continue
                 if not faces:
                     self.doc.warnings.append(
-                        "Поверхность «%s» задана точками без граней, "
+                        _tr("Поверхность «%s» задана точками без граней, "
                         "триангуляции в файле нет. Стройте её отдельно по "
-                        "этим точкам" % nm)
+                        "этим точкам") % nm)
                 self.doc.surfaces.append({
                     "name": nm, "desc": el.get("desc") or "",
                     "points": pts, "faces": faces, "skipped_faces": skipped})
@@ -481,7 +490,7 @@ class _Reader(object):
                     continue
                 self.doc.lines.append({
                     "name": bl.get("name") or "",
-                    "desc": bl.get("desc") or ("бровка поверхности «%s»"
+                    "desc": bl.get("desc") or (_tr("бровка поверхности «%s»")
                                                % surface_name),
                     "coords": coords})
                 n += 1
@@ -538,8 +547,8 @@ class _Reader(object):
                     continue
                 if centre is None:
                     self.doc.warnings.append(
-                        "Кривая без центра заменена хордой: по координатам "
-                        "начала и конца дуга не восстанавливается")
+                        _tr("Кривая без центра заменена хордой: по координатам "
+                        "начала и конца дуга не восстанавливается"))
                     add([start, end])
                 else:
                     add(self._arc(start, centre, end, el.get("rot")))
@@ -560,11 +569,11 @@ class _Reader(object):
                 pts.append(end)
                 add(pts)
         if self.doc.spirals:
-            msg = ("Переходных кривых заменено хордой: %d. Длина трассы на "
-                   "них занижена" % self.doc.spirals)
+            msg = (_tr("Переходных кривых заменено хордой: %d. Длина трассы на "
+                   "них занижена") % self.doc.spirals)
             if msg not in self.doc.warnings:
                 self.doc.warnings = [w for w in self.doc.warnings
-                                     if not w.startswith("Переходных")]
+                                     if not w.startswith(_tr("Переходных"))]
                 self.doc.warnings.append(msg)
         return coords
 
@@ -645,7 +654,7 @@ class _Reader(object):
         root = _parse_xml(text)
         if _tag(root) != "LandXML":
             raise LandXmlError(
-                "Корневой элемент «%s», а ожидался LandXML" % _tag(root))
+                _tr("Корневой элемент «%s», а ожидался LandXML") % _tag(root))
         self._units(root)
         self._crs(root)
         self._points(root)
@@ -680,7 +689,7 @@ def load(path, north_first=True, sagitta=DEFAULT_SAG):
             return loads(raw.decode(enc), north_first, sagitta)
         except UnicodeDecodeError:
             continue
-    raise LandXmlError("Кодировка файла не распознана")
+    raise LandXmlError(_tr("Кодировка файла не распознана"))
 
 
 # --- запись --------------------------------------------------------------
@@ -933,15 +942,15 @@ def _demo_model():
         pts.append({
             "name": "%d" % (1001 + i),
             "code": ("GRND" if row else "ROAD"),
-            "desc": ("поверхность земли" if row else "кромка проезжей части"),
+            "desc": (_tr("поверхность земли") if row else _tr("кромка проезжей части")),
             "x": _DEMO_E0 + 25.0 * col + 10.0 * row,
             "y": _DEMO_N0 + 30.0 * row,
             "z": 118.0 + 0.4 * col + 1.1 * row})
 
-    lines = [{"name": "bank_left", "desc": "бровка слева",
+    lines = [{"name": "bank_left", "desc": _tr("бровка слева"),
               "coords": [(_DEMO_E0 - 10.0 + 12.0 * i, _DEMO_N0 - 20.0 + 4.0 * i,
                           117.5 + 0.2 * i) for i in range(6)]},
-             {"name": "ditch", "desc": "канава",
+             {"name": "ditch", "desc": _tr("канава"),
               "coords": [(_DEMO_E0 + 5.0 + 15.0 * i, _DEMO_N0 - 45.0 + 2.0 * i,
                           116.2 + 0.15 * i) for i in range(5)]}]
 
@@ -969,7 +978,7 @@ def _demo_model():
     sects = []
     for k, sta in enumerate((20.0, 120.0, 220.0)):
         sects.append({
-            "sta": sta, "name": "ПК%d" % k,
+            "sta": sta, "name": _tr("ПК%d") % k,
             "points": [(-12.0, 119.0 + 0.3 * k), (-4.0, 117.4 + 0.3 * k),
                        (0.0, 117.0 + 0.3 * k), (4.0, 117.4 + 0.3 * k),
                        (12.0, 119.2 + 0.3 * k)]})
@@ -1005,7 +1014,7 @@ def _demo_header(units="metric", crs=True, version="1.2", app="Isoliner demo"):
                  'temperatureUnit="fahrenheit" pressureUnit="inHG" '
                  'angularUnit="degrees dd.mm.ss" '
                  'directionUnit="degrees dd.mm.ss"/></Units>')
-    o.append('<Project name="Пример Isoliner"/>')
+    o.append('<Project name="%s"/>' % _tr("Пример Isoliner"))
     o.append('<Application name="%s" version="5.13" '
              'manufacturer="Informpp"/>' % _esc(app))
     if crs:
@@ -1049,7 +1058,7 @@ def _demo_lines(m, nf, k):
 
 
 def _demo_surface(m, nf, k, mode="faces"):
-    o = ['<Surfaces>', '<Surface name="existing" desc="поверхность земли">',
+    o = ['<Surfaces>', '<Surface name="existing" desc="%s">' % _tr("поверхность земли"),
          '<Definition surfType="TIN">']
     if mode in ("faces", "points"):
         o.append("<Pnts>")
@@ -1079,8 +1088,9 @@ def _demo_surface(m, nf, k, mode="faces"):
 def _demo_align(m, nf, k, geom="curve", profile=True, sects=True):
     a = m["align"]
     o = ['<Alignments>',
-         '<Alignment name="axis" length="%s" staStart="%s" desc="ось трассы">'
-         % (_num(a["length"] / k), _num(a["sta_start"]))]
+         '<Alignment name="axis" length="%s" staStart="%s" desc="%s">'
+         % (_num(a["length"] / k), _num(a["sta_start"]),
+            _tr("ось трассы"))]
     o.append("<CoordGeom>")
     st, pi, en, cv = a["start"], a["pi"], a["end"], a["curve"]
     if geom == "line":
@@ -1142,52 +1152,52 @@ DEMO_VARIANTS = [
      "Метры, координаты север-восток, поверхность точками и гранями, "
      "трасса с круговой кривой, профиль и три створа. Одна грань помечена "
      "невидимой (i=\"1\") и в чтение не идёт.",
-     "Схема LandXML 1.2, базовое написание."),
+     _tr("Схема LandXML 1.2, базовое написание.")),
     ("east_first", "landxml_east_first.xml",
      "Обратный порядок координат: восток-север",
      "То же, но координаты записаны восток-север. Читается верно только "
      "при снятом флажке порядка координат.",
-     "Порядок в схеме не закреплён, поэтому в чтении есть переключатель."),
+     _tr("Порядок в схеме не закреплён, поэтому в чтении есть переключатель.")),
     ("imperial", "landxml_imperial.xml",
      "Футы (US survey foot)",
      "Футы (US survey foot). Проверяет пересчёт в метры: без него отметки "
      "вышли бы втрое больше.",
-     "Civil 3D пишет футы двух видов, международный и геодезический."),
+     _tr("Civil 3D пишет футы двух видов, международный и геодезический.")),
     ("no_units", "landxml_no_units.xml",
      "Без раздела единиц",
      "Без раздела Units. Числа берутся как есть, в журнал идёт "
      "предупреждение.",
-     "Встречается у выгрузок, собранных вручную."),
+     _tr("Встречается у выгрузок, собранных вручную.")),
     ("no_crs", "landxml_no_crs.xml",
      "Без системы координат",
      "Без CoordinateSystem. Слои получают систему проекта, в журнал идёт "
      "предупреждение.",
-     "CoordinateSystem в схеме необязателен."),
+     _tr("CoordinateSystem в схеме необязателен.")),
     ("points_only", "landxml_points_only.xml",
      "Поверхность точками без граней",
      "Поверхность точками без граней. Триангуляции в файле нет, строить её "
      "заново придётся отдельно.",
-     "Civil 3D, режим выгрузки «Points Only»."),
+     _tr("Civil 3D, режим выгрузки «Points Only».")),
     ("breaklines", "landxml_breaklines.xml",
      "Поверхность одними бровками",
      "Поверхность задана только бровками, без точек и граней. Читается как "
      "линии, поверхность при этом не создаётся.",
-     "Trimble Business Center выгружает трассу поверхностью по бровкам."),
+     _tr("Trimble Business Center выгружает трассу поверхностью по бровкам.")),
     ("spiral", "landxml_spiral.xml",
      "Трасса с переходной кривой",
      "Трасса с переходной кривой. Кривая заменяется хордой, замена "
      "считается и пишется в журнал.",
-     "Переходные кривые пишут все дорожные программы, формы записи разные."),
+     _tr("Переходные кривые пишут все дорожные программы, формы записи разные.")),
     ("survey_points", "landxml_survey_points.xml",
      "Точки без отметки, с oID и pntSurv",
      "Точки без отметки, с атрибутами oID, state и pntSurv вместо name и "
      "code. Отметка Z у таких точек пустая.",
-     "Написание из выгрузок съёмочных программ."),
+     _tr("Написание из выгрузок съёмочных программ.")),
     ("plain_align", "landxml_plain_align.xml",
      "Трасса без профиля и створов",
      "Трасса одной прямой, без профиля и без створов. Проверяет, что выходы "
      "профиля и створов при этом не создаются.",
-     "Минимальная трасса по схеме."),
+     _tr("Минимальная трасса по схеме.")),
 ]
 
 _DEMO_BY_KEY = dict((v[0], v) for v in DEMO_VARIANTS)
@@ -1196,7 +1206,7 @@ _DEMO_BY_KEY = dict((v[0], v) for v in DEMO_VARIANTS)
 def demo_xml(key):
     """Текст файла-примера по ключу из DEMO_VARIANTS."""
     if key not in _DEMO_BY_KEY:
-        raise LandXmlError("Неизвестный пример: %s" % key)
+        raise LandXmlError(_tr("Неизвестный пример: %s") % key)
     m = _demo_model()
     nf, k = True, 1.0
     units, crs, ver = "metric", True, "1.2"

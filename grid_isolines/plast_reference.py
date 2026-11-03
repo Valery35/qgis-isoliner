@@ -39,6 +39,15 @@
 import io
 import re
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 
 class ReferenceError(Exception):
     """Справочник не удалось прочитать или он пуст."""
@@ -180,12 +189,12 @@ def parse_rows(rows, summary=None):
     s = summary if summary is not None else ReadSummary()
     rows = list(rows)
     if not rows:
-        raise ReferenceError("в справочнике нет строк")
+        raise ReferenceError(_tr("в справочнике нет строк"))
     colmap = map_columns(rows[0].keys())
     missing = [c for c in REQUIRED if c not in colmap]
     if missing:
         raise ReferenceError(
-            "в справочнике не найдены столбцы: %s" % ", ".join(missing))
+            _tr("в справочнике не найдены столбцы: %s") % ", ".join(missing))
 
     beds, seen = [], set()
     for row in rows:
@@ -216,7 +225,7 @@ def parse_rows(rows, summary=None):
             note=str(row.get(colmap.get("note", ""), "") or "").strip()))
         s.kept += 1
     if not beds:
-        raise ReferenceError("в справочнике не нашлось пригодных строк")
+        raise ReferenceError(_tr("в справочнике не нашлось пригодных строк"))
     beds.sort(key=lambda b: b.order)
     return beds
 
@@ -239,7 +248,7 @@ def read_csv(path, summary=None):
             return parse_rows(rows, summary)
         except UnicodeDecodeError:
             continue
-    raise ReferenceError("не удалось прочитать CSV (кодировка)")
+    raise ReferenceError(_tr("не удалось прочитать CSV (кодировка)"))
 
 
 # Терпимость к написанию кодов берём из модуля палитры: там уже отлажены

@@ -30,6 +30,15 @@ GSLIB conventions are preserved:
 import math
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 DTOR = math.pi / 180.0
 EPS = 1e-11
 
@@ -802,7 +811,7 @@ def variogram_shape(model, h, a):
         return 1.0 - np.exp(-hr)
     if model == MODEL_GAUSSIAN:
         return 1.0 - np.exp(-(hr * hr))
-    raise ValueError("fit поддерживает только модели 0/1/2 (sph/exp/gauss)")
+    raise ValueError(_tr("fit поддерживает только модели 0/1/2 (sph/exp/gauss)"))
 
 
 def experimental_variogram(xs, ys, vs, n_lags=15, maxlag=None, robust=False,

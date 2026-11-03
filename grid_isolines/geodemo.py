@@ -24,6 +24,15 @@ headless-тестом (tests/test_geodemo.py).
 """
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 
 def pk_label(m):
     """Пикет в метрах -> метка ПК (100-метровые пикеты): 520 -> «ПК5+20»."""
@@ -33,7 +42,7 @@ def pk_label(m):
     if plus >= 100:
         n += 1
         plus -= 100
-    return "ПК%d+%02d" % (n, plus)
+    return _tr("ПК%d+%02d") % (n, plus)
 
 
 def _blob(px, y, cx, cy, sx, sy):
@@ -48,7 +57,7 @@ def _geometry(xmin, ymin, xmax, ymax, n_profiles, picket_step):
     w = float(xmax - xmin)
     h = float(ymax - ymin)
     if w <= 0 or h <= 0:
-        raise ValueError("пустой охват")
+        raise ValueError(_tr("пустой охват"))
     mx = 0.05 * w
     my = 0.10 * h
     x0 = xmin + mx

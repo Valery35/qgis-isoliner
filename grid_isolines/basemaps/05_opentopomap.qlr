@@ -49,8 +49,8 @@
    <noData>
     <noDataList useSrcNoData="0" bandNo="1"/>
    </noData>
-   <map-layer-style-manager current="По умолчанию">
-    <map-layer-style name="По умолчанию"/>
+   <map-layer-style-manager current="default">
+    <map-layer-style name="default"/>
    </map-layer-style-manager>
    <metadataUrls/>
    <flags>

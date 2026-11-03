@@ -121,7 +121,8 @@ def show_about(parent=None):
         icon.setPixmap(QIcon(ipath).pixmap(56, 56))
     head.addWidget(icon)
     title = QLabel(
-        "<b>Isoliner</b><br>%s<br>© ООО «Информ++»" % (tr("Версия %s") % ver),
+        "<b>Isoliner</b><br>%s<br>%s" % (tr("Версия %s") % ver,
+                                         tr("© ООО «Информ++»")),
         dlg)
     head.addWidget(title, 1)
     lay.addLayout(head)

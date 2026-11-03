@@ -40,6 +40,15 @@
 Синонимы имён - нет.
 """
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 MODEL_CODES = {
     "сферическая": 1, "spherical": 1, "sph": 1, "1": 1,
     "экспоненциальная": 2, "exponential": 2, "exp": 2, "2": 2,
@@ -133,28 +142,28 @@ def parse_rows(rows):
         row = normalise_keys(raw)
         name = str(row.get("profile", "") or "").strip()
         if not name:
-            notes.append("строка %d: пустое имя профиля" % n)
+            notes.append(_tr("строка %d: пустое имя профиля") % n)
             continue
         code = _model_code(row.get("model"))
         if code is None:
-            notes.append("строка %d (%s): модель не распознана: %r"
+            notes.append(_tr("строка %d (%s): модель не распознана: %r")
                          % (n, name, row.get("model")))
             continue
         sill = _num(row.get("sill"))
         rng = _num(row.get("range"))
         if sill is None or sill < 0:
-            notes.append("строка %d (%s): вклад C не число или отрицателен"
+            notes.append(_tr("строка %d (%s): вклад C не число или отрицателен")
                          % (n, name))
             continue
         if rng is None or rng <= 0:
-            notes.append("строка %d (%s): радиус корреляции должен быть "
-                         "больше нуля" % (n, name))
+            notes.append(_tr("строка %d (%s): радиус корреляции должен быть "
+                         "больше нуля") % (n, name))
             continue
         struct = int(_num(row.get("struct"), 1) or 1)
         anis = _num(row.get("anis"), 1.0)
         if anis is None or anis <= 0:
-            notes.append("строка %d (%s): анизотропия должна быть больше "
-                         "нуля, взята единица" % (n, name))
+            notes.append(_tr("строка %d (%s): анизотропия должна быть больше "
+                         "нуля, взята единица") % (n, name))
             anis = 1.0
         m = drafts.get(name)
         if m is None:
@@ -174,12 +183,12 @@ def parse_rows(rows):
                      m.val_pct)):
                 if got is not None and abs(float(got) - float(want)) > 1e-9:
                     notes.append(
-                        "строка %d (%s): %s отличается от заданного в первой "
-                        "строке профиля (%.4g против %.4g), взято первое"
+                        _tr("строка %d (%s): %s отличается от заданного в первой "
+                        "строке профиля (%.4g против %.4g), взято первое")
                         % (n, name, key, got, want))
         if struct in m._seen:
-            notes.append("строка %d (%s): структура %d уже была, строка "
-                         "пропущена" % (n, name, struct))
+            notes.append(_tr("строка %d (%s): структура %d уже была, строка "
+                         "пропущена") % (n, name, struct))
             continue
         m._seen[struct] = True
         m.structs.append(dict(it=code, cc=float(sill), aa=float(rng),
@@ -189,7 +198,7 @@ def parse_rows(rows):
     out = {}
     for name, m in drafts.items():
         if not m.structs:
-            notes.append("профиль %s: ни одной годной структуры" % name)
+            notes.append(_tr("профиль %s: ни одной годной структуры") % name)
             continue
         m.structs.sort(key=lambda s: s["struct"])
         del m._seen

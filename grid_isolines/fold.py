@@ -27,6 +27,15 @@
 
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 
 def boxsum(a, win):
     """Сумма значений в квадратном окне win на ячейку, края отражением.
@@ -58,7 +67,7 @@ def detrended_variance(z, win):
     z = np.asarray(z, dtype=float)
     w = int(win) | 1                      # окно нечётное, есть центр
     if w < 3:
-        raise ValueError("окно меньше трёх ячеек")
+        raise ValueError(_tr("окно меньше трёх ячеек"))
     ny, nx = z.shape
     good = np.isfinite(z)
     zz = np.where(good, z, 0.0)
@@ -130,7 +139,7 @@ def scale_slope(z, wins):
     """
     wins = [int(w) | 1 for w in wins]
     if len(wins) < 2:
-        raise ValueError("нужно хотя бы два окна")
+        raise ValueError(_tr("нужно хотя бы два окна"))
     xs = np.log(np.asarray(wins, dtype=float))
     vars_ = [detrended_variance(z, w) for w in wins]
     ys = np.log(np.maximum(np.stack(vars_, axis=0), 1e-12))

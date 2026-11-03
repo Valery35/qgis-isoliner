@@ -292,7 +292,7 @@ The fields of your input layers are not rounded. If a field of an output has the
 
 The **Isoliner** toolbar carries a **Basemap** button - a map or satellite imagery under the data in one move. Tick the sources you need, press **Add**, and the layers go into the project. The window stays open, because basemaps are chosen while looking at the map. Add one, look, add another.
 
-Seven sources ship with the plugin - OpenStreetMap, OpenTopoMap, satellite imagery, a topographic base, a street map, hillshade and slopes. Next to the imagery it is noted that a semi-transparent variant exists. It goes over the data rather than under it, and positions are checked against it.
+Seven sources ship with the plugin - OpenStreetMap, OpenTopoMap and five ESRI layers: satellite imagery (**ESRI World Imagery**), a topographic base, a street map, hillshade and slopes. The imagery has a second style, **Semi-transparent**, switched in the layer properties on the styles tab. The semi-transparent imagery goes over the data rather than under it, and positions are checked against it.
 
 The **Put below the other layers** checkbox drops what was added to the very bottom of the tree, so that the basemap does not cover the work.
 

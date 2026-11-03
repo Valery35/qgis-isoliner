@@ -33,6 +33,15 @@ EGM96. Расхождение измеряется метрами и одина�
 
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 _BIG = 1e18
 
 
@@ -44,9 +53,9 @@ def grid_from_extent(xmin, ymin, xmax, ymax, cell):
     """
     cell = float(cell)
     if cell <= 0:
-        raise ValueError("Размер ячейки должен быть больше нуля.")
+        raise ValueError(_tr("Размер ячейки должен быть больше нуля."))
     if xmax <= xmin or ymax <= ymin:
-        raise ValueError("Охват пуст.")
+        raise ValueError(_tr("Охват пуст."))
     nx = int(np.ceil((float(xmax) - float(xmin)) / cell))
     ny = int(np.ceil((float(ymax) - float(ymin)) / cell))
     nx = max(1, nx)
@@ -273,10 +282,10 @@ def merge(fine, coarse, mask, width_px=4.0, shift_mode="median",
     fine = np.asarray(fine, dtype=np.float64)
     coarse = np.asarray(coarse, dtype=np.float64)
     if fine.shape != coarse.shape:
-        raise ValueError("ЦМР должны быть приведены к одной сетке.")
+        raise ValueError(_tr("ЦМР должны быть приведены к одной сетке."))
     mask = np.asarray(mask, dtype=bool)
     if mask.shape != fine.shape:
-        raise ValueError("Маска должна быть по форме растра.")
+        raise ValueError(_tr("Маска должна быть по форме растра."))
 
     # Кольцо берётся снаружи маски, но только там, где ЕСТЬ обе ЦМР.
     # Маска врезки обычно уже покрытия подробной съёмки: буфер и нужен
@@ -288,9 +297,9 @@ def merge(fine, coarse, mask, width_px=4.0, shift_mode="median",
     report["overlap"] = int(np.count_nonzero(ring))
     if report["overlap"] == 0:
         report["warning"] = (
-            "Подробная ЦМР не выходит за маску врезки: полосы перекрытия "
+            _tr("Подробная ЦМР не выходит за маску врезки: полосы перекрытия "
             "нет, поправка по высоте не снята. Расширьте маску внутрь "
-            "участка или задайте буфер по данным съёмки.")
+            "участка или задайте буфер по данным съёмки."))
     coarse_adj = coarse + correction
     report["after"] = residual_stats(fine, coarse_adj, ring)
 

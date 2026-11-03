@@ -26,6 +26,15 @@
 
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 DEFAULT_CELL = 30.0
 DEFAULT_ITERATIONS = 60
 DEFAULT_MIN_DROP = 0.01
@@ -563,7 +572,7 @@ def _initial_fill(z, known):
     z = z.copy()
     filled = known.copy()
     if not filled.any():
-        raise Topo2RasterError("нет ни одного узла с высотой")
+        raise Topo2RasterError(_tr("нет ни одного узла с высотой"))
     z[~filled] = 0.0
     while not filled.all():
         acc = np.zeros_like(z)
@@ -653,7 +662,7 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
     """
     xmin, ymin, xmax, ymax = (float(v) for v in extent)
     if not (xmax > xmin and ymax > ymin):
-        raise Topo2RasterError("пустой охват")
+        raise Topo2RasterError(_tr("пустой охват"))
     nx = max(4, int(np.ceil((xmax - xmin) / cell)))
     ny = max(4, int(np.ceil((ymax - ymin) / cell)))
     x0, y_top = xmin, ymax
@@ -661,8 +670,8 @@ def topo2raster(points, streams, breaklines, lakes, extent, cell,
     points = None if points is None or len(points) == 0 else \
         np.asarray(points, dtype=np.float64)
     if points is None:
-        raise Topo2RasterError("нужен хотя бы один узел с высотой: "
-                               "точки или изолинии")
+        raise Topo2RasterError(_tr("нужен хотя бы один узел с высотой: "
+                               "точки или изолинии"))
 
     # уровни: от грубого к тонкому
     factors = [1]

@@ -24,6 +24,15 @@ import math
 
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 
 # --- выборка растра ------------------------------------------------------
 
@@ -101,7 +110,7 @@ def segment_azimuths(vertices):
         len(vertices)
     except TypeError:
         raise TypeError(
-            "segment_azimuths ждёт список вершин (x, y), а не геометрию")
+            _tr("segment_azimuths ждёт список вершин (x, y), а не геометрию"))
     out = []
     for i in range(len(vertices) - 1):
         dx = vertices[i + 1][0] - vertices[i][0]
@@ -431,12 +440,12 @@ def vertex_levels(xs, ys, arr, gt, lo, hi):
 def sample_section(vertices, surfaces, step=0.0, bilinear=True):
     """Профиль вдоль линии: пикеты, координаты, отметки всех поверхностей."""
     if len(vertices) < 2:
-        raise ValueError("нужно минимум две вершины линии")
+        raise ValueError(_tr("нужно минимум две вершины линии"))
     if len(surfaces) < 1:
-        raise ValueError("нужна хотя бы одна поверхность")
+        raise ValueError(_tr("нужна хотя бы одна поверхность"))
     length = polyline_length(vertices)
     if length <= 0:
-        raise ValueError("длина линии равна нулю")
+        raise ValueError(_tr("длина линии равна нулю"))
     if step is None or step <= 0:
         cells = [abs(gt[1]) or 1.0 for (_a, gt, _n) in surfaces]
         step = min(cells) if cells else 1.0
@@ -571,7 +580,8 @@ def build_section(vertices, surfaces, step=0.0, vmode=VMODE_ASPECT,
 
     ticks = (ticks_by_step(zmn, zmx, tick_step, tick_first)
              if tick_step else nice_ticks(zmn, zmx, naxes or 5))
-    table = table_cells(vd, seg_az, ybot, ytop, length, table_labels) \
+    table = table_cells(vd, seg_az, ybot, ytop, length,
+                        tuple(_tr(x) for x in table_labels)) \
         if with_table else []
 
     bbox_frame = (0.0, ybot, length, ytop)

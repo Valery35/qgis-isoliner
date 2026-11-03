@@ -277,7 +277,8 @@ def test_report_svg_is_valid_xml():
     code = "import numpy as np\n" + "\n".join(
         ln[4:] if ln.startswith("    ") else ln
         for ln in src[i:j].split("\n"))
-    ns = {"_hs_wet_spans": hs.wet_spans}
+    import i18n
+    ns = {"_hs_wet_spans": hs.wet_spans, "_tr": i18n.tr}
     exec(code.replace("@staticmethod\n", ""), ns)
 
     frags = dr.demo_fragments()

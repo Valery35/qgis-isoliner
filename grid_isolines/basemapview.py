@@ -79,10 +79,10 @@ class BasemapDialog(QDialog):
         self.list = QListWidget()
         self.list.setMinimumHeight(170)
         for bm in self._maps:
-            text = bm.name
-            if bm.has_transparent_style:
-                text += "  " + tr("(есть полупрозрачный стиль)")
-            item = QListWidgetItem(text)
+            # Имена подосновы и её стилей в .qlr английские: это имена
+            # сервисов, и переводить их нечего. Примечание о полупрозрачном
+            # стиле из списка убрано, стиль виден в свойствах слоя.
+            item = QListWidgetItem(bm.name)
             item.setData(qtc.UserRole, bm.key)
             item.setFlags(item.flags() | qtc.ItemIsUserCheckable)
             item.setCheckState(qtc.Unchecked)

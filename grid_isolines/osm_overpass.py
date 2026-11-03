@@ -18,6 +18,15 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 ENDPOINTS = (
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
@@ -42,13 +51,13 @@ class OsmSourceError(Exception):
 
 def check_bbox(lon_min, lat_min, lon_max, lat_max, max_deg2=MAX_BBOX_DEG2):
     if lon_max <= lon_min or lat_max <= lat_min:
-        raise OsmSourceError("Пустая рамка: проверьте координаты.")
+        raise OsmSourceError(_tr("Пустая рамка: проверьте координаты."))
     area = (lon_max - lon_min) * (lat_max - lat_min)
     if area > max_deg2:
         raise OsmSourceError(
-            "Рамка {:.2f} кв. градуса при пределе {:.2f}. "
+            _tr("Рамка {:.2f} кв. градуса при пределе {:.2f}. "
             "Публичные серверы Overpass не любят большие запросы. "
-            "Уменьшите рамку или поднимите предел в параметрах.".format(
+            "Уменьшите рамку или поднимите предел в параметрах.").format(
                 area, max_deg2
             )
         )
@@ -77,7 +86,7 @@ def build_query(lon_min, lat_min, lon_max, lat_max, layers,
     if LAYER_COASTLINE in layers:
         parts.append('way["natural"="coastline"]' + bbox + ";")
     if not parts:
-        raise OsmSourceError("Не выбран ни один слой топоосновы.")
+        raise OsmSourceError(_tr("Не выбран ни один слой топоосновы."))
     return ("[out:json][timeout:{}];(\n".format(int(timeout))
             + "\n".join(parts)
             + "\n);\nout geom qt;")
@@ -89,7 +98,7 @@ def run_query(query, timeout=DEFAULT_TIMEOUT, endpoints=ENDPOINTS,
     last_err = None
     for url in endpoints:
         if feedback:
-            feedback.pushInfo("Запрос к {}".format(url))
+            feedback.pushInfo(_tr("Запрос к {}").format(url))
         req = urllib.request.Request(
             url,
             data=urllib.parse.urlencode({"data": query}).encode("utf-8"),
@@ -103,11 +112,11 @@ def run_query(query, timeout=DEFAULT_TIMEOUT, endpoints=ENDPOINTS,
                 TimeoutError, ValueError) as exc:
             last_err = exc
             if feedback:
-                feedback.pushInfo("Сервер не ответил: {}".format(exc))
+                feedback.pushInfo(_tr("Сервер не ответил: {}").format(exc))
     raise OsmSourceError(
-        "Серверы Overpass недоступны или отклонили запрос ({}). "
+        _tr("Серверы Overpass недоступны или отклонили запрос ({}). "
         "Проверьте сеть, уменьшите рамку или повторите позже: "
-        "публичные серверы имеют лимиты нагрузки.".format(last_err)
+        "публичные серверы имеют лимиты нагрузки.").format(last_err)
     )
 
 

@@ -17,6 +17,15 @@ import math
 
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 try:
     from . import hydro_section as hs
 except ImportError:                      # headless-тесты без пакета
@@ -130,7 +139,7 @@ def valley_surface(secs, cell=5.0, margin=40.0):
     локальных координатах: начало в левом нижнем углу площади.
     """
     if len(secs) < 2:
-        raise ValueError("нужны минимум два створа")
+        raise ValueError(_tr("нужны минимум два створа"))
     d0 = np.asarray(secs[0]["d"], float)
     width = float(d0[-1] - d0[0])
     length = float((secs[-1]["km"] - secs[0]["km"]) * 1000.0)
@@ -170,7 +179,7 @@ def survey_table(secs, step=None):
             zz = np.interp(dd, d, z)
         else:
             dd, zz = d, z
-        name = "%s %d" % ("Створ", j + 1)
+        name = "%s %d" % (_tr("Створ"), j + 1)
         # Рядом с профилем существующие программы держат и коэффициент
         # шероховатости, и уклон: без них импорт вернул бы геометрию, но
         # не расчётные свойства, и кривая по восстановленным створам

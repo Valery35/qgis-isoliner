@@ -16,6 +16,15 @@
 
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 DEFAULT_NX = 300
 DEFAULT_NY = 300
 DEFAULT_CELL = 30.0
@@ -80,7 +89,7 @@ def generate(nx=DEFAULT_NX, ny=DEFAULT_NY, cell=DEFAULT_CELL,
     nx = int(nx)
     ny = int(ny)
     if nx < 20 or ny < 20:
-        raise ValueError("Минимальный размер демо-рельефа 20x20 ячеек.")
+        raise ValueError(_tr("Минимальный размер демо-рельефа 20x20 ячеек."))
     rng = np.random.default_rng(int(seed))
 
     x = np.arange(nx, dtype=np.float64)
@@ -175,7 +184,7 @@ def design_pad(z, frac=0.4, zones=3, dz=0.0):
     ny, nx = z.shape
     frac = float(frac)
     if not (0.05 <= frac <= 0.9):
-        raise ValueError("Доля области работ должна быть от 0.05 до 0.9.")
+        raise ValueError(_tr("Доля области работ должна быть от 0.05 до 0.9."))
     zones = max(1, int(zones))
 
     hw = max(2, int(round(nx * frac / 2.0)))

@@ -33,6 +33,15 @@
 """
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 
 # --- описание сетки ------------------------------------------------------
 
@@ -126,7 +135,7 @@ def difference(after, before):
     a = np.asarray(after, dtype=float)
     b = np.asarray(before, dtype=float)
     if a.shape != b.shape:
-        raise ValueError("Поверхности разного размера, приведите к одной сетке.")
+        raise ValueError(_tr("Поверхности разного размера, приведите к одной сетке."))
     return a - b
 
 
@@ -183,7 +192,7 @@ def zone_stats(diff, labels, area, dead=0.0):
     d = np.asarray(diff, dtype=float)
     lb = np.asarray(labels)
     if d.shape != lb.shape:
-        raise ValueError("Матрица меток не совпадает с матрицей разностей.")
+        raise ValueError(_tr("Матрица меток не совпадает с матрицей разностей."))
     out = {}
     for code in np.unique(lb):
         code = int(code)
@@ -272,5 +281,5 @@ def clip_to_zones(diff, labels):
     d = np.asarray(diff, dtype=float)
     lb = np.asarray(labels)
     if d.shape != lb.shape:
-        raise ValueError("Матрица меток не совпадает с матрицей разностей.")
+        raise ValueError(_tr("Матрица меток не совпадает с матрицей разностей."))
     return np.where(lb > 0, d, np.nan)

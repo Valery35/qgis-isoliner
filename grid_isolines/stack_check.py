@@ -28,6 +28,15 @@
 
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 # коды зон в выходном растре
 CODE_OK = 0        # всё согласовано
 CODE_ZERO = 1      # нулевая мощность: пласт выклинился
@@ -202,15 +211,15 @@ def summarize(report, cell):
     for r in report:
         if r.get("kind") == "bed":
             out.append(
-                "%s: мощность от %.2f до %.2f м, выклинивание %.0f м2, "
-                "отрицательная мощность %.0f м2%s"
+                _tr("%s: мощность от %.2f до %.2f м, выклинивание %.0f м2, "
+                "отрицательная мощность %.0f м2%s")
                 % (r["bed"], r["min_thk"], r["max_thk"],
                    r["n_zero"] * cell ** 2, r["n_neg"] * cell ** 2,
-                   (", известное опрокидывание %.0f м2"
+                   (_tr(", известное опрокидывание %.0f м2")
                     % (r["n_known"] * cell ** 2)) if r["n_known"] else ""))
         else:
             out.append(
-                "%s: наименьший зазор %.2f м, перехлёст %.0f м2"
+                _tr("%s: наименьший зазор %.2f м, перехлёст %.0f м2")
                 % (r["bed"], r["min_gap"], r["n_cross"] * cell ** 2))
     return out
 
@@ -370,7 +379,7 @@ def pair_by_name(names, order=None):
         if "top" in r and "bot" in r:
             pairs.append((bed, r["top"], r["bot"]))
         else:
-            missing = "подошвы" if "top" in r else "кровли"
+            missing = _tr("подошвы") if "top" in r else _tr("кровли")
             unmatched.append((r.get("top") or r.get("bot"),
-                              "для пласта нет %s" % missing))
+                              _tr("для пласта нет %s") % missing))
     return pairs, unmatched

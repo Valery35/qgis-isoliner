@@ -31,6 +31,15 @@ basemaps.py рядом с папкой basemaps сбивает и человек
 import os
 import re
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 BASEMAPS_DIR = os.path.join(PLUGIN_DIR, "basemaps")
 
@@ -132,12 +141,12 @@ def check_source(source):
     """
     problems = []
     if "crs=" not in source:
-        problems.append("не задана система координат (crs)")
+        problems.append(_tr("не задана система координат (crs)"))
     if "type=xyz" in source:
         if not re.search(r"%7Bz%7D|\{z\}", source):
-            problems.append("в адресе нет шаблона z")
+            problems.append(_tr("в адресе нет шаблона z"))
         if not re.search(r"%7Bx%7D|\{x\}", source):
-            problems.append("в адресе нет шаблона x")
+            problems.append(_tr("в адресе нет шаблона x"))
         if not re.search(r"%7By%7D|\{y\}", source):
-            problems.append("в адресе нет шаблона y")
+            problems.append(_tr("в адресе нет шаблона y"))
     return problems

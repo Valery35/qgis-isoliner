@@ -17,6 +17,15 @@ EU-DEM, национальные модели США, Канады, Велико
 
 import math
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 BUCKET_URL = "https://copernicus-dem-30m.s3.amazonaws.com"
 DEFAULT_CELL = 30.0
 DEFAULT_MAX_TILES = 25
@@ -78,11 +87,11 @@ def tiles_for_bbox(lon_min, lat_min, lon_max, lat_max, max_tiles=DEFAULT_MAX_TIL
     max_tiles, чтобы случайный клик по глобусу не тянул полмира.
     """
     if lon_max <= lon_min or lat_max <= lat_min:
-        raise DemSourceError("Пустая рамка: проверьте координаты.")
+        raise DemSourceError(_tr("Пустая рамка: проверьте координаты."))
     if lon_min < -180.0 or lon_max > 180.0 or lat_min < -90.0 or lat_max > 90.0:
         raise DemSourceError(
-            "Рамка выходит за пределы EPSG:4326. "
-            "Рамка через антимеридиан не поддерживается."
+            _tr("Рамка выходит за пределы EPSG:4326. "
+            "Рамка через антимеридиан не поддерживается.")
         )
     eps = 1e-9
     lon_a = int(math.floor(lon_min))
@@ -92,8 +101,8 @@ def tiles_for_bbox(lon_min, lat_min, lon_max, lat_max, max_tiles=DEFAULT_MAX_TIL
     n_tiles = (lon_b - lon_a + 1) * (lat_b - lat_a + 1)
     if n_tiles > max_tiles:
         raise DemSourceError(
-            "Рамка требует {} плиток при пределе {}. "
-            "Уменьшите рамку или поднимите предел в параметрах.".format(
+            _tr("Рамка требует {} плиток при пределе {}. "
+            "Уменьшите рамку или поднимите предел в параметрах.").format(
                 n_tiles, max_tiles
             )
         )
@@ -185,9 +194,9 @@ def open_existing_tiles(names, gdal_module):
             ds = None
     if not found:
         raise DemSourceError(
-            "Не удалось открыть ни одной плитки GLO-30. "
+            _tr("Не удалось открыть ни одной плитки GLO-30. "
             "Либо нет доступа к сети (проверьте соединение и прокси), "
-            "либо рамка целиком лежит в океане."
+            "либо рамка целиком лежит в океане.")
         )
     return found
 
@@ -243,16 +252,16 @@ def _warp_to_metric(src_ds_or_path, out_path, extent_4326, gdal_module,
             ys.append(y)
     if not xs or not ys:
         raise DemSourceError(
-            "Не удалось спроецировать рамку в целевую СК. "
-            "Проверьте, что рамка попадает в область действия выбранной СК."
+            _tr("Не удалось спроецировать рамку в целевую СК. "
+            "Проверьте, что рамка попадает в область действия выбранной СК.")
         )
     bounds = (min(xs), min(ys), max(xs), max(ys))
     # Защита от вырожденного габарита (нулевая ширина или высота).
     if not (bounds[2] - bounds[0] > 0 and bounds[3] - bounds[1] > 0):
         raise DemSourceError(
-            "Рамка вырождается в выбранной СК (нулевой габарит). "
+            _tr("Рамка вырождается в выбранной СК (нулевой габарит). "
             "Выберите СК, подходящую для этой территории, "
-            "или оставьте целевую СК пустой (тогда возьмётся UTM по центру)."
+            "или оставьте целевую СК пустой (тогда возьмётся UTM по центру).")
         )
     extra = {}
     if output_type is not None:
@@ -275,8 +284,8 @@ def _warp_to_metric(src_ds_or_path, out_path, extent_4326, gdal_module,
     out_ds = gdal_module.Warp(out_path, src_ds_or_path, options=warp_opts)
     if out_ds is None:
         raise DemSourceError(
-            "Перепроецирование не удалось. Проверьте доступ к сети: "
-            "варп читает данные источника по HTTP."
+            _tr("Перепроецирование не удалось. Проверьте доступ к сети: "
+            "варп читает данные источника по HTTP.")
         )
     out_ds = None
     return out_path
@@ -326,15 +335,15 @@ def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
     if source == SOURCE_GEDTM30:
         cog = vsicurl_path(GEDTM30_COG)
         if feedback:
-            feedback.pushInfo("Источник: GEDTM30 (единый COG, bare-earth).")
+            feedback.pushInfo(_tr("Источник: GEDTM30 (единый COG, bare-earth)."))
         try:
             probe = gdal_module.Open(cog)
         except RuntimeError:
             probe = None
         if probe is None:
             raise DemSourceError(
-                "Не удалось открыть COG GEDTM30. Проверьте соединение "
-                "и прокси, либо источник временно недоступен."
+                _tr("Не удалось открыть COG GEDTM30. Проверьте соединение "
+                "и прокси, либо источник временно недоступен.")
             )
         # Границы самого COG - окно ниже зажимается в них.
         gt = probe.GetGeoTransform()
@@ -354,7 +363,7 @@ def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
             (ds_lon0, ds_lat0, ds_lon1, ds_lat1))
         if win is None:
             raise DemSourceError(
-                "Рамка не пересекается с покрытием GEDTM30.")
+                _tr("Рамка не пересекается с покрытием GEDTM30."))
         ulx, uly, lrx, lry = win
         unscaled = "/vsimem/gedtm_unscaled.tif"
         try:
@@ -366,17 +375,17 @@ def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
                     projWin=[ulx, uly, lrx, lry]))
         except RuntimeError as exc:
             raise DemSourceError(
-                "Не удалось прочитать COG GEDTM30 (unscale): "
-                "{}".format(exc))
+                _tr("Не удалось прочитать COG GEDTM30 (unscale): "
+                "{}").format(exc))
         if tr is None:
             raise DemSourceError(
-                "Не удалось прочитать COG GEDTM30 (unscale).")
+                _tr("Не удалось прочитать COG GEDTM30 (unscale)."))
         tr = None
         _warp_to_metric(unscaled, out_path, extent_4326, gdal_module,
                         osr_module, dst_srs, cell, -9999.0)
         gdal_module.Unlink(unscaled)
         if feedback:
-            feedback.pushInfo("GEDTM30: высоты приведены к метрам.")
+            feedback.pushInfo(_tr("GEDTM30: высоты приведены к метрам."))
         return out_path, [cog]
 
     if source == SOURCE_MAPZEN:
@@ -387,14 +396,14 @@ def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
         lat_c = center[1]
         if feedback:
             feedback.pushInfo(
-                "Mapzen: уровень {}, пиксель на местности {:.1f} м, "
-                "плиток {}.".format(z, mapzen_ground_pixel(z, lat_c),
+                _tr("Mapzen: уровень {}, пиксель на местности {:.1f} м, "
+                "плиток {}.").format(z, mapzen_ground_pixel(z, lat_c),
                                     len(xyz)))
             if z < z_want:
                 feedback.pushWarning(
-                    "Рамка велика для ячейки {:.1f} м: взят уровень {} "
+                    _tr("Рамка велика для ячейки {:.1f} м: взят уровень {} "
                     "вместо {}, пиксель источника {:.1f} м. Для полной "
-                    "подробности уменьшите рамку.".format(
+                    "подробности уменьшите рамку.").format(
                         cell, z, z_want, mapzen_ground_pixel(z, lat_c)))
         gdal_module.UseExceptions()
         paths, nodata = [], None
@@ -412,15 +421,15 @@ def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
             ds = None
         if not paths:
             raise DemSourceError(
-                "Не удалось открыть ни одной плитки Mapzen. Проверьте "
-                "соединение и прокси: плитки читаются с s3.amazonaws.com.")
+                _tr("Не удалось открыть ни одной плитки Mapzen. Проверьте "
+                "соединение и прокси: плитки читаются с s3.amazonaws.com."))
         if feedback:
-            feedback.pushInfo("Открыто плиток: {} из {}".format(
+            feedback.pushInfo(_tr("Открыто плиток: {} из {}").format(
                 len(paths), len(xyz)))
         vrt_path = "/vsimem/mapzen_mosaic.vrt"
         vrt = gdal_module.BuildVRT(vrt_path, paths)
         if vrt is None:
-            raise DemSourceError("Не удалось собрать VRT-мозаику Mapzen.")
+            raise DemSourceError(_tr("Не удалось собрать VRT-мозаику Mapzen."))
         _warp_to_metric(vrt, out_path, extent_4326, gdal_module, osr_module,
                         dst_srs, cell,
                         nodata if nodata is not None else -32768.0,
@@ -433,15 +442,15 @@ def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
     # SOURCE_GLO30: плиточная мозаика
     names = tiles_for_bbox(lon_min, lat_min, lon_max, lat_max, max_tiles)
     if feedback:
-        feedback.pushInfo("Плиток по рамке: {}".format(len(names)))
+        feedback.pushInfo(_tr("Плиток по рамке: {}").format(len(names)))
     paths = open_existing_tiles(names, gdal_module)
     if feedback:
-        feedback.pushInfo("Найдено в бакете: {} из {}".format(
+        feedback.pushInfo(_tr("Найдено в бакете: {} из {}").format(
             len(paths), len(names)))
     vrt_path = "/vsimem/glo30_mosaic.vrt"
     vrt = gdal_module.BuildVRT(vrt_path, paths)
     if vrt is None:
-        raise DemSourceError("Не удалось собрать VRT-мозаику из плиток.")
+        raise DemSourceError(_tr("Не удалось собрать VRT-мозаику из плиток."))
     _warp_to_metric(vrt, out_path, extent_4326, gdal_module, osr_module,
                     dst_srs, cell, -32768.0)
     vrt = None

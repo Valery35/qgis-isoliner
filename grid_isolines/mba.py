@@ -38,6 +38,15 @@
 
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 # Носитель кубического B-сплайна: четыре ячейки по каждой оси.
 SUPPORT = 4
 
@@ -78,9 +87,9 @@ class Lattice(object):
         self.hi = np.asarray(hi, dtype=np.float64)
         self.n = np.asarray(n, dtype=np.int64)
         if np.any(self.n < 1):
-            raise ValueError("Решётка должна иметь хотя бы одну ячейку.")
+            raise ValueError(_tr("Решётка должна иметь хотя бы одну ячейку."))
         if self.lo.shape != self.hi.shape or self.lo.shape != self.n.shape:
-            raise ValueError("Размерности lo, hi и n должны совпадать.")
+            raise ValueError(_tr("Размерности lo, hi и n должны совпадать."))
         self.ndim = int(self.lo.size)
         span = self.hi - self.lo
         span[span <= 0] = 1.0
@@ -132,9 +141,9 @@ class Lattice(object):
         pts = np.asarray(pts, dtype=np.float64)
         vals = np.asarray(vals, dtype=np.float64)
         if pts.ndim != 2 or pts.shape[1] != self.ndim:
-            raise ValueError("Точки должны быть массивом (m, ndim).")
+            raise ValueError(_tr("Точки должны быть массивом (m, ndim)."))
         if vals.shape[0] != pts.shape[0]:
-            raise ValueError("Число значений и точек должно совпадать.")
+            raise ValueError(_tr("Число значений и точек должно совпадать."))
         base, frac = self._cells(pts)
         idx, w = self._support(base, frac)
 
@@ -157,7 +166,7 @@ class Lattice(object):
         """Значение поверхности в точках."""
         pts = np.asarray(pts, dtype=np.float64)
         if pts.ndim != 2 or pts.shape[1] != self.ndim:
-            raise ValueError("Точки должны быть массивом (m, ndim).")
+            raise ValueError(_tr("Точки должны быть массивом (m, ndim)."))
         base, frac = self._cells(pts)
         idx, w = self._support(base, frac)
         flat = self.coef.ravel()
@@ -185,7 +194,7 @@ def _trend(pts, vals, mode):
         m = float(np.mean(vals))
         return np.full(vals.shape, m), ("mean", m)
     if mode != "plane":
-        raise ValueError("Неизвестный способ снятия тренда: %r" % (mode,))
+        raise ValueError(_tr("Неизвестный способ снятия тренда: %r") % (mode,))
 
     ndim = pts.shape[1]
     a = np.column_stack([pts, np.ones(pts.shape[0])])
@@ -252,9 +261,9 @@ def fit(pts, vals, lo=None, hi=None, grid=(2, 2), levels=8, tol=None,
     pts = np.asarray(pts, dtype=np.float64)
     vals = np.asarray(vals, dtype=np.float64).ravel()
     if pts.ndim != 2:
-        raise ValueError("Точки должны быть массивом (m, ndim).")
+        raise ValueError(_tr("Точки должны быть массивом (m, ndim)."))
     if pts.shape[0] == 0:
-        raise ValueError("Нет ни одной точки.")
+        raise ValueError(_tr("Нет ни одной точки."))
     ndim = pts.shape[1]
 
     lo = pts.min(axis=0) if lo is None else np.asarray(lo, dtype=np.float64)
@@ -269,7 +278,7 @@ def fit(pts, vals, lo=None, hi=None, grid=(2, 2), levels=8, tol=None,
     if grid.size == 1:
         grid = np.repeat(grid, ndim)
     if grid.size != ndim:
-        raise ValueError("Размер начальной решётки должен быть по числу осей.")
+        raise ValueError(_tr("Размер начальной решётки должен быть по числу осей."))
 
     trend_vals, trend = _trend(pts, vals, center)
 

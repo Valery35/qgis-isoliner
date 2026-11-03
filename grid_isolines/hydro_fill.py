@@ -29,6 +29,15 @@ Epsilon задаёт минимальный уклон на плоских уч�
 
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 DEFAULT_EPSILON = 0.001
 DEFAULT_MAX_PASSES = 100
 _BIG = np.float64(1e30)
@@ -159,10 +168,10 @@ def fill_depressions(z, nodata_mask=None, epsilon=DEFAULT_EPSILON,
     """
     z_in = np.asarray(z, dtype=np.float64)
     if z_in.ndim != 2 or z_in.shape[0] < 2 or z_in.shape[1] < 2:
-        raise ValueError("Ожидается двумерный грид не меньше 2x2.")
+        raise ValueError(_tr("Ожидается двумерный грид не меньше 2x2."))
     eps = np.float64(epsilon)
     if eps < 0:
-        raise ValueError("Epsilon не может быть отрицательным.")
+        raise ValueError(_tr("Epsilon не может быть отрицательным."))
 
     if nodata_mask is None:
         nodata_mask = ~np.isfinite(z_in)
@@ -207,15 +216,15 @@ def fill_depressions(z, nodata_mask=None, epsilon=DEFAULT_EPSILON,
             converged = True
             if feedback:
                 feedback.pushInfo(
-                    "Заполнение сошлось, проходов: {}.".format(n_pass))
+                    _tr("Заполнение сошлось, проходов: {}.").format(n_pass))
             break
     if not converged and feedback:
         # это предупреждение, а не сводка: заполнение не сошлось.
         # Не у всякой обратной связи есть pushWarning, отсюда getattr
         warn = getattr(feedback, "pushWarning", feedback.pushInfo)
         warn(
-            "Достигнут предел {} проходов, результат может быть "
-            "неполным на очень сложном рельефе.".format(max_passes))
+            _tr("Достигнут предел {} проходов, результат может быть "
+            "неполным на очень сложном рельефе.").format(max_passes))
 
     filled = np.where(valid, w, z_in)
     diff = filled - np.where(valid, z_in, filled)

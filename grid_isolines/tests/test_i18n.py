@@ -87,6 +87,33 @@ def _wrapped_constants(tree, names):
     return out
 
 
+def _loop_labels(tree):
+    """Подписи из литерала цикла, переменная которого уходит в перевод.
+
+    for pid, label in ((A, "Поле ..."), (B, "Поле ...")):
+        self.addParameter(..., self.tr(label), ...)
+
+    В точке вызова tr стоит имя, а не литерал, и подписи 5.03 и 8.01 так и
+    жили без перевода: в английском окне инструмента стояли по-русски,
+    а тест покрытия молчал."""
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.For):
+            continue
+        targets = set(n.id for n in ast.walk(node.target)
+                      if isinstance(n, ast.Name))
+        used = set()
+        for sub in node.body:
+            used |= _translated_names(sub)
+        if not (targets & used):
+            continue
+        for n in ast.walk(node.iter):
+            if isinstance(n, ast.Constant) and isinstance(n.value, str) \
+                    and any("\u0400" <= ch <= "\u04ff" for ch in n.value):
+                out.append(n.value)
+    return out
+
+
 def _all_translated_names(_cache={}):
     if not _cache:
         names = set()
@@ -125,6 +152,7 @@ def collect_keys():
         # имена собираются по всему пакету: константу справки объявляют в
         # одном модуле, а переводят в другом
         keys.update(_wrapped_constants(tree, _all_translated_names()))
+        keys.update(_loop_labels(tree))
     return keys
 
 

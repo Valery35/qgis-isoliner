@@ -29,6 +29,15 @@
 
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 _BIG = 1e18
 
 
@@ -325,10 +334,10 @@ def collect_forms(top_features, bot_features):
             forms.append((link, t, b))
         elif t:
             orphans.append({"side": "top", "link": link,
-                            "reason": "нет низа с этим значением связи"})
+                            "reason": _tr("нет низа с этим значением связи")})
         else:
             orphans.append({"side": "bot", "link": link,
-                            "reason": "нет верха с этим значением связи"})
+                            "reason": _tr("нет верха с этим значением связи")})
     return forms, orphans
 
 

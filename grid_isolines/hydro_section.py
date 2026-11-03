@@ -26,6 +26,15 @@ import math
 
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 
 class Fragment(object):
     """Фрагмент профиля: имя, расстояния и отметки по вершинам.
@@ -43,9 +52,9 @@ class Fragment(object):
         self.z = np.asarray(z, float)
         self.n = float(n)
         if self.d.size != self.z.size:
-            raise ValueError("расстояний и отметок разное число")
+            raise ValueError(_tr("расстояний и отметок разное число"))
         if self.d.size >= 2 and not np.all(np.diff(self.d) >= 0):
-            raise ValueError("расстояния вдоль створа обязаны не убывать")
+            raise ValueError(_tr("расстояния вдоль створа обязаны не убывать"))
 
 
 def wetted_geometry(d, z, level):
@@ -318,7 +327,7 @@ def split_by_divides(d, z, div_left, div_right, n_left, n_channel,
     d = np.asarray(d, float)
     z = np.asarray(z, float)
     if not (d[0] <= div_left < div_right <= d[-1]):
-        raise ValueError("границы участков вне профиля или переставлены")
+        raise ValueError(_tr("границы участков вне профиля или переставлены"))
 
     def cut(d0, d1, side):
         """Вырезка [d0, d1] с правилом для кратных узлов на границе.
@@ -371,7 +380,7 @@ def chain_slopes(km, z_ref):
     km = np.asarray(km, float)
     z = np.asarray(z_ref, float)
     if km.size < 2:
-        raise ValueError("для уклона по цепочке нужно не меньше двух створов")
+        raise ValueError(_tr("для уклона по цепочке нужно не меньше двух створов"))
     order = np.argsort(km)
     s = np.empty_like(z)
     ks, zs = km[order], z[order]

@@ -2165,7 +2165,7 @@ def add_z_from_field(layer_path, field_name, context, feedback=None):
     if idx < 0:
         if feedback is not None:
             feedback.pushWarning(
-                "Поле высоты %s не найдено, Z не записан." % field_name)
+                _tr("Поле высоты %s не найдено, Z не записан.") % field_name)
         return layer_path
 
     fields = src.fields()
@@ -2240,6 +2240,6 @@ def add_z_from_field(layer_path, field_name, context, feedback=None):
     del writer
     if feedback is not None:
         feedback.pushInfo(
-            "Высота записана в Z геометрии: %d линий, поле %s."
+            _tr("Высота записана в Z геометрии: %d линий, поле %s.")
             % (n, field_name))
     return out_path

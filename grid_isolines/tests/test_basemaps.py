@@ -35,7 +35,18 @@ def test_osm_is_present():
 def test_satellite_imagery_is_present():
     """Геологу космоснимок нужен чаще всего."""
     names = [b.name for b in basemaps.load(FOLDER)]
-    assert "Космоснимки ESRI" in names
+    assert "ESRI World Imagery" in names
+
+
+def test_names_and_styles_are_english():
+    """Имена слоёв и стилей в .qlr английские: русские имена шли в
+    английский интерфейс как есть (окно «Подоснова», дерево слоёв, меню
+    стилей)."""
+    import re
+    for b in basemaps.load(FOLDER):
+        assert not re.search("[А-Яа-яЁё]", b.name), b.name
+        for st in b.styles:
+            assert not re.search("[А-Яа-яЁё]", st), (b.name, st)
 
 
 def test_order_follows_file_names():

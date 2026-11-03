@@ -21,6 +21,15 @@ headless-тестом (tests/test_density.py).
 """
 import numpy as np
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 
 class GridSpec:
     """Сетка накопления. Начало в (xmin, ymin), строка 0 снизу; при записи в
@@ -64,13 +73,13 @@ def add_point(acc, snum, wsum, gs, x, y, mass, sigma, renorm_inside=True,
     массу (меньше mass при renorm_inside=False и обрезке краем)."""
     if mass is None or not np.isfinite(mass) or mass <= 0:
         if log is not None:
-            log.append("масса <= 0 или пуста: объект пропущен")
+            log.append(_tr("масса <= 0 или пуста: объект пропущен"))
         return 0.0
     half = 0.5 * gs.cell
     if sigma is None or not np.isfinite(sigma) or sigma < half:
         if sigma is not None and np.isfinite(sigma) and sigma < half and \
                 log is not None:
-            log.append("сигма %.3g поднята до полуячейки %.3g" % (sigma, half))
+            log.append(_tr("сигма %.3g поднята до полуячейки %.3g") % (sigma, half))
         sigma = half
     rad = 3.0 * sigma
     c0 = int(np.floor((x - rad - gs.xmin) / gs.cell))
@@ -81,7 +90,7 @@ def add_point(acc, snum, wsum, gs, x, y, mass, sigma, renorm_inside=True,
     rr0 = max(r0, 0); rr1 = min(r1, gs.ny)
     if cc0 >= cc1 or rr0 >= rr1:
         if log is not None:
-            log.append("носитель точки вне сетки: масса потеряна")
+            log.append(_tr("носитель точки вне сетки: масса потеряна"))
         return 0.0
     cx = gs.xmin + (np.arange(cc0, cc1) + 0.5) * gs.cell
     cy = gs.ymin + (np.arange(rr0, rr1) + 0.5) * gs.cell
@@ -149,13 +158,13 @@ def add_polygon(acc, snum, wsum, gs, mask, mass, aux=None, log=None):
     сигма полигона - радиус равновеликого круга sqrt(S/π)."""
     if mass is None or not np.isfinite(mass) or mass <= 0:
         if log is not None:
-            log.append("масса <= 0 или пуста: полигон пропущен")
+            log.append(_tr("масса <= 0 или пуста: полигон пропущен"))
         return 0.0
     m = np.asarray(mask, bool)
     ncell = int(m.sum())
     if ncell == 0:
         if log is not None:
-            log.append("полигон не покрыл ни одной ячейки: масса потеряна")
+            log.append(_tr("полигон не покрыл ни одной ячейки: масса потеряна"))
         return 0.0
     area = ncell * gs.cell * gs.cell
     sig_poly = np.sqrt(area / np.pi)
@@ -164,8 +173,8 @@ def add_polygon(acc, snum, wsum, gs, mask, mass, aux=None, log=None):
         w = np.where(np.isfinite(w) & (w > 0), w, 0.0)
         if w.sum() <= 0:
             if log is not None:
-                log.append("дазиметрия: вспомогательный растр пуст внутри "
-                           "полигона - откат на равномерное")
+                log.append(_tr("дазиметрия: вспомогательный растр пуст внутри "
+                           "полигона - откат на равномерное"))
             share = np.full(ncell, mass / ncell)
         else:
             share = mass * (w / w.sum())

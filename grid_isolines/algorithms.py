@@ -1920,7 +1920,7 @@ def _read_points(source, zfield, feedback=None,
             if outliers_out is not None and ncut:
                 bad = ~keep
                 for x, y, v in zip(xs[bad], ys[bad], vs[bad]):
-                    why = ("ниже %.6g" % lo) if v < lo else ("выше %.6g" % hi)
+                    why = (_tr("ниже %.6g") % lo) if v < lo else (_tr("выше %.6g") % hi)
                     outliers_out.append((float(x), float(y), float(v), why))
             xs, ys, vs = xs[keep], ys[keep], vs[keep]
             if return_ids:
@@ -3112,8 +3112,8 @@ class IsolinerAlgorithm(QgsProcessingAlgorithm):
             trace.fail("%s: расчёт прерван: %s" % (name, exc), exc)
             try:
                 feedback.reportError(
-                    "Расчёт прерван: %s\n\nПодробности в журнале:\n%s"
-                    % (exc, trace.path() or "журнал не заведён"))
+                    _tr("Расчёт прерван: %s\n\nПодробности в журнале:\n%s")
+                    % (exc, trace.path() or _tr("журнал не заведён")))
             except Exception:  # nosec
                 pass
             raise
@@ -5539,8 +5539,9 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
             # скрытое поле «замещения» 0-1 -> пороги в три класса минтипа,
             # сильвинит остаётся фоном (по образцу БКПРУ-4)
             repl = _demo_values(rng, G, w, xs, ys, ext, 0.0, 1.0, 0.12)
-            mt = np.where(repl > 0.72, "Каменная соль замещения",
-                 np.where(repl > 0.55, "Частичное замещение кс", "Сильвинит"))
+            mt = np.where(repl > 0.72, _tr("Каменная соль замещения"),
+                 np.where(repl > 0.55, _tr("Частичное замещение кс"),
+                          _tr("Сильвинит")))
 
         want_hydro = self.parameterAsBool(parameters, self.HYDRO, context)
         want_head = self.parameterAsBool(parameters, self.HEAD, context) \
@@ -9464,7 +9465,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
             QgsWkbTypes.Type.NoGeometry)
         if sink is None:
             return
-        names = {c: (n, col) for c, n, col in self.DEMO_REF}
+        names = {c: (self.tr(n), col) for c, n, col in self.DEMO_REF}
         for k, code in enumerate(codes):
             nm, col = names.get(code, (code, "#999999"))
             f = QgsFeature(fields)
@@ -9807,7 +9808,7 @@ class SectionDemoAlgorithm(IsolinerAlgorithm):
                     eoh = ints[-1][1] + float(rng.uniform(0.5, 3.0))
                     fld = "Д1" if px < xc_mid else "Д2"
                     numbers[fld] += 1
-                    hid = "%s-%02d" % (fld, numbers[fld])
+                    hid = "%s-%02d" % (_tr(fld), numbers[fld])
                     fc = QgsFeature(cf)
                     fc.setGeometry(QgsGeometry(QgsPoint(px, py, zc)))
                     fc.setAttributes([hid, round(zc, 2), round(eoh, 2)])
@@ -10490,7 +10491,7 @@ class SectionAlgorithm(IsolinerAlgorithm):
             feedback.pushInfo(_tr(
                 "Диагностика разреза. СК линии: %s. Растр[0] origin "
                 "(%.3f, %.3f), пиксель (%.4g, %.4g).") % (
-                crs_line.authid() or "нет",
+                crs_line.authid() or _tr("нет"),
                 float(_r0[0]), float(_r0[3]), float(_r0[1]), float(_r0[5])))
             feedback.pushInfo(_tr(
                 "Точек вдоль линии: %d. Первая точка: (%.3f, %.3f). "
@@ -10730,7 +10731,7 @@ class SectionAlgorithm(IsolinerAlgorithm):
                         sinksf.addFeature(fs)
 
             for c in sc_.corners:
-                cname = "УГ-%d" % c["num"]
+                cname = _tr("УГ-%d") % c["num"]
                 cx = float(c["d"]) + ox
                 base = tag + [c["num"], cname]
                 tail = [c["d"], c["x"], c["y"], c["az"]]
@@ -10738,12 +10739,12 @@ class SectionAlgorithm(IsolinerAlgorithm):
                     ft = QgsFeature(fcorn)
                     ft.setGeometry(QgsGeometry.fromPointXY(
                         QgsPointXY(cx, ytop)))
-                    ft.setAttributes(base + ["верх"] + tail + [cname])
+                    ft.setAttributes(base + [_tr("верх")] + tail + [cname])
                     sinkc.addFeature(ft)
                     fb = QgsFeature(fcorn)
                     fb.setGeometry(QgsGeometry.fromPointXY(
                         QgsPointXY(cx, ybot)))
-                    fb.setAttributes(base + ["низ"] + tail
+                    fb.setAttributes(base + [_tr("низ")] + tail
                                      + ["X %.2f\nY %.2f" % (c["x"], c["y"])])
                     sinkc.addFeature(fb)
                 if sinkcv is not None:
@@ -15340,7 +15341,7 @@ class StackBuildAlgorithm(IsolinerAlgorithm):
             raise QgsProcessingException(self.tr(
                 "Ни одно тело не собрано. Проверьте разбивку и справочник."))
         for code, path, lo, hi in made:
-            name = "%s (подошва)" % code
+            name = _tr("%s (подошва)") % code
             try:
                 details = QgsProcessingContext.LayerDetails(
                     name, context.project(), name)
@@ -15566,7 +15567,7 @@ class StackFixAlgorithm(IsolinerAlgorithm):
             res[self.OUTPUT_FIX] = path
 
         for k, made_path in enumerate(made):
-            name = "%s (правка)" % pairs[k][0]
+            name = _tr("%s (правка)") % pairs[k][0]
             try:
                 details = QgsProcessingContext.LayerDetails(
                     name, context.project(), name)
@@ -16104,7 +16105,7 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
                     name, context.project(), name)
                 context.addLayerToLoadOnCompletion(path, details)
             except (AttributeError, TypeError) as exc:
-                _topo_log("не удалось поставить слой на загрузку: %s" % exc)
+                _topo_log(_tr("не удалось поставить слой на загрузку: %s") % exc)
             _set_output_name(context, path, name)
             _topo_group_layer(context, path, group, collapse=False,
                               order=tree_order)
@@ -16136,7 +16137,7 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
         cell_a = cell * cell / 10000.0
         under = []
         for k in sorted(set(int(v) for v in np.unique(sub) if v >= 0)):
-            under.append("%s %.1f га" % (demo_stack.SALT[k][0],
+            under.append(_tr("%s %.1f га") % (demo_stack.SALT[k][0],
                                          float((sub == k).sum()) * cell_a))
         feedback.pushInfo(self.tr(
             "Уровень растворения %.0f м. Под зеркало выходит: %s. Тела "
@@ -16228,7 +16229,7 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
                 ft.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(
                     ox + x, oy - yv)))
                 ft.setAttributes([hid, round(z_collar, 2), round(eoh, 2),
-                                  az, dip, kind])
+                                  az, dip, _tr(kind)])
                 cs.addFeature(ft)
                 seen = {}
                 for frm, to, code in iv:
@@ -16272,7 +16273,7 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
             for xv, yv, zv, cd in pts_o:
                 fo = QgsFeature(of)
                 fo.setGeometry(QgsGeometry(QgsPoint(ox + xv, oy - yv, zv)))
-                fo.setAttributes([cd, round(zv, 2), "обнажение", 3.0])
+                fo.setAttributes([cd, round(zv, 2), _tr("обнажение"), 3.0])
                 osink.addFeature(fo)
                 n_out += 1
             for chain in demo_stack.outcrop_lines(surf, code, cell, tol=1.5):
@@ -16300,7 +16301,7 @@ class StackDemoAlgorithm(IsolinerAlgorithm):
                 pts_c = [QgsPoint(ox + a, oy - b, c) for a, b, c in chain]
                 fc = QgsFeature(cl)
                 fc.setGeometry(QgsGeometry(QgsLineString(pts_c)))
-                fc.setAttributes([code, "геологическая карта", 3.0,
+                fc.setAttributes([code, _tr("геологическая карта"), 3.0,
                                   len(pts_c)])
                 clsink.addFeature(fc)
                 n_cl += 1
@@ -16964,7 +16965,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
     # Порядок совпадает с вариантами параметра PLOT_X
     _PLOT_X = (("q_total", "Q", "м³/с"),
                ("area_total", "W", "м²"),
-               ("v_total", "v", "м/с"))
+               ("v_total", "v", "м/с"))   # единица идёт в отчёт через _tr
 
     def _plot_x_title(self, xkey):
         """Название величины по горизонтали для журнала."""
@@ -16985,7 +16986,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             lv = hydro_section.level_for_q(cv, qv)
             if lv is None:
                 continue
-            name = ("УВВ%g%%" % pv) if pv is not None else "Q=%.6g" % qv
+            name = (_tr("УВВ%g%%") % pv) if pv is not None else "Q=%.6g" % qv
             out.append((name, float(lv)))
         return out
 
@@ -17231,6 +17232,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
         plot_xkey, plot_sym, plot_unit = self._PLOT_X[min(
             self.parameterAsEnum(parameters, self.PLOT_X, context),
             len(self._PLOT_X) - 1)]
+        plot_unit = _tr(plot_unit)
         plot_w = self.parameterAsDouble(parameters, self.PLOT_W, context)
         plot_h = self.parameterAsDouble(parameters, self.PLOT_H, context)
         plot_step_h = self.parameterAsDouble(parameters, self.PLOT_STEP_H,
@@ -17297,7 +17299,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                 for ft in fts:
                     role = self._role_of(ft[f_role])
                     d, z = self._elev_along(ft.geometry())
-                    srcname = "Z геометрии"
+                    srcname = _tr("Z геометрии")
                     if d is None:
                         continue
                     nn = ft[f_nc] if f_nc else None
@@ -17308,7 +17310,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             else:
                 ft = fts[0]
                 d, z = self._elev_along(ft.geometry())
-                srcname = "Z геометрии"
+                srcname = _tr("Z геометрии")
                 if d is None:
                     feedback.pushWarning(self.tr(
                         "Створ «%s» пропущен: в геометрии нет отметок Z.")
@@ -17418,7 +17420,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                             "Створ «%s»: расход %.4g выше кривой, уровень "
                             "не найден.") % (nm, qv))
                         continue
-                    label = ("УВВ%g%%" % pv) if pv is not None else \
+                    label = (_tr("УВВ%g%%") % pv) if pv is not None else \
                         ("Q=%g" % qv)
                     # линия уровня живёт только между точками уреза: на
                     # борта и на сухие острова вода не заходит
@@ -17437,7 +17439,7 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                     levels_found.append((label, qv, float(lv)))
             if obs_rows:
                 for lv, lb in obs_rows:
-                    label = ("УВ %.2f %s" % (lv, lb)).strip()
+                    label = (_tr("УВ %.2f %s") % (lv, lb)).strip()
                     for a, bx in hydro_section.wet_spans(d, z, lv):
                         ly = zbase + (float(lv) - zbase) * vex
                         seg = [(float(a) + ox, ly, float(lv)),
@@ -17616,7 +17618,8 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             if not (hlo <= lv <= hhi):
                 continue
             y = py(lv)
-            colour = "#c33" if lb.startswith("УВВ") else "#38a"
+            colour = "#c33" if lb.startswith(("УВВ", _tr("УВВ%g%%")[:3])) \
+                else "#38a"
             out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
                        "stroke='%s' stroke-dasharray='4 3'/>"
                        % (pad_l, y, px(qv) if qv else width - pad_r, y,
@@ -17638,10 +17641,10 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                    "stroke='#111'/>" % (pad_l, height - pad_b,
                                         width - pad_r, height - pad_b))
         out.append("<text x='%.1f' y='%.1f' font-size='11' fill='#111'>"
-                   "H, м</text>" % (6, pad_t + 8))
+                   "%s</text>" % (6, pad_t + 8, _tr("H, м")))
         out.append("<text x='%.1f' y='%.1f' font-size='11' fill='#111' "
-                   "text-anchor='end'>Q, м³/с</text>"
-                   % (width - pad_r, height - 6))
+                   "text-anchor='end'>%s</text>"
+                   % (width - pad_r, height - 6, _tr("Q, м³/с")))
         out.append("</svg>")
         return "".join(out)
 
@@ -17678,7 +17681,8 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
             if not (z0 <= lv <= z1):
                 continue
             y = py(lv)
-            colour = "#38a" if lb.startswith("УВ ") else "#c33"
+            colour = "#38a" if lb.startswith(("УВ ", _tr("УВ %.2f %s")[:3])) \
+                else "#c33"
             spans = _hs_wet_spans(dd, zz, lv)
             for a, bx in spans:
                 out.append("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' "
@@ -17708,10 +17712,10 @@ class RatingCurveAlgorithm(IsolinerAlgorithm):
                        "text-anchor='end' fill='#555'>%.2f</text>"
                        % (pad_l - 5, py(zv) + 3, zv))
         out.append("<text x='%.1f' y='%.1f' font-size='11' fill='#111'>"
-                   "H, м</text>" % (6, pad_t - 10))
+                   "%s</text>" % (6, pad_t - 10, _tr("H, м")))
         out.append("<text x='%.1f' y='%.1f' font-size='11' fill='#111' "
-                   "text-anchor='end'>L, м</text>"
-                   % (width - pad_r, height - 6))
+                   "text-anchor='end'>%s</text>"
+                   % (width - pad_r, height - 6, _tr("L, м")))
         out.append("</svg>")
         return "".join(out)
 
@@ -19515,7 +19519,7 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
                 feedback.pushInfo(_tr(
                     "Диагностика ЦМР. СК выхода: EPSG:%s. Origin "
                     "(%.3f, %.3f), пиксель (%.4g, %.4g), размер %dx%d.") % (
-                    _au or "нет", _gt[0], _gt[3], _gt[1], _gt[5],
+                    _au or _tr("нет"), _gt[0], _gt[3], _gt[1], _gt[5],
                     _d.RasterXSize, _d.RasterYSize))
                 _d = None
         except Exception:  # nosec - диагностика не должна ронять расчёт
@@ -20304,7 +20308,7 @@ class _CollapseNodePostProcessor(QgsProcessingLayerPostProcessorInterface):
             if node is not None:
                 node.setExpanded(False)
         except (RuntimeError, AttributeError) as exc:
-            _topo_log("не удалось свернуть узел слоя: %s" % exc)
+            _topo_log(_tr("не удалось свернуть узел слоя: %s") % exc)
 
 
 def group_order_indices(names, order):
@@ -20376,7 +20380,7 @@ class _OrderInGroupPostProcessor(QgsProcessingLayerPostProcessorInterface):
             for ch in kids:
                 grp.removeChildNode(ch)
         except (RuntimeError, AttributeError) as exc:
-            _topo_log("не удалось упорядочить слои группы: %s" % exc)
+            _topo_log(_tr("не удалось упорядочить слои группы: %s") % exc)
 
 
 def _topo_group_layer(context, layer_id, name, collapse=True, order=None):
@@ -20406,7 +20410,7 @@ def _topo_group_layer(context, layer_id, name, collapse=True, order=None):
             _KEEP_ALIVE.append(pp)
             details.setPostProcessor(pp)
     except (RuntimeError, AttributeError) as exc:
-        _topo_log("не удалось назначить группу слоя: %s" % exc)
+        _topo_log(_tr("не удалось назначить группу слоя: %s") % exc)
 
 
 def _project_extent_in(context, crs):
@@ -20808,7 +20812,7 @@ class BasinsAlgorithm(IsolinerAlgorithm):
             try:
                 pt = transform.transform(pt)
             except QgsCsException as exc:
-                _topo_log("точка замыкания вне области СК: %s" % exc)
+                _topo_log(_tr("точка замыкания вне области СК: %s") % exc)
             px, py = gdal.ApplyGeoTransform(inv, pt.x(), pt.y())
             c, r = int(px), int(py)
             if not (0 <= r < ny and 0 <= c < nx):
@@ -22418,7 +22422,7 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             try:
                 geom.transform(tf)
             except QgsCsException as exc:
-                _topo_log("объект вне области СК, пропущен: %s" % exc)
+                _topo_log(_tr("объект вне области СК, пропущен: %s") % exc)
                 continue
             try:
                 multi = geom.asMultiPolyline()
@@ -22503,7 +22507,7 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             try:
                 geom.transform(tf)
             except QgsCsException as exc:
-                _topo_log("объект вне области СК, пропущен: %s" % exc)
+                _topo_log(_tr("объект вне области СК, пропущен: %s") % exc)
                 continue
             try:
                 multi = geom.asMultiPolyline()
@@ -22540,7 +22544,7 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             try:
                 geom.transform(tf)
             except QgsCsException as exc:
-                _topo_log("объект вне области СК, пропущен: %s" % exc)
+                _topo_log(_tr("объект вне области СК, пропущен: %s") % exc)
                 continue
             try:
                 mp = geom.asMultiPoint()
@@ -22581,7 +22585,7 @@ class Topo2RasterAlgorithm(IsolinerAlgorithm):
             try:
                 geom.transform(tf)
             except QgsCsException as exc:
-                _topo_log("объект вне области СК, пропущен: %s" % exc)
+                _topo_log(_tr("объект вне области СК, пропущен: %s") % exc)
                 continue
             zv = feat[field] if field else None
             try:

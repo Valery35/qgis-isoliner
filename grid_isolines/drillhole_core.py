@@ -32,6 +32,15 @@
 import hashlib
 import math
 
+try:  # перевод сообщений: язык интерфейса Isoliner, без QGIS - как есть
+    from .i18n import tr as _tr
+except ImportError:  # модуль загружен вне пакета (тесты)
+    try:
+        from i18n import tr as _tr
+    except ImportError:
+        def _tr(s):
+            return s
+
 
 # --- ожидаемые имена полей ----------------------------------------------
 
@@ -238,12 +247,12 @@ def explain_id_mismatch(orphan_ids, collar_ids):
             if a == b:
                 continue
             if a.casefold() == b.casefold():
-                return "различается только регистр: «%s» и «%s»" % (a, b)
+                return _tr("различается только регистр: «%s» и «%s»") % (a, b)
             if _delatin(a) == _delatin(b):
-                return ("совпадают на вид, но набраны в разных раскладках: "
-                        "«%s» и «%s»" % (a, b))
+                return (_tr("совпадают на вид, но набраны в разных раскладках: "
+                        "«%s» и «%s»") % (a, b))
             if a.replace(" ", "") == b.replace(" ", ""):
-                return "различаются только пробелами: «%s» и «%s»" % (a, b)
+                return _tr("различаются только пробелами: «%s» и «%s»") % (a, b)
     return None
 
 
