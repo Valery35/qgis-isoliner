@@ -19,7 +19,7 @@ interpolation, then Isoliner3D on the display.
 
 > Isoliner grows on the tasks of real mining operations. Need a feature for your production - contact us: [the "For enterprises" page](https://www.informpp.ru/главная-страница/предприятиям).
 
-**Found a bug or have a suggestion?** Open an [Issue](https://github.com/Valery35/qgis-isoliner/issues) with your QGIS version, what you were doing, and data or a project to reproduce — it makes the bug easier to repeat and faster to fix.
+**Found a bug or have a suggestion?** [Open an issue](https://github.com/Valery35/qgis-isoliner/issues/new/choose) and pick a form: **Bug report** or **Feature request**. The bug form asks for your QGIS and Isoliner versions, what you were doing, and data or a project to reproduce — it makes the bug easier to repeat and faster to fix.
 
 The plugin is free and open source. [Support development](https://github.com/Valery35#%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D1%83) (Russian bank cards via SBP)
 
