@@ -1,0 +1,48 @@
+name: Пожелание / Feature request
+description: Новый инструмент или доработка существующего / A new tool or an improvement of an existing one
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Isoliner развивается на задачах реальных предприятий. Опишите задачу так, как её решают у вас, тогда инструмент сделает именно то, что нужно.
+        Isoliner grows from the tasks of real companies. Describe the task the way it is solved at your site, and the tool will do exactly what is needed.
+  - type: dropdown
+    id: group
+    attributes:
+      label: Группа инструментов / Tool group
+      options:
+        - 1. Грид и изолинии / Grid and contours
+        - 2. Топография / Topography
+        - 3. Дополнительные инструменты анализа / Additional analysis tools
+        - 4. Разрез / Section
+        - 5. Геологическая модель / Geological model
+        - 6. Гидрология / Hydrology
+        - 7. Фрактальный анализ / Fractal analysis
+        - 8. Обмен данными / Data exchange
+        - 9. Сдвижения / Subsidence
+        - Окна модуля, руководство, установка / Plugin windows, manual, installation
+        - Не знаю / Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: task
+    attributes:
+      label: Задача / Task
+      description: Что нужно получить и для чего - карта, отчёт, слой, число. What you need to get and what for - a map, a report, a layer, a number.
+    validations:
+      required: true
+  - type: textarea
+    id: now
+    attributes:
+      label: Как это делается сейчас / How it is done now
+      description: Какие программы, инструменты или ручные шаги используются сегодня. Which programs, tools or manual steps are used today.
+    validations:
+      required: false
+  - type: textarea
+    id: example
+    attributes:
+      label: Пример / Example
+      description: Пример данных, рисунок или ссылка на методику. Sample data, a picture or a link to the method.
+    validations:
+      required: false

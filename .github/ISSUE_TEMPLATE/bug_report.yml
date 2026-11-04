@@ -1,35 +1,61 @@
-name: Bug report / Сообщить об ошибке
-description: Report a problem so it can be reproduced and fixed / Опишите проблему, чтобы её можно было воспроизвести и исправить
+name: Ошибка / Bug report
+description: Инструмент работает не так, как написано в справке / A tool does not work as its help says
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Спасибо за отчёт. Заполните три поля ниже - этого достаточно, чтобы повторить проблему.
-        Thanks for the report. Filling the three fields below is enough to reproduce the problem.
+        Спасибо за отчёт. Заполненных полей ниже достаточно, чтобы повторить ошибку и исправить её.
+        Thanks for the report. The fields below are enough to reproduce and fix the problem.
   - type: input
     id: versions
     attributes:
       label: Версии / Versions (QGIS + Isoliner)
-      description: Например / e.g. QGIS 4.0.3, Isoliner 2.19.0
-      placeholder: QGIS 4.0.3 · Isoliner 2.19.0
+      description: Версия Isoliner видна в окне «О модуле». The Isoliner version is shown in the About window.
+      placeholder: QGIS 4.0.3 · Isoliner 5.13.47
+    validations:
+      required: true
+  - type: dropdown
+    id: group
+    attributes:
+      label: Группа инструментов / Tool group
+      options:
+        - 1. Грид и изолинии / Grid and contours
+        - 2. Топография / Topography
+        - 3. Дополнительные инструменты анализа / Additional analysis tools
+        - 4. Разрез / Section
+        - 5. Геологическая модель / Geological model
+        - 6. Гидрология / Hydrology
+        - 7. Фрактальный анализ / Fractal analysis
+        - 8. Обмен данными / Data exchange
+        - 9. Сдвижения / Subsidence
+        - Окна модуля, руководство, установка / Plugin windows, manual, installation
+        - Не знаю / Not sure
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
       label: Что делали / What you did
-      description: Какой инструмент, какие параметры, что ожидали и что получилось. Which tool, which parameters, what you expected and what happened.
+      description: Номер и имя инструмента, параметры, что ожидали и что получилось. Tool number and name, parameters, what you expected and what happened.
       placeholder: |
-        1. Инструмент 3.1 «Разрез по линии» / Tool 3.1
-        2. ...
-        3. Ожидал ... получил ... / Expected ... got ...
+        1. Инструмент 4.07 «Проекция объектов на разрез» / Tool 4.07
+        2. Выход в GeoPackage, три разреза / GeoPackage output, three sections
+        3. Ожидал 81 объект, получил 27 / Expected 81 objects, got 27
     validations:
       required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Журнал / Log
+      description: Текст из вкладки «Журнал» окна инструмента или из журнала Python. Text from the Log tab of the tool window or the Python log.
+      render: text
+    validations:
+      required: false
   - type: textarea
     id: data
     attributes:
       label: Данные или проект / Data or project
-      description: Приложите минимальный слой / geopackage / проект .qgz и текст ошибки из лога Python, если он был. Attach a minimal layer / geopackage / .qgz project and the Python log text if there was an error.
+      description: Минимальный слой, GeoPackage или проект .qgz, на котором ошибка повторяется. Если данные закрытые, опишите их - система координат, число объектов, тип геометрии. A minimal layer, GeoPackage or .qgz project that shows the error. If the data are confidential, describe them - CRS, feature count, geometry type.
     validations:
       required: false
