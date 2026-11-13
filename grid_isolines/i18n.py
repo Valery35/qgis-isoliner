@@ -1392,6 +1392,8 @@ TRANSLATIONS = {
     'Прервано пользователем.': 'Cancelled by the user.',
     'Продление открытых концов за контур…': 'Extending open ends past the outline…',
     'Пропущено точек: %d без значения «%s»%s. Прочитано: %d.': 'Points skipped: %d without a value for "%s"%s. Read: %d.',
+    'Пропущено точек: %d без значения «%s». Прочитано: %d.': 'Points skipped: %d without a value for "%s". Read: %d.',
+    'Пропущено точек: %d без значения «%s» и %d без геометрии. Прочитано: %d.': 'Points skipped: %d without a value for "%s" and %d without geometry. Read: %d.',
     'Профиль «%s» сохранён: %s': 'Profile "%s" saved: %s',
     'Профиль «%s» сохранён: проверенная модель Структуры 1 (с анизотропией, если задана) + отсев.': 'Profile "%s" saved: validated Structure 1 model (with anisotropy, if set) + outlier removal.',
     'Профиль «%s» удалён.': 'Profile "%s" deleted.',

@@ -1833,6 +1833,118 @@ def _add_kriging_params(alg):
         defaultValue=_dv(alg, alg.VAL_CAP, False))))
 
 
+class _FeedbackReport(object):
+    """Отчёт расчёта toolspec в журнал Processing.
+
+    Шаблон и строковые аргументы переводятся при показе, как велит
+    контракт toolspec: слово-аргумент вроде N_("Z геометрии") имеет свой
+    перевод. lines копит строки как они ушли в журнал."""
+
+    def __init__(self, feedback):
+        self._fb = feedback
+        self.lines = []
+
+    @staticmethod
+    def text(template, args):
+        # перевод через псевдоним: шаблоны и слова приходят из run, их
+        # литералы с меткой N_() проверяет тест перевода в пакете tools,
+        # а прямой вызов _tr(имя) сборщик принял бы за константу модуля
+        translate = _tr
+        tr_args = tuple(translate(a) if isinstance(a, str) else a
+                        for a in args)
+        t = translate(template)
+        return t % tr_args if args else t
+
+    def info(self, template, *args):
+        s = self.text(template, args)
+        self.lines.append(("info", s))
+        if self._fb is not None:
+            self._fb.pushInfo(s)
+
+    def warn(self, template, *args):
+        s = self.text(template, args)
+        self.lines.append(("warn", s))
+        if self._fb is not None:
+            self._fb.pushWarning(s)
+
+    def progress(self, share):
+        if self._fb is not None:
+            self._fb.setProgress(100.0 * share)
+
+    def canceled(self):
+        return self._fb is not None and self._fb.isCanceled()
+
+
+def _spec_call(run, values, feedback):
+    """Вызвать run(values, report) и перевести отказ в ошибку Processing."""
+    from .toolspec import ToolError
+    try:
+        return run(values, _FeedbackReport(feedback))
+    except ToolError as exc:
+        raise QgsProcessingException(
+            _FeedbackReport.text(exc.template, exc.args_))
+
+
+def _plain_attr(v):
+    """Значение атрибута QGIS в простое значение Python: NULL - None."""
+    if v is None:
+        return None
+    try:
+        if v.isNull():
+            return None
+    except AttributeError:
+        pass
+    try:
+        if hasattr(v, "toPyDateTime") or hasattr(v, "toPyDate"):
+            return str(v.toString())
+    except (AttributeError, TypeError):
+        pass
+    return v
+
+
+def _layer_info(source, name=""):
+    """values["@КЛЮЧ"] контракта toolspec по источнику QGIS."""
+    flds = source.fields()
+    names = [flds.at(i).name() for i in range(flds.count())]
+    numeric = [flds.at(i).name() for i in range(flds.count())
+               if flds.at(i).isNumeric()]
+    gt = QgsWkbTypes.geometryType(source.wkbType())
+    G = QgsWkbTypes.GeometryType
+    # имя переменной не kind: _tr(kind) в 5.02 сделал бы эти слова
+    # строками интерфейса для теста перевода
+    geom_kind = "none"
+    if gt == G.PointGeometry:
+        geom_kind = "point"
+    elif gt == G.LineGeometry:
+        geom_kind = "line"
+    elif gt == G.PolygonGeometry:
+        geom_kind = "polygon"
+    return {"name": name, "geometry": geom_kind,
+            "hasz": bool(QgsWkbTypes.hasZ(source.wkbType())),
+            "fields": names, "numeric": numeric}
+
+
+def _spec_points(source):
+    """Точки источника в виде поля points контракта toolspec."""
+    flds = source.fields()
+    names = [flds.at(i).name() for i in range(flds.count())]
+    items = []
+    for f in source.getFeatures():
+        g = f.geometry()
+        xyz = None
+        if g is not None and not g.isEmpty():
+            p = g.asPoint()
+            cg = g.constGet()
+            try:
+                z = cg.z() if cg is not None else float("nan")
+            except AttributeError:
+                z = float("nan")
+            xyz = np.array([p.x(), p.y(), z], dtype=float)
+        attrs = dict((nm, _plain_attr(f[i])) for i, nm in enumerate(names))
+        items.append({"id": int(f.id()), "xyz": xyz, "attrs": attrs})
+    return items
+
+
 def _read_points(source, zfield, feedback=None,
                  vmin=None, vmax=None, pct=0.0, cap=False,
                  id_field=None, return_ids=False, request=None,
@@ -3260,7 +3372,7 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
         _restore_layer_defaults(self, (self.INPUT,))
 
     def _process(self, parameters, context, feedback):
-        from . import declus as dc
+        from .tools import declustering as spec
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         _remember_layers(self, parameters, context, _saved,
@@ -3269,50 +3381,29 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
         if source is None:
             raise QgsProcessingException(self.tr("Не задан точечный слой."))
         zfield = self.parameterAsString(parameters, self.ZFIELD, context)
-        xs, ys, vs = _read_points(source, zfield, feedback)
-        n = len(xs)
-        if n < 2:
-            raise QgsProcessingException(self.tr("Слишком мало точек."))
+        # Расчёт - tools/declustering.py (run без QGIS, его же переносит
+        # RustGIS). Здесь только слои на входе и выходе.
+        values = {
+            "INPUT": _spec_points(source),
+            "@INPUT": _layer_info(source),
+            "ZFIELD": zfield,
+            "MODE": self.parameterAsEnum(parameters, self.MODE, context),
+            "CELL_SIZE": self.parameterAsDouble(parameters, self.CELL_SIZE,
+                                                context),
+            "OBJECTIVE": self.parameterAsEnum(parameters, self.OBJECTIVE,
+                                              context),
+            "NCELL": self.parameterAsInt(parameters, self.NCELL, context),
+            "ASPECT": self.parameterAsDouble(parameters, self.ASPECT,
+                                             context),
+            "NOFF": self.parameterAsInt(parameters, self.NOFF, context),
+        }
+        out = _spec_call(spec.run, values, feedback)["OUTPUT"]
+        st = out.stats
+        naive, decl, best_cell = st["naive"], st["decl"], st["best_cell"]
+        sizes, means, vs, weights = (st["sizes"], st["means"], st["values"],
+                                     st["weights"])
 
-        mode = self._MODES[self.parameterAsEnum(
-            parameters, self.MODE, context)]
-        aspect = self.parameterAsDouble(parameters, self.ASPECT, context)
-        noff = self.parameterAsInt(parameters, self.NOFF, context)
-        sizes = means = None
-        if mode == "manual":
-            cell = self.parameterAsDouble(parameters, self.CELL_SIZE, context)
-            if cell <= 0:
-                lo, hi = dc.suggest_range(xs, ys)
-                cell = float(np.sqrt(lo * hi))
-                feedback.pushInfo(self.tr(
-                    "Размер ячейки не задан - взят %.4g.") % cell)
-            weights, decl = dc.cell_declus(xs, ys, vs, cell, cell * aspect,
-                                           noff)
-            best_cell = cell
-            naive = float(np.mean(vs))
-        else:
-            obj = "max" if self.parameterAsEnum(
-                parameters, self.OBJECTIVE, context) == 1 else "min"
-            ncell = self.parameterAsInt(parameters, self.NCELL, context)
-            lo, hi = dc.suggest_range(xs, ys)
-            res = dc.declus_sweep(xs, ys, vs, lo, hi, ncell=ncell, noff=noff,
-                                  aspect=aspect, objective=obj)
-            weights = res["weights"]; decl = res["decl_mean"]
-            naive = res["naive_mean"]; best_cell = res["best_cell"]
-            sizes = res["sizes"]; means = res["means"]
-
-        pct = (100.0 * (decl - naive) / naive) if naive else 0.0
-        feedback.pushInfo(self.tr("== Декластеризация =="))
-        feedback.pushInfo(self.tr("Точек: %d, размер ячейки: %.4g")
-                          % (n, best_cell))
-        feedback.pushInfo(self.tr("Среднее без весов:          %.4g") % naive)
-        feedback.pushInfo(self.tr("Декластеризованное среднее: %.4g (%+.2f%%)")
-                          % (decl, pct))
-        feedback.pushInfo(self.tr(
-            "Это среднее ставьте в «Среднее» простого кригинга, а поле wt - "
-            "в поле весов SGS."))
-
-        valname = _san(zfield) or "z"
+        valname = out.fields[0][0]
         fields = QgsFields()
         fields.append(QgsField(valname, QVariant.Double))
         fields.append(QgsField("wt", QVariant.Double))
@@ -3322,11 +3413,11 @@ class DeclusteringAlgorithm(IsolinerAlgorithm):
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields, QgsWkbTypes.Type.Point, crs)
         if sink is not None:
-            for i in range(n):
+            for geom, row in out.features:
                 f = QgsFeature(fields)
                 f.setGeometry(QgsGeometry.fromPointXY(
-                    QgsPointXY(float(xs[i]), float(ys[i]))))
-                f.setAttributes([float(vs[i]), float(weights[i])])
+                    QgsPointXY(float(geom["xyz"][0]), float(geom["xyz"][1]))))
+                f.setAttributes([float(row[0]), float(row[1])])
                 sink.addFeature(f)
         _set_output_name(context, dest,
                          self.tr("Веса декластеризации (%s)") % zfield)

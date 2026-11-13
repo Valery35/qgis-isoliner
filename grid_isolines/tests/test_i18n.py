@@ -31,6 +31,13 @@ import i18n  # noqa: E402
 # добавлять их приходилось на глаз.
 SCAN_FILES = sorted(f for f in os.listdir(PKG)
                     if f.endswith(".py") and f != "i18n.py")
+# Расчёты инструментов-объектов (пакет tools) пишут сообщения меткой N_(),
+# а переводит их класс QGIS при показе. Без этого пакета их строки выпали
+# бы из проверки перевода и стоп-слов.
+if os.path.isdir(os.path.join(PKG, "tools")):
+    SCAN_FILES += sorted(os.path.join("tools", f)
+                         for f in os.listdir(os.path.join(PKG, "tools"))
+                         if f.endswith(".py"))
 # Константы-списки и одиночные строки, обёрнутые как _tr(x) for x in LIST / _tr(NAME):
 # AST не видит их литералы в точке tr(), поэтому читаем сами присваивания.
 # Строки, которые переводят через имя: _tr(SEED_HELP), _tr(GROUP) и им
@@ -43,7 +50,7 @@ CONST_NAMES = None   # заполняется в collect_keys по вызова�
 # _trh), потому что языки интерфейса и справки разведены. Без этих имён весь
 # текст справки молча выпал бы из проверки покрытия переводом, и тест остался
 # бы зелёным, ничего не проверяя.
-TR_NAMES = ("_tr", "tr", "_trh", "tr_help")
+TR_NAMES = ("_tr", "tr", "_trh", "tr_help", "N_")
 TR_ATTRS = ("tr", "tr_help")
 
 

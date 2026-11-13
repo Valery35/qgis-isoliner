@@ -1,0 +1,131 @@
+# -*- coding: utf-8 -*-
+"""Инструменты-объекты: описание из класса и расчёт run в согласии.
+
+Описание для tools.json строится разбором класса QGIS
+(tools/classparams.py в корне репозитория), расчёт лежит в
+grid_isolines/tools. Сторож держит их вместе:
+
+- каждый инструмент RUNS описывается без ошибок, виды полей из
+  контракта toolspec, у подписей, пунктов и сообщений есть английский;
+- run читает только ключи, которые есть у класса, и сведения @КЛЮЧ
+  только у полей-слоёв;
+- name() класса совпадает с именем в RUNS.
+
+Исходники выгрузки в плагин не входят, поэтому в установленном модуле
+сторож пропускается.
+"""
+
+import ast
+import os
+import sys
+
+import pytest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PKG = os.path.dirname(HERE)
+ROOT = os.path.dirname(PKG)
+TOOLS_DIR = os.path.join(ROOT, "tools")
+
+pytestmark = pytest.mark.skipif(
+    not os.path.exists(os.path.join(TOOLS_DIR, "export_tools.py")),
+    reason="исходники выгрузки tools.json не входят в установленный модуль")
+
+
+def _export():
+    for p in (ROOT, TOOLS_DIR):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    import export_tools
+    return export_tools
+
+
+def _runs():
+    from grid_isolines.tools import RUNS
+    return RUNS
+
+
+def test_every_tool_is_described_from_its_class():
+    ex = _export()
+    data = ex.build()
+    names = [t["name"] for t in data["tools"]]
+    assert names == [r[0] for r in _runs()]
+    from grid_isolines import toolspec
+    for t in data["tools"]:
+        assert t["code"] and t["title"]["ru"] and t["help"]["ru"], t["name"]
+        assert t["title"]["en"] != t["title"]["ru"], t["name"]
+        for p in t["params"]:
+            assert p["kind"] in toolspec.KINDS, (t["name"], p["key"])
+            assert p["label"]["en"] != p["label"]["ru"], (t["name"], p["key"])
+            for o in p.get("options", []):
+                assert o["en"] != o["ru"], (t["name"], p["key"], o["ru"])
+        for m in t["messages"]:
+            assert m["en"] != m["ru"], (t["name"], m["ru"])
+
+
+def _keys_read(path):
+    """Ключи values["..."] и values.get("...") в модуле расчёта."""
+    tree = ast.parse(open(path, encoding="utf-8").read())
+    keys = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "values"
+                and isinstance(node.slice, ast.Constant)):
+            keys.add(node.slice.value)
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "get"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "values" and node.args
+                and isinstance(node.args[0], ast.Constant)):
+            keys.add(node.args[0].value)
+    return keys
+
+
+def test_run_reads_only_keys_of_the_class():
+    ex = _export()
+    from grid_isolines import toolspec
+    for name, mod, _cls in _runs():
+        tool = ex.spec(name)
+        own = set(p.key for p in tool.params)
+        layers = set("@" + p.key for p in tool.params
+                     if p.kind in toolspec.SOURCE_KINDS)
+        path = os.path.join(PKG, "tools", mod + ".py")
+        extra = _keys_read(path) - own - layers
+        assert not extra, (name, sorted(extra))
+
+
+def test_declustering_run_matches_the_core():
+    """run 1.05 даёт те же веса, что ядро declus на тех же точках."""
+    import numpy as np
+    from grid_isolines import declus as dc
+    from grid_isolines import toolspec
+    from grid_isolines.tools import declustering as spec
+    pts = [(0, 0, 1.0), (100, 0, 1.2), (0, 100, 1.1), (100, 100, 1.3),
+           (10, 10, 5.0), (12, 8, 5.5), (8, 12, 4.5), (200, 200, 2.0)]
+    items = [{"id": i, "xyz": np.array([x, y, np.nan]), "attrs": {"au": v}}
+             for i, (x, y, v) in enumerate(pts)]
+    rep = toolspec.Report()
+    vals = {"INPUT": items, "ZFIELD": "au", "MODE": 1, "CELL_SIZE": 50.0,
+            "OBJECTIVE": 0, "NCELL": 24, "ASPECT": 1.0, "NOFF": 4}
+    out = spec.run(vals, rep)["OUTPUT"]
+    xs, ys, vs = (np.array([p[i] for p in pts], float) for i in range(3))
+    # совпадающих точек нет, порядок слоя сохраняется
+    w, decl = dc.cell_declus(xs, ys, vs, 50.0, 50.0, 4)
+    got = np.array([row[1] for _g, row in out.features])
+    assert np.allclose(got, w)
+    assert out.fields == [("au", "double"), ("wt", "double")]
+    assert any("Декластеризованное среднее" in s for _k, s in rep.lines)
+
+
+def test_declustering_refuses_without_value():
+    import numpy as np
+    from grid_isolines import toolspec
+    from grid_isolines.tools import declustering as spec
+    items = [{"id": 1, "xyz": np.array([0.0, 0.0, np.nan]), "attrs": {}},
+             {"id": 2, "xyz": np.array([1.0, 1.0, np.nan]), "attrs": {}}]
+    with pytest.raises(toolspec.ToolError) as exc:
+        spec.run({"INPUT": items, "ZFIELD": "", "MODE": 0, "ASPECT": 1.0,
+                  "NOFF": 4, "NCELL": 24,
+                  "@INPUT": {"hasz": False, "fields": []}},
+                 toolspec.Report())
+    assert "без Z" in exc.value.template
