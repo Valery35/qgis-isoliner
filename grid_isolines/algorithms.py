@@ -19015,12 +19015,11 @@ class LineDimensionAlgorithm(IsolinerAlgorithm):
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             src.wkbType(), src.sourceCrs())
-        total = src.featureCount() or 1
-        dsum, dcnt = 0.0, 0
-        for k, ft in enumerate(src.getFeatures()):
-            if feedback.isCanceled():
-                break
-            feedback.setProgress(100.0 * k / total)
+        # Расчёт - tools/line_dimension.py (run без QGIS, его же переносит
+        # RustGIS). Здесь части объектов на вход и запись результата.
+        from .tools import line_dimension as spec
+        items, by_id = [], {}
+        for ft in src.getFeatures():
             g = ft.geometry()
             pts = []
             if g is not None and not g.isEmpty():
@@ -19047,22 +19046,18 @@ class LineDimensionAlgorithm(IsolinerAlgorithm):
                         except Exception:
                             mp = []
                     parts = [poly[0] for poly in mp if poly]
-                best = max(parts, key=len) if parts else []
-                pts = [(p.x(), p.y()) for p in best]
-            D = float("nan"); steps = 0
-            if len(pts) >= 3:
-                D, _r, ss = divider_dimension(np.array(pts))
-                steps = int(ss[-1]) if ss else 0
+                pts = [np.array([(p.x(), p.y(), np.nan) for p in part],
+                                dtype=float).reshape(-1, 3)
+                       for part in parts]
+            items.append({"id": int(ft.id()), "parts": pts, "attrs": {}})
+            by_id[int(ft.id())] = ft
+        res = _spec_call(spec.run, {"LINES": items}, feedback)["OUTPUT"]
+        for geom, row in res.features:
+            ft = by_id[geom["source"]]
             f = QgsFeature(fields)
-            f.setGeometry(g)
-            f.setAttributes(list(ft.attributes()) +
-                            [None if D != D else round(D, 4), steps])
+            f.setGeometry(ft.geometry())
+            f.setAttributes(list(ft.attributes()) + list(row))
             sink.addFeature(f)
-            if D == D:
-                dsum += D; dcnt += 1
-        if dcnt:
-            feedback.pushInfo(
-                _tr("Среднее D по %d линиям: %.3f.") % (dcnt, dsum / dcnt))
         _set_output_name(context, dest, self.tr("Линии с размерностью"))
         _save_values(self, _saved)
         return {self.OUTPUT: dest}

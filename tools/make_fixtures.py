@@ -256,11 +256,43 @@ def bed_grades_runs():
     return runs
 
 
+# --- 7.03 Размерность линий и границ ---------------------------------------
+
+def feature_items(rows, outer_only=False):
+    """[(имя, части)] в поле features: JSON и NumPy. У полигона частью идёт
+    только внешнее кольцо, как велит контракт."""
+    js, feed = [], []
+    for i, (name, parts) in enumerate(rows):
+        use = parts[:1] if outer_only else parts
+        js.append({"id": i + 1, "attrs": {"name": name},
+                   "parts": [[[x, y, None] for x, y in p] for p in use]})
+        feed.append({"id": i + 1, "attrs": {"name": name},
+                     "parts": [np.array([[x, y, np.nan] for x, y in p],
+                                        dtype=float) for p in use]})
+    return js, feed
+
+
+def line_dimension_runs():
+    tool = export_tools.spec("line_dimension")
+    cls = "LineDimensionAlgorithm"
+    runs = []
+    for rows, geom, outer in ((datasets.dimension_lines(), "line", False),
+                              (datasets.dimension_polygons(), "polygon",
+                               True)):
+        js, feed = feature_items(rows, outer)
+        meta = {"@LINES": {"name": geom + "s", "geometry": geom,
+                           "hasz": False, "fields": ["name"], "numeric": []}}
+        runs.append(spec_run(tool, cls, _defaults(tool), {"LINES": js},
+                             {"LINES": feed}, meta, {"values_rel": 1e-9}))
+    return runs
+
+
 def tool_runs(out):
     runs = []
     runs += declustering_runs()
     runs += geophys_runs()
     runs += bed_grades_runs()
+    runs += line_dimension_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
     return runs
 

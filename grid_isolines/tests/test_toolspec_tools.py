@@ -170,6 +170,25 @@ def test_bed_grades_weight_by_overlap_and_skip_missing():
         spec.run(dict(vals, BED="XX"), toolspec.Report())
 
 
+def test_line_dimension_keeps_source_and_measures_longest_part():
+    """7.03: прямая даёт D около единицы, короткая линия - пусто, выход
+    ссылается на объекты источника."""
+    import numpy as np
+    from grid_isolines import toolspec
+    from grid_isolines.tools import line_dimension as spec
+    nan = np.nan
+    xs = np.linspace(0, 1000, 200)
+    straight = np.column_stack([xs, np.zeros_like(xs), np.full_like(xs, nan)])
+    short = np.array([[0, 0, nan], [5, 0, nan]])
+    items = [{"id": 11, "attrs": {}, "parts": [short, straight]},
+             {"id": 12, "attrs": {}, "parts": [short]}]
+    out = spec.run({"LINES": items}, toolspec.Report())["OUTPUT"]
+    assert out.keep_source == "LINES" and out.geometry == "source"
+    (g1, r1), (g2, r2) = out.features
+    assert g1 == {"source": 11} and g2 == {"source": 12}
+    assert abs(r1[0] - 1.0) < 0.05 and r2 == [None, 0]
+
+
 def test_declustering_refuses_without_value():
     import numpy as np
     from grid_isolines import toolspec
