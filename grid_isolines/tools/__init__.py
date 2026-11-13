@@ -15,6 +15,7 @@ RUNS - (имя инструмента, модуль расчёта, класс Q
 
 RUNS = (
     ("declustering", "declustering", "DeclusteringAlgorithm"),
+    ("geophysprofiles", "geophys_profiles", "GeophysProfilesDemoAlgorithm"),
 )
 
 

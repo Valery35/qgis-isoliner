@@ -6119,41 +6119,30 @@ class GeophysProfilesDemoAlgorithm(IsolinerAlgorithm):
             QgsProcessing.SourceType.TypeVectorPoint))
 
     def _process(self, parameters, context, feedback):
-        from . import geodemo
+        from .tools import geophys_profiles as spec
         feedback.pushInfo(_version_line())
         crs = self.parameterAsExtentCrs(parameters, self.EXTENT, context)
         rect = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
         if rect.isEmpty():
             raise QgsProcessingException(self.tr("Не задан охват."))
         mode = self._MODES[self.parameterAsEnum(parameters, self.MODE, context)]
-        n_prof = self.parameterAsInt(parameters, self.N_PROFILES, context)
-        step = self.parameterAsDouble(parameters, self.PICKET_STEP, context)
-        z_base = self.parameterAsDouble(parameters, self.Z_BASE, context)
-        z_amp = self.parameterAsDouble(parameters, self.Z_AMP, context)
-        seed = self.parameterAsInt(parameters, self.SEED, context)
-        args = dict(n_profiles=n_prof, picket_step=step, z_base=z_base,
-                    z_amp=z_amp, seed=seed)
-        ext = (rect.xMinimum(), rect.yMinimum(), rect.xMaximum(),
-               rect.yMaximum())
-
-        fields = QgsFields()
-        fields.append(QgsField("profile", QVariant.Int))
-        fields.append(QgsField("picket_m", QVariant.Double))
-        fields.append(QgsField("pk", QVariant.String))
+        # Расчёт - tools/geophys_profiles.py (run без QGIS, его же переносит
+        # RustGIS). Охват уходит в run двумя углами, как объект слоя.
+        values = {"EXTENT": [{"id": 0, "attrs": {}, "parts": [np.array(
+            [[rect.xMinimum(), rect.yMinimum(), np.nan],
+             [rect.xMaximum(), rect.yMaximum(), np.nan]])]}]}
+        for key in (self.MODE, self.SUBS_SIGN):
+            values[key] = self.parameterAsEnum(parameters, key, context)
+        for key in (self.N_PROFILES, self.N_TOURS, self.SEED):
+            values[key] = self.parameterAsInt(parameters, key, context)
+        for key in (self.PICKET_STEP, self.Z_BASE, self.Z_AMP, self.SUBS_MAX,
+                    self.RHO_BG, self.RHO_MIN, self.SP_AMP, self.VP_AMP,
+                    self.NOISE):
+            values[key] = self.parameterAsDouble(parameters, key, context)
+        qtypes = {"int": QVariant.Int, "double": QVariant.Double,
+                  "string": QVariant.String}
 
         if mode == "subsidence":
-            subs = self.parameterAsDouble(parameters, self.SUBS_MAX, context)
-            n_tours = self.parameterAsInt(parameters, self.N_TOURS, context)
-            positive = self.parameterAsEnum(
-                parameters, self.SUBS_SIGN, context) == 1
-            d = geodemo.gen_subsidence(
-                *ext, subs_max=subs, n_tours=n_tours, positive=positive,
-                noise=max(subs * 0.01, 1.0), **args)
-            for nm in ("tour", "z", "settle", "settle_true"):
-                fields.append(QgsField(
-                    nm, QVariant.Int if nm == "tour" else QVariant.Double))
-            cols = ("profile", "picket_m", "__pk__", "tour", "z", "settle",
-                    "settle_true")
             aliases = {"profile": self.tr("Профиль"),
                        "picket_m": self.tr("Пикет, м"),
                        "pk": self.tr("Пикет (ПК)"), "tour": self.tr("Тур"),
@@ -6161,18 +6150,6 @@ class GeophysProfilesDemoAlgorithm(IsolinerAlgorithm):
                        "settle": self.tr("Оседание, мм"),
                        "settle_true": self.tr("Оседание без шума, мм")}
         else:
-            rho_bg = self.parameterAsDouble(parameters, self.RHO_BG, context)
-            rho_min = self.parameterAsDouble(parameters, self.RHO_MIN, context)
-            sp_amp = self.parameterAsDouble(parameters, self.SP_AMP, context)
-            vp_amp = self.parameterAsDouble(parameters, self.VP_AMP, context)
-            noise = self.parameterAsDouble(parameters, self.NOISE, context)
-            d = geodemo.gen_profiles(
-                *ext, rho_bg=rho_bg, rho_min=rho_min, sp_amp=sp_amp,
-                vp_amp=vp_amp, noise=noise, **args)
-            for nm in ("z", "rho_k", "rho_true", "sp", "vp"):
-                fields.append(QgsField(nm, QVariant.Double))
-            cols = ("profile", "picket_m", "__pk__", "z", "rho_k", "rho_true",
-                    "sp", "vp")
             aliases = {"profile": self.tr("Профиль"),
                        "picket_m": self.tr("Пикет, м"),
                        "pk": self.tr("Пикет (ПК)"), "z": self.tr("Отметка z, м"),
@@ -6180,47 +6157,35 @@ class GeophysProfilesDemoAlgorithm(IsolinerAlgorithm):
                        "rho_true": self.tr("ρк без шума, Ом·м"),
                        "sp": self.tr("ЕП, мВ"), "vp": self.tr("ВП, мВ/В")}
 
+        # Журнал расчёта шёл после записи слоя: отчёт копится и уходит
+        # в журнал после записи, порядок строк прежний.
+        rep = _FeedbackReport(None)
+        from .toolspec import ToolError
+        try:
+            out = spec.run(values, rep)["OUTPUT"]
+        except ToolError as exc:
+            raise QgsProcessingException(
+                _FeedbackReport.text(exc.template, exc.args_))
+        fields = QgsFields()
+        for nm, tp in out.fields:
+            fields.append(QgsField(nm, qtypes[tp]))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields, QgsWkbTypes.Type.Point, crs)
         if sink is None:
             raise QgsProcessingException(self.tr("Не создан слой результата."))
-        xs = d["x"]; ys = d["y"]; pkm = d["picket_m"]
-        n = len(d["profile"])
-        for i in range(n):
+        for geom, row in out.features:
             f = QgsFeature(fields)
             f.setGeometry(QgsGeometry.fromPointXY(
-                QgsPointXY(float(xs[i]), float(ys[i]))))
-            attrs = []
-            for c in cols:
-                if c == "__pk__":
-                    attrs.append(geodemo.pk_label(pkm[i]))
-                elif c == "profile" or c == "tour":
-                    attrs.append(int(d[c][i]))
-                else:
-                    attrs.append(float(d[c][i]))
-            f.setAttributes(attrs)
+                QgsPointXY(float(geom["xyz"][0]), float(geom["xyz"][1]))))
+            f.setAttributes(list(row))
             sink.addFeature(f)
-
-        n_prof_act = int(len(set(d["profile"].tolist())))
+        for level, line in rep.lines:
+            (feedback.pushWarning if level == "warn"
+             else feedback.pushInfo)(line)
         if mode == "subsidence":
-            feedback.pushInfo(self.tr(
-                "Оседания: профилей %d, туров %d, точек %d. Мульда до %.1f мм. "
-                "Разность settle между турами по одним пикетам даёт скорость "
-                "оседания.") % (n_prof_act,
-                int(len(set(d["tour"].tolist()))), n,
-                float(d["settle"].min())))
             layer_name = self.tr("Профили оседаний (мульда, туров: %d)") \
-                % int(len(set(d["tour"].tolist())))
+                % out.stats["n_tours"]
         else:
-            rho = d["rho_k"]; sp = d["sp"]
-            feedback.pushInfo(self.tr(
-                "Электроразведка: профилей %d, точек %d. ρк %.4g..%.4g Ом·м, "
-                "ЕП %.1f..%.1f мВ.") % (n_prof_act, n, float(rho.min()),
-                float(rho.max()), float(sp.min()), float(sp.max())))
-            feedback.pushInfo(self.tr(
-                "Интерполируйте rho_k (2D Kriging или минимальная кривизна) и "
-                "постройте изолинии - аномалия-пятно оконтурится. Поле rho_true "
-                "- эталон без шума для проверки точности."))
             layer_name = self.tr("Профили электроразведки (ρк, ЕП, ВП)")
         _set_output_name(context, dest, layer_name)
         _set_field_aliases(context, dest, aliases)

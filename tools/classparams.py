@@ -6,9 +6,15 @@ shortHelpString - справку, initAlgorithm - поля. Поля описы�
 видами контракта toolspec. Выход-файл (HTML) в контракт не входит и
 пропускается: в RustGIS цифры отчёта идут в report.
 
-Подписи - русские литералы self.tr(...), английские берутся из
-i18n.TRANSLATIONS. Подсказки - строки setHelp(_trh(...)) у переменной
-параметра, если они есть.
+initAlgorithm обходится по операторам в порядке текста. Понимаются
+параметр прямо в addParameter, параметр в переменной (p = ...;
+_advanced(p); self.addParameter(p)), обёртка _advanced(...) и цикл по
+кортежу литералов (for key, label, dv in ((...), (...)):). Подписи -
+русские литералы self.tr(...), английские берутся из i18n.TRANSLATIONS.
+Подсказки - строки setHelp(_trh(...)) у переменной параметра.
+
+То, чего из класса не видно или что в RustGIS иначе (охват), задаёт
+модуль расчёта словарём SPEC_OVERRIDES.
 """
 
 import ast
@@ -71,15 +77,22 @@ def _method(cls, name):
     return None
 
 
-def _text(node):
-    """Строка из литерала или вызова перевода self.tr("..."), _trh("...")."""
+def _fname(call):
+    f = call.func
+    return f.id if isinstance(f, ast.Name) else getattr(f, "attr", "")
+
+
+def _text(node, env=None):
+    """Строка из литерала или вызова перевода self.tr("..."), _trh("...").
+
+    env - имена переменных цикла и их узлы: for key, label in (...)."""
+    if isinstance(node, ast.Name) and env and node.id in env:
+        return _text(env[node.id], env)
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.Call) and node.args:
-        f = node.func
-        nm = f.id if isinstance(f, ast.Name) else getattr(f, "attr", "")
-        if nm in ("tr", "_tr", "_trh", "tr_help"):
-            return _text(node.args[0])
+        if _fname(node) in ("tr", "_tr", "_trh", "tr_help"):
+            return _text(node.args[0], env)
     return None
 
 
@@ -90,24 +103,26 @@ def _kw(call, name):
     return None
 
 
-def _value(node, consts):
-    """Значение по умолчанию: литерал, _dv(self, KEY, fallback), список."""
+def _value(node, consts, env=None):
+    """Значение: литерал, _dv(self, KEY, fallback), список, константа."""
     if node is None:
         return None
+    if isinstance(node, ast.Name) and env and node.id in env:
+        return _value(env[node.id], consts, env)
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        v = _value(node.operand, consts)
+        v = _value(node.operand, consts, env)
         return -v if isinstance(v, (int, float)) else None
     if isinstance(node, ast.Call):
-        f = node.func
-        nm = f.id if isinstance(f, ast.Name) else getattr(f, "attr", "")
-        if nm in ("_dv", "_dv_layer") and len(node.args) >= 3:
-            return _value(node.args[2], consts)
-        if nm in ("_dv_layer",):
-            return None
+        if _fname(node) == "_dv" and len(node.args) >= 3:
+            return _value(node.args[2], consts, env)
+        return None
     if isinstance(node, (ast.List, ast.Tuple)):
-        return [_value(e, consts) for e in node.elts]
+        return [_value(e, consts, env) for e in node.elts]
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
+            and node.value.id == "self" and node.attr in consts:
+        return consts[node.attr]
     if isinstance(node, ast.Name) and node.id in consts:
         return consts[node.id]
     return None
@@ -126,74 +141,102 @@ _SOURCE_KIND = {"TypeVectorPoint": "points", "TypeVectorLine": "lines",
                 "TypeVectorPolygon": "features",
                 "TypeVectorAnyGeometry": "features", "TypeVector": "table"}
 _SINK_GEOM = {"TypeVectorPoint": "point", "TypeVectorLine": "line",
-              "TypeVectorPolygon": "source", "TypeVector": "none"}
+              "TypeVectorPolygon": "source", "TypeVectorAnyGeometry": "source",
+              "TypeVector": "none"}
 
 
-def _helps(init):
-    """Подсказки: переменная параметра -> текст setHelp."""
-    out = {}
-    for node in ast.walk(init):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "setHelp" and node.args
-                and isinstance(node.func.value, ast.Name)):
-            t = _text(node.args[0])
-            if t:
-                out[node.func.value.id] = t
-    return out
+class _State(object):
+    def __init__(self):
+        self.vars = {}      # имя -> (узел вызова, env)
+        self.adv = set()    # переменные, обёрнутые _advanced(имя)
+        self.helps = {}     # переменная -> подсказка
+        self.found = []     # (узел вызова, env, advanced, подсказка)
+
+
+def _strip_adv(node):
+    if isinstance(node, ast.Call) and _fname(node) == "_advanced" \
+            and node.args:
+        return node.args[0], True
+    return node, False
+
+
+def _walk(stmts, env, st):
+    for s in stmts:
+        if isinstance(s, ast.For) and isinstance(s.iter, (ast.Tuple,
+                                                          ast.List)):
+            names = s.target.elts if isinstance(s.target, ast.Tuple) \
+                else [s.target]
+            for elt in s.iter.elts:
+                vals = elt.elts if isinstance(elt, ast.Tuple) else [elt]
+                e2 = dict(env)
+                for n, v in zip(names, vals):
+                    if isinstance(n, ast.Name):
+                        e2[n.id] = v
+                _walk(s.body, e2, st)
+            continue
+        if isinstance(s, (ast.If, ast.For, ast.While, ast.With, ast.Try)):
+            for part in ("body", "orelse", "finalbody"):
+                _walk(getattr(s, part, []) or [], env, st)
+            for h in getattr(s, "handlers", []) or []:
+                _walk(h.body, env, st)
+            continue
+        if isinstance(s, ast.Assign) and isinstance(s.value, ast.Call):
+            for t in s.targets:
+                if isinstance(t, ast.Name):
+                    node, adv = _strip_adv(s.value)
+                    st.vars[t.id] = (node, dict(env))
+                    st.adv.discard(t.id)
+                    if adv:
+                        st.adv.add(t.id)
+            continue
+        if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Call)):
+            continue
+        call = s.value
+        name = _fname(call)
+        if name == "_advanced" and call.args and isinstance(call.args[0],
+                                                             ast.Name):
+            st.adv.add(call.args[0].id)
+        elif name == "setHelp" and isinstance(call.func, ast.Attribute) \
+                and isinstance(call.func.value, ast.Name) and call.args:
+            t = _text(call.args[0], env)
+            var = call.func.value.id
+            if t and var in st.vars:
+                # переменную p заводят заново под каждый параметр, поэтому
+                # подсказка привязывается к узлу параметра, а не к имени
+                st.helps[id(st.vars[var][0])] = t
+        elif name == "addParameter" and call.args:
+            arg, adv = _strip_adv(call.args[0])
+            if isinstance(arg, ast.Name):
+                if arg.id not in st.vars:
+                    raise SpecError("parameter variable %s not resolved"
+                                    % arg.id)
+                node, e = st.vars[arg.id]
+                st.found.append((node, e, adv or arg.id in st.adv,
+                                 arg.id))
+            else:
+                st.found.append((arg, dict(env), adv, None))
 
 
 def params(cls_name, overrides=None):
     """Поля инструмента в виде словарей Param.to_dict (русские строки).
 
-    overrides - {ключ: {поле: значение}}: то, чего из класса не видно
-    (например, вид слоя, когда класс принимает любую геометрию)."""
+    overrides - {ключ: {поле: значение}}: то, чего из класса не видно,
+    или что в RustGIS устроено иначе (охват - слоем)."""
     cls = class_node(cls_name)
     consts = dict(_module_consts())
     consts.update(_class_consts(cls))
     init = _method(cls, "initAlgorithm")
     if init is None:
         raise SpecError("%s has no initAlgorithm" % cls_name)
-    helps = _helps(init)
-    var_of = {}
-    for node in ast.walk(init):
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
-            for t in node.targets:
-                if isinstance(t, ast.Name):
-                    var_of[id(node.value)] = t.id
+    st = _State()
+    _walk(init.body, {}, st)
     out = []
-    calls = [node for node in ast.walk(init)
-             if isinstance(node, ast.Call) and isinstance(node.func,
-                                                          ast.Attribute)
-             and node.func.attr == "addParameter"]
-    calls.sort(key=lambda n: (n.lineno, n.col_offset))
-    for node in calls:
-        arg = node.args[0]
-        advanced = False
-        if isinstance(arg, ast.Call) and getattr(arg.func, "id", "") == \
-                "_advanced":
-            advanced = True
-            arg = arg.args[0]
-        if isinstance(arg, ast.Name):
-            # параметр заведён в переменную раньше
-            for n2 in ast.walk(init):
-                if (isinstance(n2, ast.Assign) and any(
-                        isinstance(t, ast.Name) and t.id == arg.id
-                        for t in n2.targets)):
-                    var = arg.id
-                    arg = n2.value
-                    if isinstance(arg, ast.Call) and getattr(
-                            arg.func, "id", "") == "_advanced":
-                        advanced = True
-                        arg = arg.args[0]
-                    break
-            else:
-                raise SpecError("%s: parameter %s not resolved"
-                                % (cls_name, arg.id))
-        else:
-            var = var_of.get(id(arg))
-        out.append(_param(cls_name, arg, consts, advanced,
-                          helps.get(var, "") if var else ""))
-    out = [p for p in out if p is not None]
+    for node, env, adv, var in st.found:
+        # подсказка ставится после addParameter, поэтому берётся в конце
+        p = _param(cls_name, node, consts, env, adv,
+                   st.helps.get(id(node), ""))
+        if p is not None:
+            out.append(p)
     if overrides:
         for p in out:
             p.update(overrides.get(p["key"], {}))
@@ -204,29 +247,35 @@ def params(cls_name, overrides=None):
     return out
 
 
-def _param(cls_name, call, consts, advanced, hint):
-    f = call.func
-    qtype = f.id if isinstance(f, ast.Name) else getattr(f, "attr", "")
+def _param(cls_name, call, consts, env, advanced, hint):
+    qtype = _fname(call)
     kind_name = qtype.replace("QgsProcessingParameter", "")
     a = call.args
     keynode = a[0]
     if isinstance(keynode, ast.Attribute):
         key = consts.get(keynode.attr, keynode.attr)
     else:
-        key = _value(keynode, consts)
-    label = _text(a[1]) if len(a) > 1 else _text(_kw(call, "description"))
+        key = _value(keynode, consts, env)
+    label = _text(a[1], env) if len(a) > 1 else \
+        _text(_kw(call, "description"), env)
     if label is None:
         raise SpecError("%s.%s: label is not a literal" % (cls_name, key))
-    optional = _value(_kw(call, "optional"), consts) is True
+    optional = _value(_kw(call, "optional"), consts, env) is True
     p = {"key": key, "label": label, "hint": hint}
     if advanced:
         p["advanced"] = True
+
+    def kw(name):
+        return _value(_kw(call, name), consts, env)
+
     if kind_name == "FeatureSource":
         types = a[2] if len(a) > 2 else _kw(call, "types")
         tails = [_attr_tail(e) for e in getattr(types, "elts", [])]
         kinds = set(_SOURCE_KIND.get(t, "features") for t in tails) or \
             {"table"}
         p["kind"] = kinds.pop() if len(kinds) == 1 else "features"
+    elif kind_name == "VectorLayer":
+        p["kind"] = "table"
     elif kind_name == "Field":
         p["kind"] = "field"
         parent = _kw(call, "parentLayerParameterName")
@@ -236,36 +285,37 @@ def _param(cls_name, call, consts, advanced, hint):
             p["parent"] = consts.get(parent.attr, parent.attr)
         if _attr_tail(_kw(call, "type")) == "Numeric":
             p["numeric"] = True
-        if _value(_kw(call, "allowMultiple"), consts) is True:
+        if kw("allowMultiple") is True:
             p["multiple"] = True
-        d = _value(_kw(call, "defaultValue"), consts)
-        p["default"] = d if d is not None else ""
+        d = kw("defaultValue")
+        p["default"] = d if d is not None else ("" if not p.get("multiple")
+                                                else [])
     elif kind_name == "Enum":
         p["kind"] = "enum"
         opts = _kw(call, "options")
         if opts is None and len(a) > 2:
             opts = a[2]
-        p["options"] = [_text(e) for e in getattr(opts, "elts", [])]
-        if None in p["options"]:
+        p["options"] = [_text(e, env) for e in getattr(opts, "elts", [])]
+        if None in p["options"] or not p["options"]:
             raise SpecError("%s.%s: option is not a literal"
                             % (cls_name, key))
-        p["default"] = _value(_kw(call, "defaultValue"), consts)
-        if _value(_kw(call, "allowMultiple"), consts) is True:
+        p["default"] = kw("defaultValue")
+        if kw("allowMultiple") is True:
             p["multiple"] = True
     elif kind_name == "Number":
         t = _attr_tail(a[2]) if len(a) > 2 else _attr_tail(_kw(call, "type"))
         p["kind"] = "integer" if t == "Integer" else "number"
-        p["default"] = _value(_kw(call, "defaultValue"), consts)
+        p["default"] = kw("defaultValue")
         for qn, nm in (("minValue", "minimum"), ("maxValue", "maximum")):
-            v = _value(_kw(call, qn), consts)
+            v = kw(qn)
             if v is not None:
                 p[nm] = v
     elif kind_name == "Boolean":
         p["kind"] = "bool"
-        p["default"] = bool(_value(_kw(call, "defaultValue"), consts))
+        p["default"] = bool(kw("defaultValue"))
     elif kind_name == "String":
         p["kind"] = "string"
-        d = _value(_kw(call, "defaultValue"), consts)
+        d = kw("defaultValue")
         p["default"] = d if d is not None else ""
     elif kind_name == "FeatureSink":
         t = _attr_tail(a[2]) if len(a) > 2 else _attr_tail(_kw(call, "type"))
@@ -273,7 +323,7 @@ def _param(cls_name, call, consts, advanced, hint):
         p["geometry"] = _SINK_GEOM.get(t, "none")
     elif kind_name == "Extent":
         p["kind"] = "_extent"
-    elif kind_name == "FileDestination":
+    elif kind_name in ("FileDestination", "FolderDestination"):
         return None
     else:
         raise SpecError("%s.%s: %s is not in the toolspec contract"
@@ -297,13 +347,11 @@ def title(cls_name):
 def help_text(cls_name):
     m = _method(class_node(cls_name), "shortHelpString")
     for node in ast.walk(m):
-        if isinstance(node, ast.Call):
-            f = node.func
-            nm = f.id if isinstance(f, ast.Name) else getattr(f, "attr", "")
-            if nm in ("_trh", "tr_help", "tr", "_tr"):
-                t = _text(node)
-                if t:
-                    return t
+        if isinstance(node, ast.Call) and _fname(node) in (
+                "_trh", "tr_help", "tr", "_tr"):
+            t = _text(node)
+            if t:
+                return t
     return ""
 
 

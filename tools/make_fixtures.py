@@ -173,9 +173,59 @@ def declustering_runs():
     return runs
 
 
+# --- 1.11 Пример геофизических профилей ------------------------------------
+
+def geophys_runs():
+    """Охват - слой: прямоугольник участка полигоном и две точки-угла.
+
+    Числа идут от генератора NumPy, поэтому допуск задаёт сверку по
+    количеству точек, полям и пикетажу, а не по значениям."""
+    tool = export_tools.spec("geophysprofiles")
+    cls = "GeophysProfilesDemoAlgorithm"
+    x0, y0 = datasets.X0, datasets.Y0
+    poly = [{"id": 1, "attrs": {"name": "участок"},
+             "parts": [[[x0, y0, None], [x0 + 1000.0, y0, None],
+                        [x0 + 1000.0, y0 + 800.0, None],
+                        [x0, y0 + 800.0, None], [x0, y0, None]]]}]
+    corners = [{"id": 1, "attrs": {}, "parts": [[[x0, y0, None]]]},
+               {"id": 2, "attrs": {}, "parts": [[[x0 + 600.0, y0 + 400.0,
+                                                  None]]]}]
+    flat = [{"id": 1, "attrs": {}, "parts": [[[x0, y0, None]]]}]
+    cases = [
+        (poly, "polygon", dict(SEED=7)),
+        (poly, "polygon", dict(SEED=3, N_PROFILES=6, PICKET_STEP=10.0)),
+        (poly, "polygon", dict(SEED=7, RHO_BG=120.0, RHO_MIN=5.0,
+                               SP_AMP=-50.0, VP_AMP=30.0, NOISE=0.0,
+                               Z_BASE=50.0, Z_AMP=0.0)),
+        (corners, "point", dict(SEED=7, N_PROFILES=1)),
+        (poly, "polygon", dict(SEED=7, MODE=1)),
+        (poly, "polygon", dict(SEED=7, MODE=1, N_TOURS=5, SUBS_SIGN=1,
+                               SUBS_MAX=800.0)),
+        (flat, "point", dict(SEED=7)),
+    ]
+    runs = []
+    for feats, geom, kw in cases:
+        vals = dict(_defaults(tool), **kw)
+        feed = [dict(f, parts=[np.array([[np.nan if c is None else c
+                                          for c in p] for p in part],
+                                        dtype=float)
+                               for part in f["parts"]]) for f in feats]
+        meta = {"@EXTENT": {"name": "area", "geometry": geom,
+                            "hasz": False,
+                            "fields": list(feats[0]["attrs"].keys()),
+                            "numeric": []}}
+        runs.append(spec_run(tool, cls, vals, {"EXTENT": feats},
+                             {"EXTENT": feed}, meta,
+                             {"random": "numpy default_rng: compare the "
+                              "number of points, fields, profile, picket_m, "
+                              "pk and xyz exactly, other values by range"}))
+    return runs
+
+
 def tool_runs(out):
     runs = []
     runs += declustering_runs()
+    runs += geophys_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
     return runs
 

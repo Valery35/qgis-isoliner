@@ -117,6 +117,28 @@ def test_declustering_run_matches_the_core():
     assert any("Декластеризованное среднее" in s for _k, s in rep.lines)
 
 
+def test_geophys_profiles_fill_the_extent_of_a_layer():
+    """1.11: охват - общий охват объектов, пустой охват - отказ."""
+    import numpy as np
+    from grid_isolines import toolspec
+    from grid_isolines.tools import geophys_profiles as spec
+    nan = np.nan
+    area = [{"id": 1, "attrs": {}, "parts": [np.array(
+        [[0, 0, nan], [1000, 0, nan], [1000, 800, nan], [0, 0, nan]])]}]
+    vals = {"EXTENT": area, "MODE": 0, "N_PROFILES": 4, "PICKET_STEP": 20.0,
+            "Z_BASE": 120.0, "Z_AMP": 15.0, "SEED": 7, "RHO_BG": 60.0,
+            "RHO_MIN": 10.0, "SP_AMP": -100.0, "VP_AMP": 15.0, "NOISE": 0.06,
+            "SUBS_MAX": 400.0, "N_TOURS": 2, "SUBS_SIGN": 0}
+    out = spec.run(vals, toolspec.Report())["OUTPUT"]
+    xy = np.array([g["xyz"][:2] for g, _r in out.features])
+    assert xy[:, 0].min() >= 0 and xy[:, 0].max() <= 1000
+    assert xy[:, 1].min() >= 0 and xy[:, 1].max() <= 800
+    assert len(set(r[0] for _g, r in out.features)) == 4
+    flat = [{"id": 1, "attrs": {}, "parts": [np.array([[5, 5, nan]])]}]
+    with pytest.raises(toolspec.ToolError):
+        spec.run(dict(vals, EXTENT=flat), toolspec.Report())
+
+
 def test_declustering_refuses_without_value():
     import numpy as np
     from grid_isolines import toolspec
