@@ -339,6 +339,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.52** — 1.06 Variogram computes as before and no longer stops with an error when model fitting is off.
 - **5.13.51** — 7.03 Line dimension computes as before. Its computation no longer depends on QGIS.
 - **5.13.50** — 4.13 Bed grades at collars computes as before. Its computation no longer depends on QGIS.
 - **5.13.49** — 1.11 Geophysical profiles demo builds the same profiles. Its computation no longer depends on QGIS.

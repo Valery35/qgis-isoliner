@@ -56,11 +56,14 @@ def class_node(name):
 
 
 def _class_consts(cls):
-    out = {}
+    out = {"__nodes__": {}}
     for st in cls.body:
         if not isinstance(st, ast.Assign):
             continue
         for t in st.targets:
+            if isinstance(t, ast.Name):
+                # списки подписей класса: FIT_LABELS = [_tr("..."), ...]
+                out["__nodes__"][t.id] = st.value
             if isinstance(t, ast.Name) and isinstance(st.value, ast.Constant):
                 out[t.id] = st.value.value
             elif isinstance(t, ast.Tuple) and isinstance(st.value, ast.Tuple):
@@ -217,7 +220,7 @@ def _walk(stmts, env, st):
                 st.found.append((arg, dict(env), adv, None))
 
 
-def params(cls_name, overrides=None):
+def params(cls_name, overrides=None, strict=True):
     """Поля инструмента в виде словарей Param.to_dict (русские строки).
 
     overrides - {ключ: {поле: значение}}: то, чего из класса не видно,
@@ -238,10 +241,13 @@ def params(cls_name, overrides=None):
         if p is not None:
             out.append(p)
     if overrides:
+        # {"_drop": True} убирает поле из описания: то, что есть только в
+        # окне QGIS (наложение модели на HTML, правка чужой таблицы)
+        out = [p for p in out if not overrides.get(p["key"], {}).get("_drop")]
         for p in out:
             p.update(overrides.get(p["key"], {}))
     for p in out:
-        if p["kind"] == "_extent":
+        if strict and p["kind"] == "_extent":
             raise SpecError("%s: field %s is an extent, give an override"
                             % (cls_name, p["key"]))
     return out
@@ -295,6 +301,12 @@ def _param(cls_name, call, consts, env, advanced, hint):
         opts = _kw(call, "options")
         if opts is None and len(a) > 2:
             opts = a[2]
+        if isinstance(opts, ast.ListComp):
+            # options=[_tr(x) for x in self.FIT_LABELS]: список класса
+            it = opts.generators[0].iter
+            name = it.attr if isinstance(it, ast.Attribute) else \
+                getattr(it, "id", None)
+            opts = consts.get("__nodes__", {}).get(name)
         p["options"] = [_text(e, env) for e in getattr(opts, "elts", [])]
         if None in p["options"] or not p["options"]:
             raise SpecError("%s.%s: option is not a literal"

@@ -140,10 +140,18 @@ class FitQualityWarning(unittest.TestCase):
         self.assertEqual(self._warn({"r2": "нет", "nugget": 1, "sill": 1}), [])
 
     def test_wired_into_the_variogram_tool(self):
-        """Предупреждение стоит там, где печатается подбор."""
-        self.assertEqual(self.src.count("_warn_fit_quality(feedback, fit)"), 2)
-        self.assertIn("_report_nugget_pairs(feedback, xs, ys, vs, ev, data_var)",
-                      self.src)
+        """Предупреждение стоит там, где печатается подбор.
+
+        С 5.13.52 расчёт 1.06 живёт в tools/variogram.py и зовёт те же
+        проверки через отчёт toolspec (tools/vario.py), в algorithms.py
+        остаётся вызов у 3.06."""
+        self.assertEqual(self.src.count("_warn_fit_quality(feedback, fit)"), 1)
+        tools = os.path.join(os.path.dirname(HERE), "tools")
+        with open(os.path.join(tools, "variogram.py"), encoding="utf-8") as fh:
+            run = fh.read()
+        self.assertIn("vario.warn_fit_quality(report, fit)", run)
+        self.assertIn(
+            "vario.report_nugget_pairs(report, xs, ys, vs, ev, data_var)", run)
 
 
 if __name__ == "__main__":

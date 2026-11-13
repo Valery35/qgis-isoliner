@@ -287,12 +287,56 @@ def line_dimension_runs():
     return runs
 
 
+# --- 1.06 Вариограмма -------------------------------------------------------
+
+def variogram_runs():
+    """Пары считаются целиком (точек меньше порога прореживания), поэтому
+    генератор случайных чисел в расчёт не входит. Поле fitted таблицы
+    модели - дата прогона, его не сверяют."""
+    tool = export_tools.spec("experimental_variogram")
+    cls = "ExperimentalVariogramAlgorithm"
+    demo = datasets.demo_profiles()
+    grp = datasets.clustered()
+    for i, r in enumerate(grp):
+        hole = r["attrs"]["hole"]
+        r["attrs"]["kind"] = "сеть" if hole.startswith("G") else (
+            "куст" if hole.startswith("C") else None)
+        r["attrs"]["wt"] = 0.5 + (i % 3) * 0.25
+    numeric = {"rho_k", "sp", "vp", "z", "profile", "au", "wt"}
+    cases = [
+        (demo, "demo_1_11", dict(ZFIELD="rho_k")),
+        (demo, "demo_1_11", dict(ZFIELD="sp", GROUP_FIELD="profile")),
+        (demo, "demo_1_11", dict(ZFIELD="vp", ROBUST=True, N_LAGS=8)),
+        (demo, "demo_1_11", dict(ZFIELD="rho_k", FIT_MODEL=1)),
+        (demo, "demo_1_11", dict(ZFIELD="rho_k", FIT_MODEL=3,
+                                 SAVE_PROFILE="КрII кровля")),
+        (demo, "demo_1_11", dict(ZFIELD="z", MAXLAG=5.0)),
+        (demo, "demo_1_11", dict(ZFIELD="rho_k", VAL_PCT=5.0)),
+        (demo, "demo_1_11", dict(ZFIELD="rho_k", VAL_PCT=5.0, VAL_CAP=True)),
+        (demo, "demo_1_11", dict(ZFIELD="rho_k", FIT=False)),
+        (grp, "grouped", dict(ZFIELD="au", GROUP_FIELD="kind")),
+        (grp, "grouped", dict(ZFIELD="au", WEIGHT_FIELD="wt")),
+        (grp, "grouped", dict(ZFIELD="")),
+    ]
+    runs = []
+    for rows, name, kw in cases:
+        vals = dict(_defaults(tool), OUT_MODEL=True, **kw)
+        js, feed = points_items(rows)
+        meta = {"@INPUT": layer_info(name, rows, "point", False, numeric)}
+        runs.append(spec_run(tool, cls, vals, {"INPUT": js},
+                             {"INPUT": feed}, meta,
+                             {"values_rel": 1e-6,
+                              "skip_fields": ["fitted"]}))
+    return runs
+
+
 def tool_runs(out):
     runs = []
     runs += declustering_runs()
     runs += geophys_runs()
     runs += bed_grades_runs()
     runs += line_dimension_runs()
+    runs += variogram_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
     return runs
 

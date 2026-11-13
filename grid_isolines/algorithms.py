@@ -1586,52 +1586,6 @@ def _warn_fit_quality(feedback, fit, r2_min=0.1, nug_max=0.5):
             % (100.0 * c0 / total))
 
 
-def _report_nugget_pairs(feedback, xs, ys, vs, ev, data_var, top=5):
-    """Кто именно поднял наггет: первый шаг и пары-виновники поимённо.
-
-    В разреженной сети наггет обычно задают единицы пар, а не облако точек.
-    Печатаем размер первого шага, число пар в нём и сравнение с дисперсией,
-    затем самые тяжёлые пары внутри этого шага с координатами и значениями -
-    по координатам пару находят на карте за секунду.
-    """
-    if feedback is None:
-        return
-    from .kb2d import nugget_pairs
-    # `x or []` на массиве NumPy срывается: `or` проверяет массив на
-    # истинность, а у массива длиннее одного элемента её нет. Пока шаги
-    # приходили списком, это работало, а с массивом расчёт прерывался.
-    def _arr(key):
-        raw = ev.get(key)
-        return np.asarray([] if raw is None else raw, dtype=float)
-
-    lag, gam, npr = _arr("lag"), _arr("gamma"), _arr("npairs")
-    if not len(lag) or not len(gam):
-        return
-    h1, g1 = float(lag[0]), float(gam[0])
-    n1 = int(npr[0]) if len(npr) else 0
-    feedback.pushInfo(_tr(
-        "Первый шаг: h=%.4g, пар %d, γ=%.4g при дисперсии данных %.4g.")
-        % (h1, n1, g1, data_var))
-    if data_var > 0.0 and g1 > data_var:
-        feedback.pushWarning(_tr(
-            "На первом шаге разброс уже выше общей дисперсии. Описать это "
-            "можно только наггетом, и кригинг после такого подбора будет "
-            "возвращать среднее вместо карты."))
-    try:
-        pairs = nugget_pairs(xs, ys, vs, h1, top=int(top))
-    except Exception:  # nosec
-        return
-    if not pairs:
-        return
-    feedback.pushInfo(_tr("Пары, формирующие наггет (внутри первого шага):"))
-    for _i, _j, dist, vi, vj, g in pairs:
-        feedback.pushInfo(_tr(
-            "  расстояние %.4g, значения %.4g и %.4g, вклад γ=%.4g "
-            "(x %.6g y %.6g / x %.6g y %.6g)")
-            % (dist, vi, vj, g,
-               float(xs[_i]), float(ys[_i]), float(xs[_j]), float(ys[_j])))
-
-
 # Профили обработки: именованные наборы «вариограмма (Структура 1) + наггет +
 # отсев ураганных проб». Хранятся глобально в QgsSettings (кросс-проектно),
 # отдельно от per-algorithm настроек. «Вариограмма» и «Кросс-валидация» их
@@ -1866,6 +1820,11 @@ class _FeedbackReport(object):
         self.lines.append(("warn", s))
         if self._fb is not None:
             self._fb.pushWarning(s)
+
+    def translate(self, text):
+        """Слово внутри собранного аргумента (tools/vario.word)."""
+        translate = _tr
+        return translate(text)
 
     def progress(self, share):
         if self._fb is not None:
@@ -7759,122 +7718,39 @@ class ExperimentalVariogramAlgorithm(IsolinerAlgorithm):
         vmin = self._opt(parameters, self.VAL_MIN, context)
         vmax = self._opt(parameters, self.VAL_MAX, context)
 
-        # читаем все точки (для общей кривой, дисперсии и облака)
-        wfield = self.parameterAsString(
-            parameters, self.WEIGHT_FIELD, context) or None
-        wts = None
-        if wfield:
-            xs, ys, vs, wids = _read_points(
-                source, zfield, feedback, vmin=vmin, vmax=vmax, pct=pct,
-                cap=cap, id_field=wfield, return_ids=True)
-            try:
-                wv = np.array([float(w) if w is not None else np.nan
-                               for w in wids], float)
-                if np.all(np.isfinite(wv)) and np.all(wv > 0):
-                    wts = wv
-                    feedback.pushInfo(_tr(
-                        "Пары взвешены декластеризацией (поле «%s»).") % wfield)
-                else:
-                    feedback.pushWarning(_tr(
-                        "Поле весов содержит пустые или неположительные "
-                        "значения - веса игнорируются."))
-            except Exception:
-                feedback.pushWarning(_tr(
-                    "Не удалось прочитать поле весов - веса игнорируются."))
-        else:
-            xs, ys, vs = _read_points(source, zfield, feedback,
-                                      vmin=vmin, vmax=vmax, pct=pct, cap=cap)
-        _warn_data(feedback, xs, ys, vs)
-        data_var = float(np.var(vs))
-        feedback.pushInfo(_tr("Точек: %d. Дисперсия данных: %.4g (ориентир для "
-                          "суммарного порога).") % (len(xs), data_var))
-        # порог размера группы: % от выборки, но не меньше 30 точек
-        group_min = max(int(round(min_group_pct / 100.0 * len(xs))), 30)
-
-        ev = experimental_variogram(xs, ys, vs, n_lags=n_lags, maxlag=maxlag,
-                                     robust=robust, wts=wts,
-                                     cloud_max=(20000 if show_cloud else 0))
-        if ev["subsampled"]:
-            feedback.pushInfo(_tr("Точек много - для расчёта пар использована "
-                              "случайная подвыборка %d точек.") % ev["n_used"])
-        _report_nugget_pairs(feedback, xs, ys, vs, ev, data_var)
-        if maxlag and maxlag > 0:
-            W = float(xs.max() - xs.min()); H = float(ys.max() - ys.min())
-            spacing = (W * H / max(len(xs), 1)) ** 0.5 if W > 0 and H > 0 else 0.0
-            if spacing > 0 and maxlag < spacing:
-                feedback.pushWarning(
-                    _tr("Максимальное расстояние (%.4g) меньше типичного шага между "
-                    "точками (~%.4g) - пар почти нет. Значение задаётся в "
-                    "единицах слоя (обычно метры).") % (maxlag, spacing))
-        series = [{"label": _tr("все точки"), "lag": ev["lag"], "gamma": ev["gamma"],
-                   "npairs": ev["npairs"], "color": _VG_COLORS[0]}]
-
-        # группировка: отдельная кривая на каждое значение поля
-        if gfield is not None:
-            gidx = source.fields().lookupField(gfield)
-            vals = []
-            try:
-                req = QgsFeatureRequest().setSubsetOfAttributes([gidx])
-                req.setFlags(QgsFeatureRequest.Flag.NoGeometry)
-                seen = set()
-                for f in source.getFeatures(req):
-                    g = f[gidx]
-                    key = "" if g is None else str(g)
-                    if key not in seen:
-                        seen.add(key); vals.append(g)
-                    if len(seen) > 12:
-                        break
-            except Exception as e:
-                feedback.pushInfo(_tr("Не удалось перечислить группы: %s") % e)
-                vals = []
-            if len(vals) > 12:
-                feedback.pushWarning(_tr("Групп больше 12 - группировка пропущена."))
-            elif len(vals) >= 2:
-                gname = QgsExpression.quotedColumnRef(gfield)
-                skipped = []
-                for k, g in enumerate(vals):
-                    expr = ("%s IS NULL" % gname if g is None
-                            else "%s = %s" % (gname, QgsExpression.quotedString(str(g))))
-                    try:
-                        req = QgsFeatureRequest().setFilterExpression(expr)
-                        gx, gy, gv = _read_points(source, zfield, None,
-                                                  vmin=vmin, vmax=vmax, pct=pct,
-                                                  cap=cap, request=req)
-                    except Exception:  # nosec
-                        continue
-                    if len(gx) < group_min:
-                        skipped.append((g, len(gx)))
-                        continue
-                    gev = experimental_variogram(gx, gy, gv, n_lags=n_lags,
-                                                 maxlag=ev["maxlag"], robust=robust,
-                                                 cloud_max=0)
-                    label = "%s = %s" % (gfield, _tr("(пусто)") if g is None else g)
-                    col = _VG_COLORS[(k + 1) % len(_VG_COLORS)]
-                    series.append({"label": label, "lag": gev["lag"],
-                                   "gamma": gev["gamma"], "npairs": gev["npairs"],
-                                   "color": col})
-                if skipped:
-                    txt = ", ".join("%s (%d)" % ((_tr("(пусто)") if g is None else g), n)
-                                    for g, n in skipped)
-                    feedback.pushInfo(_tr("Группы меньше %d точек пропущены: %s.")
-                                      % (group_min, txt))
+        # Расчёт до подбора модели - tools/variogram.py (run без QGIS, его же
+        # переносит RustGIS). Таблица моделей, наложение и HTML - здесь.
+        from .tools import variogram as spec
+        values = {"INPUT": _spec_points(source), "@INPUT": _layer_info(source),
+                  "ZFIELD": zfield, "GROUP_FIELD": gfield or "",
+                  "WEIGHT_FIELD": self.parameterAsString(
+                      parameters, self.WEIGHT_FIELD, context) or "",
+                  "MIN_GROUP_PCT": min_group_pct, "N_LAGS": n_lags,
+                  "MAXLAG": maxlag, "ROBUST": robust,
+                  "SHOW_CLOUD": show_cloud, "FIT": do_fit,
+                  "FIT_MODEL": fit_choice, "VAL_PCT": pct, "VAL_CAP": cap,
+                  "VAL_MIN": vmin, "VAL_MAX": vmax, "OUT_MODEL": False}
+        st = _spec_call(spec.run, values, feedback)["OUTPUT"].stats
+        xs, ys, vs = st["xs"], st["ys"], st["vs"]
+        data_var, ev, fit = st["data_var"], st["ev"], st["fit"]
+        series = []
+        for s in st["series"]:
+            # цвет по номеру группы среди всех значений поля, как раньше:
+            # пропущенная маленькая группа свой цвет не отдаёт соседу
+            k = s["k"]
+            if s["all"]:
+                label = _tr("все точки")
             else:
-                feedback.pushInfo(_tr("В поле группировки меньше 2 значений - "
-                                  "строю только общую кривую."))
+                label = "%s = %s" % (gfield, _tr("(пусто)")
+                                     if s["group"] is None else s["group"])
+            series.append({"label": label, "lag": s["lag"],
+                           "gamma": s["gamma"], "npairs": s["npairs"],
+                           "color": _VG_COLORS[k % len(_VG_COLORS)]})
 
         # подбор модели по общей кривой (рекомендация)
-        fit = None
+        dest_model = None
         if do_fit:
-            model_arg = "auto" if fit_choice == 0 else (fit_choice - 1)
-            dest_model = None
-            fit = fit_variogram(ev["lag"], ev["gamma"], ev["npairs"],
-                                model=model_arg)
             if fit:
-                feedback.pushInfo(
-                    _tr("Подбор: модель %s, C0=%.4g, C=%.4g, a=%.4g, R²=%.3f") % (
-                        MODEL_LABELS[fit["model"]], fit["nugget"], fit["sill"],
-                        fit["range"], fit["r2"]))
-                _warn_fit_quality(feedback, fit)
                 pname = self.parameterAsString(
                     parameters, self.SAVE_PROFILE, context)
                 # Таблица моделей: подобрал вариограмму - получил готовый

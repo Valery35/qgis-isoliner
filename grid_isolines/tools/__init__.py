@@ -18,6 +18,8 @@ RUNS = (
     ("geophysprofiles", "geophys_profiles", "GeophysProfilesDemoAlgorithm"),
     ("bed_grades_at_collars", "bed_grades", "BedGradesAtCollarsAlgorithm"),
     ("line_dimension", "line_dimension", "LineDimensionAlgorithm"),
+    ("experimental_variogram", "variogram",
+     "ExperimentalVariogramAlgorithm"),
 )
 
 

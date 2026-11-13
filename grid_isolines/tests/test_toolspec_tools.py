@@ -82,13 +82,16 @@ def _keys_read(path):
 
 
 def test_run_reads_only_keys_of_the_class():
-    ex = _export()
+    _export()
+    import classparams
     from grid_isolines import toolspec
-    for name, mod, _cls in _runs():
-        tool = ex.spec(name)
-        own = set(p.key for p in tool.params)
-        layers = set("@" + p.key for p in tool.params
-                     if p.kind in toolspec.SOURCE_KINDS)
+    for name, mod, cls in _runs():
+        # поля класса целиком: и те, что в описание для RustGIS не идут
+        params = classparams.params(cls, strict=False)
+        own = set(p["key"] for p in params)
+        layers = set("@" + p["key"] for p in params
+                     if p["kind"] in toolspec.SOURCE_KINDS
+                     or p["kind"] == "_extent")
         path = os.path.join(PKG, "tools", mod + ".py")
         extra = _keys_read(path) - own - layers
         assert not extra, (name, sorted(extra))
@@ -187,6 +190,30 @@ def test_line_dimension_keeps_source_and_measures_longest_part():
     (g1, r1), (g2, r2) = out.features
     assert g1 == {"source": 11} and g2 == {"source": 12}
     assert abs(r1[0] - 1.0) < 0.05 and r2 == [None, 0]
+
+
+def test_variogram_tables_and_no_fit():
+    """1.06: таблица вариограммы без геометрии, модель строкой на
+    структуру, без подбора таблицы модели нет и расчёт не падает."""
+    import numpy as np
+    from grid_isolines import toolspec
+    from grid_isolines.tools import variogram as spec
+    xs, ys = np.meshgrid(np.arange(8) * 10.0, np.arange(8) * 10.0)
+    vals = np.sin(xs / 25.0) + np.cos(ys / 30.0)
+    items = [{"id": i, "xyz": np.array([x, y, np.nan]), "attrs": {"v": v}}
+             for i, (x, y, v) in enumerate(zip(xs.ravel(), ys.ravel(),
+                                              vals.ravel()))]
+    base = {"INPUT": items, "ZFIELD": "v", "N_LAGS": 8, "MAXLAG": 0.0,
+            "FIT": True, "FIT_MODEL": 0, "MIN_GROUP_PCT": 2.0,
+            "OUT_MODEL": True}
+    res = spec.run(base, toolspec.Report())
+    assert res["OUTPUT"].geometry == "none" and res["OUTPUT"].features
+    assert all(g is None for g, _r in res["OUTPUT"].features)
+    (g, row), = res["OUT_MODEL"].features
+    names = [f[0] for f in res["OUT_MODEL"].fields]
+    assert dict(zip(names, row))["struct"] == 1
+    res = spec.run(dict(base, FIT=False), toolspec.Report())
+    assert "OUT_MODEL" not in res and res["OUTPUT"].features
 
 
 def test_declustering_refuses_without_value():
