@@ -21,6 +21,8 @@ RUNS = (
     ("experimental_variogram", "variogram",
      "ExperimentalVariogramAlgorithm"),
     ("crossvalidation", "crossval", "CrossValidationAlgorithm"),
+    ("method_crossvalidation", "method_cv",
+     "MethodCrossValidationAlgorithm"),
 )
 
 

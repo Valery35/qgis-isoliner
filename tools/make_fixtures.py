@@ -385,6 +385,55 @@ def crossval_runs():
     return runs
 
 
+# --- 1.09 Кросс-валидация метода ------------------------------------------
+
+def method_cv_runs():
+    """N не меньше числа точек: проверяются все, генератор случайных
+    чисел в выбор не входит."""
+    tool = export_tools.spec("method_crossvalidation")
+    cls = "MethodCrossValidationAlgorithm"
+    demo = datasets.demo_profiles()
+    numeric = {"rho_k", "sp", "vp", "z", "profile"}
+    x0, y0 = datasets.X0, datasets.Y0
+    rect = [{"id": 1, "attrs": {}, "parts": [[[x0 + 100.0, y0 + 100.0, None],
+                                             [x0 + 800.0, y0 + 700.0, None]]]}]
+    rect_feed = [{"id": 1, "attrs": {}, "parts": [np.array(
+        [[x0 + 100.0, y0 + 100.0, np.nan], [x0 + 800.0, y0 + 700.0, np.nan]])]}]
+    table = [{"id": i + 1, "xyz": None, "attrs": dict(r)}
+             for i, r in enumerate(MODEL_ROWS)]
+    base = dict(N_VALIDATE=200, S1_SILL=300.0, S1_RANGE=250.0)
+    cases = [
+        (dict(base, ZFIELD="rho_k"), {}),
+        (dict(base, ZFIELD="rho_k", EXCL_X=30.0, EXCL_Y=30.0), {}),
+        (dict(base, ZFIELD="rho_k", ZMIN=8.0, ZMAX=60.0),
+         {"FILTER_EXTENT": True}),
+        (dict(base, ZFIELD="rho_k", VG_NAME="rho_aniso"),
+         {"VG_TABLE": True}),
+        (dict(base, ZFIELD="rho_k", METHOD=1), {}),
+        (dict(base, ZFIELD="z", METHOD=1, CELL_SIZE=20.0, TENSION=0.3),
+         {"EXTENT": True}),
+        (dict(base, ZFIELD="rho_k", ZMIN=1e9), {}),
+    ]
+    runs = []
+    for kw, extra in cases:
+        vals = dict(_defaults(tool), **kw)
+        js, feed = points_items(demo)
+        meta = {"@INPUT": layer_info("demo_1_11", demo, "point", False,
+                                     numeric)}
+        inputs, feeds = {"INPUT": js}, {"INPUT": feed}
+        for key in ("FILTER_EXTENT", "EXTENT"):
+            if extra.get(key):
+                inputs[key], feeds[key] = rect, rect_feed
+                meta["@" + key] = {"name": "area", "geometry": "line",
+                                   "hasz": False, "fields": [],
+                                   "numeric": []}
+        if extra.get("VG_TABLE"):
+            inputs["VG_TABLE"] = feeds["VG_TABLE"] = table
+        runs.append(spec_run(tool, cls, vals, inputs, feeds, meta,
+                             {"values_rel": 1e-6}))
+    return runs
+
+
 def tool_runs(out):
     runs = []
     runs += declustering_runs()
@@ -393,6 +442,7 @@ def tool_runs(out):
     runs += line_dimension_runs()
     runs += variogram_runs()
     runs += crossval_runs()
+    runs += method_cv_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
     return runs
 

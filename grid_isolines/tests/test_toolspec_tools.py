@@ -50,16 +50,24 @@ def test_every_tool_is_described_from_its_class():
     names = [t["name"] for t in data["tools"]]
     assert names == [r[0] for r in _runs()]
     from grid_isolines import toolspec
+    import re
+    cyr = re.compile("[А-Яа-яЁё]")
+
+    def translated(s):
+        # строка без кириллицы («RMSE: %.4g») одинакова на обоих языках
+        return s["en"] != s["ru"] or not cyr.search(s["ru"])
+
     for t in data["tools"]:
         assert t["code"] and t["title"]["ru"] and t["help"]["ru"], t["name"]
-        assert t["title"]["en"] != t["title"]["ru"], t["name"]
+        assert translated(t["title"]), t["name"]
         for p in t["params"]:
             assert p["kind"] in toolspec.KINDS, (t["name"], p["key"])
-            assert p["label"]["en"] != p["label"]["ru"], (t["name"], p["key"])
+            assert translated(p["label"]), (t["name"], p["key"])
             for o in p.get("options", []):
-                assert o["en"] != o["ru"], (t["name"], p["key"], o["ru"])
+                assert translated(o), (t["name"], p["key"], o["ru"])
         for m in t["messages"]:
-            assert m["en"] != m["ru"], (t["name"], m["ru"])
+            assert translated(m), (t["name"], m["ru"])
+            assert not cyr.search(m["en"]), (t["name"], m["en"])
 
 
 def _keys_read(path):
@@ -244,6 +252,29 @@ def test_crossval_from_fields_and_from_table():
     assert any("профиль «b»" in s for _k, s in rep.lines)
     with pytest.raises(toolspec.ToolError):
         spec.run(dict(base, VG_TABLE=table), toolspec.Report())
+
+
+def test_method_cv_kriging_and_mincurv():
+    """1.09: оба метода дают ошибки по всем точкам, у минимальной
+    кривизны нет std_resid, фильтр по охвату слоя сужает проверку."""
+    import numpy as np
+    from grid_isolines import toolspec
+    from grid_isolines.tools import method_cv as spec
+    xs, ys = np.meshgrid(np.arange(7) * 20.0, np.arange(7) * 20.0)
+    vals = 5.0 + xs / 30.0 + np.cos(ys / 25.0)
+    items = [{"id": i, "xyz": np.array([x, y, np.nan]), "attrs": {"v": v}}
+             for i, (x, y, v) in enumerate(zip(xs.ravel(), ys.ravel(),
+                                              vals.ravel()))]
+    base = {"INPUT": items, "ZFIELD": "v", "METHOD": 0, "N_VALIDATE": 100,
+            "S1_SILL": 2.0, "S1_RANGE": 60.0, "MAX_POINTS": 12}
+    out = spec.run(base, toolspec.Report())["OUTPUT"]
+    assert len(out.features) == 49 and out.fields[-1][0] == "std_resid"
+    out = spec.run(dict(base, METHOD=1), toolspec.Report())["OUTPUT"]
+    assert len(out.features) == 49 and out.fields[-1][0] == "abs_error"
+    area = [{"id": 1, "attrs": {}, "parts": [np.array(
+        [[0, 0, np.nan], [45, 45, np.nan]])]}]
+    out = spec.run(dict(base, FILTER_EXTENT=area), toolspec.Report())
+    assert len(out["OUTPUT"].features) == 9
 
 
 def test_declustering_refuses_without_value():

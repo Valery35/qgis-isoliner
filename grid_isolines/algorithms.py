@@ -4685,86 +4685,6 @@ class RasterToIsolinesAlgorithm(IsolinerAlgorithm):
         return results
 
 
-def _weighted_cv_metrics(fact, est, err, var, w):
-    """Метрики кросс-валидации, взвешенные декластеризацией. w=None -> обычные.
-    Возвращает (me, mae, rmse, msdr, r)."""
-    fact = np.asarray(fact, float); est = np.asarray(est, float)
-    err = np.asarray(err, float)
-    if w is None:
-        wv = np.ones(err.shape)
-    else:
-        wv = np.asarray(w, float)
-    W = float(np.sum(wv)) or 1.0
-    me = float(np.sum(wv * err) / W)
-    mae = float(np.sum(wv * np.abs(err)) / W)
-    rmse = float(np.sqrt(np.sum(wv * err * err) / W))
-    msdr = float("nan")
-    if var is not None:
-        sd = np.sqrt(np.maximum(np.asarray(var, float), 0.0))
-        good = sd > 0
-        if good.any():
-            gw = wv[good]
-            msdr = float(np.sum(gw * (err[good] / sd[good]) ** 2)
-                         / (float(np.sum(gw)) or 1.0))
-    # взвешенная корреляция оценки и факта
-    try:
-        mf = np.sum(wv * fact) / W
-        me_ = np.sum(wv * est) / W
-        cov = np.sum(wv * (fact - mf) * (est - me_)) / W
-        vf = np.sum(wv * (fact - mf) ** 2) / W
-        ve = np.sum(wv * (est - me_) ** 2) / W
-        r = float(cov / np.sqrt(vf * ve)) if vf > 0 and ve > 0 else float("nan")
-    except Exception:
-        r = float("nan")
-    return me, mae, rmse, msdr, r
-
-
-def _cv_advice(me, mae, rmse, msdr, r):
-    """Авто-интерпретация метрик: итог + конкретные действия."""
-    tips = []
-    rr = rmse if rmse and rmse == rmse else 1.0
-    good = True
-    if msdr == msdr:
-        if msdr > 1.3:
-            tips.append(_tr("MSDR заметно больше 1 (%.3g): карта стандартной ошибки "
-                        "занижена. Умножьте наггет C0 и вклады C на MSDR (радиус "
-                        "и модель не трогайте) и пересчитайте - сами оценки не "
-                        "изменятся, поправится только дисперсия кригинга.") % msdr)
-            good = False
-        elif msdr < 0.7:
-            tips.append(_tr("MSDR меньше 1 (%.3g): неопределённость завышена. "
-                        "Разделите наггет C0 и вклады C на MSDR (радиус и модель "
-                        "не трогайте) и пересчитайте - оценки не изменятся.") % msdr)
-            good = False
-        else:
-            tips.append(_tr("MSDR близок к 1 (%.3g, полоса от 0.7 до 1.3): "
-                        "масштаб вариограммы подобран адекватно.") % msdr)
-    if abs(me) > 0.1 * rr:
-        tips.append(_tr("ME заметно отличается от 0 (%+.3g): возможен "
-                    "систематический сдвиг - проверьте данные и тип кригинга "
-                    "(для простого - заданное среднее).") % me)
-        good = False
-    else:
-        tips.append(_tr("ME близок к 0: систематического смещения нет."))
-    if r == r:
-        if r < 0.5:
-            tips.append(_tr("Низкая корреляция (R=%.2f): модель слабо предсказывает - "
-                        "попробуйте другой радиус, модель или анизотропию. Либо "
-                        "это предел данных (короткомасштабная изменчивость, "
-                        "зоны замещения).") % r)
-            good = False
-        elif r >= 0.8:
-            tips.append(_tr("Высокая корреляция (R=%.2f): оценки хорошо согласуются "
-                        "с фактом.") % r)
-    if good:
-        tips.insert(0, _tr("Итог: параметры можно утверждать - перенесите ту же "
-                       "вариограмму и настройки поиска в «2D Kriging»."))
-    else:
-        tips.insert(0, _tr("Итог: параметры стоит подправить (см. ниже) и повторить "
-                       "кросс-валидацию перед финальным кригингом."))
-    return tips
-
-
 def _cv_used_params(alg, parameters, context):
     """Список (метка, значение) для параметров кригинга, отличных от
     стандартных. Нужен, чтобы отчёт был самодокументируемым."""
@@ -14604,223 +14524,84 @@ class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
             if v is None or v == "":
                 return None
             return self.parameterAsDouble(parameters, name, context)
-        pct = self.parameterAsDouble(parameters, self.VAL_PCT, context)
-        cap = self.parameterAsBool(parameters, self.VAL_CAP, context)
-        xs, ys, vs, ids = _read_points(
-            source, zfield, feedback,
-            vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
-            pct=pct, cap=cap, id_field=idfield, return_ids=True)
-        n = len(xs)
-        wfield = self.parameterAsString(
-            parameters, self.WEIGHT_FIELD, context) or None
-        mcw = None
-        if wfield:
-            _wx, _wy, _wv, wids = _read_points(
-                source, zfield, feedback,
-                vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
-                pct=pct, cap=cap, id_field=wfield, return_ids=True)
-            try:
-                wv = np.array([float(w) if w is not None else np.nan
-                               for w in wids], float)
-                if wv.size == n and np.all(np.isfinite(wv)) and np.all(wv > 0):
-                    mcw = wv
-                    feedback.pushInfo(self.tr(
-                        "Метрики взвешены декластеризацией (поле «%s»).")
-                        % wfield)
-                else:
-                    feedback.pushWarning(self.tr(
-                        "Поле весов содержит пустые или неположительные "
-                        "значения - веса игнорируются."))
-            except Exception:
-                feedback.pushWarning(self.tr(
-                    "Не удалось прочитать поле весов - веса игнорируются."))
-
-        # --- отбор проверяемых точек: фильтр области и по значению ---
+        # Расчёт - tools/method_cv.py (run без QGIS, его же переносит
+        # RustGIS). Охваты уходят в run двумя углами, как объекты слоя.
+        from .tools import method_cv as spec
         crs = source.sourceCrs()
-        cand = np.ones(n, dtype=bool)
-        frect = self.parameterAsExtent(
-            parameters, self.FILTER_EXTENT, context, crs)
-        if frect is not None and not frect.isEmpty():
-            cand &= (xs >= frect.xMinimum()) & (xs <= frect.xMaximum()) \
-                & (ys >= frect.yMinimum()) & (ys <= frect.yMaximum())
-        zmin = _opt(self.ZMIN); zmax = _opt(self.ZMAX)
-        if zmin is not None:
-            cand &= vs >= zmin
-        if zmax is not None:
-            cand &= vs <= zmax
-        cand_idx = np.where(cand)[0]
-        if len(cand_idx) < 2:
-            raise QgsProcessingException(self.tr(
-                "После фильтров осталось меньше двух проверяемых точек."))
 
-        nreq = self.parameterAsInt(parameters, self.N_VALIDATE, context)
-        if nreq <= 0:
-            nreq = min(len(cand_idx), 100)
-        nreq = min(nreq, len(cand_idx))
-        seed = self.parameterAsInt(parameters, self.SEED, context)
-        rng = np.random.default_rng(seed if seed > 0 else None)
-        if nreq < len(cand_idx):
-            val_idx = np.sort(rng.choice(cand_idx, size=nreq, replace=False))
-        else:
-            val_idx = cand_idx
-        excl_x = self.parameterAsDouble(parameters, self.EXCL_X, context)
-        excl_y = self.parameterAsDouble(parameters, self.EXCL_Y, context)
-        nodata = -9999.0
-        feedback.pushInfo(self.tr(
-            "Метод: %s. Проверяем %d из %d точек.")
-            % (self.tr("кригинг") if method == "kriging"
-               else self.tr("минимальная кривизна"), len(val_idx), n))
+        def _rect(key):
+            rc = self.parameterAsExtent(parameters, key, context, crs)
+            if rc is None or rc.isEmpty():
+                return None
+            return [{"id": 0, "attrs": {}, "parts": [np.array(
+                [[rc.xMinimum(), rc.yMinimum(), np.nan],
+                 [rc.xMaximum(), rc.yMaximum(), np.nan]])]}]
 
-        est = np.full(len(val_idx), np.nan)
-        var = None
-        used_params = None
-
+        values = {"INPUT": _spec_points(source), "@INPUT": _layer_info(source),
+                  "ZFIELD": zfield, "IDFIELD": idfield or "",
+                  "WEIGHT_FIELD": self.parameterAsString(
+                      parameters, self.WEIGHT_FIELD, context) or "",
+                  "METHOD": self.parameterAsEnum(parameters, self.METHOD,
+                                                 context),
+                  "VAL_MIN": _opt(self.VAL_MIN), "VAL_MAX": _opt(self.VAL_MAX),
+                  "ZMIN": _opt(self.ZMIN), "ZMAX": _opt(self.ZMAX),
+                  "FILTER_EXTENT": _rect(self.FILTER_EXTENT),
+                  "EXTENT": _rect(self.EXTENT)}
+        for key in (self.VAL_PCT, self.EXCL_X, self.EXCL_Y, self.SKMEAN,
+                    self.NUGGET, self.RADIUS, self.CELL_SIZE, self.TENSION,
+                    self.BOUNDARY_TENSION, self.RELAX, self.ANISO,
+                    self.MAX_RESIDUAL):
+            values[key] = self.parameterAsDouble(parameters, key, context)
+        for key in (self.N_VALIDATE, self.SEED, self.MIN_POINTS,
+                    self.MAX_POINTS, self.MAX_ITER):
+            values[key] = self.parameterAsInt(parameters, key, context)
+        values[self.KTYPE] = self.parameterAsEnum(parameters, self.KTYPE,
+                                                  context)
+        values[self.VAL_CAP] = self.parameterAsBool(parameters, self.VAL_CAP,
+                                                    context)
+        values.update(_spec_variogram_values(self, parameters, context))
+        res = _spec_call(spec.run, values, feedback)["OUTPUT"]
+        st = res.stats
+        me, mae, rmse, msdr, r = (st["me"], st["mae"], st["rmse"],
+                                  st["msdr"], st["r"])
+        nvalid, advice = st["nvalid"], st["advice"]
+        var = True if st["has_var"] else None
         if method == "kriging":
-            ktype = 1 if self.parameterAsEnum(
-                parameters, self.KTYPE, context) == 0 else 0
-            skmean = self.parameterAsDouble(parameters, self.SKMEAN, context)
-            nugget = self.parameterAsDouble(parameters, self.NUGGET, context)
-            radius = self.parameterAsDouble(parameters, self.RADIUS, context)
-            ndmin = self.parameterAsInt(parameters, self.MIN_POINTS, context)
-            ndmax = self.parameterAsInt(parameters, self.MAX_POINTS, context)
-            width = float(xs.max() - xs.min())
-            height = float(ys.max() - ys.min())
-            auto_range = max(width, height) / 3.0 or 1.0
-            if radius <= 0:
-                radius = math.hypot(width, height) or 1e12
-            rad2 = radius * radius
-            vg = _build_variogram(self, parameters, context, nugget,
-                                  auto_range, feedback)
-            var = np.full(len(val_idx), np.nan)
-            from .kb2d import krige_point
-            idxall = np.arange(n)
-            for k, i in enumerate(val_idx):
-                if feedback.isCanceled():
-                    raise QgsProcessingException(self.tr("Прервано."))
-                drop = idxall == i
-                if excl_x > 0 or excl_y > 0:
-                    drop = drop | ((np.abs(xs - xs[i]) <= excl_x)
-                                   & (np.abs(ys - ys[i]) <= excl_y))
-                keep = ~drop
-                if int(keep.sum()) < max(1, ndmin):
-                    continue
-                e, v = krige_point(
-                    float(xs[i]), float(ys[i]), xs[keep], ys[keep], vs[keep],
-                    vg, ktype, skmean, ndmin, ndmax, rad2, nodata,
-                    return_var=True)
-                if e != nodata:
-                    est[k] = e
-                    var[k] = v
-                feedback.setProgress(int(95.0 * (k + 1) / len(val_idx)))
             used_params = _cv_used_params(self, parameters, context)
         else:
-            from . import mincurv as mc
-            rect = self.parameterAsExtent(
-                parameters, self.EXTENT, context, crs)
-            if rect is None or rect.isEmpty():
-                rect = source.sourceExtent()
-            xmin, xmax = rect.xMinimum(), rect.xMaximum()
-            ymin, ymax = rect.yMinimum(), rect.yMaximum()
-            width, height = xmax - xmin, ymax - ymin
-            cell = self.parameterAsDouble(parameters, self.CELL_SIZE, context)
-            if cell <= 0:
-                cell = (min(width, height) / 50.0) or 1.0
-            nx = max(int(math.ceil(width / cell)), 2)
-            ny = max(int(math.ceil(height / cell)), 2)
-            tension = self.parameterAsDouble(parameters, self.TENSION, context)
-            btens = self.parameterAsDouble(
-                parameters, self.BOUNDARY_TENSION, context)
-            relax = self.parameterAsDouble(parameters, self.RELAX, context)
-            aniso = self.parameterAsDouble(parameters, self.ANISO, context)
-            max_iter = self.parameterAsInt(parameters, self.MAX_ITER, context)
-            max_res = self.parameterAsDouble(
-                parameters, self.MAX_RESIDUAL, context)
-            zr = float(np.nanmax(vs) - np.nanmin(vs)) or 1.0
-            tol = max_res if max_res > 0 else max(1e-6, 1e-4 * zr)
-            feedback.pushInfo(self.tr(
-                "Сетка %d x %d, ячейка %.4g.") % (nx, ny, cell))
-
-            def prog(done, total):
-                if feedback.isCanceled():
-                    raise QgsProcessingException(self.tr("Прервано."))
-                feedback.setProgress(int(95.0 * done / max(total, 1)))
-
-            est, _zf = mc.loo_estimates(
-                xs, ys, vs, xmin, ymin, cell, nx, ny, val_idx,
-                tension=tension, boundary_tension=btens, relax=relax,
-                aniso=aniso, tol=tol, base_iter=max_iter,
-                loo_iter=max(2000, max_iter // 20),
-                excl_x=excl_x, excl_y=excl_y, progress=prog)
+            g = st["grid"]
             used_params = [
                 (self.tr("Метод"), self.tr("минимальная кривизна")),
-                (self.tr("Натяжение"), "%.3g" % tension),
-                (self.tr("Сетка"), "%d x %d" % (nx, ny)),
-                (self.tr("Ячейка"), "%.4g" % cell),
+                (self.tr("Натяжение"), "%.3g" % g["tension"]),
+                (self.tr("Сетка"), "%d x %d" % (g["nx"], g["ny"])),
+                (self.tr("Ячейка"), "%.4g" % g["cell"]),
             ]
 
-        fact = vs[val_idx]
-        ok = np.isfinite(est)
-        nvalid = int(ok.sum())
-        if nvalid < 2:
-            raise QgsProcessingException(self.tr(
-                "Слишком мало оценённых точек."))
-        err = est[ok] - fact[ok]
-        _w_ok = (mcw[val_idx][ok] if mcw is not None else None)
-        me, mae, rmse, msdr, r = _weighted_cv_metrics(
-            fact[ok], est[ok], err,
-            (var[ok] if var is not None else None), _w_ok)
-
-        feedback.pushInfo(self.tr("== Кросс-валидация метода (LOO) =="))
-        feedback.pushInfo(self.tr("Точек оценено: %d из %d")
-                          % (nvalid, len(val_idx)))
-        feedback.pushInfo(self.tr("ME (смещение):   %+.4g") % me)
-        feedback.pushInfo("MAE:             %.4g" % mae)
-        feedback.pushInfo(self.tr("RMSE:            %.4g") % rmse)
-        if var is not None:
-            feedback.pushInfo(self.tr("MSDR:            %.3f") % msdr)
-        feedback.pushInfo(self.tr("R (оценка/факт): %.3f") % r)
-        advice = _cv_advice(me, mae, rmse, msdr, r)
-        for a in advice:
-            feedback.pushInfo("• " + a)
-
         # --- слой ошибок ---
-        valname = _san(zfield) or "z"
-        idname = (_san(idfield) or "well_id") if idfield else None
+        qtypes = {"string": QVariant.String, "double": QVariant.Double}
+        labels = {"z_est": self.tr("Оценка метода (LOO)"),
+                  "error": self.tr("Ошибка (оценка - факт)"),
+                  "abs_error": self.tr("|Ошибка|"),
+                  "std_resid": self.tr("Станд. остаток (со знаком)")}
         fields = QgsFields()
         aliases = {}
-        if idname:
-            fields.append(QgsField(idname, QVariant.String))
-            aliases[idname] = self.tr("Номер скважины")
-        fields.append(QgsField(valname, QVariant.Double))
-        aliases[valname] = self.tr("Факт (%s)") % zfield
-        fields.append(QgsField("z_est", QVariant.Double))
-        aliases["z_est"] = self.tr("Оценка метода (LOO)")
-        fields.append(QgsField("error", QVariant.Double))
-        aliases["error"] = self.tr("Ошибка (оценка - факт)")
-        fields.append(QgsField("abs_error", QVariant.Double))
-        aliases["abs_error"] = self.tr("|Ошибка|")
-        if var is not None:
-            fields.append(QgsField("std_resid", QVariant.Double))
-            aliases["std_resid"] = self.tr("Станд. остаток (со знаком)")
+        for k, (nm, tp) in enumerate(res.fields):
+            fields.append(QgsField(nm, qtypes[tp]))
+            if idfield and k == 0:
+                aliases[nm] = self.tr("Номер скважины")
+            elif nm in labels:
+                aliases[nm] = labels[nm]
+            else:
+                aliases[nm] = self.tr("Факт (%s)") % zfield
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Type.Point, crs)
         if sink is not None:
-            for k, i in enumerate(val_idx):
-                if not ok[k]:
-                    continue
+            for geom, row in res.features:
                 f = QgsFeature(fields)
                 f.setGeometry(QgsGeometry.fromPointXY(
-                    QgsPointXY(float(xs[i]), float(ys[i]))))
-                e = float(est[k] - fact[k])
-                attrs = []
-                if idname:
-                    attrs.append(None if ids[i] is None else str(ids[i]))
-                attrs += [float(fact[k]), float(est[k]), e, abs(e)]
-                if var is not None:
-                    s = float(np.sqrt(max(var[k], 0.0)))
-                    attrs.append((e / s) if s > 0 else None)
-                f.setAttributes(attrs)
+                    QgsPointXY(float(geom["xyz"][0]), float(geom["xyz"][1]))))
+                f.setAttributes(list(row))
                 sink.addFeature(f)
         mlabel = (self.tr("кригинг") if method == "kriging"
                   else self.tr("мин. кривизна"))
@@ -14846,15 +14627,14 @@ class MethodCrossValidationAlgorithm(IsolinerAlgorithm):
                 (self.tr("R (оценка/факт)"), "%.3f" % r,
                  self.tr("корреляция")),
                 (self.tr("Точек оценено"), "%d" % nvalid,
-                 self.tr("из %d") % len(val_idx)),
+                 self.tr("из %d") % st["n_val"]),
             ]
             title = self.tr("Кросс-валидация метода: %s · %s") % (
                 mlabel, zfield)
-            ids_ok = ([ids[i] for k, i in enumerate(val_idx) if ok[k]]
-                      if (idfield and ids is not None) else None)
+            ids_ok = st["ids_ok"] if idfield else None
             try:
                 _write_cv_report(html_path, title, metrics, advice,
-                                 fact[ok], est[ok], err, ids_ok,
+                                 st["fact"], st["est"], st["err"], ids_ok,
                                  used_params, feedback)
                 results[self.OUTPUT_HTML] = html_path
             except Exception as e:
