@@ -110,7 +110,10 @@ def _rows(res, cls_name, skip):
 # naive - среднее без весов, decl - декластеризованное среднее,
 # best_cell - размер ячейки, sizes и means - перебор (null в ручном режиме)
 STATS_KEYS = {"declustering": ("naive", "decl", "best_cell", "sizes",
-                               "means")}
+                               "means"),
+              # 7.04: размерность всего слоя, её R² и ряд размер - счёт
+              "minkowski_dimension": ("D_layer", "R2_layer", "sizes",
+                                      "counts")}
 
 
 def spec_run(tool, cls_name, vals, inputs, feed, meta, tol=None):
@@ -447,6 +450,31 @@ def method_cv_runs():
     return runs
 
 
+# --- 7.04 Размерность Минковского ------------------------------------------
+
+def minkowski_runs():
+    """У полигона частями идут все кольца, и внутренние тоже."""
+    tool = export_tools.spec("minkowski_dimension")
+    cls = "MinkowskiDimensionAlgorithm"
+    runs = []
+    cases = [(datasets.dimension_lines(), "line", {}),
+             (datasets.dimension_polygons(), "polygon", {}),
+             (datasets.dimension_lines(), "line",
+              dict(N_SIZES=4, OFFSETS=1, DENSIFY=0.0)),
+             (datasets.dimension_lines(), "line",
+              dict(N_SIZES=12, OFFSETS=5, DENSIFY=2.0))]
+    for rows, geom, kw in cases:
+        js, feed = feature_items(rows)
+        meta = {"@FEATURES": {"name": geom + "s", "geometry": geom,
+                              "hasz": False, "fields": ["name"],
+                              "numeric": []}}
+        runs.append(spec_run(tool, cls, dict(_defaults(tool), **kw),
+                             {"FEATURES": js}, {"FEATURES": feed}, meta,
+                             {"values_rel": 1e-9,
+                              "polygon_parts": "all rings, holes too"}))
+    return runs
+
+
 def tool_runs(out):
     runs = []
     runs += declustering_runs()
@@ -456,6 +484,7 @@ def tool_runs(out):
     runs += variogram_runs()
     runs += crossval_runs()
     runs += method_cv_runs()
+    runs += minkowski_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
     return runs
 

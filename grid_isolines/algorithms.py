@@ -18777,40 +18777,27 @@ class MinkowskiDimensionAlgorithm(IsolinerAlgorithm):
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             src.wkbType(), src.sourceCrs())
-        total = src.featureCount() or 1
-        all_parts = []
-        for k, ft in enumerate(src.getFeatures()):
-            if feedback.isCanceled():
-                break
-            feedback.setProgress(90.0 * k / total)
+        # Расчёт - tools/minkowski.py (run без QGIS, его же переносит
+        # RustGIS). Здесь части объектов на вход и запись результата.
+        from .tools import minkowski as spec
+        items, by_id = [], {}
+        for ft in src.getFeatures():
             g = ft.geometry()
             parts = self._geom_polylines(g) if g is not None else []
-            all_parts.extend(parts)
-            D = r2 = float("nan")
-            if parts:
-                D, r2, _s, _c = minkowski_dimension(
-                    parts, n_sizes=n_sizes, offsets=offsets,
-                    densify=densify)
+            items.append({"id": int(ft.id()), "attrs": {}, "parts": [
+                np.column_stack([p, np.full(len(p), np.nan)])
+                for p in parts]})
+            by_id[int(ft.id())] = ft
+        res = _spec_call(spec.run, {"FEATURES": items, "N_SIZES": n_sizes,
+                                    "OFFSETS": offsets, "DENSIFY": densify},
+                         feedback)["OUTPUT"]
+        for geom, row in res.features:
+            ft = by_id[geom["source"]]
             f = QgsFeature(fields)
-            f.setGeometry(g)
-            f.setAttributes(list(ft.attributes()) +
-                            [None if D != D else round(D, 4),
-                             None if r2 != r2 else round(r2, 4)])
+            f.setGeometry(ft.geometry())
+            f.setAttributes(list(ft.attributes()) + list(row))
             sink.addFeature(f)
-        Dlayer = R2layer = float("nan")
-        if all_parts:
-            Dlayer, R2layer, sizes, counts = minkowski_dimension(
-                all_parts, n_sizes=n_sizes, offsets=offsets,
-                densify=densify)
-            for s, c in zip(sizes, counts):
-                feedback.pushInfo("  %.6g -> N = %d" % (s, c))
-        feedback.pushInfo(
-            _tr("Размерность Минковского слоя: D = %.3f (R² = %.3f).")
-            % (Dlayer, R2layer))
-        if R2layer == R2layer and R2layer < 0.85:
-            feedback.pushWarning(_tr(
-                "R² ниже 0.85: степенной закон не выдержан, оценке "
-                "доверять нельзя (уменьшите K или проверьте данные)."))
+        Dlayer, R2layer = res.stats["D_layer"], res.stats["R2_layer"]
         _set_output_name(context, dest, self.tr("Объекты с размерностью"))
         _save_values(self, _saved)
         return {self.OUTPUT: dest, self.OUT_D: float(Dlayer),

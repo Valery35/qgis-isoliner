@@ -277,6 +277,23 @@ def test_method_cv_kriging_and_mincurv():
     assert len(out["OUTPUT"].features) == 9
 
 
+def test_minkowski_straight_line_and_layer_stats():
+    """7.04: прямая даёт D около единицы, у слоя есть D и ряд счёта."""
+    import numpy as np
+    from grid_isolines import toolspec
+    from grid_isolines.tools import minkowski as spec
+    xs = np.linspace(0, 1000, 300)
+    line = np.column_stack([xs, xs * 0.3, np.full_like(xs, np.nan)])
+    items = [{"id": 5, "attrs": {}, "parts": [line]},
+             {"id": 6, "attrs": {}, "parts": []}]
+    out = spec.run({"FEATURES": items, "N_SIZES": 8, "OFFSETS": 3,
+                    "DENSIFY": 0.5}, toolspec.Report())["OUTPUT"]
+    (g1, r1), (g2, r2) = out.features
+    assert g1 == {"source": 5} and abs(r1[0] - 1.0) < 0.1
+    assert r2 == [None, None]
+    assert len(out.stats["sizes"]) == len(out.stats["counts"]) == 8
+
+
 def test_declustering_refuses_without_value():
     import numpy as np
     from grid_isolines import toolspec

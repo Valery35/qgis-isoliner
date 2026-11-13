@@ -23,6 +23,7 @@ RUNS = (
     ("crossvalidation", "crossval", "CrossValidationAlgorithm"),
     ("method_crossvalidation", "method_cv",
      "MethodCrossValidationAlgorithm"),
+    ("minkowski_dimension", "minkowski", "MinkowskiDimensionAlgorithm"),
 )
 
 

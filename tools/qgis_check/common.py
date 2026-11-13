@@ -106,6 +106,10 @@ def run(mod, cls_name, params, sinks, files=()):
         p[k] = os.path.join(tmp, k + ".html")
     res, ok = alg.run(p, ctx, fb)
     outs = {}
+    # числовые выходы алгоритма (OUT_D и подобные) сравниваются тоже
+    for k, v in sorted((res or {}).items()):
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            outs["#" + k] = _val(float(v))
     import re
     for k in files:
         path = p[k]
