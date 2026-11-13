@@ -339,6 +339,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.56** — 2.08 Contour split works as before. Its computation no longer depends on QGIS.
 - **5.13.55** — 7.04 Minkowski dimension computes as before. Its computation no longer depends on QGIS.
 - **5.13.54** — 1.09 Method cross-validation computes as before. Its computation no longer depends on QGIS.
 - **5.13.53** — 1.08 Variogram cross-validation computes as before. Its computation no longer depends on QGIS.

@@ -185,6 +185,34 @@ def dimension_layers():
     return lines, polys
 
 
+def contours():
+    """Горизонтали для 2.08: уровни 100..160 через 5 м, у части уровней
+    по два звена, одна без отметки, одна с текстовой отметкой."""
+    rows = []
+    for k, z in enumerate(range(100, 165, 5)):
+        y = Y0 + 40.0 * k
+        rows.append({"parts": [[(X0, y), (X0 + 300.0, y + 10.0),
+                                (X0 + 600.0, y)]],
+                     "attrs": {"elev": float(z), "src": "A"}})
+        if k % 3 == 0:
+            rows.append({"parts": [[(X0 + 700.0, y), (X0 + 900.0, y + 5.0)]],
+                         "attrs": {"elev": float(z), "src": "B"}})
+    rows.append({"parts": [[(X0, Y0 - 50.0), (X0 + 100.0, Y0 - 50.0)]],
+                 "attrs": {"elev": None, "src": "NULL"}})
+    return rows
+
+
+def contour_layer():
+    import common
+    from qgis.PyQt.QtCore import QVariant
+    rows = [(_wkt_line(r["parts"]), [r["attrs"]["elev"], r["attrs"]["src"]])
+            for r in contours()]
+    return common.memory_layer(
+        "LineString", "EPSG:32640",
+        [("elev", QVariant.Double), ("src", QVariant.String)], rows,
+        "contours")
+
+
 def drill_layers():
     from qgis.PyQt.QtCore import QVariant
     c, i, h = drill_model()

@@ -22686,29 +22686,28 @@ class ContourSplitAlgorithm(IsolinerAlgorithm):
         every = self.parameterAsInt(parameters, self.EVERY, context) or 4
         offset = self.parameterAsInt(parameters, self.OFFSET, context)
 
-        feats = []
-        levels = []
+        # Расчёт - tools/contour_split.py (run без QGIS, его же переносит
+        # RustGIS). Отметка читается в run, геометрия только признак наличия.
+        from .tools import contour_split as spec
+        names = [f.name() for f in src.fields()]
+        items, by_id = [], {}
         for ft in src.getFeatures():
             g = ft.geometry()
-            if g is None or g.isEmpty():
-                continue
-            try:
-                lv = float(ft[field])
-            except (TypeError, ValueError, KeyError):
-                continue
-            if lv != lv:      # nan
-                continue
-            feats.append((QgsGeometry(g), lv, ft.attributes()))
-            levels.append(lv)
-        if not feats:
-            raise QgsProcessingException(self.tr(
-                "В слое нет горизонталей с числовой отметкой."))
-
-        build_lv, check_lv = _vc.split_levels(levels, every, offset)
-        check_set = set(check_lv)
-        if not check_set:
-            raise QgsProcessingException(self.tr(
-                "Проверочный набор пуст, уровней слишком мало для такого шага."))
+            empty = g is None or g.isEmpty()
+            attrs = ({field: _plain_attr(ft[field])} if field in names
+                     else {})
+            items.append({"id": int(ft.id()), "attrs": attrs,
+                          "parts": [] if empty else
+                          [np.zeros((1, 3))]})
+            by_id[int(ft.id())] = ft
+        rep = _FeedbackReport(None)
+        from .toolspec import ToolError
+        try:
+            res = spec.run({"INPUT": items, "FIELD": field, "EVERY": every,
+                            "OFFSET": offset}, rep)
+        except ToolError as exc:
+            raise QgsProcessingException(
+                _FeedbackReport.text(exc.template, exc.args_))
 
         fields = _fid_free(src.fields())
         fields.append(QgsField("hold", QVariant.Int))
@@ -22719,28 +22718,24 @@ class ContourSplitAlgorithm(IsolinerAlgorithm):
             parameters, self.OUTPUT_CHECK, context, fields,
             src.wkbType(), src.sourceCrs())
 
-        nb = nc = 0
-        for (geom, lv, attrs) in feats:
-            hold = 1 if lv in check_set else 0
-            ft = QgsFeature(fields)
-            ft.setGeometry(geom)
-            ft.setAttributes(list(attrs) + [hold])
-            if hold:
-                if sc is not None:
-                    sc.addFeature(ft)
-                nc += 1
-            else:
-                if sb is not None:
-                    sb.addFeature(ft)
-                nb += 1
-
-        iv = _vc.contour_interval(levels)
-        feedback.pushInfo(_tr(
-            "Уровней всего %d: в построение %d, в проверку %d. "
-            "Объектов %d и %d.") % (len(build_lv) + len(check_lv),
-                                    len(build_lv), len(check_lv), nb, nc))
-        if iv:
-            feedback.pushInfo(_tr("Сечение рельефа по набору: %.4g.") % iv)
+        # объекты в порядке слоя, как раньше, каждый в свой выход
+        hold_of = {}
+        for key in ("OUTPUT_BUILD", "OUTPUT_CHECK"):
+            for geom, row in res[key].features:
+                hold_of[geom["source"]] = row[0]
+        for fid, ft in by_id.items():
+            if fid not in hold_of:
+                continue
+            hold = hold_of[fid]
+            out = QgsFeature(fields)
+            out.setGeometry(QgsGeometry(ft.geometry()))
+            out.setAttributes(list(ft.attributes()) + [hold])
+            sink = sc if hold else sb
+            if sink is not None:
+                sink.addFeature(out)
+        for level, line in rep.lines:
+            (feedback.pushWarning if level == "warn"
+             else feedback.pushInfo)(line)
         res = {self.OUTPUT_BUILD: destb, self.OUTPUT_CHECK: destc}
         _set_output_name(context, destb, _tr("Горизонтали для построения"))
         _set_output_name(context, destc, _tr("Горизонтали для проверки"))

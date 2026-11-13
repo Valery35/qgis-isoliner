@@ -24,6 +24,7 @@ RUNS = (
     ("method_crossvalidation", "method_cv",
      "MethodCrossValidationAlgorithm"),
     ("minkowski_dimension", "minkowski", "MinkowskiDimensionAlgorithm"),
+    ("contoursplit", "contour_split", "ContourSplitAlgorithm"),
 )
 
 

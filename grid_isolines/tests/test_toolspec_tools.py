@@ -294,6 +294,28 @@ def test_minkowski_straight_line_and_layer_stats():
     assert len(out.stats["sizes"]) == len(out.stats["counts"]) == 8
 
 
+def test_contour_split_holds_whole_levels():
+    """2.08: уровень уходит в проверку целиком, оба звена вместе."""
+    import numpy as np
+    from grid_isolines import toolspec
+    from grid_isolines.tools import contour_split as spec
+    part = [np.array([[0.0, 0.0, np.nan], [1.0, 0.0, np.nan]])]
+    items = []
+    for i, z in enumerate((100, 105, 110, 115, 120, 125, 130, 110)):
+        items.append({"id": i, "attrs": {"z": z}, "parts": part})
+    items.append({"id": 99, "attrs": {"z": None}, "parts": part})
+    res = spec.run({"INPUT": items, "FIELD": "z", "EVERY": 2},
+                   toolspec.Report())
+    check = [g["source"] for g, _r in res["OUTPUT_CHECK"].features]
+    build = [g["source"] for g, _r in res["OUTPUT_BUILD"].features]
+    assert 99 not in check + build
+    zs = dict((it["id"], it["attrs"]["z"]) for it in items)
+    held = set(zs[i] for i in check)
+    assert not held & set(zs[i] for i in build)
+    if 110 in held:
+        assert {2, 7} <= set(check)
+
+
 def test_declustering_refuses_without_value():
     import numpy as np
     from grid_isolines import toolspec

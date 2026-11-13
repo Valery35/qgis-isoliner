@@ -475,6 +475,33 @@ def minkowski_runs():
     return runs
 
 
+# --- 2.08 Разделить горизонтали --------------------------------------------
+
+def contour_split_runs():
+    tool = export_tools.spec("contoursplit")
+    cls = "ContourSplitAlgorithm"
+    rows = datasets.contours()
+    js, feed = [], []
+    for i, r in enumerate(rows):
+        js.append({"id": i + 1, "attrs": dict(r["attrs"]),
+                   "parts": [[[x, y, None] for x, y in p] for p in r["parts"]]})
+        feed.append({"id": i + 1, "attrs": dict(r["attrs"]),
+                     "parts": [np.array([[x, y, np.nan] for x, y in p])
+                               for p in r["parts"]]})
+    meta = {"@INPUT": {"name": "contours", "geometry": "line", "hasz": False,
+                       "fields": ["elev", "src"], "numeric": ["elev"]}}
+    runs = []
+    for kw in (dict(FIELD="elev", EVERY=4), dict(FIELD="elev", EVERY=2,
+                                                 OFFSET=1),
+               dict(FIELD="elev", EVERY=5, OFFSET=2),
+               dict(FIELD="elev", EVERY=50), dict(FIELD="src", EVERY=4)):
+        runs.append(spec_run(tool, cls, dict(_defaults(tool), **kw),
+                             {"INPUT": js}, {"INPUT": feed}, meta))
+    return runs
+
+
+# --- 1.10 Пример скважин ----------------------------------------------------
+
 def tool_runs(out):
     runs = []
     runs += declustering_runs()
@@ -485,6 +512,7 @@ def tool_runs(out):
     runs += crossval_runs()
     runs += method_cv_runs()
     runs += minkowski_runs()
+    runs += contour_split_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
     return runs
 
