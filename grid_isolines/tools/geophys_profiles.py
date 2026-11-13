@@ -24,6 +24,10 @@ from ..toolspec import N_, Result, ToolError
 
 MODES = ("electro", "subsidence")
 
+# Подпись пикета: geodemo.pk_label переводит этот шаблон сам, здесь он
+# назван, чтобы попасть в messages tools.json для переноса на другой язык
+PK_TEMPLATE = N_("ПК%d+%02d")
+
 SPEC_OVERRIDES = {
     "EXTENT": {"kind": "features",
                "label": "Слой, по охвату которого строить",

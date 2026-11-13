@@ -106,6 +106,13 @@ def _rows(res, cls_name, skip):
     return out
 
 
+# Числа из result.stats, которые пишутся в прогон полем "stats":
+# naive - среднее без весов, decl - декластеризованное среднее,
+# best_cell - размер ячейки, sizes и means - перебор (null в ручном режиме)
+STATS_KEYS = {"declustering": ("naive", "decl", "best_cell", "sizes",
+                               "means")}
+
+
 def spec_run(tool, cls_name, vals, inputs, feed, meta, tol=None):
     """Прогон: входы, выходы или отказ, отчёт."""
     rep = toolspec.Report()
@@ -117,6 +124,12 @@ def spec_run(tool, cls_name, vals, inputs, feed, meta, tol=None):
         res = tool.run(dict(vals, **dict(feed, **meta)), rep)
         run["output"] = dict((k, _rows(r, cls_name, skip))
                              for k, r in res.items())
+        # итоговые числа расчёта, которые иначе видны только строкой
+        # отчёта: для 1.05 средние и размер ячейки, без округления
+        keep = STATS_KEYS.get(tool.name)
+        if keep:
+            st = getattr(res.get("OUTPUT"), "stats", {}) or {}
+            run["stats"] = dict((k, _plain(st[k])) for k in keep if k in st)
     except toolspec.ToolError as exc:
         run["error"] = {"template": exc.template,
                         "args": [_plain(a) for a in exc.args_]}
@@ -454,6 +467,10 @@ def _dump(out, name, data):
 
 
 def main(argv):
+    # образцы русские: без QGIS i18n выбрал бы английский, и подписи,
+    # которые ядро переводит само (пикет «ПК5+20» в 1.11), ушли бы по-английски
+    from grid_isolines import i18n
+    i18n.set_language("ru", "ru")
     out = argv[1] if len(argv) > 1 else os.path.join(ROOT, "fixtures")
     os.makedirs(out, exist_ok=True)
     _dump(out, "tools.json", export_tools.build())
