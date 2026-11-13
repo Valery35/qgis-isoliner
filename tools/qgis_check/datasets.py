@@ -60,9 +60,62 @@ def clustered(with_z=False):
     return rows
 
 
-def _layer(rows, fields, name, with_z=False):
+def drill_model():
+    """Модель бурения для 4.13: устья, интервалы, пробы.
+
+    H1 - пласт одним интервалом, пробы с границей посередине пласта;
+    H2 - пласт двумя интервалами, у NaCl пропуск;
+    H3 - пласт без проб; H4 - пробы с перекрытием и текстовым числом;
+    H5 - устье без интервалов пласта; H6 - интервал с перепутанными
+    from и to; H7 - интервалы без устья."""
+    collars = []
+    for i, h in enumerate(("H1", "H2", "H3", "H4", "H5", "H6")):
+        collars.append({"x": X0 + 100.0 * i, "y": Y0 + 50.0 * (i % 2),
+                        "attrs": {"hole_id": h, "z": 150.0 - i}})
+    iv = [("H1", 0.0, 100.0, "Сл"), ("H1", 100.0, 104.0, "КрII"),
+          ("H1", 104.0, 110.0, "Сл"),
+          ("H2", 90.0, 92.0, "КрII"), ("H2", 92.0, 93.0, "Сл"),
+          ("H2", 93.0, 95.5, "КрII"),
+          ("H3", 80.0, 83.0, "КрII"),
+          ("H4", 70.0, 76.0, "КрII"),
+          ("H5", 0.0, 50.0, "Сл"),
+          ("H6", 64.0, 60.0, " КрII "),
+          ("H7", 10.0, 12.0, "КрII"), ("H7", 12.0, 14.0, "Карн")]
+    intervals = [{"x": None, "y": None,
+                  "attrs": {"hole_id": h, "from": a, "to": b, "code": c}}
+                 for h, a, b, c in iv]
+    ch = [("H1", 99.0, 102.0, 30.0, 60.0), ("H1", 102.0, 104.5, 20.0, 70.0),
+          ("H2", 90.0, 92.0, 25.0, None), ("H2", 93.0, 95.5, 35.0, 55.0),
+          ("H4", 70.0, 74.0, 10.0, 80.0), ("H4", 73.0, 76.0, "12,5", 75.0),
+          ("H6", 60.0, 64.0, 18.0, 66.0), ("H7", 10.0, 12.0, 40.0, 50.0),
+          ("H1", 200.0, 201.0, 99.0, 1.0)]
+    chem = [{"x": None, "y": None,
+             "attrs": {"hole_id": h, "from": a, "to": b,
+                       "kcl": k if not isinstance(k, str) else None,
+                       "kcl_txt": k if isinstance(k, str) else None,
+                       "nacl": n}}
+            for h, a, b, k, n in ch]
+    return collars, intervals, chem
+
+
+def drill_layers():
+    from qgis.PyQt.QtCore import QVariant
+    c, i, h = drill_model()
+    lc = _layer(c, [("hole_id", QVariant.String), ("z", QVariant.Double)],
+                "collar")
+    li = _layer(i, [("hole_id", QVariant.String), ("from", QVariant.Double),
+                    ("to", QVariant.Double), ("code", QVariant.String)],
+                "interval", geom="None")
+    lh = _layer(h, [("hole_id", QVariant.String), ("from", QVariant.Double),
+                    ("to", QVariant.Double), ("kcl", QVariant.Double),
+                    ("kcl_txt", QVariant.String), ("nacl", QVariant.Double)],
+                "chem", geom="None")
+    return lc, li, lh
+
+
+def _layer(rows, fields, name, with_z=False, geom=None):
     import common
-    geom = "PointZ" if with_z else "Point"
+    geom = geom or ("PointZ" if with_z else "Point")
     out = []
     for r in rows:
         wkt = None

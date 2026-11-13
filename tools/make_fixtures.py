@@ -222,10 +222,45 @@ def geophys_runs():
     return runs
 
 
+# --- 4.13 Содержания по пласту в устьях ------------------------------------
+
+def table_items(rows):
+    """Строки datasets в поле table: таблица без геометрии."""
+    return [{"id": i + 1, "xyz": None, "attrs": dict(r["attrs"])}
+            for i, r in enumerate(rows)]
+
+
+def bed_grades_runs():
+    tool = export_tools.spec("bed_grades_at_collars")
+    cls = "BedGradesAtCollarsAlgorithm"
+    c, iv, ch = datasets.drill_model()
+    cjs, cfeed = points_items(c)
+    ijs, hjs = table_items(iv), table_items(ch)
+    meta = {"@COLLAR": layer_info("collar", c, "point", False, {"z"}),
+            "@INTERVAL": layer_info("interval", iv, "none", False,
+                                    {"from", "to"}),
+            "@CHEM": layer_info("chem", ch, "none", False,
+                                {"from", "to", "kcl", "nacl"})}
+    base = {"COMPONENTS": ["kcl", "nacl"], "BED": "КрII", "MIN_COVER": 0.5}
+    cases = [dict(base), dict(base, MIN_COVER=0.9),
+             dict(base, COMPONENTS=["nacl"]), dict(base, BED="Сл"),
+             dict(base, BED="  "), dict(base, BED="XX"),
+             dict(base, BED="Карн"), dict(base, COMPONENTS=[])]
+    runs = []
+    for kw in cases:
+        vals = dict(_defaults(tool), **kw)
+        runs.append(spec_run(tool, cls, vals,
+                             {"COLLAR": cjs, "INTERVAL": ijs, "CHEM": hjs},
+                             {"COLLAR": cfeed, "INTERVAL": ijs, "CHEM": hjs},
+                             meta, {"values_rel": 1e-9}))
+    return runs
+
+
 def tool_runs(out):
     runs = []
     runs += declustering_runs()
     runs += geophys_runs()
+    runs += bed_grades_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
     return runs
 

@@ -89,7 +89,10 @@ def run(mod, cls_name, params, sinks, files=()):
 
     Возвращает {"ok", "journal", "outputs": {ключ: {"fields", "rows"}}}."""
     from qgis.core import (QgsProcessingContext, QgsProject,
-                           QgsProcessingUtils)
+                           QgsProcessingUtils, QgsSettings)
+    # память прошлых значений (_dv, _save_values) не переносится между
+    # случаями: профиль временный, чистится перед каждым прогоном
+    QgsSettings().clear()
     alg = getattr(mod, cls_name)()
     alg.initAlgorithm({})
     ctx = QgsProcessingContext()
@@ -112,6 +115,8 @@ def run(mod, cls_name, params, sinks, files=()):
             # plotly даёт каждому графику случайный id: его не сравниваем
             text = re.sub(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-"
                           r"[0-9a-f]{12}", "UUID", text)
+            # снимок и дерево расходятся номером версии в подвале отчёта
+            text = re.sub(r"Isoliner v\d+\.\d+\.\d+", "Isoliner vX", text)
         outs[k] = text
     for k in sinks:
         dest = (res or {}).get(k)

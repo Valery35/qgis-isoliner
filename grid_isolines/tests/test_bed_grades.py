@@ -35,6 +35,14 @@ def _class_source(name):
     raise AssertionError("класс %s пропал из algorithms.py" % name)
 
 
+def _tool_source():
+    """Код расчёта 4.13: с 5.13.50 он живёт в tools/bed_grades.py, класс
+    QGIS только переводит слои в данные и пишет результат."""
+    with open(os.path.join(PKG, "tools", "bed_grades.py"),
+              encoding="utf-8") as fh:
+        return fh.read()
+
+
 def _merge(rows, comps):
     """То же сведение, что делает инструмент: вес это длина с данными."""
     total = sum(r["length"] for r in rows)
@@ -100,7 +108,7 @@ def test_missing_grade_is_not_substituted_by_zero():
     Именно здесь ошибка стоила бы дороже всего: пустая ячейка означает,
     что компонент не определяли, а не что его нет в породе.
     """
-    body = _class_source("BedGradesAtCollarsAlgorithm")
+    body = _tool_source()
     at = body.find("for c in comps:")
     assert at != -1, "чтение содержаний пропало"
     block = body[at:at + 300]
@@ -112,23 +120,23 @@ def test_missing_grade_is_not_substituted_by_zero():
 
 
 def test_coverage_is_per_component_not_one_number():
-    body = _class_source("BedGradesAtCollarsAlgorithm")
+    body = _tool_source()
     assert '"cov_" + c' in body, (
         "охват перестал считаться по каждому компоненту отдельно")
-    assert 'QgsField("cover"' in body, "общий охват пласта пропал"
+    assert '("cover", "double")' in body, "общий охват пласта пропал"
 
 
 def test_low_coverage_rows_are_kept_and_reported():
     """Отбор за пользователя не делается, но о числе таких скважин говорят."""
-    body = _class_source("BedGradesAtCollarsAlgorithm")
-    assert "с охватом ниже порога" in body, "низкий охват не попадает в журнал"
-    assert "pushWarning" in body
+    body = _tool_source()
+    assert "с охватом ниже" in body, "низкий охват не попадает в журнал"
+    assert "report.warn" in body
     assert "continue" not in body[body.find("cover_any < min_cover"):
                                   body.find("cover_any < min_cover") + 200], (
         "скважина с низким охватом выбрасывается из слоя")
 
 
 def test_overlapping_samples_reach_the_log():
-    body = _class_source("BedGradesAtCollarsAlgorithm")
+    body = _tool_source()
     assert "с перекрытием проб" in body, (
         "перекрытия проб снова замалчиваются")

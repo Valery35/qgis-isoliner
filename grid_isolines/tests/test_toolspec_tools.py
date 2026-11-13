@@ -139,6 +139,37 @@ def test_geophys_profiles_fill_the_extent_of_a_layer():
         spec.run(dict(vals, EXTENT=flat), toolspec.Report())
 
 
+def test_bed_grades_weight_by_overlap_and_skip_missing():
+    """4.13: проба на границе весит длиной перекрытия, пустое значение
+    выпадает вместе с весом, а не идёт нулём."""
+    import numpy as np
+    from grid_isolines import toolspec
+    from grid_isolines.tools import bed_grades as spec
+    collars = [{"id": 1, "xyz": np.array([10.0, 20.0, np.nan]),
+                "attrs": {"hole_id": "A"}}]
+    iv = [{"id": 1, "xyz": None, "attrs": {"hole_id": "A", "from": 10.0,
+                                          "to": 14.0, "code": "КрII"}}]
+    ch = [{"id": 1, "xyz": None, "attrs": {"hole_id": "A", "from": 8.0,
+                                          "to": 12.0, "kcl": 30.0,
+                                          "nacl": None}},
+          {"id": 2, "xyz": None, "attrs": {"hole_id": "A", "from": 12.0,
+                                          "to": 14.0, "kcl": 20.0,
+                                          "nacl": 60.0}}]
+    vals = {"COLLAR": collars, "INTERVAL": iv, "CHEM": ch,
+            "COMPONENTS": ["kcl", "nacl"], "BED": "КрII", "MIN_COVER": 0.5}
+    rep = toolspec.Report()
+    out = spec.run(vals, rep)["OUTPUT"]
+    (geom, row), = out.features
+    names = [f[0] for f in out.fields]
+    rec = dict(zip(names, row))
+    assert rec["hole_id"] == "A" and rec["len_m"] == 4.0
+    assert abs(rec["kcl"] - (2 * 30.0 + 2 * 20.0) / 4.0) < 1e-9
+    assert rec["nacl"] == 60.0 and rec["cov_nacl"] == 0.5
+    assert list(geom["xyz"][:2]) == [10.0, 20.0]
+    with pytest.raises(toolspec.ToolError):
+        spec.run(dict(vals, BED="XX"), toolspec.Report())
+
+
 def test_declustering_refuses_without_value():
     import numpy as np
     from grid_isolines import toolspec

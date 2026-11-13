@@ -1945,6 +1945,26 @@ def _spec_points(source):
     return items
 
 
+def _spec_table(source):
+    """Строки источника в виде поля table контракта toolspec: атрибуты и
+    первая вершина геометрии (None у таблицы без геометрии)."""
+    flds = source.fields()
+    names = [flds.at(i).name() for i in range(flds.count())]
+    items = []
+    for f in source.getFeatures():
+        g = f.geometry()
+        xyz = None
+        if g is not None and not g.isEmpty():
+            try:
+                v = g.vertexAt(0)
+                xyz = np.array([v.x(), v.y(), v.z()], dtype=float)
+            except (AttributeError, RuntimeError):
+                xyz = None
+        attrs = dict((nm, _plain_attr(f[i])) for i, nm in enumerate(names))
+        items.append({"id": int(f.id()), "xyz": xyz, "attrs": attrs})
+    return items
+
+
 def _read_points(source, zfield, feedback=None,
                  vmin=None, vmax=None, pct=0.0, cap=False,
                  id_field=None, return_ids=False, request=None,
@@ -26993,161 +27013,36 @@ class BedGradesAtCollarsAlgorithm(IsolinerAlgorithm):
                 "таблицы проб."))
         min_cover = self.parameterAsDouble(parameters, self.MIN_COVER, context)
 
-        cnames = [f.name() for f in csrc.fields()]
-        inames = [f.name() for f in isrc.fields()]
-        hnames = [f.name() for f in hsrc.fields()]
-        cid = _dh.resolve_field(
-            cnames, self.parameterAsString(parameters, self.CID, context),
-            "hole_id")
-        iid = _dh.resolve_field(
-            inames, self.parameterAsString(parameters, self.IID, context),
-            "hole_id")
-        ifrom = _dh.resolve_field(
-            inames, self.parameterAsString(parameters, self.IFROM, context),
-            "from")
-        ito = _dh.resolve_field(
-            inames, self.parameterAsString(parameters, self.ITO, context),
-            "to")
-        icode = _dh.resolve_field(
-            inames, self.parameterAsString(parameters, self.ICODE, context),
-            "code")
-        hid = _dh.resolve_field(
-            hnames, self.parameterAsString(parameters, self.HID, context),
-            "hole_id")
-        hfrom = _dh.resolve_field(
-            hnames, self.parameterAsString(parameters, self.HFROM, context),
-            "from")
-        hto = _dh.resolve_field(
-            hnames, self.parameterAsString(parameters, self.HTO, context),
-            "to")
-        missing = [n for n, v in (("устья: идентификатор", cid),
-                                  ("интервалы: идентификатор", iid),
-                                  ("интервалы: кровля", ifrom),
-                                  ("интервалы: подошва", ito),
-                                  ("интервалы: код", icode),
-                                  ("пробы: идентификатор", hid),
-                                  ("пробы: кровля", hfrom),
-                                  ("пробы: подошва", hto)) if not v]
-        if missing:
-            raise QgsProcessingException(self.tr(
-                "Не найдены поля: %s. Укажите их явно.")
-                % ", ".join(missing))
+        # Расчёт - tools/bed_grades.py (run без QGIS, его же переносит
+        # RustGIS). Здесь только слои на входе и выходе.
+        from .tools import bed_grades as spec
+        values = {"COLLAR": _spec_points(csrc), "@COLLAR": _layer_info(csrc),
+                  "INTERVAL": _spec_table(isrc),
+                  "@INTERVAL": _layer_info(isrc),
+                  "CHEM": _spec_table(hsrc), "@CHEM": _layer_info(hsrc),
+                  "COMPONENTS": comps, "BED": bed, "MIN_COVER": min_cover}
+        for key in (self.CID, self.IID, self.IFROM, self.ITO, self.ICODE,
+                    self.HID, self.HFROM, self.HTO):
+            values[key] = self.parameterAsString(parameters, key, context)
+        res = _spec_call(spec.run, values, feedback)["OUTPUT"]
 
-        # Целевые интервалы: все интервалы заданного кода, по скважинам.
-        targets = {}
-        n_int = 0
-        for ft in isrc.getFeatures():
-            code = ft[icode]
-            if code is None or str(code).strip() != bed:
-                continue
-            hole = _dh.parse_id(ft[iid])
-            span = _dh._clean_span(ft[ifrom], ft[ito])
-            if not hole or span is None:
-                continue
-            targets.setdefault(hole, []).append(span)
-            n_int += 1
-        if not targets:
-            raise QgsProcessingException(self.tr(
-                "Пласт «%s» не встретился ни в одной скважине. Проверьте "
-                "код и поле кода.") % bed)
-
-        # Пробы по скважинам. Пустые значения не подставляются нулём: их
-        # просто нет в словаре, и ядро исключит их из среднего вместе с
-        # весом.
-        samples = {}
-        n_samp = 0
-        for ft in hsrc.getFeatures():
-            hole = _dh.parse_id(ft[hid])
-            if not hole or hole not in targets:
-                continue
-            vals = {}
-            for c in comps:
-                num = _dh.parse_num(ft[c])
-                if num is not None:
-                    vals[c] = num
-            samples.setdefault(hole, []).append((ft[hfrom], ft[hto], vals))
-            n_samp += 1
-        feedback.pushInfo(self.tr(
-            "Химия: проб %d по %d скважинам, компоненты %s.")
-            % (n_samp, len(samples), ", ".join(comps)))
-
+        qtypes = {"int": QVariant.Int, "double": QVariant.Double,
+                  "string": QVariant.String}
         fields = QgsFields()
-        fields.append(QgsField("hole_id", QVariant.String))
-        fields.append(QgsField("bed", QVariant.String))
-        fields.append(QgsField("len_m", QVariant.Double))
-        fields.append(QgsField("cover", QVariant.Double))
-        fields.append(QgsField("n_samp", QVariant.Int))
-        for c in comps:
-            fields.append(QgsField(c, QVariant.Double))
-            # Охват по каждому компоненту отдельно: у одного он полный, у
-            # другого половина, и одно общее число это скрыло бы.
-            fields.append(QgsField(("cov_" + c)[:60], QVariant.Double))
+        for nm, tp in res.fields:
+            fields.append(QgsField(nm, qtypes[tp]))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Type.Point, csrc.sourceCrs())
         if sink is None:
             raise QgsProcessingException(self.tr("Не задан выходной слой."))
-
-        n_out = n_empty = n_low = n_over = 0
-        cover_sum = 0.0
-        for ft in csrc.getFeatures():
-            hole = _dh.parse_id(ft[cid])
-            if not hole or hole not in targets:
-                continue
-            g = ft.geometry()
-            if g is None or g.isEmpty():
-                continue
-            rows = _dh.composite(samples.get(hole, []), targets[hole],
-                                 components=comps, min_cover=min_cover)
-            total = sum(r["length"] for r in rows)
-            if total <= 0:
-                continue
-            # Несколько интервалов одного пласта в стволе сводятся в одно
-            # число: вес каждого это длина, обеспеченная данными.
-            vals, covs = {}, {}
-            for c in comps:
-                wsum = sum(r["length"] * r["cover"][c] for r in rows)
-                if wsum > 0:
-                    vsum = sum(r["length"] * r["cover"][c] * r["values"][c]
-                               for r in rows if r["values"][c] is not None)
-                    vals[c] = vsum / wsum
-                else:
-                    vals[c] = None
-                covs[c] = wsum / total
-            cover_any = sum(r["length"] * r["cover_any"] for r in rows) / total
-            hits = sum(r["n_samples"] for r in rows)
-            if any(r["overlap"] > 1e-9 for r in rows):
-                n_over += 1
-            if hits == 0:
-                n_empty += 1
-            elif cover_any < min_cover:
-                n_low += 1
-            cover_sum += cover_any
+        for geom, attrs in res.features:
+            x, y, z = (float(c) for c in geom["xyz"])
             out = QgsFeature(fields)
-            out.setGeometry(QgsGeometry(g))
-            attrs = [hole, bed, round(total, 3), round(cover_any, 4), hits]
-            for c in comps:
-                attrs.append(None if vals[c] is None else round(vals[c], 6))
-                attrs.append(round(covs[c], 4))
-            out.setAttributes(attrs)
+            out.setGeometry(QgsGeometry(QgsPoint(x, y, z)) if z == z
+                            else QgsGeometry.fromPointXY(QgsPointXY(x, y)))
+            out.setAttributes(list(attrs))
             sink.addFeature(out)
-            n_out += 1
-
-        if not n_out:
-            raise QgsProcessingException(self.tr(
-                "Ни одна скважина не получила значений. Устья не стыкуются с интервалами "
-                "по идентификатору."))
-        feedback.pushInfo(self.tr(
-            "Химия: приведено к %d интервалам пласта «%s» в %d скважинах, "
-            "средний охват %.0f процентов.")
-            % (n_int, bed, n_out, 100.0 * cover_sum / n_out))
-        feedback.pushInfo(self.tr(
-            "Химия: скважин без проб по пласту %d, с охватом ниже порога "
-            "%d, с перекрытием проб %d.") % (n_empty, n_low, n_over))
-        if n_low or n_empty:
-            feedback.pushWarning(self.tr(
-                "Значения с низким охватом остаются в слое. Выбрасывать ли их, решает "
-                "пользователь. Отбирайте по полю «cover» перед кригингом."))
         _set_output_name(context, dest,
                          self.tr("Содержания %s в устьях") % bed)
         _remember_layers(self, parameters, context, _saved,
