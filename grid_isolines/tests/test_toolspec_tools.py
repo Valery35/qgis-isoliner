@@ -216,6 +216,36 @@ def test_variogram_tables_and_no_fit():
     assert "OUT_MODEL" not in res and res["OUTPUT"].features
 
 
+def test_crossval_from_fields_and_from_table():
+    """1.08: модель из полей окна и из таблицы моделей дают остатки по
+    каждой точке, профиль без имени в таблице с двумя профилями - отказ."""
+    import numpy as np
+    from grid_isolines import toolspec
+    from grid_isolines.tools import crossval as spec
+    xs, ys = np.meshgrid(np.arange(6) * 20.0, np.arange(6) * 20.0)
+    vals = 10.0 + np.sin(xs / 40.0) * 3 + ys / 50.0
+    items = [{"id": i, "xyz": np.array([x, y, np.nan]), "attrs": {"v": v}}
+             for i, (x, y, v) in enumerate(zip(xs.ravel(), ys.ravel(),
+                                              vals.ravel()))]
+    base = {"INPUT": items, "ZFIELD": "v", "KTYPE": 0, "RADIUS": 0.0,
+            "MIN_POINTS": 1, "MAX_POINTS": 12, "SKMEAN": 0.0, "NUGGET": 0.0,
+            "S1_MODEL": 0, "S1_SILL": 2.0, "S1_RANGE": 60.0,
+            "S1_AZIMUTH": 0.0, "S1_ANIS": 1.0}
+    out = spec.run(base, toolspec.Report())["OUTPUT"]
+    assert len(out.features) == 36
+    names = [f[0] for f in out.fields]
+    assert names == ["v", "z_est", "error", "abs_error", "std_resid"]
+    rows = [{"profile": p, "struct": 1, "model": 1, "sill": 2.0,
+             "range": 60.0, "azimuth": 0.0, "anis": 1.0, "nugget": 0.1}
+            for p in ("a", "b")]
+    table = [{"id": i, "xyz": None, "attrs": r} for i, r in enumerate(rows)]
+    rep = toolspec.Report()
+    out = spec.run(dict(base, VG_TABLE=table, VG_NAME="b"), rep)["OUTPUT"]
+    assert any("профиль «b»" in s for _k, s in rep.lines)
+    with pytest.raises(toolspec.ToolError):
+        spec.run(dict(base, VG_TABLE=table), toolspec.Report())
+
+
 def test_declustering_refuses_without_value():
     import numpy as np
     from grid_isolines import toolspec

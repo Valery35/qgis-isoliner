@@ -37,8 +37,10 @@ from . import vario
 from .points import read_points
 
 DROP = {"_drop": True}
-SPEC_OVERRIDES = {"SHOW_CLOUD": DROP, "SHOW_MODEL": DROP,
-                  "TARGET_TABLE": DROP}
+# заданная модель (NUGGET, S1_*) нужна только наложению на HTML-отчёт
+SPEC_OVERRIDES = dict((k, DROP) for k in (
+    "SHOW_CLOUD", "SHOW_MODEL", "TARGET_TABLE", "NUGGET", "S1_MODEL",
+    "S1_SILL", "S1_RANGE", "S1_AZIMUTH", "S1_ANIS"))
 
 MODEL_NOTE = N_("автоподбор 1.06, изотропная. Анизотропию проставляет "
                 "1.07 по вариограммной карте")

@@ -20,6 +20,7 @@ RUNS = (
     ("line_dimension", "line_dimension", "LineDimensionAlgorithm"),
     ("experimental_variogram", "variogram",
      "ExperimentalVariogramAlgorithm"),
+    ("crossvalidation", "crossval", "CrossValidationAlgorithm"),
 )
 
 

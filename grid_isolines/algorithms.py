@@ -1924,6 +1924,26 @@ def _spec_table(source):
     return items
 
 
+def _spec_variogram_values(alg, parameters, context):
+    """Поля вариограммы для run (tools/cv.build_variogram): структуры S1_*
+    и, если подана, таблица моделей VG_TABLE с профилем VG_NAME."""
+    out = {}
+    for i in range(1, NSTRUCT + 1):
+        out[_sk(i, "MODEL")] = alg.parameterAsEnum(parameters,
+                                                   _sk(i, "MODEL"), context)
+        for suffix in ("SILL", "RANGE", "AZIMUTH", "ANIS"):
+            out[_sk(i, suffix)] = alg.parameterAsDouble(
+                parameters, _sk(i, suffix), context)
+    if getattr(alg, "VG_TABLE", None) \
+            and parameters.get(alg.VG_TABLE) is not None:
+        src = alg.parameterAsSource(parameters, alg.VG_TABLE, context)
+        if src is not None:
+            out["VG_TABLE"] = _spec_table(src)
+            out["VG_NAME"] = alg.parameterAsString(parameters, alg.VG_NAME,
+                                                   context) or ""
+    return out
+
+
 def _read_points(source, zfield, feedback=None,
                  vmin=None, vmax=None, pct=0.0, cap=False,
                  id_field=None, return_ids=False, request=None,
@@ -5169,147 +5189,69 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
             if v is None or v == "":
                 return None
             return self.parameterAsDouble(parameters, name, context)
-        pct = self.parameterAsDouble(parameters, self.VAL_PCT, context)
-        cap = self.parameterAsBool(parameters, self.VAL_CAP, context)
-        xd, yd, vrd, ids = _read_points(
-            source, zfield, feedback,
-            vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
-            pct=pct, cap=cap, id_field=idfield, return_ids=True)
-        _warn_data(feedback, xd, yd, vrd)
-        wfield = self.parameterAsString(
-            parameters, self.WEIGHT_FIELD, context) or None
-        cvw = None
-        if wfield:
-            _wx, _wy, _wv, wids = _read_points(
-                source, zfield, feedback,
-                vmin=_opt(self.VAL_MIN), vmax=_opt(self.VAL_MAX),
-                pct=pct, cap=cap, id_field=wfield, return_ids=True)
-            try:
-                wv = np.array([float(w) if w is not None else np.nan
-                               for w in wids], float)
-                if wv.size == len(xd) and np.all(np.isfinite(wv)) \
-                        and np.all(wv > 0):
-                    cvw = wv
-                    feedback.pushInfo(_tr(
-                        "Метрики взвешены декластеризацией (поле «%s»).")
-                        % wfield)
-                else:
-                    feedback.pushWarning(_tr(
-                        "Поле весов содержит пустые или неположительные "
-                        "значения - веса игнорируются."))
-            except Exception:
-                feedback.pushWarning(_tr(
-                    "Не удалось прочитать поле весов - веса игнорируются."))
-
-        ktype = 1 if self.parameterAsEnum(parameters, self.KTYPE, context) == 0 else 0
-        skmean = self.parameterAsDouble(parameters, self.SKMEAN, context)
-        nugget = self.parameterAsDouble(parameters, self.NUGGET, context)
-        radius = self.parameterAsDouble(parameters, self.RADIUS, context)
-        ndmin = self.parameterAsInt(parameters, self.MIN_POINTS, context)
-        ndmax = self.parameterAsInt(parameters, self.MAX_POINTS, context)
-        width = float(xd.max() - xd.min()); height = float(yd.max() - yd.min())
-        auto_range = max(width, height) / 3.0 or 1.0
-        if radius <= 0:
-            radius = math.hypot(width, height) or 1e12
-        rad2 = radius * radius
-        vg = _build_variogram(self, parameters, context, nugget, auto_range, feedback)
-        nodata = -9999.0
-
-        dvar = float(np.var(vrd))
-        feedback.pushInfo(
-            _tr("Дисперсия данных: %.4g. Ориентир: суммарный силл (C0 + вклады C) "
-            "задавайте близким к ней. Наггет и силл - в абсолютных единицах "
-            "дисперсии, не 0-1.") % dvar)
-        feedback.pushInfo(_tr("Кросс-валидация по %d точкам…") % len(xd))
-
-        def prog(done, total):
-            if feedback.isCanceled():
-                raise QgsProcessingException(_tr("Прервано пользователем."))
-            feedback.setProgress(int(95.0 * done / total))
-
-        detrend = self.parameterAsBool(parameters, self.DETREND, context)
-        if detrend:
-            degree = self.parameterAsEnum(parameters, self.DETREND_DEG, context) + 1
-            need = PolyTrend.n_terms(degree)
-            if len(vrd) <= need:
-                feedback.pushWarning(
-                    _tr("Снятие тренда отключено: точек %d, для степени %d нужно "
-                    "больше %d.") % (len(vrd), degree, need))
-                detrend = False
-            else:
-                var0 = float(np.var(vrd))
-                _r = PolyTrend.fit(xd, yd, vrd, degree).residuals(xd, yd, vrd)
-                share = 100.0 * (1.0 - float(np.var(_r)) / var0) if var0 > 0 else 0.0
-                feedback.pushInfo(
-                    _tr("Снят тренд степени %d: убрано %.1f%% дисперсии. Тренд "
-                    "переподбирается на каждом шаге LOO по остальным точкам, "
-                    "вариограмму задавайте по остаткам.") % (degree, share))
-
-        if detrend:
-            est, var = cross_validate_detrend(
-                xd, yd, vrd, degree, vg, ktype, skmean, ndmin, ndmax,
-                rad2, nodata, progress=prog)
-        else:
-            est, var = cross_validate(xd, yd, vrd, vg, ktype, skmean, ndmin,
-                                      ndmax, rad2, nodata, progress=prog)
-
-        ok = est != nodata
-        nvalid = int(ok.sum())
-        if nvalid < 2:
-            raise QgsProcessingException(_tr("Слишком мало оценённых точек."))
-        err = est[ok] - vrd[ok]
-        me, mae, rmse, msdr, r = _weighted_cv_metrics(
-            vrd[ok], est[ok], err, var[ok],
-            (cvw[ok] if cvw is not None else None))
-
-        feedback.pushInfo(_tr("== Кросс-валидация (leave-one-out) =="))
-        feedback.pushInfo(_tr("Точек оценено: %d из %d") % (nvalid, len(xd)))
-        feedback.pushInfo(_tr("ME (смещение):   %+.4g   (ближе к 0 - лучше)") % me)
-        feedback.pushInfo("MAE:             %.4g" % mae)
-        feedback.pushInfo(_tr("RMSE:            %.4g   (меньше - лучше)") % rmse)
-        feedback.pushInfo(_tr("MSDR:            %.3f   (ближе к 1 - лучше)") % msdr)
-        feedback.pushInfo(_tr("R (оценка/факт): %.3f") % r)
-        advice = _cv_advice(me, mae, rmse, msdr, r)
-        for a in advice:
-            feedback.pushInfo("• " + a)
+        # Расчёт - tools/crossval.py (run без QGIS, его же переносит
+        # RustGIS). Здесь слои на входе и выходе и HTML-отчёт.
+        from .tools import crossval as spec
+        values = {"INPUT": _spec_points(source), "@INPUT": _layer_info(source),
+                  "ZFIELD": zfield, "IDFIELD": idfield or "",
+                  "WEIGHT_FIELD": self.parameterAsString(
+                      parameters, self.WEIGHT_FIELD, context) or "",
+                  "VAL_PCT": self.parameterAsDouble(parameters, self.VAL_PCT,
+                                                    context),
+                  "VAL_CAP": self.parameterAsBool(parameters, self.VAL_CAP,
+                                                  context),
+                  "VAL_MIN": _opt(self.VAL_MIN), "VAL_MAX": _opt(self.VAL_MAX),
+                  "KTYPE": self.parameterAsEnum(parameters, self.KTYPE,
+                                                context),
+                  "SKMEAN": self.parameterAsDouble(parameters, self.SKMEAN,
+                                                   context),
+                  "NUGGET": self.parameterAsDouble(parameters, self.NUGGET,
+                                                   context),
+                  "RADIUS": self.parameterAsDouble(parameters, self.RADIUS,
+                                                   context),
+                  "MIN_POINTS": self.parameterAsInt(parameters,
+                                                    self.MIN_POINTS, context),
+                  "MAX_POINTS": self.parameterAsInt(parameters,
+                                                    self.MAX_POINTS, context),
+                  "DETREND": self.parameterAsBool(parameters, self.DETREND,
+                                                  context),
+                  "DETREND_DEG": self.parameterAsEnum(
+                      parameters, self.DETREND_DEG, context)}
+        values.update(_spec_variogram_values(self, parameters, context))
+        res = _spec_call(spec.run, values, feedback)["OUTPUT"]
+        st = res.stats
+        me, mae, rmse, msdr, r = (st["me"], st["mae"], st["rmse"],
+                                  st["msdr"], st["r"])
+        dvar, nvalid, advice = st["dvar"], st["nvalid"], st["advice"]
 
         # слой остатков: колонка факта названа по проверяемому полю,
         # std_resid - стандартизованный остаток (оценка-факт)/ст.ошибка, со знаком.
         # псевдонимы полей ставим после загрузки (см. _set_field_aliases) -
         # alias/comment на уровне провайдера несовместимы с memory-слоями
-        valname = _san(zfield) or "z"
-        idname = (_san(idfield) or "well_id") if idfield else None
+        qtypes = {"string": QVariant.String, "double": QVariant.Double}
+        labels = {"z_est": _tr("Оценка кригинга (LOO)"),
+                  "error": _tr("Ошибка (оценка - факт)"),
+                  "abs_error": _tr("|Ошибка|"),
+                  "std_resid": _tr("Станд. остаток (со знаком)")}
         fields = QgsFields()
         aliases = {}
-        if idname:
-            fields.append(QgsField(idname, QVariant.String))
-            aliases[idname] = _tr("Номер скважины")
-        fields.append(QgsField(valname, QVariant.Double))
-        aliases[valname] = _tr("Факт (%s)") % zfield
-        fields.append(QgsField("z_est", QVariant.Double))
-        aliases["z_est"] = _tr("Оценка кригинга (LOO)")
-        fields.append(QgsField("error", QVariant.Double))
-        aliases["error"] = _tr("Ошибка (оценка - факт)")
-        fields.append(QgsField("abs_error", QVariant.Double))
-        aliases["abs_error"] = _tr("|Ошибка|")
-        fields.append(QgsField("std_resid", QVariant.Double))
-        aliases["std_resid"] = _tr("Станд. остаток (со знаком)")
+        for k, (nm, tp) in enumerate(res.fields):
+            fields.append(QgsField(nm, qtypes[tp]))
+            if idfield and k == 0:
+                aliases[nm] = _tr("Номер скважины")
+            elif nm in labels:
+                aliases[nm] = labels[nm]
+            else:
+                aliases[nm] = _tr("Факт (%s)") % zfield
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Type.Point, source.sourceCrs())
         if sink is not None:
-            for i in np.where(ok)[0]:
+            for geom, row in res.features:
                 f = QgsFeature(fields)
                 f.setGeometry(QgsGeometry.fromPointXY(
-                    QgsPointXY(float(xd[i]), float(yd[i]))))
-                e = float(est[i] - vrd[i])
-                s = float(np.sqrt(max(var[i], 0.0)))
-                attrs = []
-                if idname:
-                    attrs.append(None if ids[i] is None else str(ids[i]))
-                attrs += [float(vrd[i]), float(est[i]), e, abs(e),
-                          (e / s) if s > 0 else None]
-                f.setAttributes(attrs)
+                    QgsPointXY(float(geom["xyz"][0]), float(geom["xyz"][1]))))
+                f.setAttributes(list(row))
                 sink.addFeature(f)
         _set_output_name(context, dest,
                          _tr("Остатки CV %s · %s") % (zfield, _short(src)))
@@ -5328,16 +5270,14 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
                 (_tr("R (оценка/факт)"), "%.3f" % r, _tr("корреляция")),
                 (_tr("Дисперсия данных"), "%.4g" % dvar,
                  _tr("суммарный силл (C0 + вклады C) ≈ дисперсии данных")),
-                (_tr("Точек оценено"), "%d" % nvalid, _tr("из %d") % len(xd)),
+                (_tr("Точек оценено"), "%d" % nvalid, _tr("из %d") % st["n"]),
             ]
             title = _tr("Кросс-валидация %s · %s") % (zfield, _short(src))
-            ok_idx = np.where(ok)[0]
-            ids_ok = ([ids[i] for i in ok_idx]
-                      if (idfield and ids is not None) else None)
+            ids_ok = st["ids_ok"] if idfield else None
             used_params = _cv_used_params(self, parameters, context)
             try:
                 _write_cv_report(html_path, title, metrics, advice,
-                                 vrd[ok], est[ok], err, ids_ok,
+                                 st["fact"], st["est"], st["err"], ids_ok,
                                  used_params, feedback)
                 results[self.OUTPUT_HTML] = html_path
             except Exception as e:

@@ -330,6 +330,61 @@ def variogram_runs():
     return runs
 
 
+# --- 1.08 Кросс-валидация вариограммы -------------------------------------
+
+MODEL_ROWS = [
+    {"profile": "rho", "field": "rho_k", "struct": 1, "model": 1,
+     "sill": 300.0, "range": 250.0, "azimuth": 0.0, "anis": 1.0,
+     "nugget": 20.0, "val_pct": 0.0, "val_cap": False,
+     "fitted": "2026-11-13", "author": "", "note": ""},
+    {"profile": "rho_aniso", "field": "rho_k", "struct": 1, "model": 2,
+     "sill": 280.0, "range": 300.0, "azimuth": 45.0, "anis": 0.6,
+     "nugget": 30.0, "val_pct": 0.0, "val_cap": False,
+     "fitted": "2026-11-13", "author": "", "note": ""}]
+
+
+def crossval_runs():
+    tool = export_tools.spec("crossvalidation")
+    cls = "CrossValidationAlgorithm"
+    demo = datasets.demo_profiles()
+    numeric = {"rho_k", "sp", "vp", "z", "profile", "au", "wt"}
+    table = [{"id": i + 1, "xyz": None, "attrs": dict(r)}
+             for i, r in enumerate(MODEL_ROWS)]
+    vg_meta = {"name": "vg_models", "geometry": "none", "hasz": False,
+               "fields": list(MODEL_ROWS[0].keys()),
+               "numeric": ["struct", "model", "sill", "range", "azimuth",
+                           "anis", "nugget", "val_pct"]}
+    cases = [
+        dict(ZFIELD="rho_k"),
+        dict(ZFIELD="rho_k", NUGGET=20.0, S1_SILL=300.0, S1_RANGE=250.0),
+        dict(ZFIELD="rho_k", KTYPE=1, SKMEAN=40.0, S1_SILL=300.0,
+             S1_RANGE=250.0),
+        dict(ZFIELD="sp", RADIUS=150.0, MIN_POINTS=3, MAX_POINTS=8),
+        dict(ZFIELD="z", S1_MODEL=2, S1_SILL=50.0, S1_RANGE=400.0),
+        dict(ZFIELD="z", S1_MODEL=3, S1_RANGE=5.0),
+        dict(ZFIELD="rho_k", S1_SILL=300.0, S1_RANGE=300.0, S1_AZIMUTH=30.0,
+             S1_ANIS=0.5),
+        dict(ZFIELD="z", DETREND=True, DETREND_DEG=1),
+        dict(ZFIELD="rho_k", IDFIELD="profile"),
+        dict(ZFIELD="rho_k", VG_NAME="rho_aniso", _table=True),
+        dict(ZFIELD="rho_k", _table=True),
+    ]
+    runs = []
+    for kw in cases:
+        with_table = kw.pop("_table", False)
+        vals = dict(_defaults(tool), **kw)
+        js, feed = points_items(demo)
+        meta = {"@INPUT": layer_info("demo_1_11", demo, "point", False,
+                                     numeric)}
+        inputs, feeds = {"INPUT": js}, {"INPUT": feed}
+        if with_table:
+            inputs["VG_TABLE"] = feeds["VG_TABLE"] = table
+            meta["@VG_TABLE"] = vg_meta
+        runs.append(spec_run(tool, cls, vals, inputs, feeds, meta,
+                             {"values_rel": 1e-6}))
+    return runs
+
+
 def tool_runs(out):
     runs = []
     runs += declustering_runs()
@@ -337,6 +392,7 @@ def tool_runs(out):
     runs += bed_grades_runs()
     runs += line_dimension_runs()
     runs += variogram_runs()
+    runs += crossval_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
     return runs
 

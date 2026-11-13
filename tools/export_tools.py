@@ -62,14 +62,16 @@ def _n_strings(module):
                     and isinstance(node.args[0], ast.Constant)):
                 if node.args[0].value not in out:
                     out.append(node.args[0].value)
-            if isinstance(node, ast.ImportFrom) and node.level == 1 \
-                    and node.module and node.module != "toolspec" \
-                    and not node.module.startswith("."):
+            if isinstance(node, ast.ImportFrom) and node.level == 1:
                 pkg = mod.__name__.rsplit(".", 1)[0]
-                if pkg.endswith(".tools"):
+                if not pkg.endswith(".tools"):
+                    continue
+                # from .points import read_points и from . import cv, vario
+                names = [node.module] if node.module else \
+                    [a.name for a in node.names]
+                for nm in names:
                     try:
-                        todo.append(importlib.import_module(
-                            pkg + "." + node.module))
+                        todo.append(importlib.import_module(pkg + "." + nm))
                     except ImportError:
                         pass
     return out
@@ -89,8 +91,10 @@ def spec(tool_name):
     if classparams.tool_name(cls_name) != name:
         raise classparams.SpecError("%s: name() is not %s"
                                     % (cls_name, name))
-    params = [toolspec.Param(**p) for p in classparams.params(
-        cls_name, getattr(mod, "SPEC_OVERRIDES", None))]
+    params = [toolspec.Param(**dict((k, v) for k, v in p.items()
+                                    if not k.startswith("_")))
+              for p in classparams.params(
+                  cls_name, getattr(mod, "SPEC_OVERRIDES", None))]
     return toolspec.Tool(code, name, title, code.split(".")[0],
                          classparams.help_text(cls_name), params, mod.run)
 
@@ -100,8 +104,14 @@ def build():
     from grid_isolines.i18n import TRANSLATIONS as tr
     from grid_isolines.tools import RUNS
     tools = []
-    for name, mod_name, _cls in RUNS:
+    for name, mod_name, cls_name in RUNS:
         t = spec(name)
+        mod = importlib.import_module("grid_isolines.tools." + mod_name)
+        over = getattr(mod, "SPEC_OVERRIDES", None) or {}
+        # английский собирается по частям, как его собирает окно QGIS:
+        # «Структура 1 · модель» = перевод «Структура %d» и «модель»
+        en = dict((p["key"], p["_en"]) for p in classparams.params(
+            cls_name, over, translations=tr))
         d = t.to_dict()
         # перевод заведён на название с кодом, как его показывает панель
         full = tr.get(t.display_name(), t.display_name())
@@ -110,14 +120,21 @@ def build():
                           t.code + " ") else tr.get(t.title, t.title)}
         d["help"] = _both(t.help, tr)
         for p, pd in zip(t.params, d["params"]):
-            pd["label"] = _both(p.label, tr)
-            pd["hint"] = _both(p.hint, tr)
+            e = en.get(p.key, {})
+            o = over.get(p.key, {})
+            pd["label"] = {"ru": p.label, "en": tr.get(p.label, p.label)
+                           if "label" in o else e.get("label", p.label)}
+            pd["hint"] = {"ru": p.hint, "en": tr.get(p.hint, p.hint)
+                          if "hint" in o else e.get("hint", p.hint)}
             if p.options:
-                pd["options"] = [_both(o, tr) for o in p.options]
+                eo = e.get("options") or []
+                pd["options"] = [
+                    {"ru": ru, "en": eo[i] if i < len(eo) and "options"
+                     not in o else tr.get(ru, ru)}
+                    for i, ru in enumerate(p.options)]
         spec_texts = {t.title, t.help}
         for p in t.params:
             spec_texts |= {p.label, p.hint} | set(p.options)
-        mod = importlib.import_module("grid_isolines.tools." + mod_name)
         d["messages"] = [_both(m, tr) for m in _n_strings(mod)
                          if m not in spec_texts]
         tools.append(d)

@@ -85,17 +85,43 @@ def _fname(call):
     return f.id if isinstance(f, ast.Name) else getattr(f, "attr", "")
 
 
+_TR = None   # перевод на время разбора: dict русский -> английский
+
+
 def _text(node, env=None):
     """Строка из литерала или вызова перевода self.tr("..."), _trh("...").
 
-    env - имена переменных цикла и их узлы: for key, label in (...)."""
+    env - имена переменных цикла и их узлы: for key, label in (...).
+    Понимает и составную подпись "%s · %s" % (tag, _tr("модель")): при
+    заданном _TR каждая часть в вызове перевода переводится отдельно, так
+    же, как её переводит окно QGIS."""
     if isinstance(node, ast.Name) and env and node.id in env:
         return _text(env[node.id], env)
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.Call) and node.args:
         if _fname(node) in ("tr", "_tr", "_trh", "tr_help"):
-            return _text(node.args[0], env)
+            t = _text(node.args[0], env)
+            if t is not None and _TR is not None:
+                return _TR.get(t, t)
+            return t
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+        left = _text(node.left, env)
+        if left is None:
+            return None
+        parts = node.right.elts if isinstance(node.right, ast.Tuple) \
+            else [node.right]
+        args = []
+        for part in parts:
+            t = _text(part, env)
+            args.append(t if t is not None else _value(part, {}, env))
+        try:
+            return left % tuple(args)
+        except (TypeError, ValueError):
+            return None
+    if isinstance(node, ast.IfExp):
+        return _text(node.body if _value(node.test, {}, env)
+                     else node.orelse, env)
     return None
 
 
@@ -120,7 +146,30 @@ def _value(node, consts, env=None):
     if isinstance(node, ast.Call):
         if _fname(node) == "_dv" and len(node.args) >= 3:
             return _value(node.args[2], consts, env)
+        if _fname(node) == "_sk" and len(node.args) == 2:
+            # ключи структур вариограммы: _sk(1, "MODEL") -> "S1_MODEL"
+            return "S%d_%s" % (_value(node.args[0], consts, env),
+                               _value(node.args[1], consts, env))
         return None
+    if isinstance(node, ast.BinOp):
+        a = _value(node.left, consts, env)
+        b = _value(node.right, consts, env)
+        if a is None or b is None:
+            return None
+        ops = {ast.Add: lambda x, y: x + y, ast.Sub: lambda x, y: x - y,
+               ast.Mult: lambda x, y: x * y, ast.Mod: lambda x, y: x % y}
+        f = ops.get(type(node.op))
+        return f(a, b) if f else None
+    if isinstance(node, ast.Compare) and len(node.ops) == 1:
+        a = _value(node.left, consts, env)
+        b = _value(node.comparators[0], consts, env)
+        ops = {ast.Eq: lambda x, y: x == y, ast.Gt: lambda x, y: x > y,
+               ast.Lt: lambda x, y: x < y, ast.NotEq: lambda x, y: x != y}
+        f = ops.get(type(node.ops[0]))
+        return f(a, b) if f and a is not None and b is not None else None
+    if isinstance(node, ast.IfExp):
+        return _value(node.body if _value(node.test, consts, env)
+                      else node.orelse, consts, env)
     if isinstance(node, (ast.List, ast.Tuple)):
         return [_value(e, consts, env) for e in node.elts]
     if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
@@ -150,6 +199,7 @@ _SINK_GEOM = {"TypeVectorPoint": "point", "TypeVectorLine": "line",
 
 class _State(object):
     def __init__(self):
+        self.consts = {}
         self.vars = {}      # имя -> (узел вызова, env)
         self.adv = set()    # переменные, обёрнутые _advanced(имя)
         self.helps = {}     # переменная -> подсказка
@@ -163,8 +213,35 @@ def _strip_adv(node):
     return node, False
 
 
+def _module_funcs():
+    return dict((n.name, n) for n in _tree().body
+                if isinstance(n, ast.FunctionDef))
+
+
+def _module_nodes():
+    out = {}
+    for n in _tree().body:
+        if isinstance(n, ast.Assign):
+            for t in n.targets:
+                if isinstance(t, ast.Name):
+                    out[t.id] = n.value
+    return out
+
+
 def _walk(stmts, env, st):
     for s in stmts:
+        if isinstance(s, ast.For) and isinstance(s.iter, ast.Call) \
+                and _fname(s.iter) == "range" \
+                and isinstance(s.target, ast.Name):
+            # for i in range(1, NSTRUCT + 1): структуры вариограммы
+            args = [_value(a, st.consts, env) for a in s.iter.args]
+            if None in args:
+                raise SpecError("range() is not constant")
+            for i in range(*args):
+                e2 = dict(env)
+                e2[s.target.id] = ast.Constant(value=i)
+                _walk(s.body, e2, st)
+            continue
         if isinstance(s, ast.For) and isinstance(s.iter, (ast.Tuple,
                                                           ast.List)):
             names = s.target.elts if isinstance(s.target, ast.Tuple) \
@@ -183,7 +260,9 @@ def _walk(stmts, env, st):
             for h in getattr(s, "handlers", []) or []:
                 _walk(h.body, env, st)
             continue
-        if isinstance(s, ast.Assign) and isinstance(s.value, ast.Call):
+        if isinstance(s, ast.Assign) and isinstance(s.value, ast.Call) \
+                and _fname(s.value).startswith(("QgsProcessingParameter",
+                                                "_advanced")):
             for t in s.targets:
                 if isinstance(t, ast.Name):
                     node, adv = _strip_adv(s.value)
@@ -192,21 +271,34 @@ def _walk(stmts, env, st):
                     if adv:
                         st.adv.add(t.id)
             continue
+        if isinstance(s, ast.Assign):
+            # tag = _tr("Структура %d") % i и подобное: узел запоминается и
+            # вычисляется, когда на него сошлётся подпись
+            for t in s.targets:
+                if isinstance(t, ast.Name):
+                    env[t.id] = s.value
+            continue
         if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Call)):
             continue
         call = s.value
         name = _fname(call)
-        if name == "_advanced" and call.args and isinstance(call.args[0],
-                                                             ast.Name):
+        funcs = _module_funcs()
+        if isinstance(call.func, ast.Name) and name in funcs \
+                and name.startswith("_add_") \
+                and call.args and isinstance(call.args[0], ast.Name) \
+                and call.args[0].id in ("self", "alg"):
+            # _add_cv_params(self): параметры, общие для нескольких классов
+            _walk(funcs[name].body, dict(env), st)
+        elif name == "_advanced" and call.args and isinstance(
+                call.args[0], ast.Name):
             st.adv.add(call.args[0].id)
         elif name == "setHelp" and isinstance(call.func, ast.Attribute) \
                 and isinstance(call.func.value, ast.Name) and call.args:
-            t = _text(call.args[0], env)
             var = call.func.value.id
-            if t and var in st.vars:
+            if var in st.vars:
                 # переменную p заводят заново под каждый параметр, поэтому
                 # подсказка привязывается к узлу параметра, а не к имени
-                st.helps[id(st.vars[var][0])] = t
+                st.helps[id(st.vars[var][0])] = (call.args[0], dict(env))
         elif name == "addParameter" and call.args:
             arg, adv = _strip_adv(call.args[0])
             if isinstance(arg, ast.Name):
@@ -220,26 +312,43 @@ def _walk(stmts, env, st):
                 st.found.append((arg, dict(env), adv, None))
 
 
-def params(cls_name, overrides=None, strict=True):
+def params(cls_name, overrides=None, strict=True, translations=None):
     """Поля инструмента в виде словарей Param.to_dict (русские строки).
 
     overrides - {ключ: {поле: значение}}: то, чего из класса не видно,
-    или что в RustGIS устроено иначе (охват - слоем)."""
+    или что в RustGIS устроено иначе (охват - слоем).
+    translations - словарь i18n: тогда у поля есть "_en" с английскими
+    подписью, подсказкой и пунктами, собранными по частям, как в окне."""
+    global _TR
     cls = class_node(cls_name)
     consts = dict(_module_consts())
     consts.update(_class_consts(cls))
+    consts["__nodes__"] = dict(_module_nodes(), **consts["__nodes__"])
     init = _method(cls, "initAlgorithm")
     if init is None:
         raise SpecError("%s has no initAlgorithm" % cls_name)
     st = _State()
+    st.consts = consts
     _walk(init.body, {}, st)
     out = []
     for node, env, adv, var in st.found:
         # подсказка ставится после addParameter, поэтому берётся в конце
-        p = _param(cls_name, node, consts, env, adv,
-                   st.helps.get(id(node), ""))
-        if p is not None:
-            out.append(p)
+        hnode = st.helps.get(id(node))
+        hint = (_text(hnode[0], hnode[1]) or "") if hnode else ""
+        p = _param(cls_name, node, consts, env, adv, hint)
+        if p is None:
+            continue
+        if translations is not None:
+            _TR = translations
+            try:
+                pe = _param(cls_name, node, consts, env, adv,
+                            (_text(hnode[0], hnode[1]) or "")
+                            if hnode else "")
+            finally:
+                _TR = None
+            p["_en"] = {"label": pe["label"], "hint": pe["hint"],
+                        "options": pe.get("options", [])}
+        out.append(p)
     if overrides:
         # {"_drop": True} убирает поле из описания: то, что есть только в
         # окне QGIS (наложение модели на HTML, правка чужой таблицы)
@@ -307,6 +416,9 @@ def _param(cls_name, call, consts, env, advanced, hint):
             name = it.attr if isinstance(it, ast.Attribute) else \
                 getattr(it, "id", None)
             opts = consts.get("__nodes__", {}).get(name)
+            if isinstance(opts, ast.Name):
+                # FIT_LABELS = MODEL_LABELS и подобное: ещё одно имя
+                opts = consts.get("__nodes__", {}).get(opts.id)
         p["options"] = [_text(e, env) for e in getattr(opts, "elts", [])]
         if None in p["options"] or not p["options"]:
             raise SpecError("%s.%s: option is not a literal"
