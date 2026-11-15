@@ -18676,31 +18676,25 @@ class FractalDemoAlgorithm(IsolinerAlgorithm):
             self.OUT_COAST, self.tr("Берег (демо)"),
             QgsProcessing.SourceType.TypeVectorLine))
 
-    @staticmethod
-    def _midpoint(p0, p1, rough, depth, rng):
-        """Фрактальная ломаная срединных смещений между двумя точками."""
-        pts = [np.array(p0, float), np.array(p1, float)]
-        for _ in range(depth):
-            out = [pts[0]]
-            for a, b in zip(pts[:-1], pts[1:]):
-                m = (a + b) / 2.0
-                d = b - a
-                n = np.array([-d[1], d[0]])
-                L = float(np.hypot(*d))
-                m = m + n / (L + 1e-12) * rng.normal(0, rough * L)
-                out += [m, b]
-            pts = out
-        return np.array(pts)
-
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         ext = self.parameterAsExtent(parameters, self.EXTENT, context)
         crs = self.parameterAsExtentCrs(parameters, self.EXTENT, context)
-        seed = self.parameterAsInt(parameters, self.SEED, context)
-        rng = np.random.default_rng(seed)
-        W = ext.width(); H = ext.height()
-        x0 = ext.xMinimum(); y0 = ext.yMinimum()
+        # Расчёт - tools/fractal_demo.py (run без QGIS, его же переносит
+        # RustGIS). Охват уходит в run двумя углами, как объект слоя.
+        from .tools import fractal_demo as spec
+        values = {"EXTENT": [{"id": 0, "attrs": {}, "parts": [np.array(
+            [[ext.xMinimum(), ext.yMinimum(), np.nan],
+             [ext.xMaximum(), ext.yMaximum(), np.nan]])]}],
+            "SEED": self.parameterAsInt(parameters, self.SEED, context)}
+        rep = _FeedbackReport(None)
+        from .toolspec import ToolError
+        try:
+            res = spec.run(values, rep)
+        except ToolError as exc:
+            raise QgsProcessingException(
+                _FeedbackReport.text(exc.template, exc.args_))
 
         f_riv = QgsFields()
         f_riv.append(QgsField("order", QVariant.Int))
@@ -18716,65 +18710,35 @@ class FractalDemoAlgorithm(IsolinerAlgorithm):
             parameters, self.OUT_COAST, context, f_nm,
             QgsWkbTypes.Type.LineString, crs)
 
-        # --- речная сеть: рекурсивное ветвление со срединной шершавостью
-        rivers = []
+        def line(pts):
+            return QgsGeometry.fromPolylineXY(
+                [QgsPointXY(float(p[0]), float(p[1])) for p in pts])
 
-        def branch(p, ang, L, order, depth):
-            if depth <= 0 or L < 0.02 * min(W, H):
-                return
-            q = p + L * np.array([np.cos(ang), np.sin(ang)])
-            pl = self._midpoint(p, q, 0.10, 3, rng)
-            rivers.append((order, pl))
-            k = rng.integers(2, 4)
-            for i in range(k):
-                tt = 0.3 + 0.6 * rng.random()
-                bp = pl[int(tt * (len(pl) - 1))]
-                da = np.deg2rad(25 + 25 * rng.random()) *                     (1 if i % 2 == 0 else -1)
-                branch(bp, ang + da, L * (0.45 + 0.15 * rng.random()),
-                       order + 1, depth - 1)
-
-        start = np.array([x0 + 0.5 * W, y0 + 0.06 * H])
-        branch(start, np.pi / 2, 0.8 * H, 1, 4)
-        for order, pl in rivers:
+        for geom, row in res["OUT_RIVERS"].features:
             f = QgsFeature(f_riv)
-            f.setGeometry(QgsGeometry.fromPolylineXY(
-                [QgsPointXY(px, py) for px, py in pl]))
-            f.setAttributes([int(order)])
+            f.setGeometry(line(geom["points"]))
+            f.setAttributes(list(row))
             sink_r.addFeature(f)
-
-        # --- водосбор: изрезанный овал вокруг сети
-        cx, cy = x0 + 0.5 * W, y0 + 0.5 * H
-        nang = 24
-        base = []
-        for i in range(nang):
-            a = 2 * np.pi * i / nang
-            r = (0.42 + 0.06 * rng.random())
-            base.append((cx + r * W * np.cos(a), cy + r * H * np.sin(a)))
-        ring = []
-        for a, b in zip(base, base[1:] + base[:1]):
-            seg = self._midpoint(a, b, 0.16, 3, rng)
-            ring.extend(seg[:-1])
-        ring.append(ring[0])
-        f = QgsFeature(f_nm)
-        f.setGeometry(QgsGeometry.fromPolygonXY(
-            [[QgsPointXY(px, py) for px, py in ring]]))
-        f.setAttributes([self.tr("Водосбор (демо)")])
-        sink_b.addFeature(f)
-
-        # --- берег: одна сильно изрезанная линия через охват
-        coast = self._midpoint((x0 + 0.05 * W, y0 + 0.85 * H),
-                               (x0 + 0.95 * W, y0 + 0.7 * H), 0.22, 8, rng)
-        f = QgsFeature(f_nm)
-        f.setGeometry(QgsGeometry.fromPolylineXY(
-            [QgsPointXY(px, py) for px, py in coast]))
-        f.setAttributes([self.tr("Берег (демо)")])
-        sink_c.addFeature(f)
+        for geom, row in res["OUT_BASIN"].features:
+            f = QgsFeature(f_nm)
+            f.setGeometry(QgsGeometry.fromPolygonXY(
+                [[QgsPointXY(float(p[0]), float(p[1])) for p in ring]
+                 for ring in geom["rings"]]))
+            f.setAttributes(list(row))
+            sink_b.addFeature(f)
+        for geom, row in res["OUT_COAST"].features:
+            f = QgsFeature(f_nm)
+            f.setGeometry(line(geom["points"]))
+            f.setAttributes(list(row))
+            sink_c.addFeature(f)
 
         for dest, nm in ((dest_r, self.tr("Реки (демо)")),
                          (dest_b, self.tr("Водосбор (демо)")),
                          (dest_c, self.tr("Берег (демо)"))):
             _set_output_name(context, dest, nm)
-        feedback.pushInfo(_tr("Рек сгенерировано: %d.") % len(rivers))
+        for level, line_ in rep.lines:
+            (feedback.pushWarning if level == "warn"
+             else feedback.pushInfo)(line_)
         _save_values(self, _saved)
         return {self.OUT_RIVERS: dest_r, self.OUT_BASIN: dest_b,
                 self.OUT_COAST: dest_c}

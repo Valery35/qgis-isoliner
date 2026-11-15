@@ -218,13 +218,17 @@ class Result(object):
     {"points": (n, 3)}), "point" (точка с Z, геометрия - {"xyz": (3,)})
     или "source": геометрия объекта источника
     keep_source как есть, тогда геометрия - {"source": id}, или
-    "none" - таблица без геометрии, геометрия объекта - None.
+    "none" - таблица без геометрии, геометрия объекта - None, или
+    "polygon" - полигон, геометрия {"rings": [кольца (n, 3)]}, первое
+    кольцо внешнее, остальные внутренние, у плоского Z = NaN; многочастный
+    полигон - {"polygons": [[кольца первой части], ...]}. Вид polygon
+    принят владельцем rustgis-kit 14.11.2026, крейт читает его с 0.1.3.
     replace - свои поля с именем поля источника пишутся в него,
     а не рядом. Значения объекта тогда - словарь {поле: значение}:
     чего в словаре нет, остаётся от источника, у новых полей пусто.
     """
 
-    GEOMETRIES = ("mesh", "line", "point", "source", "none")
+    GEOMETRIES = ("mesh", "line", "point", "source", "none", "polygon")
 
     def __init__(self, fields, features=None, keep_source=None,
                  name=None, geometry="mesh", replace=False):

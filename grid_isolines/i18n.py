@@ -1397,6 +1397,7 @@ TRANSLATIONS = {
     'Сетка минимальной кривизны ложится в охват объектов этого слоя.': 'The minimum curvature grid covers the extent of the features of this layer.',
     'Проверять только в охвате слоя (пусто = везде)': 'Validate only within the extent of a layer (empty = everywhere)',
     'Проверяются только точки внутри охвата объектов этого слоя.': 'Only points within the extent of the features of this layer are validated.',
+    'Демо-объекты ложатся в охват объектов этого слоя.': 'The demo features are laid out within the extent of the features of this layer.',
     'Скважины ложатся в охват объектов этого слоя.':'The wells are placed within the extent of the features of this layer.',
     'Профили ложатся в охват объектов этого слоя.':'The profiles are laid out within the extent of the features of this layer.',
     'Пропущено точек: %d без значения «%s». Прочитано: %d.':'Points skipped: %d without a value for "%s". Read: %d.',

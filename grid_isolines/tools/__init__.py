@@ -28,6 +28,7 @@ RUNS = (
     ("examplewells", "example_wells", "ExampleWellsAlgorithm"),
     ("plast_reference_template", "plast_template",
      "PlastReferenceTemplateAlgorithm"),
+    ("fractal_demo", "fractal_demo", "FractalDemoAlgorithm"),
 )
 
 

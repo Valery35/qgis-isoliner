@@ -557,6 +557,36 @@ def plast_template_runs():
 
 # --- 7.05 Пример для фракталов --------------------------------------------
 
+def _area(x0, y0, w, h):
+    js = [{"id": 1, "attrs": {}, "parts": [[
+        [x0, y0, None], [x0 + w, y0, None], [x0 + w, y0 + h, None],
+        [x0, y0 + h, None], [x0, y0, None]]]}]
+    feed = [dict(f, parts=[np.array([[np.nan if c is None else c for c in p]
+                                     for p in part], dtype=float)
+                           for part in f["parts"]]) for f in js]
+    meta = {"@EXTENT": {"name": "area", "geometry": "polygon", "hasz": False,
+                        "fields": [], "numeric": []}}
+    return js, feed, meta
+
+
+def fractal_demo_runs():
+    """Зерно и полный вывод: расширение повторяет default_rng бит в бит."""
+    tool = export_tools.spec("fractal_demo")
+    cls = "FractalDemoAlgorithm"
+    runs = []
+    for (x0, y0, w, h), seed in (((datasets.X0, datasets.Y0, 1000.0, 800.0),
+                                  1),
+                                 ((datasets.X0, datasets.Y0, 1000.0, 800.0),
+                                  0),
+                                 ((0.0, 0.0, 300.0, 2000.0), 42)):
+        js, feed, meta = _area(x0, y0, w, h)
+        runs.append(spec_run(tool, cls, dict(_defaults(tool), SEED=seed),
+                             {"EXTENT": js}, {"EXTENT": feed}, meta,
+                             {"values_rel": 1e-9,
+                              "random": "numpy default_rng(SEED)"}))
+    return runs
+
+
 # --- 3.08 Пример для плотности --------------------------------------------
 
 def tool_runs(out):
@@ -572,6 +602,7 @@ def tool_runs(out):
     runs += contour_split_runs()
     runs += example_wells_runs()
     runs += plast_template_runs()
+    runs += fractal_demo_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
     return runs
 

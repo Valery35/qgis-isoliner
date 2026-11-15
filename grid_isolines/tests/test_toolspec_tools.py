@@ -353,6 +353,22 @@ def test_plast_template_rows_in_bedding_order():
     assert body["АБ"] == "пласт" and body["Б-В"] == "междупластье"
 
 
+def test_fractal_demo_outputs_and_closed_basin():
+    """7.05: реки, замкнутый полигон водосбора и берег в охвате."""
+    import numpy as np
+    from grid_isolines import toolspec
+    from grid_isolines.tools import fractal_demo as spec
+    area = [{"id": 1, "attrs": {}, "parts": [np.array(
+        [[0, 0, np.nan], [1000, 800, np.nan]])]}]
+    res = spec.run({"EXTENT": area, "SEED": 1}, toolspec.Report())
+    assert res["OUT_BASIN"].geometry == "polygon"
+    (g, _row), = res["OUT_BASIN"].features
+    ring = g["rings"][0]
+    assert np.allclose(ring[0], ring[-1], equal_nan=True)
+    assert len(res["OUT_RIVERS"].features) > 3
+    assert len(res["OUT_COAST"].features) == 1
+
+
 def test_declustering_refuses_without_value():
     import numpy as np
     from grid_isolines import toolspec

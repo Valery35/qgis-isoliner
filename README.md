@@ -339,6 +339,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.59** — 7.05 Fractal demo builds the same rivers, catchment and coast. Its computation no longer depends on QGIS.
 - **5.13.58** — 4.11 Bed reference template puts the same template into the project. Its computation no longer depends on QGIS.
 - **5.13.57** — 1.10 Example wells builds the same wells. Its computation no longer depends on QGIS.
 - **5.13.56** — 2.08 Contour split works as before. Its computation no longer depends on QGIS.
