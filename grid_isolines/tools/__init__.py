@@ -29,6 +29,7 @@ RUNS = (
     ("plast_reference_template", "plast_template",
      "PlastReferenceTemplateAlgorithm"),
     ("fractal_demo", "fractal_demo", "FractalDemoAlgorithm"),
+    ("densitydemo", "density_demo", "DensityDemoAlgorithm"),
 )
 
 

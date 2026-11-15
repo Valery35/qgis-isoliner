@@ -6908,8 +6908,19 @@ class DensityDemoAlgorithm(IsolinerAlgorithm):
             raise QgsProcessingException(self.tr("Не задан охват."))
         seed = self.parameterAsInt(parameters, self.SEED, context)
         cell = self.parameterAsDouble(parameters, self.CELL_AUX, context)
-        ds = D.demo_dataset(rect.xMinimum(), rect.yMinimum(),
-                            rect.xMaximum(), rect.yMaximum(), seed=seed)
+        # Расчёт - tools/density_demo.py (run без QGIS, его же переносит
+        # RustGIS). Охват уходит в run двумя углами, как объект слоя.
+        from .tools import density_demo as spec
+        rep = _FeedbackReport(None)
+        from .toolspec import ToolError
+        try:
+            res = spec.run({"EXTENT": [{"id": 0, "attrs": {}, "parts": [
+                np.array([[rect.xMinimum(), rect.yMinimum(), np.nan],
+                          [rect.xMaximum(), rect.yMaximum(), np.nan]])]}],
+                "SEED": seed}, rep)
+        except ToolError as exc:
+            raise QgsProcessingException(
+                _FeedbackReport.text(exc.template, exc.args_))
 
         # --- точки ---
         pf = QgsFields()
@@ -6917,10 +6928,11 @@ class DensityDemoAlgorithm(IsolinerAlgorithm):
         pf.append(QgsField("prec", QVariant.Double))
         psink, pdest = self.parameterAsSink(
             parameters, self.OUT_POINTS, context, pf, QgsWkbTypes.Type.Point, crs)
-        for x, y, m, s in ds["points"]:
+        for geom, row in res["OUT_POINTS"].features:
             f = QgsFeature(pf)
-            f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
-            f.setAttributes([float(m), float(s)])
+            f.setGeometry(QgsGeometry.fromPointXY(
+                QgsPointXY(float(geom["xyz"][0]), float(geom["xyz"][1]))))
+            f.setAttributes(list(row))
             psink.addFeature(f)
 
         # --- линии ---
@@ -6932,13 +6944,11 @@ class DensityDemoAlgorithm(IsolinerAlgorithm):
         lsink, ldest = self.parameterAsSink(
             parameters, self.OUT_LINES, context, lf, QgsWkbTypes.Type.LineString,
             crs)
-        for ln in ds["lines"]:
+        for geom, row in res["OUT_LINES"].features:
             f = QgsFeature(lf)
             f.setGeometry(QgsGeometry.fromPolylineXY(
-                [QgsPointXY(x, y) for x, y in ln["verts"]]))
-            f.setAttributes([float(ln["mass"]), float(ln["half"]),
-                             None if ln["from_m"] is None else float(ln["from_m"]),
-                             None if ln["to_m"] is None else float(ln["to_m"])])
+                [QgsPointXY(float(p[0]), float(p[1])) for p in geom["points"]]))
+            f.setAttributes(list(row))
             lsink.addFeature(f)
 
         # --- полигоны ---
@@ -6948,11 +6958,12 @@ class DensityDemoAlgorithm(IsolinerAlgorithm):
         gsink, gdest = self.parameterAsSink(
             parameters, self.OUT_POLYGONS, context, gf, QgsWkbTypes.Type.Polygon,
             crs)
-        for pg in ds["polygons"]:
+        for geom, row in res["OUT_POLYGONS"].features:
             f = QgsFeature(gf)
-            rings = [[QgsPointXY(x, y) for x, y in ring] for ring in pg["rings"]]
-            f.setGeometry(QgsGeometry.fromPolygonXY(rings))
-            f.setAttributes([float(pg["mass"]), 1 if pg["dasy"] else 0])
+            f.setGeometry(QgsGeometry.fromPolygonXY(
+                [[QgsPointXY(float(p[0]), float(p[1])) for p in ring]
+                 for ring in geom["rings"]]))
+            f.setAttributes(list(row))
             gsink.addFeature(f)
 
         # --- вспом. растр (градиент, для дазиметрии) ---
@@ -6978,10 +6989,9 @@ class DensityDemoAlgorithm(IsolinerAlgorithm):
         rds.GetRasterBand(1).WriteArray(np.flipud(aux).astype(np.float32))
         rds.GetRasterBand(1).FlushCache(); rds = None
 
-        feedback.pushInfo(self.tr(
-            "Демо создано. Масса: точки 500, линии 200, полигоны 300, итого "
-            "1000. Прогоните 3.07 на каждом слое - интеграл плотности должен "
-            "совпасть."))
+        for level, line_ in rep.lines:
+            (feedback.pushWarning if level == "warn"
+             else feedback.pushInfo)(line_)
         _set_output_name(context, pdest, self.tr("Демо-точки (плотность)"))
         _set_output_name(context, ldest, self.tr("Демо-линии (плотность)"))
         _set_output_name(context, gdest, self.tr("Демо-полигоны (плотность)"))

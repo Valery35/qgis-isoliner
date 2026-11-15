@@ -589,6 +589,26 @@ def fractal_demo_runs():
 
 # --- 3.08 Пример для плотности --------------------------------------------
 
+def density_demo_runs():
+    """Ядро density.demo_dataset, зерно и полный вывод."""
+    tool = export_tools.spec("densitydemo")
+    cls = "DensityDemoAlgorithm"
+    runs = []
+    for (x0, y0, w, h), seed in (((datasets.X0, datasets.Y0, 1000.0, 800.0),
+                                  1),
+                                 ((datasets.X0, datasets.Y0, 1000.0, 800.0),
+                                  9),
+                                 ((0.0, 0.0, 2000.0, 500.0), 4)):
+        # зерно 0 здесь значит «случайно», в образцы не годится
+        js, feed, meta = _area(x0, y0, w, h)
+        runs.append(spec_run(tool, cls, dict(_defaults(tool), SEED=seed),
+                             {"EXTENT": js}, {"EXTENT": feed}, meta,
+                             {"values_rel": 1e-9,
+                              "random": "numpy default_rng(SEED), "
+                                        "density.demo_dataset"}))
+    return runs
+
+
 def tool_runs(out):
     runs = []
     runs += declustering_runs()
@@ -603,6 +623,7 @@ def tool_runs(out):
     runs += example_wells_runs()
     runs += plast_template_runs()
     runs += fractal_demo_runs()
+    runs += density_demo_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
     return runs
 

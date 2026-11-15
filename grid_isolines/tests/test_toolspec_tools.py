@@ -369,6 +369,20 @@ def test_fractal_demo_outputs_and_closed_basin():
     assert len(res["OUT_COAST"].features) == 1
 
 
+def test_density_demo_mass_is_round():
+    """3.08: масса точек 500, линий 200, полигонов 300."""
+    import numpy as np
+    from grid_isolines import toolspec
+    from grid_isolines.tools import density_demo as spec
+    area = [{"id": 1, "attrs": {}, "parts": [np.array(
+        [[0, 0, np.nan], [1000, 800, np.nan]])]}]
+    res = spec.run({"EXTENT": area, "SEED": 1}, toolspec.Report())
+    for key, mass in (("OUT_POINTS", 500.0), ("OUT_LINES", 200.0),
+                      ("OUT_POLYGONS", 300.0)):
+        got = sum(r[0] for _g, r in res[key].features)
+        assert abs(got - mass) < 1e-6, (key, got)
+
+
 def test_declustering_refuses_without_value():
     import numpy as np
     from grid_isolines import toolspec
