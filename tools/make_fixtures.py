@@ -95,6 +95,14 @@ def _rows(res, cls_name, skip):
             item["xyz"] = _plain(np.asarray(g["xyz"], dtype=float))
         elif res.geometry == "line":
             item["points"] = _plain(np.asarray(g["points"], dtype=float))
+        elif res.geometry == "polygon":
+            if "polygons" in g:
+                item["polygons"] = [[_plain(np.asarray(r, dtype=float))
+                                     for r in part]
+                                    for part in g["polygons"]]
+            else:
+                item["rings"] = [_plain(np.asarray(r, dtype=float))
+                                 for r in g["rings"]]
         elif res.geometry in ("source",):
             item["source"] = g.get("source")
         feats.append(item)
@@ -502,6 +510,45 @@ def contour_split_runs():
 
 # --- 1.10 Пример скважин ----------------------------------------------------
 
+def example_wells_runs():
+    """Зерно больше нуля и полный вывод: расширение повторяет default_rng
+    бит в бит и сверяет по числам. Растра дрейфа здесь нет."""
+    tool = export_tools.spec("examplewells")
+    cls = "ExampleWellsAlgorithm"
+    x0, y0 = datasets.X0, datasets.Y0
+    poly = [{"id": 1, "attrs": {}, "parts": [[
+        [x0, y0, None], [x0 + 1000.0, y0, None],
+        [x0 + 1000.0, y0 + 800.0, None], [x0, y0 + 800.0, None],
+        [x0, y0, None]]]}]
+    feed = [dict(f, parts=[np.array([[np.nan if c is None else c for c in p]
+                                     for p in part], dtype=float)
+                           for part in f["parts"]]) for f in poly]
+    meta = {"@EXTENT": {"name": "area", "geometry": "polygon", "hasz": False,
+                        "fields": [], "numeric": []}}
+    cases = [dict(N_POINTS=120, SEED=7),
+             dict(N_POINTS=120, SEED=7, MINTYPE=True, HEAD=True, HYDRO=True),
+             dict(N_POINTS=120, SEED=11, HEAD=True),
+             dict(N_POINTS=300, SEED=7, THROW=8.0),
+             dict(N_POINTS=120, SEED=7, VMIN=10.0, VMAX=20.0, SMOOTH=0.3,
+                  NUGGET_FRAC=0.1, ROOF_MIN=-400.0, ROOF_MAX=-300.0,
+                  THICK_MIN=2.0, THICK_MAX=3.0),
+             dict(N_POINTS=120, SEED=7, VMIN=5.0, VMAX=5.0)]
+    runs = []
+    for kw in cases:
+        vals = dict(_defaults(tool), OUTPUT_FAULT=True, **kw)
+        runs.append(spec_run(tool, cls, vals, {"EXTENT": poly},
+                             {"EXTENT": feed}, meta,
+                             {"values_rel": 1e-9,
+                              "random": "numpy default_rng(SEED)"}))
+    return runs
+
+
+# --- 4.11 Образец справочника пластов ------------------------------------
+
+# --- 7.05 Пример для фракталов --------------------------------------------
+
+# --- 3.08 Пример для плотности --------------------------------------------
+
 def tool_runs(out):
     runs = []
     runs += declustering_runs()
@@ -513,6 +560,7 @@ def tool_runs(out):
     runs += method_cv_runs()
     runs += minkowski_runs()
     runs += contour_split_runs()
+    runs += example_wells_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
     return runs
 

@@ -316,6 +316,30 @@ def test_contour_split_holds_whole_levels():
         assert {2, 7} <= set(check)
 
 
+def test_example_wells_seed_repeats_and_fault_shifts():
+    """1.10: одно зерно - одни скважины, амплитуда сдвигает значения
+    только по одну сторону разлома."""
+    import numpy as np
+    from grid_isolines import toolspec
+    from grid_isolines.tools import example_wells as spec
+    area = [{"id": 1, "attrs": {}, "parts": [np.array(
+        [[0, 0, np.nan], [1000, 800, np.nan]])]}]
+    vals = {"EXTENT": area, "N_POINTS": 50, "SEED": 3, "VMIN": 0.0,
+            "VMAX": 50.0, "SMOOTH": 0.15, "NUGGET_FRAC": 0.35,
+            "ROOF_MIN": -250.0, "ROOF_MAX": -50.0, "THICK_MIN": 1.0,
+            "THICK_MAX": 8.0, "THROW": 0.0}
+    a = spec.run(vals, toolspec.Report())
+    b = spec.run(vals, toolspec.Report())
+    xa = [r[3] for _g, r in a["OUTPUT"].features]
+    assert xa == [r[3] for _g, r in b["OUTPUT"].features]
+    c = spec.run(dict(vals, THROW=100.0), toolspec.Report())
+    xc = [r[3] for _g, r in c["OUTPUT"].features]
+    moved = [i for i in range(50) if abs(xc[i] - xa[i]) > 1e-9]
+    assert moved and all(abs(xc[i] - xa[i] - 100.0) < 1e-9 for i in moved)
+    assert len(c["OUTPUT_FAULT"].features) == 1
+    assert "dz" not in [f[0] for f in a["OUTPUT"].fields]
+
+
 def test_declustering_refuses_without_value():
     import numpy as np
     from grid_isolines import toolspec

@@ -5206,18 +5206,11 @@ class CrossValidationAlgorithm(IsolinerAlgorithm):
         return results
 
 
-def _demo_field(rng, G, w):
-    """Коррелированное поле GxG: белый шум, сглаженный скользящим средним
-    (окно 2w+1, три прохода ≈ гауссово ядро). Края корректируются делением
-    на количество валидных отсчётов. Возвращает поле со средним 0 и ст.откл. 1."""
-    f = rng.standard_normal((G, G))
-    k = np.ones(2 * w + 1)
-    d = np.convolve(np.ones(G), k, "same")
-    for _ in range(3):
-        f = np.apply_along_axis(lambda m: np.convolve(m, k, "same"), 0, f) / d[:, None]
-        f = np.apply_along_axis(lambda m: np.convolve(m, k, "same"), 1, f) / d[None, :]
-    s = f.std() or 1.0
-    return (f - f.mean()) / s
+# Генераторы полей демо живут в tools/demo_fields.py (без QGIS, их берёт
+# и перенос на Rust), здесь прежние имена.
+from .tools.demo_fields import demo_field as _demo_field  # noqa: E402
+from .tools.demo_fields import demo_sample as _demo_sample  # noqa: E402
+from .tools.demo_fields import demo_values as _demo_values  # noqa: E402
 
 
 def _step(feedback, pct, message):
@@ -5233,31 +5226,6 @@ def _step(feedback, pct, message):
     if message:
         feedback.pushInfo(message)
     return not feedback.isCanceled()
-
-
-def _demo_sample(f, xs, ys, xmin, xmax, ymin, ymax):
-    """Билинейная выборка значений поля f в точках (xs, ys)."""
-    G = f.shape[0]
-    fx = (xs - xmin) / ((xmax - xmin) or 1.0) * (G - 1)
-    fy = (ys - ymin) / ((ymax - ymin) or 1.0) * (G - 1)
-    x0 = np.clip(np.floor(fx).astype(int), 0, G - 1); x1 = np.clip(x0 + 1, 0, G - 1)
-    y0 = np.clip(np.floor(fy).astype(int), 0, G - 1); y1 = np.clip(y0 + 1, 0, G - 1)
-    tx = fx - x0; ty = fy - y0
-    v0 = f[y0, x0] * (1 - tx) + f[y0, x1] * tx
-    v1 = f[y1, x0] * (1 - tx) + f[y1, x1] * tx
-    return v0 * (1 - ty) + v1 * ty
-
-
-def _demo_values(rng, G, w, xs, ys, ext, vmin, vmax, nf):
-    """Сгенерировать значения в [vmin, vmax] с пространственной структурой:
-    сглаженное поле (структура) + независимый шум (наггет долей nf дисперсии)."""
-    field = _demo_field(rng, G, w)
-    s = _demo_sample(field, xs, ys, ext[0], ext[1], ext[2], ext[3])
-    mean = 0.5 * (vmin + vmax)
-    tstd = 0.25 * (vmax - vmin)
-    struct = s * (np.sqrt(max(1.0 - nf, 0.0)) * tstd)
-    noise = rng.standard_normal(len(xs)) * (np.sqrt(max(nf, 0.0)) * tstd)
-    return np.clip(mean + struct + noise, vmin, vmax)
 
 
 class ExampleWellsAlgorithm(IsolinerAlgorithm):
@@ -5431,192 +5399,57 @@ class ExampleWellsAlgorithm(IsolinerAlgorithm):
         rect = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
         if rect.isEmpty() or rect.width() <= 0 or rect.height() <= 0:
             raise QgsProcessingException(_tr("Не задана корректная область (экстент)."))
-        n = self.parameterAsInt(parameters, self.N_POINTS, context)
-        vmin = self.parameterAsDouble(parameters, self.VMIN, context)
-        vmax = self.parameterAsDouble(parameters, self.VMAX, context)
-        if vmax <= vmin:
-            raise QgsProcessingException(_tr("Максимум значения должен быть больше минимума."))
-        smooth = self.parameterAsDouble(parameters, self.SMOOTH, context)
-        nug = self.parameterAsDouble(parameters, self.NUGGET_FRAC, context)
-        seed = self.parameterAsInt(parameters, self.SEED, context)
-
-        rng = np.random.default_rng(seed if seed > 0 else None)
+        # Расчёт - tools/example_wells.py (run без QGIS, его же переносит
+        # RustGIS). Охват уходит в run двумя углами, как объект слоя.
+        from .tools import example_wells as spec
         xmin, xmax = rect.xMinimum(), rect.xMaximum()
         ymin, ymax = rect.yMinimum(), rect.yMaximum()
-        ext = (xmin, xmax, ymin, ymax)
-
-        roof_min = self.parameterAsDouble(parameters, self.ROOF_MIN, context)
-        roof_max = self.parameterAsDouble(parameters, self.ROOF_MAX, context)
-        thick_min = self.parameterAsDouble(parameters, self.THICK_MIN, context)
-        thick_max = self.parameterAsDouble(parameters, self.THICK_MAX, context)
-
-        G = 200
-        w = max(1, int(round(smooth * G)))
-        xs = rng.uniform(xmin, xmax, n)
-        ys = rng.uniform(ymin, ymax, n)
-        # три независимых поля: содержание X (наггет nug), кровля (гладкая
-        # поверхность, малый наггет), мощность (умеренный наггет)
-        valsX = _demo_values(rng, G, w, xs, ys, ext, vmin, vmax, nug)
-        roof = _demo_values(rng, G, w, xs, ys, ext,
-                            min(roof_min, roof_max), max(roof_min, roof_max), 0.05)
-        thick = _demo_values(rng, G, w, xs, ys, ext,
-                             min(thick_min, thick_max), max(thick_min, thick_max),
-                             min(nug * 0.6, 0.5))
-
-        want_mt = self.parameterAsBool(parameters, self.MINTYPE, context)
-        mt = None
-        if want_mt:
-            # скрытое поле «замещения» 0-1 -> пороги в три класса минтипа,
-            # сильвинит остаётся фоном (по образцу БКПРУ-4)
-            repl = _demo_values(rng, G, w, xs, ys, ext, 0.0, 1.0, 0.12)
-            mt = np.where(repl > 0.72, _tr("Каменная соль замещения"),
-                 np.where(repl > 0.55, _tr("Частичное замещение кс"),
-                          _tr("Сильвинит")))
-
-        want_hydro = self.parameterAsBool(parameters, self.HYDRO, context)
-        want_head = self.parameterAsBool(parameters, self.HEAD, context) \
-            or want_hydro
-        head = None
-        if want_head:
-            # напор: выраженный региональный уклон (поток вниз по нему) плюс
-            # мягкая локальная вариация. Уклон в случайном направлении, перепад
-            # ~20 м на охват - после кригинга поток идёт осмысленно.
-            ang = rng.uniform(0.0, 2.0 * np.pi)
-            ux, uy = math.cos(ang), math.sin(ang)
-            proj = (xs - xmin) * ux + (ys - ymin) * uy
-            lo, hi = float(proj.min()), float(proj.max())
-            proj = (proj - lo) / ((hi - lo) or 1.0)
-            head = 100.0 + 20.0 * (1.0 - proj) + \
-                _demo_values(rng, G, w, xs, ys, ext, -2.0, 2.0, 0.05)
-
-        kK = kT = None
-        if want_hydro:
-            # коэффициент фильтрации K лог-нормален (разброс на порядки, как в
-            # реальных откачках). Поле ln(K) нормируется и подрезается до ±2.5σ,
-            # иначе пики гладкого поля после exp дают неестественные выбросы.
-            # Диапазон под ВКМКС: ln(K) ~ -1.8 ± 1.3·z -> K ~ 0.006…4 м/сут.
-            # Водопроводимость физически согласована: T = K · мощность.
-            kf = _demo_field(rng, G, max(1, int(round(min(max(smooth*1.2,0.06),0.5)*G))))
-            z_at = _demo_sample(kf, xs, ys, xmin, xmax, ymin, ymax)
-            z_at = (z_at - float(z_at.mean())) / (float(z_at.std()) or 1.0)
-            z_at = np.clip(z_at, -2.5, 2.5)
-            kK = np.exp(-1.8 + 1.3 * z_at)
-            kT = kK * np.maximum(thick, 0.1)
-
         drift_path = self.parameterAsOutputLayer(
             parameters, self.OUTPUT_DRIFT, context)
         want_drift = bool(drift_path)
-        drift_grid = None
-        dz = None
-        if want_drift:
-            # сторонняя структурная поверхность s(x,y) (соседний/подстилающий
-            # пласт): гладкая, крупные пятна, без шума - известна всюду. Поле dz
-            # скважин линейно связано с s (кровля целевого пласта повторяет
-            # подстилающую поверхность) плюс мягкая локальная структура. На этой
-            # паре «растр s + поле dz» показывают «Кригинг с внешним дрейфом».
-            wd = max(1, int(round(min(max(smooth * 1.4, 0.08), 0.6) * G)))
-            sfield = _demo_field(rng, G, wd)        # GxG, среднее 0, ст.откл. 1
-            s_lo, s_hi = -320.0, -120.0
-            drift_grid = 0.5 * (s_lo + s_hi) + sfield * (0.25 * (s_hi - s_lo))
-            s_at_well = _demo_sample(drift_grid, xs, ys, xmin, xmax, ymin, ymax)
-            local = _demo_values(rng, G, w, xs, ys, ext, -4.0, 4.0, 0.12)
-            dz = 30.0 + 0.9 * s_at_well + local
-
+        values = {"EXTENT": [{"id": 0, "attrs": {}, "parts": [np.array(
+            [[xmin, ymin, np.nan], [xmax, ymax, np.nan]])]}],
+            "OUTPUT_DRIFT": want_drift}
+        for key in (self.N_POINTS, self.SEED):
+            values[key] = self.parameterAsInt(parameters, key, context)
+        for key in (self.VMIN, self.VMAX, self.SMOOTH, self.NUGGET_FRAC,
+                    self.ROOF_MIN, self.ROOF_MAX, self.THICK_MIN,
+                    self.THICK_MAX, self.THROW):
+            values[key] = self.parameterAsDouble(parameters, key, context)
+        for key in (self.MINTYPE, self.HEAD, self.HYDRO):
+            values[key] = self.parameterAsBool(parameters, key, context)
+        res = _spec_call(spec.run, values, feedback)
+        wells = res["OUTPUT"]
+        drift_grid, G = wells.stats["drift_grid"], wells.stats["G"]
+        qtypes = {"string": QVariant.String, "double": QVariant.Double}
         fields = QgsFields()
-        fields.append(QgsField("well", QVariant.String))
-        fields.append(QgsField("roof", QVariant.Double))
-        fields.append(QgsField("thick", QVariant.Double))
-        fields.append(QgsField("X", QVariant.Double))
-        if want_head:
-            fields.append(QgsField("head", QVariant.Double))
-        if want_hydro:
-            fields.append(QgsField("K", QVariant.Double))
-            fields.append(QgsField("T", QVariant.Double))
-        if want_mt:
-            fields.append(QgsField("mintype", QVariant.String))
-        if want_drift:
-            fields.append(QgsField("dz", QVariant.Double))
+        for nm, tp in wells.fields:
+            fields.append(QgsField(nm, qtypes[tp]))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Type.Point, crs)
-
-        # Разлом: линия поперёк площади, не доходящая до краёв, и сдвиг
-        # значений по разные стороны от неё. Затухающий конец нужен
-        # намеренно: на нём видно, что влияние огибает разлом, а не
-        # обрывается по всей линии.
-        throw = self.parameterAsDouble(parameters, self.THROW, context)
-        fx = xmin + 0.5 * (xmax - xmin)
-        fy0 = ymin + 0.12 * (ymax - ymin)
-        fy1 = ymin + 0.72 * (ymax - ymin)
         ff = QgsFields()
         ff.append(QgsField("name", QVariant.String))
         ff.append(QgsField("throw", QVariant.Double))
         fsink, fdest = self.parameterAsSink(
             parameters, self.OUTPUT_FAULT, context, ff,
             QgsWkbTypes.Type.LineString, crs)
-        if fsink is not None:
-            ft = QgsFeature(ff)
-            ft.setGeometry(QgsGeometry.fromPolylineXY(
-                [QgsPointXY(fx, fy0), QgsPointXY(fx, fy1)]))
-            ft.setAttributes([_tr("Разлом (демо)"), throw])
-            fsink.addFeature(ft)
-        if abs(throw) > 1e-12:
-            side = (xs > fx) & (ys >= fy0) & (ys <= fy1)
-            valsX = np.asarray(valsX, float).copy()
-            valsX[side] += throw
-            feedback.pushInfo(_tr(
-                "Разлом с амплитудой %.3g: значения сдвинуты по одну "
-                "сторону от линии. Линия не доходит до краёв площади, и "
-                "выше её конца поверхность обязана смыкаться.") % throw)
-
-        for i in range(n):
+        if fsink is not None and "OUTPUT_FAULT" in res:
+            for geom, row in res["OUTPUT_FAULT"].features:
+                ft = QgsFeature(ff)
+                ft.setGeometry(QgsGeometry.fromPolylineXY(
+                    [QgsPointXY(float(p[0]), float(p[1]))
+                     for p in geom["points"]]))
+                ft.setAttributes(list(row))
+                fsink.addFeature(ft)
+        for geom, row in wells.features:
             f = QgsFeature(fields)
             f.setGeometry(QgsGeometry.fromPointXY(
-                QgsPointXY(float(xs[i]), float(ys[i]))))
-            attrs = ["SK-%04d" % (i + 1), float(roof[i]),
-                     float(thick[i]), float(valsX[i])]
-            if want_head:
-                attrs.append(float(head[i]))
-            if want_hydro:
-                attrs.append(float(kK[i]))
-                attrs.append(float(kT[i]))
-            if want_mt:
-                attrs.append(str(mt[i]))
-            if want_drift:
-                attrs.append(float(dz[i]))
-            f.setAttributes(attrs)
+                QgsPointXY(float(geom["xyz"][0]), float(geom["xyz"][1]))))
+            f.setAttributes(list(row))
             sink.addFeature(f)
-
         if fsink is not None:
             _set_output_name(context, fdest, _tr("Разлом (демо)"))
-        rng_m = 2.0 * smooth * max(xmax - xmin, ymax - ymin)
-        var = float(np.var(valsX))
-        feedback.pushInfo(
-            _tr("Сгенерировано скважин: %d. Поля: кровля (roof), мощность (thick), "
-            "содержание X. Дисперсия X ≈ %.4g.") % (n, var))
-        feedback.pushInfo(
-            _tr("Стартовая вариограмма для X (кригинг/кросс-валидация): суммарный "
-            "силл ≈ %.4g, наггет C0 ≈ %.4g, радиус ≈ %.4g (в единицах "
-            "координат). Уточните наггет по кросс-валидации до MSDR ≈ 1.") %
-            (var, nug * var, rng_m))
-        if want_mt:
-            from collections import Counter
-            cc = Counter(mt.tolist())
-            feedback.pushInfo(_tr("Поле mintype (демо): ") + ", ".join(
-                "%s=%d" % (k, v) for k, v in cc.items()))
-        if want_head:
-            feedback.pushInfo(_tr(
-                "Поле напора (head): региональный уклон + локальная вариация. "
-                "Кригуйте head, затем подайте растр в «Гидравлический градиент "
-                "и направление потока»."))
-        if want_hydro:
-            feedback.pushInfo(_tr(
-                "Поля K и T (демо): K лог-нормально (K ≈ %.4g…%.4g м/сут), "
-                "T = K·мощность. Для удельного расхода создайте калькулятором "
-                "поля ln(K) и ln(T), кригуйте их, а при подаче в «Удельный "
-                "расход (Дарси)» включите галку «Растры заданы как ln». Напор "
-                "(head) кригуйте как обычно.")
-                % (float(kK.min()), float(kK.max())))
         results = {self.OUTPUT: dest}
         if want_drift:
             # растр пишется так, что центры пикселей совпадают с узлами

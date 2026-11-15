@@ -356,9 +356,9 @@ def params(cls_name, overrides=None, strict=True, translations=None):
         for p in out:
             p.update(overrides.get(p["key"], {}))
     for p in out:
-        if strict and p["kind"] == "_extent":
-            raise SpecError("%s: field %s is an extent, give an override"
-                            % (cls_name, p["key"]))
+        if strict and p["kind"] in ("_extent", "_raster_out"):
+            raise SpecError("%s: field %s (%s) needs an override"
+                            % (cls_name, p["key"], p["kind"]))
     return out
 
 
@@ -447,6 +447,9 @@ def _param(cls_name, call, consts, env, advanced, hint):
         p["geometry"] = _SINK_GEOM.get(t, "none")
     elif kind_name == "Extent":
         p["kind"] = "_extent"
+    elif kind_name == "RasterDestination":
+        # выход растром: в описание для RustGIS не идёт, снимается _drop
+        p["kind"] = "_raster_out"
     elif kind_name in ("FileDestination", "FolderDestination"):
         return None
     else:
