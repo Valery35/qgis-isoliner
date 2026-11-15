@@ -340,6 +340,19 @@ def test_example_wells_seed_repeats_and_fault_shifts():
     assert "dz" not in [f[0] for f in a["OUTPUT"].fields]
 
 
+def test_plast_template_rows_in_bedding_order():
+    """4.11: 37 строк образца по порядку залегания, тело словом."""
+    from grid_isolines import toolspec
+    from grid_isolines.tools import plast_template as spec
+    out = spec.run({}, toolspec.Report())["OUTPUT"]
+    rows = [r for _g, r in out.features]
+    assert len(rows) == 37 and out.geometry == "none"
+    orders = [r[1] for r in rows]
+    assert orders == sorted(orders)
+    body = dict((r[0], r[2]) for r in rows)
+    assert body["АБ"] == "пласт" and body["Б-В"] == "междупластье"
+
+
 def test_declustering_refuses_without_value():
     import numpy as np
     from grid_isolines import toolspec

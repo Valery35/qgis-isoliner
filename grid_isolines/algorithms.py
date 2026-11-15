@@ -8687,14 +8687,10 @@ class PlastReferenceTemplateAlgorithm(IsolinerAlgorithm):
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
-        path = self.template_path()
-        if not os.path.exists(path):
-            raise QgsProcessingException(_tr(
-                "Образец справочника не найден в поставке: %s") % path)
-        rsum = plast_reference.ReadSummary()
-        ref = plast_reference.Reference.from_csv(path, summary=rsum)
-        for ln in rsum.lines(_tr):
-            feedback.pushInfo(ln)
+        # Расчёт - tools/plast_template.py (run без QGIS, его же переносит
+        # RustGIS). Образец читается там же, здесь только запись таблицы.
+        from .tools import plast_template as spec
+        res = _spec_call(spec.run, {}, feedback)["OUTPUT"]
 
         fields = QgsFields()
         fields.append(QgsField("code", QVariant.String))
@@ -8706,20 +8702,10 @@ class PlastReferenceTemplateAlgorithm(IsolinerAlgorithm):
         sink, dest_id = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Type.NoGeometry)
-        for b in sorted(ref.beds, key=lambda x: x.order):
+        for _geom, row in res.features:
             feat = QgsFeature(fields)
-            feat["code"] = b.code
-            feat["order"] = int(b.order)
-            # наружу отдаём словами, как в файле: справочник читает человек
-            feat["body"] = (_tr("междупластье") if b.is_interbed
-                            else _tr("пласт"))
-            feat["color"] = b.color or ""
-            feat["strata"] = getattr(b, "strata", "") or ""
-            feat["note"] = getattr(b, "note", "") or ""
+            feat.setAttributes(list(row))
             sink.addFeature(feat)
-        feedback.pushInfo(_tr(
-            "Образец положен в проект. Подайте его в 4.01 и 4.02 как "
-            "«Справочник пластов (таблица)»."))
         _set_output_name(context, dest_id, _tr("Справочник пластов (образец)"))
         return {self.OUTPUT: dest_id}
 

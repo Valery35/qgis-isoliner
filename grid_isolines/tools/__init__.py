@@ -26,6 +26,8 @@ RUNS = (
     ("minkowski_dimension", "minkowski", "MinkowskiDimensionAlgorithm"),
     ("contoursplit", "contour_split", "ContourSplitAlgorithm"),
     ("examplewells", "example_wells", "ExampleWellsAlgorithm"),
+    ("plast_reference_template", "plast_template",
+     "PlastReferenceTemplateAlgorithm"),
 )
 
 

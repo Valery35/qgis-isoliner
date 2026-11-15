@@ -545,6 +545,16 @@ def example_wells_runs():
 
 # --- 4.11 Образец справочника пластов ------------------------------------
 
+def plast_template_runs():
+    """Входов нет: образец из поставки (templates/plast_reference_vkmks.csv),
+    выход - таблица без геометрии."""
+    tool = export_tools.spec("plast_reference_template")
+    return [spec_run(tool, "PlastReferenceTemplateAlgorithm",
+                     _defaults(tool), {}, {}, {},
+                     {"source": "grid_isolines/templates/"
+                                "plast_reference_vkmks.csv"})]
+
+
 # --- 7.05 Пример для фракталов --------------------------------------------
 
 # --- 3.08 Пример для плотности --------------------------------------------
@@ -561,6 +571,7 @@ def tool_runs(out):
     runs += minkowski_runs()
     runs += contour_split_runs()
     runs += example_wells_runs()
+    runs += plast_template_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
     return runs
 
