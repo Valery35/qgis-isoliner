@@ -339,6 +339,7 @@ same license as QGIS itself. Full text in the `LICENSE` file.
 Full list — in [CHANGELOG.md](CHANGELOG.md); `metadata.txt` of the plugin keeps
 the last ten versions. The user manual (PDF) is
 
+- **5.13.61** — 2.01 Download DEM gets a fourth source, GEM-15 by Google Research with a 15 m cell (no coverage of Russia).
 - **5.13.60** — 3.08 Density demo builds the same points, lines and polygons. Its computation no longer depends on QGIS.
 - **5.13.59** — 7.05 Fractal demo builds the same rivers, catchment and coast. Its computation no longer depends on QGIS.
 - **5.13.58** — 4.11 Bed reference template puts the same template into the project. Its computation no longer depends on QGIS.

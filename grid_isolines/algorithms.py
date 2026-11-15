@@ -18773,6 +18773,7 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
     FILL = "FILL"
     EPSILON = "EPSILON"
     MAX_TILES = "MAX_TILES"
+    GEM15_BAND = "GEM15_BAND"
     OUTPUT = "OUTPUT"
 
     def tr(self, s): return _tr(s)
@@ -18787,7 +18788,7 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
     def shortHelpString(self):
         return _help_version(_trh(
             "Загружает ЦМР по рамке из открытого хранилища, без регистрации и ключей. "
-            "Источника три.\n\nCopernicus GLO-30 это модель поверхности (DSM), то есть "
+            "Источника четыре.\n\nCopernicus GLO-30 это модель поверхности (DSM), то есть "
             "высоты по кронам и кровлям, плиточной мозаикой без швов. GEDTM30 это "
             "модель рельефа (DTM, CC BY 4.0), где лес и постройки сняты машинным "
             "обучением по ICESat-2 и GEDI. Под пологом леса GEDTM30 точнее, и лежит он "
@@ -18798,17 +18799,25 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
             "Уровень плиток подбирается по размеру ячейки, и там, где есть подробные "
             "данные, мелкая ячейка даёт настоящую подробность. Большинство источников "
             "сборки это модели поверхности, как GLO-30. Если рамка велика для заданной "
-            "ячейки, уровень огрубляется, и журнал об этом предупреждает.\n\nДанные перепроецируются в метрическую систему "
+            "ячейки, уровень огрубляется, и журнал об этом предупреждает.\n\nGEM-15 это "
+            "экспериментальный набор Google Research с ячейкой 15 м, высоты от геоида "
+            "EGM96. Канал DTM это рельеф без леса и построек, DSM это поверхность. "
+            "России, Китая, Монголии, Гренландии и Антарктиды в наборе нет, вода, "
+            "снег и лёд вырезаны. Рамка целиком вне покрытия завершается отказом, при "
+            "частичном покрытии журнал называет долю пустых ячеек.\n\nДанные "
+            "перепроецируются в метрическую систему "
             "координат с кубической интерполяцией. Флажок гидрокоррекции заполняет "
             "ложные понижения, чтобы вода текла вниз.\n\nВыход: GeoTIFF float32, высоты "
             "в метрах, слой попадает в группу Топография дерева слоёв и готов для "
             "изолиний (1.04) и всей группы. Данные: GLO-30 - Copernicus DEM © ESA, "
             "GEDTM30 - © OpenGeoHub, CC BY 4.0, Mapzen - открытые источники, перечень "
-            "и ссылки на авторов печатаются в журнал.\n\n**Размер ячейки** задаётся в "
+            "и ссылки на авторов печатаются в журнал. GEM-15 - This dataset is "
+            "produced by Google, CC BY 4.0.\n\n**Размер ячейки** задаётся в "
             "метрах целевой системы координат. GLO-30 и GEDTM30 тридцатиметровые, "
             "поэтому для них мельче тридцати брать незачем. Подробности от этого не "
             "появится, вырастет только объём файла. У Mapzen мельче тридцати имеет "
-            "смысл там, где в сборке есть подробные национальные данные.\n\n**Сгладить рельеф (FPDEMS)** убирает избыточную "
+            "смысл там, где в сборке есть подробные национальные данные. У GEM-15 "
+            "родная ячейка 15 м.\n\n**Сгладить рельеф (FPDEMS)** убирает избыточную "
             "шероховатость спутниковой ЦМР, не заваливая бровки. Работает оно не с "
             "высотами, а с полем нормалей поверхности. Вес соседа тем больше, чем "
             "ближе его нормаль к нормали центра. На бровке нормали по сторонам разные, "
@@ -18834,7 +18843,8 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
             options=[self.tr("Copernicus GLO-30 (DSM, поверхность)"),
                      self.tr("GEDTM30 (DTM, без леса и построек)"),
                      self.tr("Mapzen Terrain Tiles (сборка SRTM, ArcticDEM и "
-                             "национальных ЦМР)")],
+                             "национальных ЦМР)"),
+                     self.tr("GEM-15 (Google, 15 м, без России)")],
             defaultValue=_dv(self, self.SOURCE, 0)))
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Рамка загрузки")))
@@ -18884,6 +18894,16 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.MAX_TILES,
                              dem_glo30.DEFAULT_MAX_TILES), minValue=1)))
+        band = QgsProcessingParameterEnum(
+            self.GEM15_BAND, self.tr("Канал GEM-15"),
+            options=[self.tr("DTM (рельеф без леса и построек)"),
+                     self.tr("DSM (поверхность по кронам и кровлям)")],
+            defaultValue=_dv(self, self.GEM15_BAND, 0))
+        band.setHelp(_trh(
+            "Действует только для источника GEM-15. DTM - рельеф без леса и "
+            "построек, в лесу он слабее. DSM - поверхность по кронам и "
+            "кровлям."))
+        self.addParameter(_advanced(band))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("ЦМР (метрическая СК)")))
 
@@ -18929,8 +18949,12 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
         max_tiles = self.parameterAsInt(parameters, self.MAX_TILES, context)
         source_idx = self.parameterAsEnum(parameters, self.SOURCE, context)
         source = {1: dem_glo30.SOURCE_GEDTM30,
-                  2: dem_glo30.SOURCE_MAPZEN}.get(source_idx,
-                                                  dem_glo30.SOURCE_GLO30)
+                  2: dem_glo30.SOURCE_MAPZEN,
+                  3: dem_glo30.SOURCE_GEM15}.get(source_idx,
+                                                 dem_glo30.SOURCE_GLO30)
+        gem15_band = dem_glo30.GEM15_BANDS[
+            1 if self.parameterAsEnum(parameters, self.GEM15_BAND,
+                                      context) == 1 else 0]
         out_path = self.parameterAsOutputLayer(parameters, self.OUTPUT,
                                                context)
         srs_label, dst_epsg, dst_wkt = self._resolve_target_srs(
@@ -18947,7 +18971,7 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
             dem_glo30.fetch_dem(
                 bbox, out_path, gdal, osr, dst_epsg=dst_epsg,
                 dst_wkt=dst_wkt, cell=cell, max_tiles=max_tiles,
-                source=source, feedback=feedback)
+                source=source, feedback=feedback, gem15_band=gem15_band)
         except dem_glo30.DemSourceError as exc:
             raise QgsProcessingException(str(exc))
         if feedback.isCanceled():
@@ -19010,6 +19034,10 @@ class DemDownloadAlgorithm(IsolinerAlgorithm):
         if source == dem_glo30.SOURCE_GEDTM30:
             feedback.pushInfo(self.tr(
                 "Данные: GEDTM30 © OpenGeoHub, CC BY 4.0."))
+        elif source == dem_glo30.SOURCE_GEM15:
+            feedback.pushInfo(self.tr(
+                "Данные: GEM-15, This dataset is produced by Google, "
+                "CC BY 4.0."))
         elif source == dem_glo30.SOURCE_MAPZEN:
             feedback.pushInfo(self.tr(
                 "Данные: Mapzen Terrain Tiles (AWS Open Data). По России это "

@@ -59,8 +59,123 @@ GEDTM30_NODATA = -2147483647   # Int32 no-data сырого COG (Zenodo)
 # с флагом -unscale, отдавая настоящие метры. Вручную не делим.
 
 
+# GEM-15: Near-Global Surface and Terrain Elevation Models, Google
+# Research, экспериментальный набор. Ячейка 15 м, высоты от EGM96, CC BY 4.0.
+# Плитки 1 на 1 градус COG, каждая в своей зоне UTM. Наличие плитки и её
+# адрес берутся из статического каталога STAC, а не из сетки градусов:
+# покрытие с дырами (нет России, Китая, Монголии, Гренландии, Антарктиды,
+# вода и лёд вырезаны), и плитки нет там, где нет данных.
+SOURCE_GEM15 = "gem15"
+GEM15_STAC = ("https://storage.googleapis.com/climate-and-sustainability/"
+              "gem-15/stac/gem-15/")
+GEM15_BANDS = ("dtm", "dsm")      # канал DTM - рельеф, DSM - поверхность
+GEM15_ATTRIBUTION = "This dataset is produced by Google"
+GEM15_DST_NODATA = -9999.0
+GEM15_TIMEOUT = 30
+
+
 class DemSourceError(Exception):
     """Ошибка источника ЦМР с внятным текстом для пользователя."""
+
+
+def gem15_cell(lon, lat):
+    """(группа, плитка) GEM-15 для градусной ячейки с углом (lon, lat).
+
+    Плитка «w70s40» - ячейка от 70 в.д. и 40 с.ш., отрицательные с
+    приставкой m («wm61sm1»). Группа - клетка 10 на 10 градусов, сперва
+    широта, потом долгота («p40_p70», «m10_m70»)."""
+    lo, la = int(math.floor(lon)), int(math.floor(lat))
+
+    def tag(v):
+        return ("m%d" % -v) if v < 0 else str(v)
+
+    def grp(v):
+        g = int(math.floor(v / 10.0)) * 10
+        return ("m%d" % -g) if g < 0 else ("p%d" % g)
+
+    return "%s_%s" % (grp(la), grp(lo)), "w%ss%s" % (tag(lo), tag(la))
+
+
+def gem15_cells_for_bbox(extent_4326, max_tiles=DEFAULT_MAX_TILES):
+    """Градусные ячейки рамки [(группа, плитка, (lon, lat))], с пределом."""
+    lon_min, lat_min, lon_max, lat_max = extent_4326
+    # те же проверки рамки и предел площади, что у GLO-30
+    tiles_for_bbox(lon_min, lat_min, lon_max, lat_max, max_tiles)
+    eps = 1e-9
+    out = []
+    for la in range(int(math.floor(lat_min)),
+                    int(math.floor(lat_max - eps)) + 1):
+        for lo in range(int(math.floor(lon_min)),
+                        int(math.floor(lon_max - eps)) + 1):
+            g, c = gem15_cell(lo, la)
+            out.append((g, c, (lo, la)))
+    return out
+
+
+def _fetch_json(url, timeout=GEM15_TIMEOUT):
+    """JSON по HTTPS. None - объекта нет (404), иначе DemSourceError."""
+    import json
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": "Isoliner"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise DemSourceError(
+            _tr("Каталог GEM-15 ответил ошибкой {}: {}").format(exc.code, url))
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise DemSourceError(
+            _tr("Не удалось прочитать каталог GEM-15 ({}). Проверьте "
+                "соединение и прокси.").format(exc))
+
+
+def gem15_plan(extent_4326, band="dtm", max_tiles=DEFAULT_MAX_TILES,
+               fetch=_fetch_json):
+    """Плитки GEM-15 по рамке из каталога STAC.
+
+    Возвращает (плитки, ячеек_в_рамке): плитка - словарь {"cell", "href",
+    "epsg", "bbox"}. Группы и плитки, которых нет в каталоге, пропускаются:
+    там нет данных. fetch(url) -> dict или None, в тестах подменяется."""
+    if band not in GEM15_BANDS:
+        raise DemSourceError(_tr("Неизвестный канал GEM-15: {}").format(band))
+    cells = gem15_cells_for_bbox(extent_4326, max_tiles)
+    coll = fetch(GEM15_STAC + "collection.json")
+    if not coll:
+        raise DemSourceError(_tr("Каталог GEM-15 не найден."))
+    groups = set(ln.get("title") or ln.get("href", "").split("/")[1]
+                 for ln in coll.get("links", []) if ln.get("rel") == "child")
+    lon_min, lat_min, lon_max, lat_max = extent_4326
+    items_of = {}
+    tiles = []
+    for grp, cell, _ll in cells:
+        if grp not in groups:
+            continue
+        if grp not in items_of:
+            cat = fetch(GEM15_STAC + grp + "/catalog.json") or {}
+            items_of[grp] = dict(
+                (ln.get("title"), ln.get("href"))
+                for ln in cat.get("links", []) if ln.get("rel") == "item")
+        href = items_of[grp].get(cell)
+        if not href:
+            continue
+        item = fetch(GEM15_STAC + grp + "/" + href.lstrip("./"))
+        if not item:
+            continue
+        b = item.get("bbox") or [0, 0, 0, 0]
+        if not (b[0] < lon_max and b[2] > lon_min and b[1] < lat_max
+                and b[3] > lat_min):
+            continue
+        asset = (item.get("assets") or {}).get(band) or {}
+        if not asset.get("href"):
+            continue
+        tiles.append({"cell": cell, "href": asset["href"],
+                      "epsg": asset.get("proj:epsg") or
+                      (item.get("properties") or {}).get("proj:epsg"),
+                      "bbox": b})
+    return tiles, len(cells)
 
 
 def tile_name(lat, lon):
@@ -315,10 +430,82 @@ def gedtm_window(extent_4326, ds_bounds, margin=GEDTM_WINDOW_MARGIN):
     return (ulx, uly, lrx, lry)
 
 
+def valid_share(path, gdal_module, nodata):
+    """Доля ячеек растра со значением (не no-data и не NaN)."""
+    import numpy as np
+    ds = gdal_module.Open(path)
+    a = ds.GetRasterBand(1).ReadAsArray().astype(float)
+    ds = None
+    ok = np.isfinite(a) & (a != nodata)
+    return float(ok.mean()) if a.size else 0.0
+
+
+def _fetch_gem15(extent_4326, out_path, gdal_module, osr_module, dst_srs,
+                 cell, max_tiles, band, feedback, fetch):
+    """GEM-15: плитки по каталогу STAC, варп сразу по списку плиток.
+
+    Плитки лежат в разных зонах UTM, поэтому общую VRT-мозаику не
+    собрать, а Warp принимает источники в разных СК и сводит их сам.
+    У DSM в файле пять каналов, нужен первый: для каждой плитки берётся
+    одноканальный VRT."""
+    if feedback:
+        feedback.pushInfo(_tr("Источник: GEM-15 (Google Research, "
+                              "экспериментальный), канал {}.").format(band))
+    tiles, n_cells = gem15_plan(extent_4326, band, max_tiles, fetch)
+    if not tiles:
+        raise DemSourceError(
+            _tr("Рамка целиком вне покрытия GEM-15. В наборе нет России, "
+                "Китая, Монголии, Гренландии и Антарктиды, вода, снег и лёд "
+                "вырезаны. Для этой территории возьмите источник GLO-30."))
+    if feedback:
+        feedback.pushInfo(_tr("Плиток GEM-15 в каталоге по рамке: {} из {} "
+                              "градусных ячеек.").format(len(tiles), n_cells))
+    gdal_module.UseExceptions()
+    srcs, vsimem = [], []
+    for k, t in enumerate(tiles):
+        path = vsicurl_path(t["href"])
+        if band == "dsm":
+            vrt = "/vsimem/gem15_dsm_%d.vrt" % k
+            ds = gdal_module.BuildVRT(vrt, [path], bandList=[1])
+            if ds is None:
+                continue
+            ds = None
+            vsimem.append(vrt)
+            path = vrt
+        srcs.append(path)
+    if not srcs:
+        raise DemSourceError(
+            _tr("Не удалось открыть ни одной плитки GEM-15. Проверьте "
+                "соединение и прокси: плитки читаются с "
+                "storage.googleapis.com."))
+    _warp_to_metric(srcs, out_path, extent_4326, gdal_module, osr_module,
+                    dst_srs, cell, float("nan"), dst_nodata=GEM15_DST_NODATA,
+                    output_type=gdal_module.GDT_Float32)
+    for v in vsimem:
+        gdal_module.Unlink(v)
+    share = valid_share(out_path, gdal_module, GEM15_DST_NODATA)
+    if feedback:
+        feedback.pushInfo(_tr("GEM-15: заполнено {:.1f} процента ячеек. "
+                              "Высоты от геоида EGM96.").format(100.0 * share))
+        feedback.pushInfo(_tr("GEM-15 распространяется по лицензии CC BY 4.0. "
+                              "Атрибуция: {}.").format(GEM15_ATTRIBUTION))
+        if share < 0.999:
+            feedback.pushWarning(
+                _tr("Рамка покрыта GEM-15 частично: пусто {:.1f} процента "
+                    "ячеек. Вода, снег, лёд, участки без текстуры и "
+                    "территории вне набора остаются без значения.").format(
+                        100.0 * (1.0 - share)))
+    if share == 0.0:
+        raise DemSourceError(
+            _tr("В рамке нет ни одной ячейки GEM-15 со значением. Для этой "
+                "территории возьмите источник GLO-30."))
+    return out_path, srcs
+
+
 def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
               dst_epsg=None, dst_wkt=None, cell=DEFAULT_CELL,
               max_tiles=DEFAULT_MAX_TILES, source=SOURCE_GLO30,
-              feedback=None):
+              feedback=None, gem15_band="dtm", fetch=_fetch_json):
     """Полный цикл загрузки ЦМР по рамке в метрическую СК.
 
     extent_4326: (lon_min, lat_min, lon_max, lat_max).
@@ -387,6 +574,11 @@ def fetch_dem(extent_4326, out_path, gdal_module, osr_module,
         if feedback:
             feedback.pushInfo(_tr("GEDTM30: высоты приведены к метрам."))
         return out_path, [cog]
+
+    if source == SOURCE_GEM15:
+        return _fetch_gem15(extent_4326, out_path, gdal_module, osr_module,
+                            dst_srs, cell, max_tiles, gem15_band, feedback,
+                            fetch)
 
     if source == SOURCE_MAPZEN:
         # Площадь страхуется тем же пределом градусных плиток, что и у
