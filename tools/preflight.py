@@ -34,6 +34,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLUGIN = "grid_isolines"
 URL_FIELDS = ("homepage", "repository", "tracker")
 TAG = re.compile(r"\d+\.\d+\.\d+")
+# Номер в тексте: с приставкой («v5.13.61», «grid_isolines-5.13.61.zip»)
+# находится, четыре части (номер сборки 5.13.61.7) не берутся. Шаблон
+# PlanetX после находки Routeliner: \b не срабатывает между буквой и цифрой.
+VERSION = re.compile(r"(?<![\d.])(\d+\.\d+\.\d+)(?!\.?\d)")
 
 
 def url_problems(general):
@@ -127,10 +131,13 @@ def changelog_problems(general, changelog_text):
                    % (first, version))
     for line in changelog_text.split("\n"):
         if line.startswith("## "):
-            match = TAG.search(line)
-            if match and match.group(0) != version:
+            match = VERSION.search(line)
+            if not match:
+                out.append("CHANGELOG.md: в первом разделе нет номера - %s"
+                           % line)
+            elif match.group(1) != version:
                 out.append("CHANGELOG.md: первый раздел %s, а version=%s"
-                           % (match.group(0), version))
+                           % (match.group(1), version))
             break
     return out
 

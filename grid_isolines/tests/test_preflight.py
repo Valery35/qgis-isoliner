@@ -88,6 +88,25 @@ def test_changelog_first_entry_must_carry_version():
     assert pf.changelog_problems(general, "## 5.13.61\n") == []
 
 
+@pytest.mark.parametrize("text, want", [
+    ("## v5.13.62", "5.13.62"),
+    ("grid_isolines-5.13.62.zip", "5.13.62"),
+    ("## 5.13.62.7", None),
+    ("## 5.13.62 (16.11.2026)", "5.13.62"),
+])
+def test_version_pattern(text, want):
+    pf = _load()
+    match = pf.VERSION.search(text)
+    assert (match.group(1) if match else None) == want
+
+
+def test_changelog_heading_with_prefix_and_build_number():
+    pf = _load()
+    general = {"version": "5.13.62", "changelog": "5.13.62\n- текст"}
+    assert pf.changelog_problems(general, "## v5.13.61\n") != []
+    assert pf.changelog_problems(general, "## 5.13.62.1\n") != []
+
+
 def test_url_answers_reports_bad_status():
     pf = _load()
 
