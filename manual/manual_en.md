@@ -210,7 +210,7 @@ The task is the reverse of the first one. Here you do not build a surface from s
 
 **2.03 Topo2Raster** does this work - a multigrid interpolation in the spirit of ANUDEM. The main difference from kriging is that every type of input has a role of its own. Contours and spot heights give hard nodes: the elevation there is pinned. Thalwegs impose a downstream descent, so that the rivers on the built terrain do not run uphill. Cliffs work as a barrier: the drop along them is not smeared by the smoothing. The water edge lays lakes flat or tilts them along the channel.
 
-Set the cell explicitly, otherwise the default may turn out coarser than what you want to see. This is the first of the common mistakes. On a kilometre-wide area the automatic size gives a thirty-metre cell, and a seven-metre bench simply does not exist in such a grid. The tool warns about it in the log, but it is better to set the cell at once.
+Set the cell explicitly, otherwise the default may turn out coarser than what you want to see. This is the first of the common mistakes. On a kilometre-wide area the automatic size gives a thirty-metre cell, and a seven-metre bench does not exist in such a grid. The tool warns about it in the log, but it is better to set the cell at once.
 
 The result must not be checked by eye. **2.08 Split contours for validation** holds part of the lines back. **2.09 Contour residuals against the DEM** measures how far the built surface departed from the ones held back. This is the same device as cross-validation in kriging, and it answers the same question. Separately there is **2.10 Terracing check of a DEM**, which looks for the characteristic defect of interpolation over contours, where the surface steps along the original lines, and **2.11** removes it.
 
@@ -266,7 +266,7 @@ The steps are independent, and **Isolines from raster** works with any raster, n
 
 The parameters window remembers the values you entered and offers them the next time the same tool is run. That is convenient for repeated runs over the same data and works as before.
 
-A call from the model designer or from a script is different. There the parameters the call did not set are taken from the declaration of the tool itself, not from what was typed into the window the day before. Otherwise the same script would compute differently on different machines, in different QGIS profiles and simply on different days, and the log would not show it. When a missing parameter differs from what the window remembers, the tool says so in the log and names the parameter.
+A call from the model designer or from a script is different. There the parameters the call did not set are taken from the declaration of the tool itself, not from what was typed into the window the day before. Otherwise the same script would compute differently on different machines, in different QGIS profiles and even on different days, and the log would not show it. When a missing parameter differs from what the window remembers, the tool says so in the log and names the parameter.
 
 Hence the rule for models. Set in the call every parameter whose value matters for the result. The declared default of a tool is known and written down in this manual, while the memory of the window is known only to the machine where it was formed.
 
@@ -588,7 +588,7 @@ The line, as in kriging, need not cut across the area. Above the end of the faul
 
 ## 1.03 MBA: multilevel B-splines (points → raster)
 
-The third way to get a surface from points, after kriging (1.01) and minimum curvature (1.02). Read it together with them, and the number simply comes last because the tool appeared later.
+The third way to get a surface from points, after kriging (1.01) and minimum curvature (1.02). Read it together with them, and the number comes last because the tool appeared later.
 
 The method of Lee, Wolberg and Shin, 1997. A coarse lattice of control points is taken and a cubic B-spline approximating the data is built over it. It approximates coarsely, so the residual is computed - the difference between the measurement and the current surface. Then the lattice is doubled and the residual is approximated anew. It goes level after level, and each next one picks up what the previous could not.
 
@@ -1347,7 +1347,7 @@ When coarsened, the detailed surface is averaged rather than sampled at the node
 
 Both surfaces are clipped to the frame of the result and brought onto its grid together with their holes. In a DEM a hole is marked by a service value, and that value has to be recognised. Otherwise it goes into the computation as a real elevation, and the ring of
 overlap finds data where there is none. The correction then loses its meaning,
-while to the eye the raster is simply inserted without a transition. The log reports the share of cells with data for each surface. A suspiciously
+while to the eye the raster is inserted without a transition. The log reports the share of cells with data for each surface. A suspiciously
 high share for the detailed one means the holes in its file are not marked,
 which has to be fixed before grafting.
 
@@ -1399,7 +1399,7 @@ The full list of output-layer fields is in the **Electrical-prospecting / Subsid
 
 ## 2.01 Download DEM by extent
 
-Downloads a DEM by extent from an open store, no registration or keys, from one of four sources. Tiles are mosaicked seamlessly and reprojected into a metric coordinate system with cubic resampling. Raw degree tiles never enter the analysis, so the GLO-30 peculiarity north of latitude 50 (a coarser longitude step) is handled automatically.
+Downloads a DEM by extent from an open store, no registration or keys, from one of four sources. Tiles are mosaicked without seams and reprojected into a metric coordinate system with cubic resampling. Raw degree tiles never enter the analysis, so the GLO-30 peculiarity north of latitude 50 (a coarser longitude step) is handled automatically.
 
 | Parameter | What it sets | Default / hint |
 |---|---|---|
@@ -2125,7 +2125,7 @@ An important condition. The drift raster and the point layer must share the coor
 
 As with trend removal, the variogram here is fitted on the regression residuals, not on the raw value. After the drift is removed the residual variogram returns to its normal form and reaches a sill with a nugget. The range reflects the true scale of the local correlation. The standard-error raster in this mode is the error of kriging the residuals. The drift is treated as deterministic and adds no error of its own.
 
-A convenient way to fit the residual variogram without leaving the tool is not yet provided, so the residuals are judged by the share of variance removed, which the tool prints to the Log. If the drift took out a noticeable part of the spread, the relation with the external surface is real and the drift is appropriate. If it took out almost nothing, the field is not related to that raster, and plain **2D Kriging** will give the same result more simply.
+A convenient way to fit the residual variogram without leaving the tool is not yet provided, so the residuals are judged by the share of variance removed, which the tool prints to the Log. If the drift took out a noticeable part of the spread, the relation with the external surface is real and the drift is appropriate. If it took out almost nothing, the field is not related to that raster, and plain **2D Kriging** will give the same result with fewer inputs.
 
 ## 3.03 Exceedance probability map
 
@@ -2493,7 +2493,7 @@ All the sections go into one set of layers and are told apart by attributes rath
 
 On the drawing the sections are separated by a layout in the common drawing coordinate system. **Stacked top to bottom** places them one under another with a shared zero of distance, so the left edge is the same for all. **In a row, left to right** places them side by side with a shared elevation datum, so the elevation scale runs through the whole sheet. **In a grid** combines both rules, a row keeps the elevation datum and a column keeps the zero of distance. The number of columns is set in the advanced parameters. The lattice pitch comes from the largest drawing plus the gap, so the drawings never overlap however much the trace lengths differ. The gap is a fraction of the extent, 0.15 by default.
 
-The vertical scale is common to the whole run. Otherwise a short trace and a long one would come out at different stretches and would not be comparable on one sheet. In the scale ratio and exaggeration modes it is simply the number you set. In the extent ratio mode the factor is computed from the longest line and the
+The vertical scale is common to the whole run. Otherwise a short trace and a long one would come out at different stretches and would not be comparable on one sheet. In the scale ratio and exaggeration modes it is the number you set. In the extent ratio mode the factor is computed from the longest line and the
 elevation span of the whole set. The widest drawing gets exactly the requested
 proportion, and the others come out taller but at the same scale.
 
@@ -3458,7 +3458,7 @@ The fields of the source feature are carried into the output in the same way as 
 
 ### How it works
 
-Burning the trace into the relief is not needed for that. The trace is rasterised into grid cells, all of them are taken as intakes, and the catchment is the set of cells whose flow path arrives at any cell of the trace. The trace may be a polyline, may cross a divide and may run outside the DEM frame - the outside part simply does not take part.
+Burning the trace into the relief is not needed for that. The trace is rasterised into grid cells, all of them are taken as intakes, and the catchment is the set of cells whose flow path arrives at any cell of the trace. The trace may be a polyline, may cross a divide and may run outside the DEM frame - the outside part does not take part.
 
 Rasterisation steps along the segments by half a cell, so there are no gaps at bends and diagonals through which water could slip past the intake.
 
