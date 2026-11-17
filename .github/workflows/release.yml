@@ -1,0 +1,80 @@
+# Isoliner - выпуск по метке.
+# Copyright (C) 2026 ООО «Информ++». Лицензия GPL-2.0-or-later.
+#
+# Метка вида 5.13.61 запускает сборку архива и выпуск GitHub с ним.
+# Версия в grid_isolines/metadata.txt должна совпадать с меткой, иначе
+# шаг падает и выпуска нет. Архив тот же, что кладётся в Dropbox:
+# папка grid_isolines без кэша байткода и без tests.
+#
+# Выпуск создаёт GITHUB_TOKEN, поэтому событие release другие сценарии
+# не запускает - сообщение автору в Telegram зовётся отсюда.
+
+name: Release
+
+on:
+  push:
+    tags: ["[0-9]*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Архив и выпуск
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Версия против метки
+        run: |
+          v=$(grep -m1 '^version=' grid_isolines/metadata.txt | cut -d= -f2 | tr -d '[:space:]')
+          echo "версия $v, метка ${GITHUB_REF_NAME}"
+          if [ "$v" != "${GITHUB_REF_NAME}" ]; then
+            echo "метка ${GITHUB_REF_NAME} не совпадает с версией $v"
+            exit 1
+          fi
+
+      - name: Архив
+        run: |
+          python3 - <<'EOF'
+          import os, zipfile
+          root = "grid_isolines"
+          out = os.path.join("dist", "grid_isolines.zip")
+          os.makedirs("dist", exist_ok=True)
+          with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+              for base, dirs, files in os.walk(root):
+                  dirs[:] = [d for d in dirs if d != "__pycache__"]
+                  for name in files:
+                      if name.endswith(".pyc"):
+                          continue
+                      full = os.path.join(base, name)
+                      z.write(full, full.replace(os.sep, "/"))
+          print(out, os.path.getsize(out))
+          EOF
+
+      - name: Заметки из журнала
+        run: |
+          python3 - <<'EOF'
+          import os, re
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          tag = os.environ["GITHUB_REF_NAME"]
+          m = re.search(r"^## " + re.escape(tag) + r"\s*$(.*?)(?=^## )", text, re.S | re.M)
+          body = (m.group(1).strip() if m else "Смотри CHANGELOG.md.")
+          open("dist/notes.md", "w", encoding="utf-8").write(body + "\n")
+          print(body[:200])
+          EOF
+
+      - name: Выпуск GitHub с архивом
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/grid_isolines.zip \
+            --verify-tag --title "$GITHUB_REF_NAME" --notes-file dist/notes.md
+
+  telegram:
+    name: Сообщение автору
+    needs: publish
+    uses: ./.github/workflows/telegram-release.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit
