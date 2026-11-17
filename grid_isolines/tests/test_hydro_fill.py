@@ -10,6 +10,11 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from grid_isolines.hydro_fill import fill_depressions  # noqa: E402
+from grid_isolines import i18n as _i18n  # noqa: E402
+
+# Сообщения проверяются по-русски, а язык интерфейса берётся из настроек
+# QGIS. На машине с английским интерфейсом проверка падала не по делу.
+_i18n.set_language("ru")
 
 
 def has_no_interior_pit(z, mask=None):
